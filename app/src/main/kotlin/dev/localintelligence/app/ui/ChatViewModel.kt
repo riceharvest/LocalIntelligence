@@ -30,20 +30,19 @@ import kotlinx.coroutines.launch
  * its Activity is destroyed for good, and a run can outlive that; if the
  * transcript were derived from the run state it would vanish mid-decode.
  *
- * [pendingApprovals] is the one piece of state that is genuinely duplicated
- * between here and the gateway, and it is duplicated on purpose: a rotated
- * Activity must not lose the fact that `sms.send` is waiting for a human. It is
- * mirrored from the gateway, not authored here, so there is exactly one source
- * of truth for *which* call is pending.
+ * The pending confirmation is NOT duplicated here. It is read straight off
+ * [gateway] on every access ([pendingApproval]), so a rotated Activity cannot
+ * lose the fact that `sms.send` is waiting for a human, and there is still only
+ * one source of truth for *which* call is pending.
  *
- * The JVM tests drive this class with a real `AgentController` over a fake
- * `ModelBackend`; the composables are compile-only.
+ * There are no tests in this repository. This class is compile-only, like every
+ * other class in `:app`; the previous version of this comment claimed a JVM
+ * test suite drove it, which stopped being true when the suite was deleted.
  */
 class ChatViewModel(
     private val gateway: AgentGateway,
     /**
-     * Overrides the scope. Production passes nothing and gets [viewModelScope];
-     * tests pass a `TestScope` so the transcript is deterministic.
+     * Overrides the scope. Production passes nothing and gets [viewModelScope].
      *
      * A nullable constructor parameter rather than a default of `viewModelScope`
      * because a primary-constructor default cannot reference `this` — the
@@ -55,10 +54,10 @@ class ChatViewModel(
     /**
      * Whether a model can answer, from the process-wide holder.
      *
-     * Defaults to a fresh [ModelAvailabilityHolder] so a caller that has no
-     * model concept (the existing tests) still constructs cleanly; production
-     * passes the container's shared one, so a rotation or a backgrounded app
-     * reads the same state the service writes.
+     * Defaults to a fresh [ModelAvailabilityHolder] so a caller with no model
+     * concept still constructs cleanly; production passes the container's
+     * shared one, so a rotation or a backgrounded app reads the same state the
+     * service writes.
      */
     modelAvailability: ModelAvailabilityHolder = ModelAvailabilityHolder(),
 ) : ViewModel() {
@@ -75,18 +74,35 @@ class ChatViewModel(
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
-    /**
-     * Every confirmation the user has been shown, and their answer, in order.
-     *
-     * Kept because a transcript that silently drops a declined destructive action
-     * is worse than one that shows it. The user asked "what happens when I
-     * decline?" and this is the answer, rendered in the place they asked it.
-     */
-    private val _approvals = MutableStateFlow<List<ToolApproval>>(emptyList())
-    val approvals: StateFlow<List<ToolApproval>> = _approvals.asStateFlow()
-
     private val _input = MutableStateFlow("")
     val input: StateFlow<String> = _input.asStateFlow()
+
+    /**
+     * Which transcript row each `TOOL_CALL` trace entry is drawn in.
+     *
+     * WHY IT STORES AN INDEX: a row is drawn before its result necessarily
+     * exists. `AgentController` publishes the trace at an approval *and* again
+     * when the run ends, handing out the *same* `StepTrace` objects both times.
+     * So a call dispatched just before a prompt is drawn from the first
+     * publication, and the observation that completes it only arrives in the
+     * second. The previous version appended each `TOOL_CALL` exactly once and
+     * never looked at it again, so any row drawn at an approval kept its empty
+     * observation for the rest of the session.
+     *
+     * WHY THE OBJECT IS THE KEY: recognising an already-drawn call is what makes
+     * the fill-in possible, and the runtime reuses one object per call, so
+     * identity is the key that holds across those republications. A per-run
+     * counter would not, because the list arrives whole rather than appended to.
+     *
+     * Across runs it does not matter: every run gets a fresh controller with a
+     * fresh trace list, so a new run's entries are new objects and are never
+     * mistaken for the previous run's. The map is cleared when a run starts only
+     * so it does not grow for the life of the Activity.
+     *
+     * Indices stay valid because the transcript only ever grows at the end, or
+     * has one row replaced in place.
+     */
+    private val toolRows = java.util.IdentityHashMap<StepTrace, Int>()
 
     val runState: StateFlow<RunState> get() = gateway.runState
     val trace: StateFlow<List<StepTrace>> get() = gateway.trace
@@ -132,60 +148,95 @@ class ChatViewModel(
     val isBusy: Boolean get() = gateway.runState.value.isActive
 
     init {
-        // Mirror each terminal outcome into the transcript once, so the reason a
-        // run ended is visible afterwards rather than only while it was happening.
-        //
-        // Identity (`!==`) rather than equality, and seeded from the current
-        // value: a StateFlow replays its current value to every new collector, and
-        // this collector is re-subscribed whenever the scope restarts. Two runs
-        // that both end in `Cancelled` are equal data classes, so equality would
-        // silently swallow the second one.
-        // Tool calls appear as they happen, not when the run ends. Waiting until
-        // the end would put every call above the answer, which reads as if the
-        // agent did everything at once after thinking about it.
-        //
-        // Keyed on the StepTrace instance, because TOOL_CALL and OBSERVATION are
-        // emitted as separate entries and only the pair makes a row: the call
-        // alone would show a tool name with no result, which is worse than
-        // showing nothing.
-        val renderedSteps = mutableSetOf<StepTrace>()
-        scope.launch {
-            gateway.trace.collect { steps ->
-                steps.forEach { step ->
-                    if (step.kind != StepTrace.Kind.TOOL_CALL) return@forEach
-                    if (!renderedSteps.add(step)) return@forEach
-                    // The matching OBSERVATION is the next entry with the same
-                    // step number. Until it arrives, show the call as pending.
-                    val observation = steps.firstOrNull {
-                        it.kind == StepTrace.Kind.OBSERVATION && it.step == step.step
-                    }
+        // Draws every tool call in [steps] that has no row yet, and fills in the
+        // observation of any row that has one now. Idempotent: keyed on trace
+        // entry identity, so a second call over the same list adds nothing and
+        // never duplicates a row.
+        fun renderToolSteps(steps: List<StepTrace>) {
+            steps.forEach { entry ->
+                if (entry.kind != StepTrace.Kind.TOOL_CALL) return@forEach
+                // The matching OBSERVATION is the next entry with the same step
+                // number. The loop dispatches at most one tool per step, so the
+                // step number is a sound pairing key.
+                val observation = steps.firstOrNull {
+                    it.kind == StepTrace.Kind.OBSERVATION && it.step == entry.step
+                }
+                val known = toolRows[entry]
+                if (known != null) {
+                    if (observation == null) return@forEach
                     _messages.update { list ->
-                        list + ChatMessage.ToolStep(
-                            // From the explicit fields, never by cutting up
-                            // `detail`: that string is a display format and
-                            // parsing it is how a tool named "files.read_text"
-                            // ends up displayed as "files".
-                            toolName = step.toolName ?: step.detail,
-                            args = step.toolArgs.orEmpty(),
-                            observation = observation?.detail,
-                            durationMs = observation?.durationMs ?: 0L,
-                            success = observation?.success ?: true,
-                        )
+                        val index = known
+                        if (index !in list.indices) return@update list
+                        val row = list[index]
+                        if (row !is ChatMessage.ToolStep) return@update list
+                        if (row.observation != null) return@update list
+                        list.toMutableList().also { it[index] = row.completedBy(observation) }
                     }
+                    return@forEach
+                }
+                _messages.update { list ->
+                    val row = ChatMessage.ToolStep(
+                        // From the explicit fields, never by cutting up
+                        // `detail`: that string is a display format and parsing
+                        // it is how a tool named "files.read_text" ends up
+                        // displayed as "files". It is null on the refusal paths
+                        // the runtime takes, which is why the row carries the
+                        // whole `detail` as well.
+                        toolName = entry.toolName.orEmpty(),
+                        args = entry.toolArgs.orEmpty(),
+                        observation = observation?.detail,
+                        // The runtime's own sentence for this call. For a
+                        // dispatch with no observation it is the only thing
+                        // there is to show, and it is the thing worth showing:
+                        // "refused sms.send: rate limit — …".
+                        detail = entry.detail,
+                        durationMs = observation?.durationMs ?: 0L,
+                        // No observation means no result. The previous version
+                        // defaulted this to `true`, so a call the policy had
+                        // refused rendered in the colour of a success.
+                        success = observation?.success ?: false,
+                    )
+                    val next = list + row
+                    toolRows[entry] = next.lastIndex
+                    next
                 }
             }
         }
+
         var lastTerminal: RunState.Finished? = gateway.runState.value as? RunState.Finished
+        var wasTerminal = gateway.runState.value.isTerminal
+        scope.launch {
+            gateway.trace.collect { steps -> renderToolSteps(steps) }
+        }
         scope.launch {
             gateway.runState.collect { state ->
+                // A run is starting. Drop the previous run's entries so the map
+                // does not accumulate for the life of the Activity. Not a
+                // correctness requirement — each run's entries are new objects,
+                // so nothing is ever mistaken for an older call — but an
+                // unbounded map in a ViewModel is a leak with extra steps.
+                if (wasTerminal && !state.isTerminal) toolRows.clear()
+                wasTerminal = state.isTerminal
+
                 if (state !is RunState.Finished) return@collect
                 if (state === lastTerminal) return@collect
                 lastTerminal = state
-                val outcome = state.outcome
-                if (outcome is RunOutcome.Answer) {
-                    _messages.update { it + ChatMessage.Assistant(outcome.text) }
-                } else {
-                    _messages.update { it + ChatMessage.Notice(outcome.notice) }
+
+                // The calls first, then the outcome.
+                //
+                // Both publications happen inside one `publish()` in
+                // `AgentViewModel` and reach this class over two independent
+                // collectors, so whichever ran first used to decide the order.
+                // The transcript could read "here is your answer" and then list
+                // the calls that produced it underneath, which reads as though
+                // the agent did all of its work after answering.
+                renderToolSteps(gateway.trace.value)
+
+                _messages.update {
+                    it + when (val outcome = state.outcome) {
+                        is RunOutcome.Answer -> ChatMessage.Assistant(outcome.text)
+                        else -> ChatMessage.Notice(outcome.transcriptLine())
+                    }
                 }
             }
         }
@@ -234,14 +285,25 @@ class ChatViewModel(
     fun resolveConfirmation(approved: Boolean) {
         val pending = pendingApproval ?: return
         gateway.confirm(approved)
-        _approvals.update {
-            it + ToolApproval(toolName = pending.toolName, approved = approved)
+        // The decision, in the transcript, where the user gave it.
+        //
+        // The runtime does reach the model on a decline —
+        // `AgentController.confirmAndResume` puts "The user declined <tool>. Do
+        // not call it again." into the session — so the agent can route around
+        // it. What it does not leave behind is a trace entry, so nothing in the
+        // app recorded the answer: the dialog closed and the transcript carried
+        // on as if nothing had been asked. The old `ToolApproval` list was
+        // written here and read by no screen at all, which is the same missing
+        // row in a place nobody was looking.
+        _messages.update {
+            it + ChatMessage.Approval(toolName = pending.toolName, approved = approved)
         }
     }
 
     fun clear() {
         _messages.value = emptyList()
-        _approvals.value = emptyList()
+        // The row indices in `toolRows` no longer address anything.
+        toolRows.clear()
     }
 
     class Factory(
@@ -275,19 +337,77 @@ sealed interface ChatMessage {
     /**
      * A call the agent made, and what the phone said back.
      *
-     * [observation] is the tool's real return value, truncated for display only
-     * here; the model receives it in full. Showing it verbatim is the point — a
-     * summarised tool result is how an agent ends up confidently reporting
-     * something the phone never said.
+     * [observation] is the tool's real return value, already clipped to the
+     * model-visible budget by `AgentController.truncate` — the model is handed
+     * the same clipped string, so this screen shows the user exactly what the
+     * model saw and not a fuller version of it.
      */
     data class ToolStep(
         val toolName: String,
         val args: String,
         val observation: String?,
+        /**
+         * The runtime's own sentence for this call.
+         *
+         * Shown when there is no [observation], which is every path where the
+         * runtime decided *not* to run the tool: a policy `BLOCK`, a rejected
+         * argument, an approval that could not be claimed. Those emit a
+         * `TOOL_CALL` and no `OBSERVATION`, and the previous version rendered
+         * them as "running…" — a tool that had already been refused, shown to
+         * the user as still going.
+         */
+        val detail: String,
         val durationMs: Long,
         val success: Boolean,
-    ) : ChatMessage
+    ) : ChatMessage {
+        /**
+         * Fills in the result that arrived after this row was drawn.
+         *
+         * Only the three fields the runtime actually reports. [toolName] and
+         * [detail] stay as they were: the call was identified when it was
+         * dispatched and does not get renamed by its result.
+         */
+        fun completedBy(observation: StepTrace) = copy(
+            observation = observation.detail,
+            durationMs = observation.durationMs,
+            success = observation.success,
+        )
+    }
+
+    /**
+     * The user's answer to an approval prompt, kept in the transcript.
+     *
+     * Declining is a decision with a consequence — the agent is told the tool
+     * was refused and told not to attempt it again — so the record of it belongs
+     * beside the call it decided rather than in a field no screen reads.
+     */
+    data class Approval(val toolName: String, val approved: Boolean) : ChatMessage
 }
 
-/** The user's answer to one `AwaitingConfirmation`, kept for the transcript. */
-data class ToolApproval(val toolName: String, val approved: Boolean)
+/**
+ * The transcript line for a run that produced no answer.
+ *
+ * Delegates to [notice] so there is one wording per outcome, and translates
+ * exactly one of them.
+ *
+ * THE ONE CASE: `AgentController` turns a `StopReason.ERROR` generation into
+ * `Stop("model failed: " + generation.text)`, and on a device that text is the
+ * native library's own error string — `native generation failed: …`, a
+ * llama.cpp message, sometimes a JNI class name. Printed raw in the transcript
+ * it reads as the app explaining itself in native jargon, and it is the most
+ * common terminal state on a real phone.
+ *
+ * The bytes are not discarded: the `GENERATION` entry in `StepTrace` carries the
+ * same text, and the trace screen renders it verbatim. So the chat states what
+ * happened and where the detail is, and the developer still gets the original.
+ */
+internal fun RunOutcome.transcriptLine(): String {
+    val line = notice
+    if (this !is RunOutcome.Failed) return line
+    if (!reason.startsWith(RAW_MODEL_FAILURE)) return line
+    return "The model stopped while it was generating, and produced no answer. " +
+        "The runtime's own error is on the Trace screen."
+}
+
+/** The prefix `AgentController` puts on a failed generation. */
+private const val RAW_MODEL_FAILURE = "model failed: "
