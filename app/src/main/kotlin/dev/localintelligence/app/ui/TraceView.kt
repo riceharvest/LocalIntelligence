@@ -100,6 +100,22 @@ fun TraceView(
 
     Column(modifier.fillMaxWidth()) {
         TraceRunCaption(runState)
+        // WHY THE VERDICT IS RENDERED ABOVE A NON-EMPTY TRACE: a failed run
+        // usually has steps, so the screen used to show rows and no outcome at
+        // all — the user was left reading a trace of a run that had failed,
+        // with nothing saying so. Worse, `ChatViewModel.transcriptLine` tells
+        // the user "the runtime's own error is on the Trace screen", and on
+        // exactly the runs that matter it was not: the error lives in the run
+        // state, not in a trace row, so the transcript was pointing at a screen
+        // that did not have it. One line, from the same state, closes both.
+        traceVerdict(runState)?.let { verdict ->
+            Text(
+                text = verdict,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+        }
         TraceSummary(trace)
         HorizontalDivider()
         LazyColumn(Modifier.fillMaxWidth()) {
@@ -153,6 +169,47 @@ private fun TraceRunCaption(runState: RunState?) {
 }
 
 /**
+ * The prefix `AgentController` puts on a failed generation.
+ *
+ * `AgentController` returns `Stop("model failed: ${generation.text.take(120)}")`
+ * when the backend reports `StopReason.ERROR`. Everything after the prefix is
+ * the backend's own error — an llama.cpp string, a JNI message, sometimes a
+ * path. `ChatViewModel.transcriptLine` already refuses to print it; this file
+ * did not, and the empty state interpolated `${outcome.reason}` straight onto
+ * the screen. One screen sanitising it and the other not is exactly the drift
+ * the shared `describeLoadFailure` in `:app` was written to prevent.
+ *
+ * WHY THE REPLACEMENT SAYS WHAT IT KNOWS AND NO MORE: the trace's last row is
+ * the literal bytes the model emitted, and those bytes are still shown verbatim
+ * below — they are the artefact. The native error is the one string that is
+ * both unreadable and un-derivable from anything on this screen.
+ */
+private const val RAW_MODEL_FAILURE = "model failed: "
+
+/** The reason a run failed, with the backend's raw error string removed. */
+internal fun safeFailureReason(reason: String): String =
+    if (reason.startsWith(RAW_MODEL_FAILURE)) {
+        "The model stopped while it was generating, and produced no answer. " +
+            "This build does not show the runtime's raw error text on screen."
+    } else {
+        reason
+    }
+
+/**
+ * The one line that says how the run on screen ended, or null when it did not
+ * fail.
+ *
+ * Only failures. A run that answered or was stopped normally needs no verdict
+ * here — the transcript already shows the answer — and adding a line for them
+ * would be noise on a debug screen.
+ */
+internal fun traceVerdict(runState: RunState?): String? {
+    val outcome = (runState as? RunState.Finished)?.outcome ?: return null
+    if (outcome !is RunOutcome.Failed) return null
+    return "That run failed: ${safeFailureReason(outcome.reason)}"
+}
+
+/**
  * Why the trace is empty, in the user's terms.
  *
  * A function rather than three inline `Text` calls so the mapping is one
@@ -199,7 +256,8 @@ internal fun traceEmptyMessage(runState: RunState?): String = when (runState) {
             // Naming the reason is the entire value of this screen. A generic
             // "no trace" here would send a developer hunting for a bug that the
             // transcript has already explained.
-            "That run failed before recording a step: ${outcome.reason}"
+            "That run failed before recording a step: " +
+                safeFailureReason(outcome.reason)
     }
 }
 
