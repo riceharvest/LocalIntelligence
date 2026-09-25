@@ -402,8 +402,90 @@ This is a phone. RAM is the scarcest resource on the device, more than CPU.
 - `unload()` is not optional. It is the difference between an app the user keeps and an
   app that gets killed.
 
-When you add a cache, a buffer, or a precomputed index, state its worst-case size in
+When you add a cache, a buffer, or a precomputed header, state its worst-case size in
 the PR description. "It is small" is not a number.
+
+### There is exactly one GGUF parser
+
+`dev.localintelligence.core.model.gguf.GgufParser` is the only implementation of the
+GGUF container format in this repository. `:android` calls it; nothing else parses
+GGUF. This section records why, because a second parser existed and was deleted, and
+the reasoning needs to outlive the diff.
+
+A header parse is a small, total function of a byte range, so it does not look like
+something that needs a boundary. It did, and the boundary cost the product its
+primary metric.
+
+**What the deleted parser got wrong.** The `:android` copy
+(`dev.localintelligence.android.inference.GgufMetadata`, 701 lines) parsed the same
+format and produced a different RAM estimate than the one shown at download time. All
+figures below were produced by running both parsers, in one JVM, against the same
+real files. Nothing here is estimated or argued.
+
+Same model, same context (4096), `Spark-X2.5-1.7B-Q4_K_M.gguf`, 1,107,457,888 B:
+
+| quantity | deleted `:android` parser | `:core` (survives) | delta |
+|---|---|---|---|
+| weights | 1,107,457,888 B | 1,102,073,856 B | +5,384,032 B (the header) |
+| weights, when file length is unknown | **0 B** | 1,102,073,856 B | −1,102,073,856 B |
+| runtime buffer | 134,217,728 B flat | 67,108,864 B | −67,108,864 B |
+| total @ ctx 4096 | 1,477,164,384 B | 1,404,063,744 B | +73,100,640 B |
+
+The zero is the one that mattered. `RamEstimate.from` fell back to
+`parameterCount * 4.83 / 8` when the file length was unavailable — the *normal* case
+for a stream-backed SAF provider — and that `parameterCount` came from
+`general.parameter_count`, which this model's converter did not write. A 1,056 MiB
+model was reported as **352.58 MiB**, and it is 1,339.02 MiB. The error is a factor of
+3.8, and it points at "this fits", which is the direction that gets a user to tap
+load on a model that cannot be loaded.
+
+Three more, same cause:
+
+- **`fileSizeBytes` is not the weight section.** It includes the header. Every model
+  was overstated by its header size (5.13 MiB here).
+- **4.83 bits/weight was applied to every quantisation.** It is the Q4_K_M effective
+  width. Used as a fallback for the same model's BF16 sibling — 3,420,931,680 B on
+  disk — it is 3.4x too small.
+- **The `general.file_type` label table is misaligned from id 22 upward.** A real
+  IQ4_XS model (id 30) displayed as `UNKNOWN_30`; BF16 (id 32) as `UNKNOWN_32`.
+  `:core`'s table is correct on both.
+
+The vocabulary was also guessed from embedding width (32k / 151,936 / 128,256)
+because the old comment asserted the token count "is not a header field". It is: the
+surviving parser retains the array's element count, so the real 131,072 is available
+without decoding a single token.
+
+**Why the merge was possible.** The concern with moving parsing into `:core` was that
+the Android side holds things `:core` cannot be handed. It holds an
+`AssetFileDescriptor`. That turns out not to bind:
+
+- `GgufByteSource.ofStream(InputStream)` already exists in `:core` and is pure JVM.
+  The `AssetFileDescriptor.createInputStream()` the importer already opens satisfies
+  it directly. No Android type crosses the boundary; `:core` still imports zero
+  `android.*`.
+- Running `GgufParser.parse(GgufByteSource.ofStream(...))` against a real
+  1,107,457,888 B file produced **byte-identical tensors and an identical
+  `declaredWeightBytes`** to parsing the same file through the `File` path. The only
+  difference was `fileBytes`, because a 32 MiB buffer was standing in for a 1.1 GB
+  file — which is why `ofStream` now takes `declaredSizeBytes` and the importer
+  passes the length it already asked the platform for.
+
+**What survives on the Android side, and why.** `:android` keeps only what has no
+JVM equivalent: the descriptor and its `/proc/self/fd/N` path, the `ContentResolver`
+length fallback, and `RamEstimate.usableDeviceBytes()`, which reads
+`/proc/meminfo` and so cannot live in a pure-JVM module. `RamEstimate` itself is now
+a thin adapter that re-evaluates `ModelMemoryEstimator` at whatever context the UI is
+showing — it holds no arithmetic, which is the point.
+
+`dev.localintelligence.android.inference.GgufMetadata` survives as a 12-line
+projection with no logic, only because `LlamaCppBackend.deriveCapabilities` is typed
+against that name and that file belongs to another agent. It parses nothing and
+cannot disagree with the parser. It should be deleted when `LlamaCppBackend` is next
+touched; that is a two-line change on that side.
+
+**The rule this establishes.** A number the user sees must have exactly one
+implementation. When a second one appears, it is not a layering decision, it is a bug
+with a review comment on it.
 
 ---
 

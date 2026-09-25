@@ -49,8 +49,21 @@ interface GgufByteSource {
          * [maxBytes] and reports the true number of bytes read as [sizeBytes], so a
          * header near the end of a big stream still parses and a hostile stream still
          * cannot exhaust heap. It is a header reader, not a file reader.
+         *
+         * WHY pass [declaredSizeBytes] when the caller knows the real length — it is
+         * not a detail. [sizeBytes] feeds `GgufHeader.fileBytes`, which decides two
+         * user-visible things: the `FILE_SIZE` fallback for weights, and the
+         * "declared data runs past the end of this file" warning. A 32 MiB buffer
+         * standing in for a 1.1 GB file reports `fileBytes = 32 MiB`, and every one of
+         * those is then wrong in the direction of *under*-reporting a model that
+         * cannot load. A caller that already asked the platform for the length (an
+         * `AssetFileDescriptor`, a `ContentResolver` size projection) should say so.
          */
-        fun ofStream(stream: java.io.InputStream, maxBytes: Long = 32L * 1024 * 1024): GgufByteSource {
+        fun ofStream(
+            stream: java.io.InputStream,
+            maxBytes: Long = 32L * 1024 * 1024,
+            declaredSizeBytes: Long = -1L,
+        ): GgufByteSource {
             require(maxBytes > 0) { "maxBytes must be positive" }
             val out = java.io.ByteArrayOutputStream()
             val buf = ByteArray(64 * 1024)
@@ -62,7 +75,13 @@ interface GgufByteSource {
                 out.write(buf, 0, n)
                 total += n
             }
-            return ByteArraySource(out.toByteArray())
+            val bytes = out.toByteArray()
+            // A declared length is a claim from the platform, not a measurement. It is
+            // only worth believing when it is at least as large as what we actually
+            // read; a smaller one is a lie (a stale projection, a pipe) and would make
+            // every bounds check in the reader tighter than reality.
+            return if (declaredSizeBytes >= bytes.size) DeclaredLengthSource(bytes, declaredSizeBytes)
+            else ByteArraySource(bytes)
         }
     }
 }
@@ -70,6 +89,30 @@ interface GgufByteSource {
 private class ByteArraySource(private val bytes: ByteArray) : GgufByteSource {
     override val sizeBytes: Long get() = bytes.size.toLong()
 
+    override fun readAt(offset: Long, dest: ByteArray, destOffset: Int, length: Int): Int {
+        if (offset < 0 || offset >= bytes.size) return 0
+        val start = offset.toInt()
+        val n = minOf(length, bytes.size - start)
+        System.arraycopy(bytes, start, dest, destOffset, n)
+        return n
+    }
+}
+
+/**
+ * A buffered prefix of a longer file, reporting the *file's* length.
+ *
+ * WHY this exists: the stream from a SAF descriptor is not the whole model, it is the
+ * first few MiB of it. Reporting the buffer length as the file length makes every
+ * downstream size judgement wrong — the "declared data exceeds the file" warning fires
+ * on a perfectly intact 1.1 GB model, and the `FILE_SIZE` weights fallback reports the
+ * 32 MiB we happened to buffer. So the buffered bytes and the true length are carried
+ * separately, and a read past the end of the buffer is a short read, exactly as a
+ * truncated file would be.
+ */
+private class DeclaredLengthSource(
+    private val bytes: ByteArray,
+    override val sizeBytes: Long,
+) : GgufByteSource {
     override fun readAt(offset: Long, dest: ByteArray, destOffset: Int, length: Int): Int {
         if (offset < 0 || offset >= bytes.size) return 0
         val start = offset.toInt()
