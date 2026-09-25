@@ -4,8 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.localintelligence.app.AgentGateway
+import dev.localintelligence.app.ModelAvailability
+import dev.localintelligence.app.ModelAvailabilityHolder
 import dev.localintelligence.app.RunOutcome
 import dev.localintelligence.app.RunState
+import dev.localintelligence.app.blockingReason
+import dev.localintelligence.app.isActive
 import dev.localintelligence.app.isTerminal
 import dev.localintelligence.app.notice
 import dev.localintelligence.core.agent.StepTrace
@@ -48,9 +52,25 @@ class ChatViewModel(
      * `viewModelScope` is legal.
      */
     scopeOverride: CoroutineScope? = null,
+    /**
+     * Whether a model can answer, from the process-wide holder.
+     *
+     * Defaults to a fresh [ModelAvailabilityHolder] so a caller that has no
+     * model concept (the existing tests) still constructs cleanly; production
+     * passes the container's shared one, so a rotation or a backgrounded app
+     * reads the same state the service writes.
+     */
+    modelAvailability: ModelAvailabilityHolder = ModelAvailabilityHolder(),
 ) : ViewModel() {
 
     private val scope: CoroutineScope = scopeOverride ?: viewModelScope
+
+    /**
+     * Held as a property, not just a constructor parameter, because the public
+     * accessors below read it long after construction. Making it a parameter
+     * would silently drop it on the floor the moment `init` finished.
+     */
+    private val modelAvailability: ModelAvailabilityHolder = modelAvailability
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -73,6 +93,25 @@ class ChatViewModel(
     val streamingText: StateFlow<String> get() = gateway.streamingText
 
     /**
+     * Whether a model is resident and able to answer.
+     *
+     * Read by the chat screen to decide whether the composer is worth showing.
+     * It is a [StateFlow] and not a snapshot because the answer changes while
+     * the screen is alive: importing a model in the manager makes the composer
+     * usable without the user coming back to a blank chat.
+     */
+    val modelState: StateFlow<ModelAvailability> get() = modelAvailability.state
+
+    /**
+     * The reason sending is impossible, or null when a send would work.
+     *
+     * Delegated to [blockingReason] so the composable cannot disagree with the
+     * state machine about *why* it is disabled — the two drifting apart is how a
+     * user ends up with a greyed-out button and no explanation.
+     */
+    val blockedReason: String? get() = modelAvailability.current.blockingReason()
+
+    /**
      * The confirmation currently staged by the runtime, or null.
      *
      * A computed read rather than a mirrored copy: the gateway already holds it,
@@ -82,8 +121,15 @@ class ChatViewModel(
     val pendingApproval: RunState.AwaitingApproval?
         get() = gateway.runState.value as? RunState.AwaitingApproval
 
-    /** True while a task is running or waiting on the user. Drives the STOP button. */
-    val isBusy: Boolean get() = !gateway.runState.value.isTerminal
+    /**
+     * True while the run owns the foreground service, in any phase.
+     *
+     * Includes `LoadingModel` and `AwaitingApproval`, not just `Running`. That
+     * matters because it drives which button the composer shows: if this were
+     * false during a model load, the user would be offered SEND for a run that is
+     * already in flight, and tapping it would silently do nothing.
+     */
+    val isBusy: Boolean get() = gateway.runState.value.isActive
 
     init {
         // Mirror each terminal outcome into the transcript once, so the reason a
@@ -119,6 +165,10 @@ class ChatViewModel(
     fun send() {
         val task = _input.value.trim()
         if (task.isEmpty() || !gateway.runState.value.isTerminal) return
+        // Refuse before touching the transcript. Appending a user message that
+        // no run will ever answer is the single most dishonest thing this screen
+        // could do: the user would be looking at their own question and silence.
+        if (blockedReason != null) return
         _input.value = ""
         _messages.update { it + ChatMessage.User(task) }
         gateway.start(task)
@@ -127,6 +177,7 @@ class ChatViewModel(
     /** Convenience for a SEND intent or a suggestion tap. */
     fun send(text: String) {
         if (text.isBlank() || !gateway.runState.value.isTerminal) return
+        if (blockedReason != null) return
         _messages.update { it + ChatMessage.User(text.trim()) }
         gateway.start(text.trim())
     }
@@ -158,13 +209,16 @@ class ChatViewModel(
         _approvals.value = emptyList()
     }
 
-    class Factory(private val gateway: AgentGateway) : ViewModelProvider.Factory {
+    class Factory(
+        private val gateway: AgentGateway,
+        private val modelAvailability: ModelAvailabilityHolder = ModelAvailabilityHolder(),
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(ChatViewModel::class.java)) {
                 "unknown ViewModel ${modelClass.name}"
             }
-            return ChatViewModel(gateway) as T
+            return ChatViewModel(gateway, modelAvailability = modelAvailability) as T
         }
     }
 }

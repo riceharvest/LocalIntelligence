@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,10 +31,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.app.RunOutcome
+import dev.localintelligence.app.RunState
 import dev.localintelligence.core.agent.StepTrace
+import dev.localintelligence.core.tool.ToolRisk
 
 /**
  * The debug screen, and the single most valuable screen in the app for
@@ -71,14 +78,20 @@ import dev.localintelligence.core.agent.StepTrace
 fun TraceView(
     trace: List<StepTrace>,
     modifier: Modifier = Modifier,
+    /**
+     * The current run phase, so the empty state can be honest about *why* it is
+     * empty.
+     *
+     * `StepLimitReached` and `Cancelled` carry no trace in the wave-1 contract,
+     * so "nothing here" is ambiguous between "you have not run anything yet" and
+     * "the run you just did ended without recording one". Without this the
+     * screen says "send a task" to a user who just sent one, which is the exact
+     * confusion this screen is supposed to prevent.
+     */
+    runState: RunState? = null,
 ) {
     if (trace.isEmpty()) {
-        Text(
-            text = "No trace yet. Send a task to see what the loop did.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = modifier.padding(16.dp),
-        )
+        TraceEmptyState(runState = runState, modifier = modifier)
         return
     }
 
@@ -107,17 +120,60 @@ fun TraceView(
 }
 
 /**
- * App bar and back affordance around [TraceView].
+ * Why the trace is empty, in the user's terms.
  *
- * Split out so the trace rendering is a pure function of `List<StepTrace>` and
- * can be reasoned about without a navigation graph in the way.
+ * A function rather than three inline `Text` calls so the mapping is one
+ * exhaustive `when` over the run state: adding a sixth `RunState` breaks the
+ * build here instead of silently falling back to the "send a task" message,
+ * which would be wrong for every new state.
  */
+internal fun traceEmptyMessage(runState: RunState?): String = when (runState) {
+    null, RunState.Idle -> "No trace yet. Send a task to see what the loop did."
+
+    RunState.LoadingModel ->
+        "No trace yet. The model is still loading — steps appear as soon as it does."
+
+    RunState.Running -> "No trace yet. The first step is still running."
+
+    is RunState.AwaitingApproval ->
+        "The tool is waiting for your approval. Its steps appear once you answer."
+
+    is RunState.Finished -> when (val outcome = runState.outcome) {
+        is RunOutcome.Answer ->
+            "That run finished without recording any steps."
+
+        is RunOutcome.Cancelled ->
+            "You stopped that run before it recorded a step."
+
+        RunOutcome.StepLimitReached ->
+            "That run used all of its steps without recording a trace."
+
+        is RunOutcome.Failed ->
+            // Naming the reason is the entire value of this screen. A generic
+            // "no trace" here would send a developer hunting for a bug that the
+            // transcript has already explained.
+            "That run failed before recording a step: ${outcome.reason}"
+    }
+}
+
+@Composable
+private fun TraceEmptyState(runState: RunState?, modifier: Modifier) {
+    Text(
+        text = traceEmptyMessage(runState),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.padding(16.dp),
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TraceScreen(
     trace: List<StepTrace>,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Forwarded to [TraceView] so the empty state can name the run phase. */
+    runState: RunState? = null,
 ) {
     Scaffold(
         modifier = modifier,
@@ -136,7 +192,7 @@ fun TraceScreen(
         // nesting two same-direction scrollables throws at composition time
         // because the inner one receives infinite height constraints.
         Column(Modifier.fillMaxSize().padding(padding)) {
-            TraceView(trace)
+            TraceView(trace, runState = runState)
         }
     }
 }
@@ -182,11 +238,28 @@ private fun StepHeader(
     onToggle: () -> Unit,
 ) {
     val failed = rows.any { !it.success }
+    // One spoken sentence for the whole header. Without this, TalkBack reads the
+    // three Text children and the chevron's contentDescription separately, so
+    // the user hears "Step 3, 4 events, FAILED, Collapse step 3" with no pause
+    // and no indication that the row is the thing you tap.
+    val description = buildString {
+        append("Step $step, ${rows.size} events")
+        if (failed) append(", contains a failure")
+        append(if (expanded) ", expanded" else ", collapsed")
+        append(". Double tap to ")
+        append(if (expanded) "collapse" else "expand")
+        append(".")
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // 48dp: the platform minimum touch target. The row is only ~40dp of
+            // text and padding, so without this it is a tappable target a
+            // motor-impaired user reliably misses.
+            .heightIn(min = 48.dp)
             .clickable(onClick = onToggle)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .semantics { contentDescription = description },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -206,11 +279,16 @@ private fun StepHeader(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
                 fontWeight = FontWeight.Bold,
+                // Colour alone is not an accessible signal; "FAILED" is, and
+                // spelling it out here also puts it in the header description.
+                modifier = Modifier.semantics { stateDescription = "Contains a failure" },
             )
         }
         Icon(
             imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-            contentDescription = if (expanded) "Collapse step $step" else "Expand step $step",
+            // Null: the row's own contentDescription already says "expanded" or
+            // "collapsed". Two overlapping descriptions make TalkBack stutter.
+            contentDescription = null,
         )
     }
 }

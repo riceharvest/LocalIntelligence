@@ -163,13 +163,19 @@ class ExecutionService : Service() {
     private fun startRun(task: String) {
         // A controller is single-use (cancel is sticky; a pending confirmation
         // must be resumed on the same instance), so every task gets a new one.
+        //
+        // The model is loaded *before* the controller exists. `AgentController`
+        // never calls `ModelBackend.load` itself, and `LlamaCppBackend.generate`
+        // returns an empty ERROR result when no handle is open — which reaches
+        // the user as the useless notice "model failed: ". Loading here turns
+        // that into a real, nameable state the chat screen can show.
         val agent = AgentViewModel(
             controller = container.newController(),
             scope = serviceScope,
             sinks = sinks,
         )
         this.agent = agent
-        agent.start(task)
+        agent.prepareThenStart(task) { container.ensureModelReady() }
     }
 
     private fun startTaskForeground() {
