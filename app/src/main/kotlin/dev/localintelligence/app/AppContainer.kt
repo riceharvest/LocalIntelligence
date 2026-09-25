@@ -5,6 +5,7 @@ import dev.localintelligence.android.data.LocalIntelligenceDatabase
 import dev.localintelligence.android.data.resilientMemoryStore
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
+import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.tools.androidTools
 import dev.localintelligence.core.agent.AgentConfig
@@ -143,6 +144,39 @@ class AppContainer(private val context: Context) {
      */
     val modelBackend: ModelBackend by lazy { LlamaCppBackend(importer) }
 
+    /**
+     * Chooses the runtime from the model's own bytes.
+     *
+     * WHY THIS EXISTS: modelBackend above is hardcoded to llama.cpp, which made
+     * LiteRT-LM unreachable - not selectable, not reachable, no code path a user
+     * could take. The router picks by content rather than by a user toggle
+     * because a GGUF and a .litertlm are two different FORMATS, not two ways to
+     * run one model: a toggle would let someone pair llama.cpp with a .litertlm
+     * and find out in native code. A file that is neither raises
+     * BackendRoutingException, which is a real user outcome (a .tflite, a
+     * half-finished download) and is named rather than guessed at.
+     *
+     * nativeLibraryDir is passed because a phone is not a JVM harness: without
+     * it the LiteRT-LM backend falls back to a CPU-only probe and reports the
+     * plausible-sounding "no device probe was supplied".
+     */
+    val backendRouter: ModelBackendRouter by lazy {
+        ModelBackendRouter(
+            importer = importer,
+            modelsDir = modelsDir,
+            nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
+            cacheDir = context.cacheDir.absolutePath,
+        )
+    }
+
+    /** The runtime that can actually load [model], decided from its file. */
+    fun backendFor(model: ImportedModel): ModelBackend {
+        val file = model.uri.path?.let { java.io.File(it) }
+            ?: return modelBackend
+        if (!file.isFile) return modelBackend
+        return runCatching { backendRouter.route(file) }.getOrElse { modelBackend }
+    }
+
     val importer: ModelImporter by lazy { ModelImporter(context.contentResolver) }
 
     /**
@@ -216,7 +250,11 @@ class AppContainer(private val context: Context) {
                     "Pick a smaller quant, or a shorter context.",
             ).also { modelAvailability.set(it) }
         }
-        modelBackend.load(
+        // Route per model, not once for the app: a .litertlm needs LiteRT-LM and
+        // a GGUF needs llama.cpp, and loadModel is the only place that knows
+        // which file it was handed.
+        val backend = backendFor(model)
+        backend.load(
             ModelSpec(
                 // The backend opens this as a URI; see LlamaCppBackend.load.
                 id = model.uri.toString(),
