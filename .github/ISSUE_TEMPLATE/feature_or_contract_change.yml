@@ -1,0 +1,73 @@
+name: Feature or contract change
+about: A new capability, or a proposed change to a frozen interface
+title: ""
+labels: ""
+assignees: ""
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Interfaces in `:core` are frozen. A swarm that can redesign its own
+        contracts is not a swarm, it is N authors. If this issue proposes
+        changing a contract, the discussion here IS the review — the change does
+        not go in a PR until it is agreed.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: |
+        A real user task, ideally in the form docs/architecture.md §1 uses:
+        "What's on my calendar tomorrow?"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of change is this
+      options:
+        - New feature inside an existing contract
+        - New tool implementation in :android
+        - UI change in :app
+        - Proposed CHANGE to a frozen :core interface
+        - Change to the agent loop's behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: contract
+    attributes:
+      label: If this changes a :core interface, show the diff
+      description: |
+        The current signature and the proposed one. Leave empty if nothing in
+        `:core` changes.
+      render: kotlin
+
+  - type: textarea
+    id: measurable
+    attributes:
+      label: How will we know it worked
+      description: |
+        docs/evals.md: "If a feature does not move a number here, it does not
+        ship." Name the metric — task success, steps, tokens, RAM — and the
+        number you expect to move.
+    validations:
+      required: true
+
+  - type: textarea
+    id: ram
+    attributes:
+      label: RAM / ROM cost
+      description: |
+        Worst-case size if you add a cache, buffer or index. A number, not
+        "it is small" (docs/architecture.md §16).
+
+  - type: textarea
+    id: deps
+    attributes:
+      label: New dependencies
+      description: |
+        Coordinate, and why it is genuinely necessary. Empty means none — the
+        expected answer in most cases.

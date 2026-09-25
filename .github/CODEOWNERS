@@ -1,0 +1,36 @@
+# Who has to look at what.
+#
+# The point of this file is narrow and specific: twelve agents writing in
+# parallel is only safe if the files they all depend on cannot be changed
+# quietly. Those files are the contracts and the gates.
+#
+# GitHub only *requests* a review from these owners. To make it blocking, turn
+# on "Require review from Code Owners" in Settings -> Branches. Without that,
+# this file is a suggestion; with it, it is the mechanism that makes the frozen
+# API meaningful.
+
+# --- The frozen public API of :core -----------------------------------------
+# Changing this file IS changing the contract every other workstream codes
+# against. It must be a deliberate, reviewed act, never a side effect of a
+# refactor.
+core/api/core.api @riceharvest
+
+# --- The gates themselves ---------------------------------------------------
+# Someone can always edit the check that was failing them. That is why these are
+# owned separately from the code they police.
+scripts/ @riceharvest
+.github/workflows/ @riceharvest
+ci/ @riceharvest
+
+# --- Build configuration ---------------------------------------------------
+# Dependency policy lives in the catalog; a change here changes what the whole
+# app links against.
+gradle/libs.versions.toml @riceharvest
+settings.gradle.kts @riceharvest
+build.gradle.kts @riceharvest
+**/build.gradle.kts @riceharvest
+
+# --- Documentation that defines the rules ----------------------------------
+docs/architecture.md @riceharvest
+docs/swarm-plan.md @riceharvest
+docs/evals.md @riceharvest
