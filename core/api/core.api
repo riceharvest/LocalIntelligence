@@ -2900,6 +2900,13 @@ public final class dev/localintelligence/core/tool/ToolRisk : java/lang/Enum {
 	public static fun values ()[Ldev/localintelligence/core/tool/ToolRisk;
 }
 
+public final class dev/localintelligence/core/tool/ToolSchemaValidator {
+	public static final field INSTANCE Ldev/localintelligence/core/tool/ToolSchemaValidator;
+	public final fun isValid (Lkotlinx/serialization/json/JsonObject;)Z
+	public final fun requiredArguments (Lkotlinx/serialization/json/JsonObject;)Ljava/util/List;
+	public final fun violations (Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;)Ljava/util/List;
+}
+
 public abstract interface class dev/localintelligence/core/tool/ToolSelector {
 	public abstract fun select (Ljava/lang/String;Ljava/util/List;Ljava/util/List;I)Ljava/util/List;
 }
