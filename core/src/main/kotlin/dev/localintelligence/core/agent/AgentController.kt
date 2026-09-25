@@ -1,6 +1,7 @@
 package dev.localintelligence.core.agent
 
 import dev.localintelligence.core.context.ContextBuilder
+import dev.localintelligence.core.execution.NoProgressWatchdog
 import dev.localintelligence.core.model.GrammarBuilder
 import dev.localintelligence.core.agent.AgentResult.Stop
 import dev.localintelligence.core.model.GenerationRequest
@@ -50,6 +51,17 @@ import kotlin.math.min
  *     declared risk tier. `docs/architecture.md` §8 — the runtime decides,
  *     never the model, and never the tool.
  */
+/**
+ * How [NoProgressWatchdog]'s terminate sentence begins.
+ *
+ * WHY A CONSTANT AND NOT A SUBSTRING TEST SCATTERED THROUGH THE LOOP: the loop
+ * has to tell "tell the model to try something else" from "end the run", and the
+ * watchdog returns both as a String. Matching on prose breaks the moment that
+ * sentence is reworded. It is still fragile, but it is fragile in one place
+ * beside the only consumer instead of in every branch that handles a stall.
+ */
+private const val TERMINATE_MARKER = "You have made no progress"
+
 class AgentController(
     private val model: ModelBackend,
     private val parser: ActionParser,
@@ -70,6 +82,26 @@ class AgentController(
      * controller that runs ungated by omission.
      */
     private val riskPolicy: RiskPolicy = RiskPolicy(),
+    /**
+     * Catches the stall [loopDetector] cannot see.
+     *
+     * WHY BOTH: loopDetector compares what the model DID, so it catches
+     * device.battery four times in a row. It does not catch four DIFFERENT calls
+     * that all return the same text - reading the clock, listing an empty
+     * contacts list, checking battery again - which is how a 1.1B model burns a
+     * step budget without ever converging. The fingerprint is the observation,
+     * not the tool name, precisely so that case registers.
+     */
+    // WHY stallTimeoutMs IS NULL HERE: the watchdog's time rule measures wall
+    // clock between two observations, and between them sits a model generation.
+    // Its 60s default is calibrated for a tool call, not for the generation that
+    // precedes the next one. On a phone-sized CPU a small model can spend longer
+    // than that inside a single decode, so the time rule would fire on a
+    // perfectly healthy run and kill it with "no progress" while the model was
+    // mid-answer. The counting rule is the one that detects an actual loop: it
+    // compares observations and is immune to how slow the hardware is.
+    private val noProgress: NoProgressWatchdog =
+        NoProgressWatchdog(stallTimeoutMs = null),
     /**
      * Optional run metrics. WHY optional rather than required: metrics are
      * observability, not correctness, and a caller that has nowhere to write
@@ -503,6 +535,27 @@ class AgentController(
         if (loopDetector.hasStalled()) {
             return Stop("no progress: ${call.name} kept returning the same result", trace.toList())
         }
+        // A nudge rather than a stop, because the model may still recover: the
+        // wording is the whole point and lives in the watchdog so it is one
+        // string rather than a sentence rebuilt at each call site. Only when the
+        // watchdog says terminate does the run end, and then it says why.
+        // nudgeIfStalling, NOT record: it calls record itself. Calling both
+        // counted every observation twice, so a two-step stall looked like a
+        // four-step one and the loop stopped while it was still making progress.
+        //
+        // It returns null on progress, a nudge on a stall, and the terminate
+        // sentence when the run must end - so the string is the signal, and it
+        // is the watchdog's own wording rather than one rebuilt here.
+        val nudge = noProgress.nudgeIfStalling(observation)
+        if (nudge != null) {
+            if (nudge.startsWith(TERMINATE_MARKER)) {
+                return Stop(
+                    "no progress: ${call.name} kept returning the same result",
+                    trace.toList(),
+                )
+            }
+            sessions.observe(nudge)
+        }
         return null
     }
 
@@ -573,6 +626,7 @@ class AgentController(
             else -> observation.take(budget.coerceAtLeast(0))
         }
     }
+
 
     private fun compactArgs(args: ToolArgs): String =
         args.entries.take(6)
