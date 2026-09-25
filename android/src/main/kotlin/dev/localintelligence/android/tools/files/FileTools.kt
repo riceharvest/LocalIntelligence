@@ -21,10 +21,12 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import java.io.InputStream
 import java.time.Instant
 import java.time.ZoneId
@@ -973,7 +975,7 @@ class FilesListTool(private val appContext: Context) : AgentTool {
                     })
                 },
             )
-            put("required", buildJsonObject {})
+            putJsonArray("required") { }
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
@@ -1043,7 +1045,7 @@ class FilesSearchTool(private val appContext: Context) : AgentTool {
                     })
                 },
             )
-            put("required", buildJsonObject {})
+            putJsonArray("required") { }
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
@@ -1118,9 +1120,7 @@ class FilesReadTextTool(private val appContext: Context) : AgentTool {
                     })
                 },
             )
-            put("required", buildJsonObject {
-                put("uri", "A content:// document URI.")
-            })
+            putJsonArray("required") { add("uri") }
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
@@ -1221,9 +1221,7 @@ class FilesWriteTextTool(private val appContext: Context) : AgentTool {
                     })
                 },
             )
-            put("required", buildJsonObject {
-                put("content", "The text to write.")
-            })
+            putJsonArray("required") { add("content") }
             put("additionalProperties", false)
         },
         risk = ToolRisk.REVERSIBLE,
@@ -1302,7 +1300,7 @@ class FilesDeleteTool(private val appContext: Context) : AgentTool {
                     })
                 },
             )
-            put("required", buildJsonObject {})
+            putJsonArray("required") { }
             put("additionalProperties", false)
         },
         risk = ToolRisk.DESTRUCTIVE,
