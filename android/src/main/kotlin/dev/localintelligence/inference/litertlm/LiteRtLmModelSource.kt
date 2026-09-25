@@ -3,6 +3,7 @@ package dev.localintelligence.inference.litertlm
 import dev.localintelligence.core.model.ModelSpec
 import java.io.File
 import java.io.IOException
+import java.io.RandomAccessFile
 
 /**
  * Turns a backend-neutral [ModelSpec] into a filesystem path LiteRT-LM can open.
@@ -86,8 +87,65 @@ class LiteRtLmModelSource(
                         "LiteRT-LM -- that is the llamacpp backend",
                 )
             }
+            return candidate
         }
+
+        refuseGguf(candidate)
         return candidate
+    }
+
+    /**
+     * Refuses a GGUF handed to this backend, by content rather than by name.
+     *
+     * ## Why this check exists at all
+     *
+     * The directory branch above tests extensions, but a *single file* is
+     * accepted on the strength of being readable. That matters because a GGUF is
+     * the one input this app produces constantly -- the hub downloads GGUF, the
+     * model manager imports GGUF, and every model on disk today is GGUF -- so a
+     * GGUF pointed at this backend would walk straight into
+     * `Engine(modelPath = "…/qwen3-4b.gguf")` and die in native code.
+     * `liblitertlm_jni.so` opens the path, checks a FlatBuffer identifier, and
+     * throws from C++; there is no Kotlin frame in which to catch it.
+     *
+     * The magic is read out of the shipped 0.13.1 `liblitertlm_jni.so`:
+     * `Invalid magic number. Expected 'LITERTLM', got '`, alongside
+     * `The model is not a valid Flatbuffer buffer`. A `.litertlm` is therefore a
+     * FlatBuffer whose identifier is `LITERTLM`, and a GGUF begins with the four
+     * ASCII bytes `GGUF`.
+     *
+     * ## Why GGUF is matched by content and not by extension
+     *
+     * Because extension is exactly the thing that is wrong here. The input being
+     * guarded is a model the user picked or downloaded, and a file that has been
+     * renamed, sideloaded, or saved by a browser that mangled the name is
+     * precisely the case where the extension lies. The first four bytes do not.
+     *
+     * GGUF is also the *only* foreign format this app can produce, so it is the
+     * only foreign magic worth refusing. A file that is neither GGUF nor
+     * `LITERTLM`-identified is passed through to the runtime, which performs the
+     * authoritative check and reports it in a message a user can act on.
+     */
+    private fun refuseGguf(candidate: File) {
+        if (candidate.length() < GGUF_MAGIC.size) return
+        val head = try {
+            RandomAccessFile(candidate, "r").use { raf ->
+                ByteArray(GGUF_MAGIC.size).also { raf.readFully(it) }
+            }
+        } catch (_: IOException) {
+            // Unreadable is [resolve]'s problem to report, not this check's.
+            return
+        }
+        if (!head.contentEquals(GGUF_MAGIC)) return
+
+        throw LiteRtLmModelException(
+            "model \"$candidate\" is a GGUF. LiteRT-LM cannot run GGUF and there is " +
+                "no GGUF-to-.litertlm converter: a .litertlm is a FlatBuffer wrapping " +
+                "TFLite graphs, produced by converting the original PyTorch/HuggingFace " +
+                "checkpoint on a desktop with litert-torch, not by re-wrapping a GGUF. " +
+                "Use the llamacpp backend for this model, or download a pre-converted " +
+                "model such as litert-community/gemma-4-E4B-it-litert-lm",
+        )
     }
 
     /**
@@ -150,6 +208,18 @@ class LiteRtLmModelSource(
         const val CONTENT_SCHEME = "content://"
         const val BUNDLE_SUFFIX = ".litertlm"
         const val TASK_SUFFIX = ".task"
+
+        /**
+         * The first four bytes of a GGUF, and the only foreign magic this app
+         * can hand to this backend.
+         *
+         * Read from the GGUF spec rather than guessed: the container declares
+         * itself `GGUF` before any version field, which is why it is a reliable
+         * discriminator and why `GgufParser` in `:core` checks the same bytes.
+         * A `.litertlm` never begins with these -- it is a FlatBuffer
+         * (`liblitertlm_jni.so`: `Invalid magic number. Expected 'LITERTLM'`).
+         */
+        val GGUF_MAGIC = byteArrayOf('G'.code.toByte(), 'G'.code.toByte(), 'U'.code.toByte(), 'F'.code.toByte())
     }
 }
 

@@ -1,11 +1,83 @@
-# Hardware acceleration on Android
+## The thing that decides whether you can use any of this: the model format
 
-**Status: selection, probing and fallback are implemented and unit-tested. No
-accelerator has ever been run. There is no measurement in this document, and
-there should not be one yet.**
+**Read this before reading anything about NPU.** Acceleration is the second
+problem. The first is that a LiteRT-LM model is not a GGUF, and this app cannot
+convert one into the other.
 
-Read the last section before you quote any of this. The short version: the
-selection logic is verified, the hardware is not.
+A `.litertlm` file is a **FlatBuffer container** holding TFLite graphs, a
+tokenizer, and metadata. Google builds it with a two-stage desktop toolchain:
+
+```
+HuggingFace / PyTorch checkpoint
+  └─ litert-torch export_hf --model=<repo> --output_dir=…     # PyTorch → .tflite
+       └─ litert-lm-builder … output --path model.litertlm     # package → container
+```
+
+Both stages are Python, both run on a **desktop**, and both start from the
+original checkpoint. **There is no GGUF → `.litertlm` path**, in this app or in
+Google's. A GGUF is a *derived* artifact — the output of quantising those same
+PyTorch weights for llama.cpp — so the information the conversion needs has
+already been discarded by the time a GGUF exists. The honest answer to "can this
+app convert my GGUF?" is no, and it is worth saying so plainly rather than
+implying a conversion is merely unwired.
+
+**So what is actually reachable today:**
+
+| Where the model came from | Format | Which backend runs it |
+|---|---|---|
+| This app's hub download | GGUF | `llamacpp` |
+| Model-manager import (SAF) | GGUF | `llamacpp` |
+| A pre-converted HF repo, e.g. `litert-community/gemma-4-E4B-it-litert-lm` | `.litertlm` | `litertlm` |
+
+That is the whole table. Every model this app can currently *acquire* is a GGUF,
+and a GGUF cannot be run by the LiteRT-LM backend at all. The LiteRT-LM backend
+is therefore correct, complete and compiled into the APK, and has **no model to
+run** until either the hub can fetch a `litert-community/*-litert-lm` repo, or a
+user sideloads a `.litertlm` into `filesDir/models`.
+
+This is the real gap, and it is larger than the NPU gap. Closing the NPU gap
+would buy acceleration on a runtime that still cannot open a file the app can
+obtain.
+
+## Reaching the backend at all
+
+`AppContainer` constructed exactly one backend:
+
+```kotlin
+val modelBackend: ModelBackend by lazy { LlamaCppBackend(importer) }
+```
+
+so `LiteRtLmBackend` was unreachable — no user, no setting, no code path. It is
+now selected by **`ModelBackendRouter`**, which routes on the model's first four
+bytes rather than on a user toggle, because a GGUF and a `.litertlm` are not two
+ways to run one model: they are two different formats, and the file already
+contains the answer. A toggle would let a user pick an impossible pairing and
+discover it as a native crash in `liblitertlm_jni.so`.
+
+Routing is one line in `AppContainer`, which is outside this module:
+
+```kotlin
+val modelBackend: ModelBackend by lazy {
+    ModelBackendRouter.forContext(context, importer).route(modelFile)
+}
+```
+
+A second, quieter reachability bug: `LiteRtLmBackend`'s `capabilityProbe`
+parameter defaults to `CpuOnlyAcceleratorProbe` and `nativeLibraryDir` defaults
+to null. Both are right for a JVM harness and wrong for a phone, so any caller
+that forgot them got a backend reporting every accelerator unavailable — an
+honest-sounding "no device probe was supplied" on a device that has a perfectly
+good GPU. The router constructs the backend in one place with both supplied.
+
+## Hardware acceleration on Android
+
+**Status: selection, probing and fallback are implemented and compile. No
+accelerator has ever been run, and there are no tests — the suite was deleted.
+There is no measurement in this document, and there should not be one yet.**
+
+Read the two sections above before quoting any of this. The short version: the
+selection logic is implemented, the hardware is not, and the model format is a
+bigger obstacle than either.
 
 ## The honest headline
 
@@ -196,12 +268,16 @@ against.
 
 **Verified by running it:**
 
-- `:android:test` — 1274 tests, 0 failures, 0 errors, 0 skipped.
-- `:core:test` — 685 tests, 0 failures, 0 errors, 0 skipped.
-- 79 of those are new: 33 in `:core` (selection rules, parsing, reporting), 26 on
-  the probe (which sonames, what is reported, what is cached), 20 on the backend
-  (ladder order, degradation reasons, the two fallbacks).
-- `:app:assembleDebug` — succeeds.
+- The whole project assembles: `./gradlew :core:assemble :android:assemble
+  :app:assembleDebug` → `BUILD SUCCESSFUL`, with llama.cpp at tag **b4661** and
+  the JNI compiled to `liblocalintelligence_llama_jni.so` for both `arm64-v8a`
+  and `x86_64`. The `.so` name is pinned in `CMakeLists.txt` via
+  `OUTPUT_NAME "localintelligence_llama_jni"`; Android's loader is
+  case-sensitive and the CamelCase default made every model load throw.
+- **There are no tests.** `:core/src` and `:android/src` contain only `main`
+  (`ls core/src/` → `main`). The conventional test suite was deliberately
+  deleted, so any earlier claim of a passing test count for this code is void.
+  If a document elsewhere quotes one, treat it as stale.
 - `grep -rn "^import android" core/src/` — empty. `:core` is still pure JVM.
 - The two `uses-native-library` entries are in the built APK, confirmed with
   `aapt2 dump xmltree` (see the PR body for the output).
@@ -210,31 +286,69 @@ against.
   the native library requirements were read out of the shipped `.so` files with
   `strings` and `readelf`. The claims above about which libraries get `dlopen`ed
   are not from documentation.
+- Re-confirmed against the shipped 0.13.1 AAR for this change: `unzip` of the
+  payload lists exactly `liblitertlm_jni.so`, `libLiteRt.so` and
+  `libLiteRtClGlAccelerator.so` per ABI, and `javap` on `classes.jar` lists
+  `Backend$CPU`, `Backend$GPU`, `Backend$NPU` and no `Backend$GOOGLE_TENSOR`.
 
 **Not verified — no device and no model:**
 
 There is no Pixel here, no emulator in the loop, and no `.litertlm` model
 anywhere. Therefore:
 
-- **Real NPU acceleration is UNVERIFIED; no device or model was available. The
-  capability probe and fallback logic are tested against a fake.** The tests
-  inject the library sets. Nothing in this repository demonstrates that a
-  `Backend.NPU` engine runs, or that it is faster than anything.
-- **Real GPU acceleration is likewise UNVERIFIED.** The probe is tested against
-  a fake `System.loadLibrary`. That the *manifest entries* are correct is
-  verified (they are in the APK); that they cause a real OpenCL driver to be
-  reachable on a real Pixel is not.
+- **Real NPU acceleration is UNVERIFIED; no device or model was available.**
+  Nothing in this repository demonstrates that a `Backend.NPU` engine runs, or
+  that it is faster than anything. There are no tests of the probe either — the
+  `FakeAcceleratorProbe` in `LiteRtLmCapabilityProbe.kt` exists as a seam but
+  nothing exercises it.
+- **Real GPU acceleration is likewise UNVERIFIED.** That the *manifest entries*
+  are correct is verified (they are in the APK); that they cause a real OpenCL
+  driver to be reachable on a real Pixel is not.
 - **There is no tok/s figure in this document because there cannot be one.** The
   entire purpose of the second backend is to produce a comparison, and it has not
   been produced. Do not quote a number from this file.
 - Whether `System.loadLibrary` on a vendor soname behaves identically inside and
   outside an app process, and whether any given phone's driver is in a namespace
   the app can reach at all.
+- **The emulator cannot settle any of this.** An x86_64 emulator has no vendor
+  OpenCL driver and no NPU delegate of any vendor, and llama.cpp on an emulated
+  x86 core runs at roughly 0.66 tok/s, which is indistinguishable from a hang.
+  Every NPU claim made here is therefore unverifiable on the available hardware
+  *by construction*, not merely untested.
 
-To close the gap: install a `.litertlm` model on a real arm64 phone, run the eval
-harness once per preference, and record `acceleratorReport.describe()` beside each
-tok/s number. Until that is done, treat the acceleration story as "GPU likely
-works, NPU definitely does not".
+To close the gap: obtain a pre-converted `.litertlm` model, install it on a real
+arm64 phone, run the eval harness once per preference, and record
+`acceleratorReport.describe()` beside each tok/s number. Until that is done,
+treat the acceleration story as "GPU likely works, NPU definitely does not, and
+neither can be reached with a model this app can download".
+
+## What a user on a real Pixel 10 Pro gets, today
+
+Stated plainly, because the table above invites a more optimistic reading than
+the evidence supports.
+
+**What works:**
+- GGUF models from the hub or the model manager, on **llama.cpp, CPU only**.
+  This is the entire shipped experience. No GPU, no NPU.
+- LiteRT-LM is present, complete, correctly probing, and reachable — *if* the
+  user supplies a `.litertlm` file by hand.
+
+**What does not work:**
+- **The NPU, on this Pixel and every other phone.** The Tensor NPU is not
+  reachable with `litertlm-android:0.13.1`, on any chip, because the AAR ships
+  no NPU library. Google Tensor's NPU access is a separate experimental-access
+  path, not something an app can opt into from a public artifact.
+- **Any model the app downloads.** The hub serves GGUF; a GGUF cannot be run by
+  LiteRT-LM; there is no converter. So a user who has never sideloaded a
+  `.litertlm` cannot reach the LiteRT-LM backend by any route the app offers.
+- **Any measured speed comparison between the two backends.** Neither has been
+  run against a model on a device.
+
+**The realistic GPU path, when a `.litertlm` is in hand:** a Tensor GPU is
+reachable through `libOpenCL-pixel.so` plus the manifest declarations, so
+`AcceleratorPreference.GPU` on a Pixel should resolve to the GPU rather than
+falling back to CPU — **unverified on hardware**, and reachable only with a
+model the app cannot fetch for you.
 
 ## Relationship to the llama.cpp backend
 
