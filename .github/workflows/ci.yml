@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The one that matters. :core is pure JVM on purpose, so the entire brain of the
+  # agent — loop, tool selection, loop detection, context building, memory, and the
+  # full eval suite — is verified in seconds with no emulator and no device.
+  core:
+    name: core (JVM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify :core has no Android dependencies
+        # The architecture's central claim, enforced rather than documented.
+        run: |
+          if grep -rn "import android\." core/src/ ; then
+            echo "::error:::core must stay a pure JVM module — found an android.* import"
+            exit 1
+          fi
+          if grep -rn "com.android" core/build.gradle.kts ; then
+            echo "::error:::core must not apply the Android plugin"
+            exit 1
+          fi
+
+      - name: Test
+        run: ./gradlew :core:test --stacktrace
+
+      - name: Agent eval suite (fakes)
+        run: ./gradlew :core:evals
+
+  android:
+    name: android + app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pidroid-debug
+          path: app/build/outputs/apk/debug/*.apk
