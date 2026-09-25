@@ -192,7 +192,17 @@ class LlamaCppBackend(
             GenerationResult(
                 // Keep the partial text on a cancel: a cancelled answer is
                 // still worth showing, and the caller decides.
-                text = outcome?.text.orEmpty(),
+                // WHY PREFER A REAL ERROR: llama.cpp reports failures two ways —
+                // as a return value from nativeGenerate, and packed into the
+                // outcome as `E<error>\n<text>`. `parseOutcome` extracts that
+                // into `outcome.error`, but this only ever read `outcome.text`.
+                // So a decode failure surfaced as an EMPTY string with
+                // StopReason.ERROR and no reason at all: every generation
+                // failure on a device looked identical and unactionable, and
+                // there was nothing to grep for. Read both.
+                text = error
+                    ?: outcome?.error
+                    ?: outcome?.text.orEmpty(),
                 promptTokens = outcome?.promptTokens ?: 0,
                 completionTokens = outcome?.completionTokens ?: 0,
                 stopReason = stop,

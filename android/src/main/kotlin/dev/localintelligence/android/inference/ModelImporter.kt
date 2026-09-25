@@ -60,7 +60,21 @@ class ModelImporter(private val contentResolver: ContentResolver) {
         val afd = openAsset(uri)
         val size = lengthOf(afd, uri)
         val meta = try {
-            afd.createInputStream().use { input -> GgufReader.parse(input, size) }
+            // WHY NOT `afd.createInputStream().use { }`: closing that stream
+            // closes the AssetFileDescriptor underneath it, and THIS descriptor
+            // has to stay open for the life of the model, because nativePath()
+            // hands `/proc/self/fd/N` to llama_model_load_from_file. The `use`
+            // closed it, and every load then died with
+            //   java.lang.IllegalStateException: Already closed
+            //   at LoadedModel.nativePath(ModelImporter.kt:194)
+            // Read the header from a SEPARATE descriptor so the surviving one is
+            // never handed to a closing stream.
+            val header = openAsset(uri)
+            try {
+                GgufReader.parse(header.createInputStream(), size)
+            } finally {
+                header.close()
+            }
         } catch (e: Throwable) {
             afd.close()
             throw e

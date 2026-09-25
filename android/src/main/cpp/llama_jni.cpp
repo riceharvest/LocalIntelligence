@@ -5,7 +5,38 @@
 
 #include "llama_jni.h"
 
+#include <android/log.h>
+
 #include "llama.h"
+
+#include <string>
+
+// WHY THIS EXISTS: llama.cpp explains a failed decode on stderr. Android
+// discards native stderr, so `llama_decode` returning -1 arrived in Kotlin as a
+// bare "llama_decode failed during prefill with -1" and the actual cause was
+// gone. ggml's log callback is the only place that text exists, so route it to
+// logcat. Without this, every native failure looked identical and none of it was
+// diagnosable from the device.
+static void log_to_logcat(enum ggml_log_level level, const char * text, void * /*ud*/) {
+    if (text == nullptr) return;
+    int pri = ANDROID_LOG_INFO;
+    if (level == GGML_LOG_LEVEL_ERROR) pri = ANDROID_LOG_ERROR;
+    else if (level == GGML_LOG_LEVEL_WARN) pri = ANDROID_LOG_WARN;
+    else if (level == GGML_LOG_LEVEL_DEBUG) pri = ANDROID_LOG_DEBUG;
+    // logcat truncates long lines and ggml puts the whole reason on one, so
+    // split on newlines rather than losing the tail.
+    const std::string line(text);
+    size_t pos = 0;
+    while (pos <= line.size()) {
+        const size_t nl = line.find('\n', pos);
+        const std::string chunk = (nl == std::string::npos)
+            ? line.substr(pos)
+            : line.substr(pos, nl - pos);
+        if (!chunk.empty()) __android_log_print(pri, "LocalLlama", "%s", chunk.c_str());
+        if (nl == std::string::npos) break;
+        pos = nl + 1;
+    }
+}
 
 #include <algorithm>
 #include <chrono>
@@ -303,6 +334,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
 
     // llama_backend_init is refcounted internally, so pairing init/free per
     // loaded model is correct and survives a reload.
+    ggml_log_set(log_to_logcat, nullptr);
     llama_backend_init();
     h->backend_initialised = true;
 
@@ -634,6 +666,14 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             // Logits only for the final prompt token: that is the row we sample from.
             batch.logits[i] = (off + i == prompt_tokens - 1) ? 1 : 0;
         }
+        // THE BUG. llama_batch_init() allocates the arrays and leaves n_tokens
+        // at 0 — it is the caller's job to say how many of those slots are real.
+        // Without this the batch was structurally empty, so every single
+        // llama_decode returned -1 and NO token was ever decoded. Every other
+        // symptom chased from here (the model's fault, flash attention, the
+        // sequence split, the llama.cpp version) was this one line. Upstream
+        // avoids it by using llama_batch_get_one(), which sets n_tokens itself.
+        batch.n_tokens = n;
         const int32_t rc = llama_decode(ctx, batch);
         llama_batch_free(batch);
         if (rc != 0) {
@@ -712,6 +752,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             batch.n_seq_id[0] = 1;
             batch.seq_id[0][0] = kOutputSeq;
             batch.logits[0] = 1;
+            batch.n_tokens = 1;  // see the prefill note: never left implicit
             const int32_t rc = llama_decode(ctx, batch);
             llama_batch_free(batch);
             if (rc != 0) {

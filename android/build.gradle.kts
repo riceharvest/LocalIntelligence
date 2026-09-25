@@ -80,6 +80,7 @@ dependencies {
     // against a fake engine. See LiteRtLmEngine's KDoc.
     implementation(libs.litertlm.android)
 
+    androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.espresso)
 }

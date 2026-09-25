@@ -168,6 +168,19 @@ add_library(LocalIntelligence_llama_jni SHARED
     llama_jni.cpp
 )
 
+# WHY THIS EXISTS: the Kotlin side calls
+# System.loadLibrary("localintelligence_llama_jni") — lowercase. CMake named the
+# output libLocalIntelligence_llama_jni.so, the APK packaged that, and the
+# device loader failed with
+#   dlopen failed: library "liblocalintelligence_llama_jni.so" not found
+# so the native backend was dead on arrival: every model load threw
+# "the llama.cpp native library is not available on this device". Android's
+# loader is case-sensitive and does NOT normalise the name. Pin OUTPUT_NAME to
+# the exact soname the Kotlin constant uses.
+set_target_properties(LocalIntelligence_llama_jni PROPERTIES
+    OUTPUT_NAME "localintelligence_llama_jni"
+)
+
 target_include_directories(LocalIntelligence_llama_jni PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${_llama_src_dir}/include"
