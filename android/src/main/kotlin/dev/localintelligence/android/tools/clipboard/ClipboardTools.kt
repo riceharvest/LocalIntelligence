@@ -394,7 +394,23 @@ class ClipboardReadTool(private val platform: ClipboardPlatform) : AgentTool {
 
 class AndroidClipboardPlatform(private val context: Context) : ClipboardPlatform {
 
-    private val appContext: Context = context.applicationContext
+    /**
+     * Resolved on first use, not at construction.
+     *
+     * WHY: a tool's `definition` is a constructor-level `val` built from
+     * literals, so a tool ought to be constructible without touching the
+     * platform at all — that is what makes the whole shipped tool set
+     * assertable on a plain JVM, with no emulator and no Robolectric
+     * (`docs/architecture.md` §2). Eagerly calling
+     * `context.applicationContext` here put a live `Context` call in the
+     * constructor of every tool in the family and broke that property for
+     * no benefit: the app context is wanted by the first platform call,
+     * not by the constructor.
+     *
+     * It also keeps a `Context` from being captured by a long-lived
+     * singleton tool when the caller passed an Activity.
+     */
+    private val appContext: Context by lazy { context.applicationContext }
 
     private fun manager(): ClipboardManager? =
         appContext.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager

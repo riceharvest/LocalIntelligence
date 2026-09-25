@@ -1,5 +1,6 @@
 package dev.localintelligence.android.tools.calendar
 
+import android.content.Context
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
@@ -908,5 +909,30 @@ class CalendarCreateTool internal constructor(
         success = false,
         observation = "The event creation was cancelled before it finished; nothing was saved.",
         error = ToolError.Cancelled("cancelled during calendar.create"),
+    )
+}
+
+
+// =====================================================================================
+// The tool set
+// =====================================================================================
+
+/**
+ * Both calendar tools, wired to a real [Context].
+ *
+ * WHY a factory and not three call sites: [dev.localintelligence.android.di.AgentGraph]
+ * is the only place allowed to know what the shipped tool set is, and a missing
+ * entry here is a tool the agent cannot see. This function is what the
+ * composition root calls and what `ToolDefinitionAgreementTest` compares against
+ * the catalogue, so the two are the same list by construction.
+ *
+ * One [ContentResolver] shared by both tools. Constructing a second costs a
+ * binder round trip and buys nothing: the resolver is a handle, not a pool.
+ */
+fun calendarTools(context: Context): List<AgentTool> {
+    val resolver = context.applicationContext.contentResolver
+    return listOf(
+        CalendarSearchTool(resolver),
+        CalendarCreateTool(resolver),
     )
 }
