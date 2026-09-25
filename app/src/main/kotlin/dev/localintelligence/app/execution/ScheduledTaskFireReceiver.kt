@@ -106,7 +106,7 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
         scope.launch {
             try {
                 advanceSchedule(appContext, store, task)
-                startRun(appContext, task)
+                startRun(appContext, store, task)
             } catch (e: CancellationException) {
                 // Structured cancellation, not a failure. Rethrown so the
                 // cancellation stays a cancellation all the way out; swallowing
@@ -138,19 +138,28 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
         val next = TaskCadence.nextAfter(task.cadence, task.nextRunAtMillis)
 
         val advanced = if (next == null) {
-            // One-shot: it has now happened, so it is not "enabled and waiting".
+            // One-shot: it has now fired, so it is not "enabled and waiting".
             // Kept in the store rather than deleted, so the UI can still show
             // what ran and when instead of the list silently losing a row.
+            //
+            // `lastResult` is the *pending* marker in both branches, not a
+            // claim about what happened. It used to read "Ran. This was a
+            // one-time task, so it is no longer scheduled." here — written
+            // before the run had done anything, about a run that might not
+            // happen at all. `ScheduledRunReporter` overwrites it with the real
+            // outcome on every terminal path, and the UI shows the "already
+            // ran, not scheduled" fact from `enabled` + `cadence` rather than
+            // from this string.
             task.copy(
                 enabled = false,
                 lastRunAtMillis = now,
-                lastResult = "Ran. This was a one-time task, so it is no longer scheduled.",
+                lastResult = ScheduledRunReporter.PENDING,
             )
         } else {
             task.copy(
                 nextRunAtMillis = next,
                 lastRunAtMillis = now,
-                lastResult = "Started.",
+                lastResult = ScheduledRunReporter.PENDING,
             )
         }
         store.upsert(advanced)
@@ -167,17 +176,24 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
             // survives with a real next-run time, and the UI reads
             // `canScheduleExactAlarms` to say so rather than the schedule
             // quietly going quiet.
+            //
+            // The `SCHEDULE_WARNING_PREFIX` is load-bearing: this fact is still
+            // true when the run finishes, and the run's own result is about to
+            // overwrite this field. `ScheduledRunReporter` recognises the
+            // prefix and carries the warning forward onto the result, so an
+            // answer never hides the fact that the schedule is now broken.
             store.upsert(
                 advanced.copy(
-                    lastResult = "Ran, but the next one could not be scheduled: " +
-                        "exact-alarm access is off.",
+                    lastResult = ScheduledRunReporter.SCHEDULE_WARNING_PREFIX +
+                        "exact-alarm access is off, so this task has no next run.",
                 ),
             )
         } catch (e: IllegalStateException) {
-            // No AlarmManager on this device. Same honesty, different reason.
+            // No AlarmManager on this device. Same honesty, different reason,
+            // and the same carry-forward.
             store.upsert(
                 advanced.copy(
-                    lastResult = "Ran, but the next one could not be scheduled: " +
+                    lastResult = ScheduledRunReporter.SCHEDULE_WARNING_PREFIX +
                         "this device has no alarm service.",
                 ),
             )
@@ -192,8 +208,14 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
      * `ensureModelReady()` → `newController()` → `run`, and a second copy of
      * that path would be a second model load discipline on a RAM-constrained
      * device. A scheduled task is a *trigger*, not a runner.
+     *
+     * [store] is passed rather than constructed here so the failure path below
+     * re-reads the *current* row instead of writing the copy this function was
+     * called with. Between the fire and this call the user may have paused the
+     * task, and writing the captured copy back would re-enable it. A row that
+     * has been deleted is left deleted.
      */
-    private fun startRun(context: Context, task: ScheduledTask) {
+    private fun startRun(context: Context, store: ScheduledTaskStore, task: ScheduledTask) {
         try {
             ExecutionService.start(context, task.prompt, task.id)
         } catch (e: CancellationException) {
@@ -210,11 +232,16 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
             // exemption, so this should not happen — but "should not" is not
             // "cannot", and a crash here would take the process down with it.
             // The schedule survives; the run is reported as missed.
-            ScheduledTaskStore(context).upsert(
-                task.copy(
-                    lastResult = "Did not start: the system refused to launch a " +
-                        "background run (${e::class.java.simpleName}).",
-                ),
+            //
+            // This is a real terminal outcome rather than a placeholder: no
+            // service started, so nothing will ever overwrite it, and
+            // `ScheduledRunReporter` will not see this run at all.
+            store.upsert(
+                store.byId(task.id)?.copy(
+                    lastResult = ScheduledRunReporter.DID_NOT_START +
+                        "the system refused to start a background run " +
+                        "(${e::class.java.simpleName}).",
+                ) ?: return,
             )
         }
     }
