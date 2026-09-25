@@ -113,12 +113,35 @@ class ExecutionService : Service() {
                 // Already foreground: a run awaiting approval never stopped the
                 // service. If the process died in between there is no controller
                 // to resume, so this is a no-op rather than a crash.
+                //
+                // The no-op has to end the service, though. A `startService` for a
+                // service that is not running *starts* it, and a started-but-not-
+                // foreground service that is never stopped is a leak the system
+                // will eventually kill — noisily, and with a notification the
+                // watcher below was about to post.
+                if (agent == null) {
+                    stopForegroundAndSelf()
+                    return START_NOT_STICKY
+                }
                 agent?.confirm(intent.getBooleanExtra(EXTRA_APPROVED, false))
             }
 
-            ACTION_CANCEL -> agent?.cancel()
+            ACTION_CANCEL -> {
+                // Same reasoning as ACTION_CONFIRM: a cancel aimed at a service
+                // that no longer exists has to stop the service it just started,
+                // not leave it resident waiting for a terminal state that will
+                // never arrive.
+                if (agent == null) {
+                    stopForegroundAndSelf()
+                    return START_NOT_STICKY
+                }
+                agent?.cancel()
+            }
 
-            else -> stopForegroundAndSelf()
+            else -> {
+                stopForegroundAndSelf()
+                return START_NOT_STICKY
+            }
         }
 
         // One watcher per service instance. It returns on the first terminal

@@ -1,8 +1,15 @@
 package dev.localintelligence.android.tools.notifications
 
+import android.annotation.SuppressLint
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ActivityNotFoundException
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import dev.localintelligence.core.model.ToolArgs
@@ -305,6 +312,126 @@ class LocalNotificationListenerService : NotificationListenerService() {
         /** The live snapshot, or null when the listener is not bound. */
         fun snapshotOrNull(): List<StatusBarNotification>? =
             connected?.activeNotifications?.toList()
+
+        // ------------------------------------------------------------------ consent
+        //
+        // Binding is the permission, and nothing an app ships can grant it. These
+        // three functions are the whole of what CAN be done about it, and they were
+        // all missing: the constant naming the settings screen existed and was only
+        // ever interpolated into a model-visible sentence, so the listener could
+        // never be bound and the feature was unreachable from any code path.
+
+        /**
+         * True when this package is on the system's notification-listener allow
+         * list — the grant, independent of whether the service happens to be bound
+         * right now.
+         *
+         * ## Two routes, because minSdk is 26 and the good one is 31
+         *
+         * `NotificationManager.isNotificationListenerAccessGranted(ComponentName)`
+         * is the correct API and is what this uses from API 31. Below that the
+         * only way to ask is to read the
+         * `enabled_notification_listeners` setting and compare component names
+         * ourselves, so that is what the fallback does. The existing
+         * [isNotificationListenerEnabledFor] is the pure half of that comparison
+         * and now has a caller, which it did not before — it was written for this
+         * and nothing ever wired it up.
+         *
+         * Never throws: a failure to ask is a "not granted", which is the state
+         * every caller already handles.
+         */
+        @JvmStatic
+        fun isGranted(context: Context): Boolean = try {
+            val component = ComponentName(context, LocalNotificationListenerService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+                    as? NotificationManager
+                manager?.isNotificationListenerAccessGranted(component) == true
+            } else {
+                // API 26-30: the allow list is a colon-separated string of
+                // flattened ComponentNames. Parsing is done here rather than in
+                // the pure helper so the helper stays a set-membership test and
+                // assertable without a Context.
+                val raw = Settings.Secure.getString(
+                    context.contentResolver,
+                    ENABLED_NOTIFICATION_LISTENERS,
+                ).orEmpty()
+                val enabled = raw.split(':')
+                    .mapNotNull { part ->
+                        part.takeIf { it.isNotBlank() }
+                            ?.let { ComponentName.unflattenFromString(it) }
+                    }
+                    .toSet()
+                isNotificationListenerEnabledFor(
+                    component.packageName,
+                    enabled.mapTo(mutableSetOf()) { it.packageName },
+                )
+            }
+        } catch (e: SecurityException) {
+            false
+        } catch (e: IllegalArgumentException) {
+            // A malformed component string in the setting. Treated as "not
+            // granted", which is the safe direction: the banner stays up.
+            false
+        }
+
+        /**
+         * The `Settings.Secure` key holding the allow list on API 26-30.
+         *
+         * A literal rather than a constant from the SDK: there is no public
+         * `Settings.Secure.ENABLED_NOTIFICATION_LISTENERS` field, only the string
+         * value, and the platform has never changed it.
+         */
+        private const val ENABLED_NOTIFICATION_LISTENERS = "enabled_notification_listeners"
+
+        /**
+         * The Intent that opens the notification-access screen.
+         *
+         * On API 30+ there is a per-app detail screen that lands the user directly
+         * on this app's toggle; the list screen is the fallback, and on API 26-29
+         * it is the only thing that exists.
+         *
+         * Never returns null. An Intent that cannot resolve is still returned and
+         * still fails loudly at [startActivity], because a null here would invite
+         * a caller to quietly do nothing — which is the exact failure this whole
+         * path exists to remove.
+         */
+        @JvmStatic
+        @SuppressLint("InlinedApi")
+        fun settingsIntent(context: Context): Intent =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                    .putExtra(
+                        Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                        ComponentName(context, LocalNotificationListenerService::class.java)
+                            .flattenToString(),
+                    )
+            } else {
+                Intent(LISTENER_SETTINGS_ACTION)
+            }
+
+        /**
+         * Opens the notification-access screen for this app.
+         *
+         * The only way consent can be requested, because the only way it can be
+         * *granted* is a human toggling a switch in Settings. Returns false when the
+         * screen could not be opened, so the caller can tell the user to go there
+         * by hand rather than leaving a button that appears to do nothing.
+         *
+         * FLAG_ACTIVITY_NEW_TASK: this is callable from a service or a receiver,
+         * which have no task of their own.
+         */
+        @JvmStatic
+        fun requestConsent(context: Context): Boolean = try {
+            context.startActivity(
+                settingsIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            true
+        } catch (e: ActivityNotFoundException) {
+            false
+        } catch (e: SecurityException) {
+            false
+        }
     }
 }
 

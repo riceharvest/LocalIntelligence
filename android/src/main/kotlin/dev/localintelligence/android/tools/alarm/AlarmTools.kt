@@ -2,12 +2,17 @@ package dev.localintelligence.android.tools.alarm
 
 import android.annotation.SuppressLint
 import android.app.AlarmManager
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
 import dev.localintelligence.android.tools.device.ArgCoerce
 import dev.localintelligence.android.tools.device.ArgResult
 import dev.localintelligence.android.tools.device.guarded
@@ -329,24 +334,95 @@ object AlarmCancel {
 // =====================================================================================
 
 /**
- * In-memory record of the alarms this app has scheduled.
+ * Durable record of the alarms this app has scheduled.
  *
  * Bounded at [MAX_TRACKED] entries; the oldest is evicted past that. On a phone the
  * worst case is a few kilobytes — see the RAM note in the PR description — which is
  * the whole reason it is capped rather than allowed to grow.
  *
- * It does NOT survive process death. The PendingIntents themselves are held by the
- * system and DO survive, so an alarm created before a restart still fires; only the
- * ability to *list* or match it by time is lost. Cancelling by explicit id still works
- * across a restart because [AlarmIds.requestCodeOf] is a pure function of the id — the
- * platform seam, not the registry, is what makes cancel survive.
+ * ## Why this is persisted
+ *
+ * It was an in-memory list, and the two facts it was supposed to describe were
+ * split across process boundaries:
+ *
+ *  - the **PendingIntents** are held by the system and DO survive a restart, so an
+ *    alarm created before a restart still fires;
+ *  - the **registry** did not, so after a restart `alarm.list` reported "no alarms
+ *    are currently set" while the phone was about to ring one.
+ *
+ * That is the worst kind of bug in an agent: the tool does not fail, it answers
+ * confidently and wrongly, and the model repeats it to the user. Cancelling by
+ * explicit id still worked across a restart because [AlarmIds.requestCodeOf] is a
+ * pure function of the id — the platform seam, not the registry, is what makes
+ * cancel survive — but *listing* and cancelling by time did not.
+ *
+ * ## Storage
+ *
+ * A private `SharedPreferences` file, not Room. Reasons, in order:
+ *
+ *  1. `:android`'s Room schema belongs to the database workstream, and a table
+ *     here would collide with it.
+ *  2. `alarm.list` and the boot receiver are both called on a path that cannot
+ *     suspend — a `BroadcastReceiver.onReceive` and a tool entry point — so a
+ *     suspending DAO would have to be bridged anyway.
+ *  3. The write happens once, at alarm creation, against a file of at most
+ *     [MAX_TRACKED] small rows.
+ *
+ * Writes are best-effort: a failure to persist must not fail the alarm the user
+ * just asked for, because the PendingIntent is already scheduled in the system and
+ * the alarm WILL ring. Losing the listing is strictly better than losing the alarm.
  */
 object AlarmRegistry {
 
     const val MAX_TRACKED = 32
 
+    private const val PREFS_NAME = "alarm_registry"
+    private const val KEY_SPECS = "specs"
+
     private val lock = Any()
     private val entries = ArrayList<AlarmSpec>()
+
+    /**
+     * The installed backing, or null when [attach] has not run yet.
+     *
+     * Exposed so the tools that read the registry *before* touching the platform
+     * — `alarm.list` is exactly that case, it calls [all] before its first
+     * `platform.*` call — can force the restore themselves. Without this, the
+     * restore would depend on a call ordering that no compiler enforces and no
+     * test would catch.
+     */
+    @Volatile
+    private var store: SharedPreferences? = null
+
+    /**
+     * Installs the persistence backing and restores the persisted set.
+     *
+     * Idempotent, and deliberately so: the registry is a process-wide singleton
+     * and the platform is constructed per tool, so this is called repeatedly.
+     */
+    fun attach(context: Context) {
+        if (store != null) return
+        synchronized(lock) {
+            if (store != null) return
+            val prefs = context.applicationContext
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            store = prefs
+            val restored = readFrom(prefs)
+            if (restored.isNotEmpty()) {
+                entries.clear()
+                entries.addAll(restored)
+            }
+        }
+    }
+
+    /**
+     * Ensures the registry is backed by storage, using [context].
+     *
+     * The same as [attach], named for the call site: a tool that is about to read
+     * or write the registry should say *why* it is calling, and "I am about to
+     * read the registry" is the reason, not "I would like some preferences".
+     */
+    fun ensureAttached(context: Context) = attach(context)
 
     fun add(spec: AlarmSpec): List<AlarmSpec> = synchronized(lock) {
         entries.removeAll { it.id.equals(spec.id, ignoreCase = true) }
@@ -355,12 +431,12 @@ object AlarmRegistry {
             entries.removeAt(0)
         }
         entries.toList()
-    }
+    }.also { persist() }
 
     fun remove(id: String): AlarmSpec? = synchronized(lock) {
         val index = entries.indexOfFirst { it.id.equals(id, ignoreCase = true) }
         if (index < 0) null else entries.removeAt(index)
-    }
+    }.also { persist() }
 
     /** Oldest first, so "the alarm I set first" is a stable thing to name. */
     fun all(): List<AlarmSpec> = synchronized(lock) {
@@ -369,7 +445,111 @@ object AlarmRegistry {
 
     fun clear() = synchronized(lock) {
         entries.clear()
+    }.also { persist() }
+
+    /**
+     * Drops fired and past-due entries after a reboot.
+     *
+     * A reboot clears every PendingIntent the system was holding, so nothing in
+     * here is still scheduled. [AlarmBootReceiver] re-arms the ones still in the
+     * future and this removes the rest, which stops `alarm.list` from reporting a
+     * 07:00 alarm that passed three hours ago as something the user can still
+     * cancel.
+     *
+     * Returns the specs that were re-armed, oldest first.
+     */
+    fun rearmAfterBoot(nowMillis: Long): List<AlarmSpec> = synchronized(lock) {
+        val stillValid = entries.filter { it.triggerAtMillis > nowMillis }
+        if (stillValid.size != entries.size) {
+            entries.clear()
+            entries.addAll(stillValid)
+        }
+        entries.sortedBy { it.triggerAtMillis }.toList()
+    }.also { persist() }
+
+    // ------------------------------------------------------------------ persistence
+
+    /**
+     * Writes the current set out. Best-effort by design — see the class doc.
+     *
+     * A [String] of `|`-joined numeric/identifier fields rather than JSON: no
+     * serializer, no schema, and a malformed row is skipped instead of taking the
+     * whole file down with it.
+     */
+    private fun persist() {
+        val prefs = store ?: return
+        val snapshot = synchronized(lock) { entries.toList() }
+        try {
+            prefs.edit()
+                .putString(KEY_SPECS, snapshot.joinToString(RECORD_SEPARATOR, transform = ::encode))
+                .apply()
+        } catch (e: IllegalStateException) {
+            // The alarm is already in the system AlarmManager; failing to list it
+            // later is the lesser failure.
+        }
     }
+
+    private fun readFrom(prefs: SharedPreferences): List<AlarmSpec> {
+        val raw = try {
+            prefs.getString(KEY_SPECS, null)
+        } catch (e: ClassCastException) {
+            null
+        } ?: return emptyList()
+
+        return raw.split(RECORD_SEPARATOR).mapNotNull(::decode).take(MAX_TRACKED)
+    }
+
+    private fun encode(spec: AlarmSpec): String = listOf(
+        spec.id,
+        spec.hour.toString(),
+        spec.minute.toString(),
+        spec.label,
+        spec.triggerAtMillis.toString(),
+        spec.requestCode.toString(),
+        spec.createdAtMillis.toString(),
+    ).joinToString(FIELD_SEPARATOR)
+
+    /**
+     * Rebuilds one spec, or null when the row is unusable.
+     *
+     * `requestCode` is recomputed from the id rather than trusted: it is a pure
+     * function of the id, so deriving it is both cheaper and impossible to get
+     * wrong with a corrupted stored value. Rows whose numeric fields do not parse
+     * are dropped individually — one bad row must not empty the registry.
+     */
+    private fun decode(row: String): AlarmSpec? {
+        val parts = row.split(FIELD_SEPARATOR)
+        if (parts.size != 7) return null
+        val id = parts[0].trim()
+        if (id.isEmpty()) return null
+        val hour = parts[1].toIntOrNull() ?: return null
+        val minute = parts[2].toIntOrNull() ?: return null
+        val triggerAt = parts[4].toLongOrNull() ?: return null
+        val createdAt = parts[6].toLongOrNull() ?: return null
+        if (hour !in 0..23 || minute !in 0..59) return null
+        return AlarmSpec(
+            id = id,
+            hour = hour,
+            minute = minute,
+            label = parts[3],
+            triggerAtMillis = triggerAt,
+            requestCode = AlarmIds.requestCodeOf(id),
+            createdAtMillis = createdAt,
+        )
+    }
+
+    private const val RECORD_SEPARATOR = "\n"
+
+    /**
+     * ASCII UNIT SEPARATOR (0x1F).
+     *
+     * Not `|` and not `,`, because [AlarmIds.coerceLabel] accepts any character a
+     * user or the model can type, and a label containing the delimiter would split
+     * one row into two and get both dropped. 0x1F is a control character, and
+     * [AlarmIds.coerceLabel] strips control characters from labels on the way in,
+     * so a stored label can never contain it.
+     */
+    private const val FIELD_SEPARATOR = "\u001F"
 }
 
 // =====================================================================================
@@ -929,11 +1109,23 @@ class AndroidAlarmPlatform(private val context: Context) : AlarmPlatform {
 /**
  * Fires when an agent alarm is due.
  *
- * Intentionally minimal: a Toast, which needs no permission and no notification channel,
- * and a registry clean-up. A real product would post a notification here (and would need
- * POST_NOTIFICATIONS on API 33+ plus a channel); doing that without the parent's sign-off
- * on a manifest change would ship a silent failure, so the honest minimal behaviour is
- * the one that is actually visible.
+ * ## Why this posts a notification and not a Toast
+ *
+ * It used to `Toast.makeText(...).show()` and nothing else, on the reasoning that
+ * a Toast needs no permission and no channel. That reasoning is right about
+ * permissions and wrong about delivery: since API 30 a text Toast raised from the
+ * background is rate-limited and deprioritised, and a user who is not looking at
+ * the screen at 07:00 sees nothing at all. An alarm that cannot be seen is not an
+ * alarm.
+ *
+ * `POST_NOTIFICATIONS` is already declared and already has a description in the
+ * permission map, and `alarm.create` can only be reached by a user who has been
+ * through the app, so the channel is created lazily on the first fire and the
+ * notification is posted on the best-effort terms below.
+ *
+ * The Toast is kept as a secondary path: on API < 33 no runtime permission exists
+ * at all, and on an OEM build that refuses the background notification the user
+ * should still get something.
  *
  * REQUIRES a manifest entry — see the PR description. Without it the PendingIntent
  * resolves to nothing, `schedule` throws nothing, and the alarm silently never fires.
@@ -943,12 +1135,122 @@ class AlarmFireReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra(EXTRA_ALARM_ID) ?: return
         val label = intent.getStringExtra(EXTRA_ALARM_LABEL) ?: "Alarm"
+        val hour = intent.getIntExtra(EXTRA_ALARM_HOUR, -1)
+        val minute = intent.getIntExtra(EXTRA_ALARM_MINUTE, -1)
+        val time = if (hour in 0..23 && minute in 0..59) {
+            String.format(Locale.US, "%02d:%02d", hour, minute)
+        } else {
+            null
+        }
+
+        // Remove first: a fired alarm is no longer cancellable, and leaving it in
+        // the registry means `alarm.list` reports an alarm that already happened.
         AlarmRegistry.remove(id)
+
+        val posted = postNotification(context, id, label, time)
+        if (!posted) showToast(context, "$label — $time".trim())
+    }
+
+    /**
+     * Posts the alarm notification. Returns false when the platform refused it, so
+     * the caller can fall back rather than assume.
+     *
+     * Every failure is swallowed deliberately: a broadcast receiver that throws
+     * takes down the process, and the one thing worse than a missed notification
+     * is the app being killed on the alarm thread.
+     */
+    private fun postNotification(
+        context: Context,
+        id: String,
+        label: String,
+        time: String?,
+    ): Boolean = try {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+            as? NotificationManager ?: return false
+        ensureChannel(context, manager)
+        manager.notify(id.hashCode(), build(context, id, label, time))
+        true
+    } catch (e: SecurityException) {
+        // POST_NOTIFICATIONS revoked on API 33+. Nothing to do but fall back.
+        false
+    } catch (e: IllegalArgumentException) {
+        false
+    }
+
+    private fun build(
+        context: Context,
+        id: String,
+        label: String,
+        time: String?,
+    ): Notification {
+        val text = if (time != null) "$label — $time" else label
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentTitle(text)
+            .setContentText("Alarm set by LocalIntelligence")
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(launchIntent(context, id))
+            .build()
+    }
+
+    /**
+     * Tapping the notification opens the app.
+     *
+     * `getActivity` rather than `getBroadcast`: the user is foreground when they
+     * tap, and there is no work to do in the background — the alarm has already
+     * fired and been removed from the registry.
+     *
+     * Nullable on purpose. `setContentIntent` accepts null, which makes the
+     * notification non-tappable, and that is strictly better than throwing on the
+     * alarm thread — a `BroadcastReceiver` that throws takes the process down with
+     * it, and the user would lose the alarm *and* the app.
+     *
+     * `requestCode` is the alarm id's hash so two alarms do not share a
+     * PendingIntent; a shared one would deliver the first alarm's extras when the
+     * second was tapped.
+     */
+    private fun launchIntent(context: Context, id: String): PendingIntent? = try {
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        if (launch != null) {
+            PendingIntent.getActivity(
+                context,
+                id.hashCode(),
+                launch.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+        } else {
+            // No launcher activity on some trimmed/OEM builds.
+            null
+        }
+    } catch (e: IllegalArgumentException) {
+        null
+    }
+
+    private fun ensureChannel(context: Context, manager: NotificationManager) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                CHANNEL_NAME,
+                // HIGH: an alarm is the one notification a user is entitled to
+                // interrupt them for. It is a single, deliberate, dated event.
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                setShowBadge(true)
+                enableVibration(true)
+            },
+        )
+    }
+
+    private fun showToast(context: Context, text: String) {
         try {
-            Toast.makeText(context, "$label — $id", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, text, Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             // A Toast from a background receiver can be refused on some OEM builds.
-            // Losing the toast must not crash the app.
+            // Losing it must not crash the app.
         }
     }
 
@@ -956,6 +1258,11 @@ class AlarmFireReceiver : BroadcastReceiver() {
         const val ACTION_ALARM_FIRED = "dev.localintelligence.android.tools.alarm.FIRED"
         const val EXTRA_ALARM_ID = "dev.localintelligence.extra.ALARM_ID"
         const val EXTRA_ALARM_LABEL = "dev.localintelligence.extra.ALARM_LABEL"
+        const val EXTRA_ALARM_HOUR = "dev.localintelligence.extra.ALARM_HOUR"
+        const val EXTRA_ALARM_MINUTE = "dev.localintelligence.extra.ALARM_MINUTE"
+
+        private const val CHANNEL_ID = "alarms"
+        private const val CHANNEL_NAME = "Alarms"
 
         /**
          * The PendingIntent target.
@@ -967,17 +1274,136 @@ class AlarmFireReceiver : BroadcastReceiver() {
         fun intent(context: Context): Intent = Intent(context, AlarmFireReceiver::class.java)
             .setAction(ACTION_ALARM_FIRED)
 
-        /** The full intent for a given alarm, extras included. */
+        /**
+         * The full intent for a given alarm, extras included.
+         *
+         * The hour and minute ride along so the notification can show "07:00"
+         * without having to parse the id, which is model-supplied and therefore
+         * not a reliable source of the time.
+         */
         fun intentFor(context: Context, spec: AlarmSpec): Intent =
             intent(context)
                 .putExtra(EXTRA_ALARM_ID, spec.id)
                 .putExtra(EXTRA_ALARM_LABEL, spec.label)
+                .putExtra(EXTRA_ALARM_HOUR, spec.hour)
+                .putExtra(EXTRA_ALARM_MINUTE, spec.minute)
     }
 }
 
-/** Wires the three alarm tools to a real [Context]. */
-fun alarmTools(context: Context): List<AgentTool> = listOf(
-    AlarmCreateTool(AndroidAlarmPlatform(context)),
-    AlarmListTool(AndroidAlarmPlatform(context)),
-    AlarmCancelTool(AndroidAlarmPlatform(context)),
-)
+/**
+ * Re-arms agent alarms after a reboot.
+ *
+ * ## Why this had to exist
+ *
+ * The manifest declared `RECEIVE_BOOT_COMPLETED` and nothing listened for it.
+ * Every `AlarmManager` PendingIntent the app registered is cleared by a reboot, so
+ * a user who set a 07:00 alarm and restarted their phone overnight got silence,
+ * and `alarm.list` — reading a registry that a reboot also emptied — agreed with
+ * the lie.
+ *
+ * That combination is the specific failure this project cares about most: a
+ * component that looks finished, is not started by anything, and reports success.
+ *
+ * ## What it does
+ *
+ * Reads the persisted [AlarmRegistry], drops everything already past, and
+ * re-schedules the rest through the same [AndroidAlarmPlatform.schedule] the
+ * create tool uses — so there is one scheduling path, not two, and a re-armed
+ * alarm is indistinguishable from a freshly created one.
+ *
+ * ## Boundaries
+ *
+ * `goAsync()` is bounded rather than open-ended: the work is a SharedPreferences
+ * read and at most [AlarmRegistry.MAX_TRACKED] `setExactAndAllowWhileIdle` calls,
+ * all in-process and all in the low tens of milliseconds. There is no model load
+ * and no inference on this path — loading 2 GB from a boot receiver is how you
+ * get a boot-time ANR, and it is not needed to put a PendingIntent in a system
+ * service.
+ */
+class AlarmBootReceiver : BroadcastReceiver() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
+            intent.action != Intent.ACTION_MY_PACKAGE_REPLACED
+        ) {
+            return
+        }
+
+        val pending = goAsync()
+        try {
+            rearm(context.applicationContext)
+        } catch (e: SecurityException) {
+            // Exact-alarm permission revoked between reboot and this broadcast.
+            // The registry is still correct; only the re-arming is skipped.
+        } finally {
+            pending.finish()
+        }
+    }
+
+    /**
+     * Re-arms every future alarm. Returns how many were restored.
+     *
+     * Split out from [onReceive] so the whole of it is one expression a reader can
+     * check, and so a failure on one alarm cannot abandon the rest.
+     */
+    private fun rearm(context: Context): Int {
+        val platform = AndroidAlarmPlatform(context)
+        // FIRST, before anything reads or rewrites the registry. This is a cold
+        // process after a reboot, so nothing has resolved the lazy context yet,
+        // and `rearmAfterBoot` both filters and re-persists: running it against an
+        // unrestored registry would see zero entries, decide every alarm is gone,
+        // and persist that — turning a recoverable reboot into permanent data loss.
+        AlarmRegistry.ensureAttached(context)
+
+        val now = platform.nowMillis()
+        val survivors = AlarmRegistry.rearmAfterBoot(now)
+        if (survivors.isEmpty()) return 0
+
+        // canScheduleExactAlarms() is checked once, not per alarm: it is a property
+        // of the app, not of an alarm, and asking N times is N system calls for one
+        // boolean. On failure every alarm is skipped identically, so the early
+        // return is also the cheaper path.
+        if (!platform.canScheduleExactAlarms()) return 0
+
+        var armed = 0
+        for (spec in survivors) {
+            try {
+                platform.schedule(spec)
+                armed++
+            } catch (e: SecurityException) {
+                // One refused alarm must not stop the rest from being restored.
+            } catch (e: IllegalStateException) {
+                // AlarmManager unavailable on this device.
+            }
+        }
+        return armed
+    }
+}
+
+/**
+ * Wires the three alarm tools to a real [Context].
+ *
+ * [AlarmRegistry.attach] is called here, once, and this is the only place it
+ * needs to be. The tools themselves are constructed without a `Context` — that
+ * is deliberate, and it is what keeps the shipped tool set assertable on a plain
+ * JVM with no emulator (`docs/architecture.md` §2) — so the registry cannot be
+ * attached from inside a tool without either breaking that property or making the
+ * restore depend on a call ordering no compiler enforces.
+ *
+ * Doing it at construction removes the ordering question entirely: by the time
+ * any tool method can run, the persisted set is already restored. That matters
+ * because both `alarm.list` and `alarm.cancel` read the registry before their
+ * first `platform.*` call, and a cancel that matched against a half-restored
+ * registry would refuse an alarm the user can plainly see.
+ *
+ * The boot receiver does not come through here — it constructs a platform
+ * directly — so it attaches for itself.
+ */
+fun alarmTools(context: Context): List<AgentTool> {
+    AlarmRegistry.attach(context.applicationContext)
+    return listOf(
+        AlarmCreateTool(AndroidAlarmPlatform(context)),
+        AlarmListTool(AndroidAlarmPlatform(context)),
+        AlarmCancelTool(AndroidAlarmPlatform(context)),
+    )
+}
