@@ -106,7 +106,7 @@ every quant each of them publishes. 160 of 160 parsed.
 | `Q3_K_L` | 7 | 4.3692 | 4.7259 | 4.0000 | 1.08 | measured |
 | `Q3_K_XL` | 4 | 4.9295 | 5.7631 | blend | 1.17 | measured |
 | `Q4_0` | 6 | 4.8387 | 5.7237 | 4.5000 | 1.18 | measured |
-| `Q4_1` | 1 | 6.0607 | 6.0607 | 5.0000 | 1.00 | measured (n<3) |
+| `Q4_1` | 0 | — | — | 5.0000 | — | layout only; see note 1 |
 | `Q4_0_4_4` | 3 | 4.7093 | 4.9399 | 4.5000 | 1.05 | measured |
 | `Q4_0_4_8` | 3 | 5.1589 | 5.3336 | 5.0000 | 1.03 | measured |
 | `Q4_0_8_8` | 3 | 6.0580 | 6.1210 | 6.0000 | 1.01 | measured |
@@ -140,6 +140,18 @@ shipped "Q2_K" presets store 58-87% of their tensors as Q3_K.
 measured maximum; `measuredSamples` says how many files it came from, and an
 entry with `n = 0` is the block layout and nothing else. **Every figure in the
 enum is traceable to one of those two columns.**
+
+Two rules, both applied in the enum and both worth stating because they are
+judgement:
+
+1. **`Q5_1` has no sample at all** (`n = 0`). No repository in this sample
+   publishes one, so the entry is the block layout, 24 bytes / 32 = 6.0000.
+2. **`Q4_1` has exactly one sample and the enum does not use it.** The single
+   file is `gemma-3-1b-it-Q4_1.gguf`, which measures 6.0607 — but 30% of that
+   model's parameters are a Q8_0 vocabulary embedding, so the file-level figure
+   says more about gemma-3's embedding than about the Q4_1 format, and one
+   sample is not a median. The enum uses the block layout (5.0000) and records
+   `measuredSamples = 0` so the weaker basis is visible rather than hidden.
 
 ### 1.3 What the spread costs and what it does not
 
