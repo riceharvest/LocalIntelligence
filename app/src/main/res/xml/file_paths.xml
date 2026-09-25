@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The complete set of files this app will ever hand to another app.
+
+  This file is the whole attack surface of the provider, and the reason it is this
+  short is deliberate. A <provider> is a path-traversal waiting for a caller: every
+  element below widens the set of files a granted content:// URI can address, and
+  every element omitted narrows it. The failure mode is not a crash, it is another
+  app reading a file the user never chose to share.
+
+  ONE ELEMENT, ON PURPOSE:
+
+    <files-path name="out" path="out/" />
+
+  app-private internal storage, one named subdirectory. The "out" directory is the
+  only place the app writes an artifact it intends to hand outward (generated
+  notes, exported model metadata, a trace the user asked to share).
+
+  WHAT IS DELIBERATELY NOT DECLARED, and why each omission is a security decision
+  rather than a missing feature:
+
+    <root-path/>          would expose the entire filesystem under this app's
+                          access, including its private data directory. There is no
+                          version of "share a file" that needs this.
+    <external-path/>      sdcard and every other app's shared storage. Declaring
+                          it would make a bug in a path-building call a data breach
+                          of every file on the device, not just our own.
+    <cache-path/>          cache is written speculatively and can hold partial
+                          downloads and in-flight state. Sharing it turns a
+                          temporary file into a durable disclosure.
+    <files-path path="."/> the whole internal files directory: databases, shared
+                          preferences, the session store. Everything a user typed
+                          into the app lives there. We do not share our own history.
+    <files-path/> (bare)   same as the above, and is the single most common way a
+                          FileProvider is mis-scoped in the wild.
+
+  If a future feature needs to share a file from outside files/out/, that feature
+  earns its own <files-path> line here with a comment saying why, and nothing else
+  changes. Scope grows one line at a time, on purpose, in review.
+
+  ProviderPathScopeTest asserts these properties against this file on the JVM, so
+  a future edit that widens the scope without the review conversation fails CI
+  instead of shipping.
+-->
+<paths>
+    <files-path
+        name="out"
+        path="out/" />
+</paths>
