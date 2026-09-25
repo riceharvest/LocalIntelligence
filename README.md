@@ -61,6 +61,8 @@ Full detail: [docs/architecture.md](docs/architecture.md).
 | [docs/agent-loop.md](docs/agent-loop.md) | The loop, step by step, with failure paths. |
 | [docs/roadmap.md](docs/roadmap.md) | What is being built now, and what is deliberately not. |
 | [docs/evals.md](docs/evals.md) | The eval suite and how to read its output. |
+| [docs/memory-model.md](docs/memory-model.md) | **The RAM fit model**: how the "will this fit" number is derived, what is measured and what is still an estimate, and how to measure the app's real resident cost on a device. |
+| [docs/hf-hub-download.md](docs/hf-hub-download.md) | Downloading from the Hugging Face Hub, resuming, gating, auth. |
 
 ## Building
 
