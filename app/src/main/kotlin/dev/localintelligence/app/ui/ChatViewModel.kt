@@ -13,10 +13,14 @@ import dev.localintelligence.app.isActive
 import dev.localintelligence.app.isTerminal
 import dev.localintelligence.app.notice
 import dev.localintelligence.core.agent.StepTrace
+import dev.localintelligence.core.context.GenerationProse
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -78,7 +82,19 @@ class ChatViewModel(
     val input: StateFlow<String> = _input.asStateFlow()
 
     /**
-     * Which transcript row each `TOOL_CALL` trace entry is drawn in.
+     * Guards every transcript mutation.
+     *
+     * The trace collector and the run-state collector both write here, and the
+     * row-index bookkeeping below is only correct if a trim and the index
+     * remap that has to follow it cannot be split by the other collector.
+     * `MutableStateFlow.update` is CAS-based and may run its block more than
+     * once, so the block must stay free of side effects; the map writes are
+     * therefore done under this lock, outside the flow update.
+     */
+    private val transcriptLock = Any()
+
+    /**
+     * Which transcript row each trace entry is drawn in.
      *
      * WHY IT STORES AN INDEX: a row is drawn before its result necessarily
      * exists. `AgentController` publishes the trace at an approval *and* again
@@ -96,17 +112,40 @@ class ChatViewModel(
      *
      * Across runs it does not matter: every run gets a fresh controller with a
      * fresh trace list, so a new run's entries are new objects and are never
-     * mistaken for the previous run's. The map is cleared when a run starts only
-     * so it does not grow for the life of the Activity.
-     *
-     * Indices stay valid because the transcript only ever grows at the end, or
-     * has one row replaced in place.
+     * mistaken for the previous run's. The maps are cleared when a run starts
+     * only so they do not grow for the life of the Activity.
      */
     private val toolRows = java.util.IdentityHashMap<StepTrace, Int>()
 
+    /**
+     * The same bookkeeping for narrated `GENERATION` entries.
+     *
+     * A generation is narrated once and never again. The trace is republished
+     * whole — at an approval and again at the end — so without this the same
+     * words would be appended a second time at the terminal publication and the
+     * answer would appear twice in the transcript.
+     */
+    private val narratedRows = java.util.IdentityHashMap<StepTrace, Int>()
+
     val runState: StateFlow<RunState> get() = gateway.runState
     val trace: StateFlow<List<StepTrace>> get() = gateway.trace
-    val streamingText: StateFlow<String> get() = gateway.streamingText
+
+    /**
+     * The live token stream, suppressed once the run is over.
+     *
+     * WHY NOT A PASSTHROUGH: `AgentViewModel.publish` writes the terminal
+     * state and clears `streamingText` as two separate statements, and
+     * `StateFlow` emission is asynchronous. There is therefore a window in
+     * which the run is already `Finished` — so this class has committed the
+     * final answer as a permanent `Assistant` row — while the live bubble is
+     * still showing the same words. The user sees the answer twice. Hiding the
+     * stream on the terminal transition closes that window at the source rather
+     * than relying on the two writes landing in one frame.
+     */
+    val streamingText: StateFlow<String> =
+        combine(gateway.runState, gateway.streamingText) { state, text ->
+            if (state.isTerminal) "" else text
+        }.stateIn(scope, SharingStarted.Eagerly, "")
 
     /**
      * Whether a model is resident and able to answer.
@@ -148,34 +187,170 @@ class ChatViewModel(
     val isBusy: Boolean get() = gateway.runState.value.isActive
 
     init {
-        // Draws every tool call in [steps] that has no row yet, and fills in the
-        // observation of any row that has one now. Idempotent: keyed on trace
-        // entry identity, so a second call over the same list adds nothing and
-        // never duplicates a row.
-        fun renderToolSteps(steps: List<StepTrace>) {
-            steps.forEach { entry ->
-                if (entry.kind != StepTrace.Kind.TOOL_CALL) return@forEach
-                // The matching OBSERVATION is the next entry with the same step
-                // number. The loop dispatches at most one tool per step, so the
-                // step number is a sound pairing key.
-                val observation = steps.firstOrNull {
-                    it.kind == StepTrace.Kind.OBSERVATION && it.step == entry.step
-                }
-                val known = toolRows[entry]
-                if (known != null) {
-                    if (observation == null) return@forEach
-                    _messages.update { list ->
-                        val index = known
-                        if (index !in list.indices) return@update list
-                        val row = list[index]
-                        if (row !is ChatMessage.ToolStep) return@update list
-                        if (row.observation != null) return@update list
-                        list.toMutableList().also { it[index] = row.completedBy(observation) }
+        var lastTerminal: RunState.Finished? = gateway.runState.value as? RunState.Finished
+        var wasTerminal = gateway.runState.value.isTerminal
+        scope.launch {
+            gateway.trace.collect { steps -> renderTrace(steps, terminal = null) }
+        }
+        scope.launch {
+            gateway.runState.collect { state ->
+                // A run is starting. Drop the previous run's entries so the maps
+                // do not accumulate for the life of the Activity. Not a
+                // correctness requirement — each run's entries are new objects,
+                // so nothing is ever mistaken for an older call — but an
+                // unbounded map in a ViewModel is a leak with extra steps.
+                if (wasTerminal && !state.isTerminal) {
+                    synchronized(transcriptLock) {
+                        toolRows.clear()
+                        narratedRows.clear()
                     }
-                    return@forEach
                 }
-                _messages.update { list ->
-                    val row = ChatMessage.ToolStep(
+                wasTerminal = state.isTerminal
+
+                if (state !is RunState.Finished) return@collect
+                if (state === lastTerminal) return@collect
+                lastTerminal = state
+
+                // The narrative first, then the outcome.
+                //
+                // Both publications happen inside one `publish()` in
+                // `AgentViewModel` and reach this class over two independent
+                // collectors, so whichever ran first used to decide the order.
+                // The transcript could read "here is your answer" and then list
+                // the calls that produced it underneath, which reads as though
+                // the agent did all of its work after answering.
+                renderTrace(gateway.trace.value, terminal = state.outcome)
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ transcript
+
+    /**
+     * What the terminal publication adds on top of the narrated trace.
+     *
+     * @param answerText the run's answer, at full fidelity. Non-null only for
+     *   [RunOutcome.Answer], and the reason the final row is not taken from the
+     *   trace: the trace clips a generation to a fixed budget, and a long
+     *   answer must not be shown clipped.
+     * @param narrateInterruptedFinal whether the last generation, which the
+     *   runtime reports as not completed, still counts as something the user
+     *   should see. True for a cancellation, where it is the answer the user
+     *   was in the middle of reading. False for a failure, where it is the
+     *   native library's error string and belongs in the trace screen.
+     */
+    private class TerminalNarrative(
+        val outcome: RunOutcome,
+        val answerText: String?,
+        val narrateInterruptedFinal: Boolean,
+    )
+
+    /**
+     * Renders the trace into the transcript, in the order the agent acted.
+     *
+     * Idempotent, keyed on trace-entry identity: a second call over a list that
+     * has already been drawn adds nothing, fills in an observation that has
+     * since arrived, and never duplicates a row. The trace is republished whole
+     * at an approval and again at the end, so this is called more than once per
+     * run and the property is load-bearing rather than defensive.
+     *
+     * ORDER IS THE POINT. Within a step the runtime appends `GENERATION` and
+     * then `TOOL_CALL`, and this walks the list in that order, so the words the
+     * model said before acting are always drawn above the call it then made.
+     * The previous version drew only the calls and committed the final answer,
+     * so everything the model said before a tool call existed for the length of
+     * the decode and was then erased — the user never saw it at all.
+     */
+    private fun renderTrace(steps: List<StepTrace>, terminal: RunOutcome?) {
+        val narrative = terminal?.let {
+            TerminalNarrative(
+                outcome = it,
+                answerText = (it as? RunOutcome.Answer)?.text,
+                // A cancelled generation is the answer the user was reading.
+                // A failed one is `native generation failed: …`, which
+                // `transcriptLine` exists specifically to keep out of the chat.
+                narrateInterruptedFinal = it is RunOutcome.Cancelled,
+            )
+        }
+
+        val generations = steps.filter { it.kind == StepTrace.Kind.GENERATION }
+        val lastGeneration = generations.lastOrNull()
+
+        // Built purely, then assigned once: `StateFlow.update` may run its block
+        // more than once, so nothing here may have a side effect.
+        val additions = ArrayList<ChatMessage>()
+        val toolPlacements = ArrayList<Pair<StepTrace, Int>>()
+        val narrationPlacements = ArrayList<Pair<StepTrace, Int>>()
+        val observationFills = ArrayList<Pair<Int, StepTrace>>()
+        val narrationFixes = ArrayList<Pair<Int, String>>()
+
+        var base = 0
+        val baseSize = synchronized(transcriptLock) { _messages.value.size }
+
+        for (entry in steps) {
+            when (entry.kind) {
+                StepTrace.Kind.GENERATION -> {
+                    val isFinal = entry === lastGeneration
+                    val alreadyNarrated = synchronized(transcriptLock) { narratedRows[entry] }
+
+                    val text = when {
+                        // The answer, at full fidelity rather than the trace's
+                        // clipped copy. This is the one row that is never taken
+                        // from the trace.
+                        isFinal && narrative?.answerText != null -> narrative.answerText
+
+                        // The generation the user was watching when they hit
+                        // STOP. Incomplete, and shown as such by the notice the
+                        // caller appends after it.
+                        isFinal && narrative?.narrateInterruptedFinal == true ->
+                            GenerationProse.display(entry.detail)
+
+                        // A generation the runtime did not complete, and which
+                        // is not the cancelled one: malformed output, or a
+                        // generation cut at the output limit. Not an answer, and
+                        // not something to narrate as one.
+                        !entry.success -> null
+
+                        // The ordinary case: the words before this step's call.
+                        else -> GenerationProse.display(entry.detail)
+                    }
+                    if (text.isNullOrBlank()) continue
+
+                    // RULE 4, and the race it exists to survive: the trace and
+                    // the run state are two independent StateFlows, so the trace
+                    // collector can narrate the final generation from its
+                    // CLIPPED detail before the state collector arrives with the
+                    // unclipped answer. Skipping the second commit would leave
+                    // the user with the truncated copy forever, so the full
+                    // answer REPLACES the row already drawn. Same row, same
+                    // place, corrected text — never a second copy.
+                    if (alreadyNarrated != null) {
+                        if (isFinal && narrative?.answerText != null) {
+                            narrationFixes += alreadyNarrated to narrative.answerText
+                        }
+                        continue
+                    }
+
+                    narrationPlacements += entry to (baseSize + base)
+                    additions += ChatMessage.Assistant(text)
+                    base += 1
+                }
+
+                StepTrace.Kind.TOOL_CALL -> {
+                    // The matching OBSERVATION is the next entry with the same
+                    // step number. The loop dispatches at most one tool per
+                    // step, so the step number is a sound pairing key.
+                    val observation = steps.firstOrNull {
+                        it.kind == StepTrace.Kind.OBSERVATION && it.step == entry.step
+                    }
+                    val known = synchronized(transcriptLock) { toolRows[entry] }
+                    if (known != null) {
+                        if (observation == null) continue
+                        observationFills += known to observation
+                        continue
+                    }
+                    toolPlacements += entry to (baseSize + base)
+                    additions += ChatMessage.ToolStep(
                         // From the explicit fields, never by cutting up
                         // `detail`: that string is a display format and parsing
                         // it is how a tool named "files.read_text" ends up
@@ -196,50 +371,164 @@ class ChatViewModel(
                         // refused rendered in the colour of a success.
                         success = observation?.success ?: false,
                     )
-                    val next = list + row
-                    toolRows[entry] = next.lastIndex
-                    next
+                    base += 1
                 }
+
+                else -> Unit
             }
         }
 
-        var lastTerminal: RunState.Finished? = gateway.runState.value as? RunState.Finished
-        var wasTerminal = gateway.runState.value.isTerminal
-        scope.launch {
-            gateway.trace.collect { steps -> renderToolSteps(steps) }
+        if (additions.isEmpty() && observationFills.isEmpty() && narrationFixes.isEmpty()) {
+            appendTerminalNotices(steps, narrative, lastGeneration)
+            return
         }
-        scope.launch {
-            gateway.runState.collect { state ->
-                // A run is starting. Drop the previous run's entries so the map
-                // does not accumulate for the life of the Activity. Not a
-                // correctness requirement — each run's entries are new objects,
-                // so nothing is ever mistaken for an older call — but an
-                // unbounded map in a ViewModel is a leak with extra steps.
-                if (wasTerminal && !state.isTerminal) toolRows.clear()
-                wasTerminal = state.isTerminal
 
-                if (state !is RunState.Finished) return@collect
-                if (state === lastTerminal) return@collect
-                lastTerminal = state
+        if (observationFills.isNotEmpty() || narrationFixes.isNotEmpty()) {
+            // In-place only, so the length does not change and no recorded index
+            // moves. A tool row is only ever completed once, and a narrated row
+            // is only ever corrected once.
+            _messages.update { list ->
+                // Copy once, on the first write, not by comparing identities:
+                // `next === list` stays true for every later iteration and the
+                // assignment below would then land on the shared, immutable
+                // list. An explicit flag cannot be re-entered by a second pass.
+                var copy: MutableList<ChatMessage>? = null
+                for ((index, observation) in observationFills) {
+                    if (index !in list.indices) continue
+                    val row = list[index]
+                    if (row !is ChatMessage.ToolStep) continue
+                    if (row.observation != null) continue
+                    val target = copy ?: list.toMutableList().also { copy = it }
+                    target[index] = row.completedBy(observation)
+                }
+                for ((index, text) in narrationFixes) {
+                    if (index !in list.indices) continue
+                    val row = list[index]
+                    if (row !is ChatMessage.Assistant) continue
+                    if (row.text == text) continue
+                    val target = copy ?: list.toMutableList().also { copy = it }
+                    target[index] = ChatMessage.Assistant(text)
+                }
+                copy ?: list
+            }
+        }
 
-                // The calls first, then the outcome.
-                //
-                // Both publications happen inside one `publish()` in
-                // `AgentViewModel` and reach this class over two independent
-                // collectors, so whichever ran first used to decide the order.
-                // The transcript could read "here is your answer" and then list
-                // the calls that produced it underneath, which reads as though
-                // the agent did all of its work after answering.
-                renderToolSteps(gateway.trace.value)
+        appendRows(additions, toolPlacements, narrationPlacements)
+        appendTerminalNotices(steps, narrative, lastGeneration)
+    }
 
-                _messages.update {
-                    it + when (val outcome = state.outcome) {
-                        is RunOutcome.Answer -> ChatMessage.Assistant(outcome.text)
-                        else -> ChatMessage.Notice(outcome.transcriptLine())
+    /**
+     * Appends whatever the outcome line has to add after the narrative.
+     *
+     * The notice is the affordance for "this did not finish". A truncated
+     * answer is committed as an ordinary `Assistant` row and the row directly
+     * beneath it says so, which is the difference between a user who knows the
+     * sentence was cut off and one who believes they were shown a finished
+     * thought.
+     */
+    private fun appendTerminalNotices(
+        steps: List<StepTrace>,
+        narrative: TerminalNarrative?,
+        lastGeneration: StepTrace?,
+    ) {
+        if (narrative == null) return
+        val outcome = narrative.outcome
+
+        // A completed answer speaks for itself. A notice under it would be
+        // noise, and "Done." after a real answer is a claim about work.
+        if (outcome is RunOutcome.Answer) {
+            // An answer the runtime reports as NOT completed reached this point
+            // when the model hit its output limit mid-`<respond>`. The parser
+            // takes an unterminated respond as the answer, so without this the
+            // user gets a clipped sentence with nothing marking it as clipped.
+            if (lastGeneration != null && !lastGeneration.success) {
+                appendRows(listOf(ChatMessage.Notice(TRUNCATED_AT_LIMIT)))
+            }
+            return
+        }
+
+        val notice = when (outcome) {
+            is RunOutcome.Cancelled -> CANCELLED_MID_ANSWER
+            else -> outcome.transcriptLine()
+        }
+        appendRows(listOf(ChatMessage.Notice(notice)))
+    }
+
+    /**
+     * Appends rows, then enforces the cap, then fixes the recorded indices.
+     *
+     * These three are one operation and must not be split: the cap drops rows
+     * from the *front* of the list, which invalidates every index recorded so
+     * far, and an index that silently addresses the wrong row is worse than an
+     * absent one — a tool result would be written into somebody else's message.
+     */
+    private fun appendRows(
+        rows: List<ChatMessage>,
+        toolPlacements: List<Pair<StepTrace, Int>> = emptyList(),
+        narrationPlacements: List<Pair<StepTrace, Int>> = emptyList(),
+    ) {
+        if (rows.isEmpty() && toolPlacements.isEmpty() && narrationPlacements.isEmpty()) return
+        synchronized(transcriptLock) {
+            val current = _messages.value
+            val grown = current + rows
+            val kept = trim(grown)
+            val dropped = grown.size - kept.size
+            _messages.value = kept
+
+            // Every recorded index shifts left by however many rows left the
+            // front. An entry whose own row was dropped is forgotten rather than
+            // left pointing at a neighbour.
+            if (dropped > 0) {
+                val keys = ArrayList<StepTrace>(toolRows.size + narratedRows.size)
+                keys += toolRows.keys
+                keys += narratedRows.keys
+                for (key in keys) {
+                    val at = toolRows[key] ?: narratedRows[key] ?: continue
+                    if (at < dropped) {
+                        toolRows.remove(key)
+                        narratedRows.remove(key)
+                    } else {
+                        val moved = at - dropped
+                        if (toolRows.containsKey(key)) toolRows[key] = moved
+                        if (narratedRows.containsKey(key)) narratedRows[key] = moved
                     }
                 }
             }
+
+            for ((entry, provisional) in toolPlacements) toolRows[entry] = provisional - dropped
+            for ((entry, provisional) in narrationPlacements) narratedRows[entry] = provisional - dropped
         }
+    }
+
+    /**
+     * Enforces [MAX_TRANSCRIPT_ROWS], dropping from the front.
+     *
+     * WHY THE FRONT: the newest exchange is the one the user is looking at, and
+     * a chat that evicts its own most recent messages to keep old ones is
+     * backwards.
+     *
+     * WHY THE USER'S OWN MESSAGES ARE KEPT LONGER: an assistant row is
+     * reconstructible from the model's behaviour, but "what did I ask this app"
+     * is the user's own record and there is no second copy of it anywhere. So a
+     * `User` row is only ever dropped when there is nothing else left to drop.
+     */
+    private fun trim(rows: List<ChatMessage>): List<ChatMessage> {
+        var excess = rows.size - MAX_TRANSCRIPT_ROWS
+        if (excess <= 0) return rows
+        val doomed = BooleanArray(rows.size)
+        for (index in rows.indices) {
+            if (excess <= 0) break
+            if (rows[index] is ChatMessage.User) continue
+            doomed[index] = true
+            excess -= 1
+        }
+        for (index in rows.indices) {
+            if (excess <= 0) break
+            if (doomed[index]) continue
+            doomed[index] = true
+            excess -= 1
+        }
+        return rows.filterIndexed { index, _ -> !doomed[index] }
     }
 
     // ------------------------------------------------------------------- intents
@@ -295,15 +584,16 @@ class ChatViewModel(
         // on as if nothing had been asked. The old `ToolApproval` list was
         // written here and read by no screen at all, which is the same missing
         // row in a place nobody was looking.
-        _messages.update {
-            it + ChatMessage.Approval(toolName = pending.toolName, approved = approved)
-        }
+        appendRows(listOf(ChatMessage.Approval(toolName = pending.toolName, approved = approved)))
     }
 
     fun clear() {
-        _messages.value = emptyList()
-        // The row indices in `toolRows` no longer address anything.
-        toolRows.clear()
+        synchronized(transcriptLock) {
+            _messages.value = emptyList()
+            // The row indices in `toolRows` no longer address anything.
+            toolRows.clear()
+            narratedRows.clear()
+        }
     }
 
     class Factory(
@@ -319,6 +609,89 @@ class ChatViewModel(
         }
     }
 }
+
+/**
+ * ===================================================================
+ *  THE COMMIT RULE
+ * ===================================================================
+ *
+ * The loop is a stream of interleaved events — tokens, a tool call, an
+ * observation, more tokens, a final answer — and the transcript is a flat list.
+ * These are the rules that turn one into the other. They are written down here
+ * because the previous implementation had none of them, and every gap that left
+ * is a bug the user could hit.
+ *
+ * 1. A generation becomes a permanent `Assistant` message ONCE, and only once
+ *    the trace says the step it belongs to is over. An arriving token is not a
+ *    commit: it is a live preview in a bubble that is not part of the list.
+ *    Committing per token is what floods a transcript, and the preview already
+ *    covers "show it to me as it happens".
+ *
+ * 2. Text the model produced BEFORE a tool call is kept, not overwritten. It is
+ *    committed as its own `Assistant` row, above the `ToolStep` row for that
+ *    call, because the runtime appends `GENERATION` before `TOOL_CALL` within a
+ *    step and this walks the trace in that order. Previously those words existed
+ *    only in the live bubble and were erased by the next step's tokens: the
+ *    user watched the agent say it and then never saw it again. Losing the
+ *    model's own words around a tool call is a correctness bug, not a cosmetic
+ *    one.
+ *
+ * 3. The final answer is committed from the run outcome, never from the trace.
+ *    `AgentController` clips a traced generation to a fixed character budget, so
+ *    a long answer taken from the trace would be silently truncated. The outcome
+ *    carries it at full fidelity.
+ *
+ * 4. Nothing is committed twice. Identity-keyed, because the trace is
+ *    republished whole at an approval and again at the end; a key that was not
+ *    identity would re-append on the second publication and show the answer
+ *    twice.
+ *
+ * 5. A run that did not finish says so, in a `Notice` directly beneath the text
+ *    it did produce. A cancelled run keeps its partial text and marks it
+ *    incomplete. A truncated answer must never be indistinguishable from a
+ *    finished one. `Notice` is the affordance that already exists for this; no
+ *    new component was added.
+ *
+ * 6. The transcript is capped at [MAX_TRANSCRIPT_ROWS], dropping from the
+ *    front, and the user's own messages outlive assistant output.
+ */
+
+/**
+ * Hard ceiling on retained transcript rows.
+ *
+ * WHY A NUMBER: this list is held in a `StateFlow` for the life of the
+ * Activity and is re-emitted in full on every change, and a `ToolStep` row
+ * carries an observation the runtime clips to a couple of thousand characters.
+ * An unbounded list is therefore a real leak on the one platform where RAM is
+ * the product, and it is retained across rotation because the ViewModel
+ * outlives the Activity.
+ *
+ * WHY THIS NUMBER: 200 rows is on the order of 30–50 exchanges — far more than
+ * a phone conversation holds before the user scrolls away from it — and bounds
+ * the worst case to a few hundred kilobytes, which is noise beside the
+ * gigabytes of weights the same process is already holding resident.
+ */
+private const val MAX_TRANSCRIPT_ROWS = 200
+
+/**
+ * Said under an answer the model never finished producing.
+ *
+ * The parser accepts an unterminated `<respond>` as the answer, so hitting the
+ * output limit mid-sentence yields a plausible-looking answer that is missing
+ * its ending. Without this line the user has no way to tell that from a
+ * complete thought.
+ */
+private const val TRUNCATED_AT_LIMIT =
+    "This answer was cut off at the model's output limit, so it is incomplete."
+
+/**
+ * Said under the partial text of a run the user stopped.
+ *
+ * The words above are the model's, kept rather than discarded, and this is what
+ * stops them reading as a finished answer.
+ */
+private const val CANCELLED_MID_ANSWER =
+    "Stopped at your request. The text above is what the model had produced so far, and it is incomplete."
 
 /**
  * One row of the transcript. A flat list, not a tree: the runtime is a loop.
