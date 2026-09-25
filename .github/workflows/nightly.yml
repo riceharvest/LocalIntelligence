@@ -1,0 +1,106 @@
+name: nightly
+
+# The slow checks, deliberately NOT on the push path.
+#
+# Rationale, in one line: agents wait for CI, so CI has to be short. Everything
+# here either needs the Android SDK/NDK or takes minutes, and none of it is
+# likely to be broken by a change to the agent loop.
+#
+# What is here:
+#   - the real APK build (llama.cpp cross-compiled for two ABIs via the NDK:
+#     5-15 minutes cold, ~1-2 GB in android/.cxx)
+#   - the Android unit tests, which need the SDK
+#   - the gate self-test, which breaks every gate on purpose to prove it is
+#     capable of going red
+#
+# It also runs on demand via workflow_dispatch, so a change to CI itself can be
+# verified before it is merged rather than the day after.
+
+on:
+  schedule:
+    # 04:17 UTC daily. Deliberately not on the hour: every scheduled workflow in
+    # the world fires at :00, and GitHub queues them.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: android + app (APK build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          # Same reason as the android-jvm job: the action's default package list
+          # includes the legacy `tools` package, which no longer exists in the
+          # SDK repository, and the action fails outright.
+          packages: 'platform-tools platforms;android-36'
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Note: :android unit tests are NOT here — they run on every push in the
+      # `android-jvm` job, because they need no native build and take a minute.
+      # Repeating them here would buy nothing.
+
+      # llama.cpp is fetched by CMake (FetchContent) and cached in android/.cxx,
+      # so the first build of the day is the slow one.
+      - name: Accept SDK licences
+        # Without this, setup-android leaves the SDK unusable and the job dies
+        # in sdkmanager with an opaque licence error before Gradle ever runs.
+        run: sdkmanager --licenses <<< $'y\ny\ny\ny\ny\ny\ny\ny\ny\ny\n' || true
+
+      - name: Install NDK and CMake
+        # :android builds a native JNI library, which needs both. Pinning the
+        # versions the CMakeLists.txt declares keeps the build reproducible.
+        run: sdkmanager "ndk;27.1.12297006" "cmake;3.22.1" "platforms;android-36" "build-tools;35.0.1"
+
+      - name: Build debug APK
+        # PIDROID_LLAMA_FETCH makes CMake pull the pinned llama.cpp tag via
+        # FetchContent instead of requiring a submodule checkout. Without it
+        # the configure step fails naming the fix, which is the intended
+        # behaviour locally but is just a broken CI job here.
+        env:
+          PIDROID_LLAMA_FETCH: '1'
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalIntelligence-debug
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+  # A gate that has never been seen to fail is not a gate. This breaks every one
+  # of them on purpose, in a scratch copy, and fails if any of them stays green.
+  # It is slow (it builds a copy of the repo per case), so it is not on the push
+  # path — but it must not rot.
+  gates-self-test:
+    name: gates can actually go red
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Android SDK paths only; the gate tests that need Gradle compile :core,
+      # which is pure JVM.
+      - name: Point ANDROID_HOME at the runner SDK
+        run: echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+
+      - name: Break every gate and assert it fails
+        run: ./scripts/test-gates.sh

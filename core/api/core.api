@@ -1,0 +1,836 @@
+public final class dev/localintelligence/core/LocalIntelligence {
+	public static final field INSTANCE Ldev/localintelligence/core/LocalIntelligence;
+}
+
+public abstract interface class dev/localintelligence/core/agent/ActionParseResult {
+}
+
+public final class dev/localintelligence/core/agent/ActionParseResult$Malformed : dev/localintelligence/core/agent/ActionParseResult {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/localintelligence/core/agent/ActionParseResult$Malformed;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/ActionParseResult$Malformed;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/agent/ActionParseResult$Malformed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRaw ()Ljava/lang/String;
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/agent/ActionParseResult$Parsed : dev/localintelligence/core/agent/ActionParseResult {
+	public fun <init> (Ldev/localintelligence/core/agent/AgentAction;)V
+	public final fun component1 ()Ldev/localintelligence/core/agent/AgentAction;
+	public final fun copy (Ldev/localintelligence/core/agent/AgentAction;)Ldev/localintelligence/core/agent/ActionParseResult$Parsed;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/ActionParseResult$Parsed;Ldev/localintelligence/core/agent/AgentAction;ILjava/lang/Object;)Ldev/localintelligence/core/agent/ActionParseResult$Parsed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAction ()Ldev/localintelligence/core/agent/AgentAction;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/localintelligence/core/agent/ActionParser {
+	public abstract fun parse (Ljava/lang/String;Ljava/util/Set;)Ldev/localintelligence/core/agent/ActionParseResult;
+}
+
+public final class dev/localintelligence/core/agent/ActionParserImpl : dev/localintelligence/core/agent/ActionParser {
+	public static final field INSTANCE Ldev/localintelligence/core/agent/ActionParserImpl;
+	public fun parse (Ljava/lang/String;Ljava/util/Set;)Ldev/localintelligence/core/agent/ActionParseResult;
+}
+
+public abstract interface class dev/localintelligence/core/agent/AgentAction {
+}
+
+public final class dev/localintelligence/core/agent/AgentAction$CallTool : dev/localintelligence/core/agent/AgentAction {
+	public fun <init> (Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lkotlinx/serialization/json/JsonObject;
+	public final fun copy (Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;)Ldev/localintelligence/core/agent/AgentAction$CallTool;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/AgentAction$CallTool;Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;ILjava/lang/Object;)Ldev/localintelligence/core/agent/AgentAction$CallTool;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArguments ()Lkotlinx/serialization/json/JsonObject;
+	public final fun getName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/agent/AgentAction$Respond : dev/localintelligence/core/agent/AgentAction {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/agent/AgentAction$Respond;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/AgentAction$Respond;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/agent/AgentAction$Respond;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getText ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/agent/AgentConfig {
+	public fun <init> ()V
+	public fun <init> (IIIIII)V
+	public synthetic fun <init> (IIIIIIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun component5 ()I
+	public final fun component6 ()I
+	public final fun copy (IIIIII)Ldev/localintelligence/core/agent/AgentConfig;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/AgentConfig;IIIIIIILjava/lang/Object;)Ldev/localintelligence/core/agent/AgentConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxMalformedRetries ()I
+	public final fun getMaxSteps ()I
+	public final fun getMaxVisibleTools ()I
+	public final fun getMemoryResults ()I
+	public final fun getObservationBudgetChars ()I
+	public final fun getWorkingTokenLimit ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/agent/AgentController {
+	public static final field COMPACT_AT D
+	public static final field LINE_CHARS I
+	public static final field TRACE_DETAIL_CHARS I
+	public static final field TRUNCATOR_MIN_SAFE_BUDGET I
+	public fun <init> (Ldev/localintelligence/core/model/ModelBackend;Ldev/localintelligence/core/agent/ActionParser;Ldev/localintelligence/core/tool/ToolRegistry;Ldev/localintelligence/core/tool/ToolSelector;Ldev/localintelligence/core/agent/ToolCallValidatorGate;Ldev/localintelligence/core/agent/LoopDetector;Ldev/localintelligence/core/context/ContextBuilder;Ldev/localintelligence/core/agent/MemoryStore;Ldev/localintelligence/core/agent/Session;Ldev/localintelligence/core/agent/AgentConfig;)V
+	public synthetic fun <init> (Ldev/localintelligence/core/model/ModelBackend;Ldev/localintelligence/core/agent/ActionParser;Ldev/localintelligence/core/tool/ToolRegistry;Ldev/localintelligence/core/tool/ToolSelector;Ldev/localintelligence/core/agent/ToolCallValidatorGate;Ldev/localintelligence/core/agent/LoopDetector;Ldev/localintelligence/core/context/ContextBuilder;Ldev/localintelligence/core/agent/MemoryStore;Ldev/localintelligence/core/agent/Session;Ldev/localintelligence/core/agent/AgentConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun cancel ()V
+	public final fun confirmAndResume (ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun run (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/localintelligence/core/agent/AgentResult {
+}
+
+public final class dev/localintelligence/core/agent/AgentResult$AwaitingConfirmation : dev/localintelligence/core/agent/AgentResult {
+	public fun <init> (Ljava/lang/String;Ldev/localintelligence/core/tool/AgentTool;Lkotlinx/serialization/json/JsonObject;Ljava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/localintelligence/core/tool/AgentTool;
+	public final fun component3 ()Lkotlinx/serialization/json/JsonObject;
+	public final fun component4 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ldev/localintelligence/core/tool/AgentTool;Lkotlinx/serialization/json/JsonObject;Ljava/util/List;)Ldev/localintelligence/core/agent/AgentResult$AwaitingConfirmation;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/AgentResult$AwaitingConfirmation;Ljava/lang/String;Ldev/localintelligence/core/tool/AgentTool;Lkotlinx/serialization/json/JsonObject;Ljava/util/List;ILjava/lang/Object;)Ldev/localintelligence/core/agent/AgentResult$AwaitingConfirmation;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPendingArgs ()Lkotlinx/serialization/json/JsonObject;
+	public final fun getTool ()Ldev/localintelligence/core/tool/AgentTool;
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getTrace ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/agent/AgentResult$Cancelled : dev/localintelligence/core/agent/AgentResult {
+	public static final field INSTANCE Ldev/localintelligence/core/agent/AgentResult$Cancelled;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/agent/AgentResult$StepLimitReached : dev/localintelligence/core/agent/AgentResult {
+	public static final field INSTANCE Ldev/localintelligence/core/agent/AgentResult$StepLimitReached;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/agent/AgentResult$Stop : dev/localintelligence/core/agent/AgentResult {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;)Ldev/localintelligence/core/agent/AgentResult$Stop;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/AgentResult$Stop;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Ldev/localintelligence/core/agent/AgentResult$Stop;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getTrace ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/agent/AgentResult$Success : dev/localintelligence/core/agent/AgentResult {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;)Ldev/localintelligence/core/agent/AgentResult$Success;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/AgentResult$Success;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Ldev/localintelligence/core/agent/AgentResult$Success;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getText ()Ljava/lang/String;
+	public final fun getTrace ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/agent/InMemoryMemoryStore : dev/localintelligence/core/agent/MemoryStore {
+	public fun <init> ()V
+	public fun all (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun forget (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun remember (Ljava/lang/String;FLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun search (Ljava/lang/String;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/localintelligence/core/agent/LoopDetector {
+	public fun <init> ()V
+	public fun <init> (III)V
+	public synthetic fun <init> (IIIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun check (Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;)Ldev/localintelligence/core/agent/LoopDetector$Verdict;
+	public final fun hasStalled ()Z
+	public final fun isUnavailable (Ljava/lang/String;)Z
+	public final fun normalize (Lkotlinx/serialization/json/JsonObject;)Ljava/lang/String;
+	public final fun recordResult (Ljava/lang/String;Ljava/lang/String;Z)V
+	public final fun reset ()V
+}
+
+public final class dev/localintelligence/core/agent/LoopDetector$Verdict : java/lang/Enum {
+	public static final field ALLOW Ldev/localintelligence/core/agent/LoopDetector$Verdict;
+	public static final field BLOCK Ldev/localintelligence/core/agent/LoopDetector$Verdict;
+	public static final field WARN Ldev/localintelligence/core/agent/LoopDetector$Verdict;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/localintelligence/core/agent/LoopDetector$Verdict;
+	public static fun values ()[Ldev/localintelligence/core/agent/LoopDetector$Verdict;
+}
+
+public final class dev/localintelligence/core/agent/Memory {
+	public fun <init> (JLjava/lang/String;Ljava/lang/String;F)V
+	public synthetic fun <init> (JLjava/lang/String;Ljava/lang/String;FILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()F
+	public final fun copy (JLjava/lang/String;Ljava/lang/String;F)Ldev/localintelligence/core/agent/Memory;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/Memory;JLjava/lang/String;Ljava/lang/String;FILjava/lang/Object;)Ldev/localintelligence/core/agent/Memory;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()J
+	public final fun getImportance ()F
+	public final fun getKeywords ()Ljava/lang/String;
+	public final fun getText ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/localintelligence/core/agent/MemoryStore {
+	public abstract fun all (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun all$default (Ldev/localintelligence/core/agent/MemoryStore;ILkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public abstract fun forget (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun remember (Ljava/lang/String;FLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun remember$default (Ldev/localintelligence/core/agent/MemoryStore;Ljava/lang/String;FLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public abstract fun search (Ljava/lang/String;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun search$default (Ldev/localintelligence/core/agent/MemoryStore;Ljava/lang/String;ILkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/localintelligence/core/agent/MemoryStore$DefaultImpls {
+	public static synthetic fun all$default (Ldev/localintelligence/core/agent/MemoryStore;ILkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun remember$default (Ldev/localintelligence/core/agent/MemoryStore;Ljava/lang/String;FLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun search$default (Ldev/localintelligence/core/agent/MemoryStore;Ljava/lang/String;ILkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/localintelligence/core/agent/RawAction {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/localintelligence/core/agent/RawAction;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/RawAction;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/agent/RawAction;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFinishReason ()Ljava/lang/String;
+	public final fun getPayload ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/agent/Session {
+	public static final field KEYWORD_LIMIT I
+	public static final field LINE_CHARS I
+	public static final field SUMMARY_BUDGET_CHARS I
+	public fun <init> ()V
+	public fun <init> (JI)V
+	public synthetic fun <init> (JIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun appendAssistant (Ljava/lang/String;)V
+	public final fun appendToolObservation (Ldev/localintelligence/core/tool/AgentTool;Ljava/lang/String;Z)V
+	public final fun clear ()V
+	public final fun compact ()Z
+	public final fun currentKeywords ()Ljava/util/List;
+	public final fun getId ()J
+	public final fun getKeepRecent ()I
+	public final fun getMessages ()Ljava/util/List;
+	public final fun getWorkingSummary ()Ldev/localintelligence/core/context/CompactedState;
+	public final fun observe (Ljava/lang/String;)V
+	public final fun setWorkingSummary (Ldev/localintelligence/core/context/CompactedState;)V
+	public final fun start (Ljava/lang/String;)V
+	public final fun tokens (Ldev/localintelligence/core/model/ModelBackend;)I
+}
+
+public abstract interface class dev/localintelligence/core/agent/SessionStore {
+	public abstract fun appendMessage (JLdev/localintelligence/core/model/ChatMessage;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun clear (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun createSession (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun messages (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/localintelligence/core/agent/StepTrace {
+	public fun <init> (ILdev/localintelligence/core/agent/StepTrace$Kind;Ljava/lang/String;JZ)V
+	public synthetic fun <init> (ILdev/localintelligence/core/agent/StepTrace$Kind;Ljava/lang/String;JZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ldev/localintelligence/core/agent/StepTrace$Kind;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()J
+	public final fun component5 ()Z
+	public final fun copy (ILdev/localintelligence/core/agent/StepTrace$Kind;Ljava/lang/String;JZ)Ldev/localintelligence/core/agent/StepTrace;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/StepTrace;ILdev/localintelligence/core/agent/StepTrace$Kind;Ljava/lang/String;JZILjava/lang/Object;)Ldev/localintelligence/core/agent/StepTrace;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDetail ()Ljava/lang/String;
+	public final fun getDurationMs ()J
+	public final fun getKind ()Ldev/localintelligence/core/agent/StepTrace$Kind;
+	public final fun getStep ()I
+	public final fun getSuccess ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/agent/StepTrace$Kind : java/lang/Enum {
+	public static final field COMPACTION Ldev/localintelligence/core/agent/StepTrace$Kind;
+	public static final field GENERATION Ldev/localintelligence/core/agent/StepTrace$Kind;
+	public static final field MALFORMED Ldev/localintelligence/core/agent/StepTrace$Kind;
+	public static final field OBSERVATION Ldev/localintelligence/core/agent/StepTrace$Kind;
+	public static final field TOOL_CALL Ldev/localintelligence/core/agent/StepTrace$Kind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/localintelligence/core/agent/StepTrace$Kind;
+	public static fun values ()[Ldev/localintelligence/core/agent/StepTrace$Kind;
+}
+
+public abstract interface class dev/localintelligence/core/agent/ToolCallValidatorGate {
+	public static final field Companion Ldev/localintelligence/core/agent/ToolCallValidatorGate$Companion;
+	public abstract fun validate (Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;Ljava/util/List;)Ldev/localintelligence/core/agent/ValidationOutcome;
+}
+
+public final class dev/localintelligence/core/agent/ToolCallValidatorGate$Companion {
+	public final fun forRegistry (Ldev/localintelligence/core/tool/ToolRegistry;)Ldev/localintelligence/core/agent/ToolCallValidatorGate;
+}
+
+public abstract interface class dev/localintelligence/core/agent/ValidationOutcome {
+}
+
+public final class dev/localintelligence/core/agent/ValidationOutcome$Ok : dev/localintelligence/core/agent/ValidationOutcome {
+	public fun <init> (Ldev/localintelligence/core/tool/AgentTool;)V
+	public final fun component1 ()Ldev/localintelligence/core/tool/AgentTool;
+	public final fun copy (Ldev/localintelligence/core/tool/AgentTool;)Ldev/localintelligence/core/agent/ValidationOutcome$Ok;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/ValidationOutcome$Ok;Ldev/localintelligence/core/tool/AgentTool;ILjava/lang/Object;)Ldev/localintelligence/core/agent/ValidationOutcome$Ok;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getTool ()Ldev/localintelligence/core/tool/AgentTool;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/agent/ValidationOutcome$Rejected : dev/localintelligence/core/agent/ValidationOutcome {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/agent/ValidationOutcome$Rejected;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/agent/ValidationOutcome$Rejected;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/agent/ValidationOutcome$Rejected;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getObservation ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/context/CompactedState {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Ljava/util/List;
+	public final fun component5 ()Ljava/util/List;
+	public final fun component6 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/List;)Ldev/localintelligence/core/context/CompactedState;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/context/CompactedState;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/List;ILjava/lang/Object;)Ldev/localintelligence/core/context/CompactedState;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActionsTaken ()Ljava/util/List;
+	public final fun getFailures ()Ljava/util/List;
+	public final fun getKnownFacts ()Ljava/util/List;
+	public final fun getProgress ()Ljava/util/List;
+	public final fun getRemainingWork ()Ljava/util/List;
+	public final fun getTask ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun render ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/localintelligence/core/context/ContextBuilder {
+	public abstract fun build (Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/List;)Ljava/util/List;
+}
+
+public final class dev/localintelligence/core/context/ContextCompactor {
+	public static final field Companion Ldev/localintelligence/core/context/ContextCompactor$Companion;
+	public static final field MAX_ENTRY_CHARS I
+	public static final field MAX_SLOT_ENTRIES I
+	public static final field UNKNOWN Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (Ldev/localintelligence/core/context/SummaryWriter;ID)V
+	public synthetic fun <init> (Ldev/localintelligence/core/context/SummaryWriter;IDILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun compact (Ljava/util/List;Ldev/localintelligence/core/context/CompactedState;Ldev/localintelligence/core/model/ModelBackend;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun shouldCompact (II)Z
+	public final fun summaryMessage (Ldev/localintelligence/core/context/CompactedState;)Ldev/localintelligence/core/model/ChatMessage$System;
+}
+
+public final class dev/localintelligence/core/context/ContextCompactor$Companion {
+}
+
+public final class dev/localintelligence/core/context/DefaultContextBuilder : dev/localintelligence/core/context/ContextBuilder {
+	public fun <init> ()V
+	public fun <init> (Lkotlin/jvm/functions/Function1;I)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun build (Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/List;)Ljava/util/List;
+}
+
+public final class dev/localintelligence/core/context/DeterministicSummaryWriter : dev/localintelligence/core/context/SummaryWriter {
+	public static final field INSTANCE Ldev/localintelligence/core/context/DeterministicSummaryWriter;
+	public fun summarize (Ldev/localintelligence/core/context/CompactedState;Ldev/localintelligence/core/model/ModelBackend;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/localintelligence/core/context/SummaryWriter {
+	public abstract fun summarize (Ldev/localintelligence/core/context/CompactedState;Ldev/localintelligence/core/model/ModelBackend;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/localintelligence/core/context/SystemPrompts {
+	public static final field INSTANCE Ldev/localintelligence/core/context/SystemPrompts;
+	public final fun forTools (Ljava/util/List;)Ljava/lang/String;
+	public final fun getBASE ()Ljava/lang/String;
+}
+
+public abstract interface class dev/localintelligence/core/model/ChatMessage {
+}
+
+public final class dev/localintelligence/core/model/ChatMessage$Assistant : dev/localintelligence/core/model/ChatMessage {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/model/ChatMessage$Assistant;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/model/ChatMessage$Assistant;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/model/ChatMessage$Assistant;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getText ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/model/ChatMessage$System : dev/localintelligence/core/model/ChatMessage {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/model/ChatMessage$System;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/model/ChatMessage$System;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/model/ChatMessage$System;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getText ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/model/ChatMessage$ToolObservation : dev/localintelligence/core/model/ChatMessage {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Z)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Z
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Z)Ldev/localintelligence/core/model/ChatMessage$ToolObservation;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/model/ChatMessage$ToolObservation;Ljava/lang/String;Ljava/lang/String;ZILjava/lang/Object;)Ldev/localintelligence/core/model/ChatMessage$ToolObservation;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getObservation ()Ljava/lang/String;
+	public final fun getSuccess ()Z
+	public final fun getToolName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/model/ChatMessage$User : dev/localintelligence/core/model/ChatMessage {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/model/ChatMessage$User;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/model/ChatMessage$User;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/model/ChatMessage$User;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getText ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/model/GenerationRequest {
+	public fun <init> (Ljava/util/List;Ldev/localintelligence/core/model/SamplingParams;Ljava/lang/String;Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/util/List;Ldev/localintelligence/core/model/SamplingParams;Ljava/lang/String;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ldev/localintelligence/core/model/SamplingParams;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/List;
+	public final fun copy (Ljava/util/List;Ldev/localintelligence/core/model/SamplingParams;Ljava/lang/String;Ljava/util/List;)Ldev/localintelligence/core/model/GenerationRequest;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/model/GenerationRequest;Ljava/util/List;Ldev/localintelligence/core/model/SamplingParams;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Ldev/localintelligence/core/model/GenerationRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowedToolNames ()Ljava/util/List;
+	public final fun getGrammar ()Ljava/lang/String;
+	public final fun getMessages ()Ljava/util/List;
+	public final fun getParams ()Ldev/localintelligence/core/model/SamplingParams;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/model/GenerationResult {
+	public fun <init> (Ljava/lang/String;IILdev/localintelligence/core/model/StopReason;JJ)V
+	public synthetic fun <init> (Ljava/lang/String;IILdev/localintelligence/core/model/StopReason;JJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component3 ()I
+	public final fun component4 ()Ldev/localintelligence/core/model/StopReason;
+	public final fun component5 ()J
+	public final fun component6 ()J
+	public final fun copy (Ljava/lang/String;IILdev/localintelligence/core/model/StopReason;JJ)Ldev/localintelligence/core/model/GenerationResult;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/model/GenerationResult;Ljava/lang/String;IILdev/localintelligence/core/model/StopReason;JJILjava/lang/Object;)Ldev/localintelligence/core/model/GenerationResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCompletionTokens ()I
+	public final fun getDecodeMs ()J
+	public final fun getDecodeTokensPerSecond ()D
+	public final fun getPrefillMs ()J
+	public final fun getPromptTokens ()I
+	public final fun getStopReason ()Ldev/localintelligence/core/model/StopReason;
+	public final fun getText ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/model/GrammarBuilder {
+	public static final field INSTANCE Ldev/localintelligence/core/model/GrammarBuilder;
+	public final fun forActions (Ljava/util/List;)Ljava/lang/String;
+	public final fun hint (Ljava/util/List;)Ljava/lang/String;
+}
+
+public abstract interface class dev/localintelligence/core/model/ModelBackend {
+	public abstract fun cancel ()V
+	public abstract fun countTokens (Ljava/lang/String;)I
+	public abstract fun generate (Ldev/localintelligence/core/model/GenerationRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getCapabilities ()Ldev/localintelligence/core/model/ModelCapabilities;
+	public abstract fun getId ()Ljava/lang/String;
+	public abstract fun load (Ldev/localintelligence/core/model/ModelSpec;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun unload (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/localintelligence/core/model/ModelCapabilities {
+	public static final field Companion Ldev/localintelligence/core/model/ModelCapabilities$Companion;
+	public fun <init> (IZZZZ)V
+	public final fun component1 ()I
+	public final fun component2 ()Z
+	public final fun component3 ()Z
+	public final fun component4 ()Z
+	public final fun component5 ()Z
+	public final fun copy (IZZZZ)Ldev/localintelligence/core/model/ModelCapabilities;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/model/ModelCapabilities;IZZZZILjava/lang/Object;)Ldev/localintelligence/core/model/ModelCapabilities;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getContextLength ()I
+	public final fun getSupportsGrammar ()Z
+	public final fun getSupportsKvCache ()Z
+	public final fun getSupportsToolCalling ()Z
+	public final fun getSupportsVision ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/model/ModelCapabilities$Companion {
+	public final fun getUNKNOWN ()Ldev/localintelligence/core/model/ModelCapabilities;
+}
+
+public final class dev/localintelligence/core/model/ModelSpec {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;JLjava/lang/Long;Ljava/lang/String;Ljava/util/Set;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;JLjava/lang/Long;Ljava/lang/String;Ljava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()J
+	public final fun component4 ()Ljava/lang/Long;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/util/Set;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;JLjava/lang/Long;Ljava/lang/String;Ljava/util/Set;)Ldev/localintelligence/core/model/ModelSpec;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/model/ModelSpec;Ljava/lang/String;Ljava/lang/String;JLjava/lang/Long;Ljava/lang/String;Ljava/util/Set;ILjava/lang/Object;)Ldev/localintelligence/core/model/ModelSpec;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDisplayName ()Ljava/lang/String;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getParameterCount ()Ljava/lang/Long;
+	public final fun getQuantType ()Ljava/lang/String;
+	public final fun getSizeBytes ()J
+	public final fun getSupportedBackends ()Ljava/util/Set;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/model/NoopModelBackend : dev/localintelligence/core/model/ModelBackend {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ldev/localintelligence/core/model/ModelCapabilities;)V
+	public synthetic fun <init> (Ljava/lang/String;Ldev/localintelligence/core/model/ModelCapabilities;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun cancel ()V
+	public fun countTokens (Ljava/lang/String;)I
+	public fun generate (Ldev/localintelligence/core/model/GenerationRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getCapabilities ()Ldev/localintelligence/core/model/ModelCapabilities;
+	public fun getId ()Ljava/lang/String;
+	public fun load (Ldev/localintelligence/core/model/ModelSpec;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun unload (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/localintelligence/core/model/SamplingParams {
+	public fun <init> ()V
+	public fun <init> (FFFFII)V
+	public synthetic fun <init> (FFFFIIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()F
+	public final fun component2 ()F
+	public final fun component3 ()F
+	public final fun component4 ()F
+	public final fun component5 ()I
+	public final fun component6 ()I
+	public final fun copy (FFFFII)Ldev/localintelligence/core/model/SamplingParams;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/model/SamplingParams;FFFFIIILjava/lang/Object;)Ldev/localintelligence/core/model/SamplingParams;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxOutputTokens ()I
+	public final fun getMinP ()F
+	public final fun getRepeatPenalty ()F
+	public final fun getSeed ()I
+	public final fun getTemperature ()F
+	public final fun getTopP ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/model/StopReason : java/lang/Enum {
+	public static final field CANCELLED Ldev/localintelligence/core/model/StopReason;
+	public static final field COMPLETED Ldev/localintelligence/core/model/StopReason;
+	public static final field ERROR Ldev/localintelligence/core/model/StopReason;
+	public static final field MAX_TOKENS Ldev/localintelligence/core/model/StopReason;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/localintelligence/core/model/StopReason;
+	public static fun values ()[Ldev/localintelligence/core/model/StopReason;
+}
+
+public abstract interface class dev/localintelligence/core/model/StreamingModelBackend : dev/localintelligence/core/model/ModelBackend {
+	public abstract fun generateStreaming (Ldev/localintelligence/core/model/GenerationRequest;Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/localintelligence/core/tool/AgentTool {
+	public abstract fun execute (Lkotlinx/serialization/json/JsonObject;Ldev/localintelligence/core/tool/ToolContext;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getDefinition ()Ldev/localintelligence/core/tool/ToolDefinition;
+}
+
+public abstract interface class dev/localintelligence/core/tool/CancellationSignal {
+	public static final field Companion Ldev/localintelligence/core/tool/CancellationSignal$Companion;
+	public abstract fun isCancelled ()Z
+}
+
+public final class dev/localintelligence/core/tool/CancellationSignal$Companion {
+	public final fun getNone ()Ldev/localintelligence/core/tool/CancellationSignal;
+}
+
+public final class dev/localintelligence/core/tool/LexicalToolSelector : dev/localintelligence/core/tool/ToolSelector {
+	public fun <init> ()V
+	public fun select (Ljava/lang/String;Ljava/util/List;Ljava/util/List;I)Ljava/util/List;
+}
+
+public final class dev/localintelligence/core/tool/ObservationTruncator {
+	public static final field DEFAULT_BUDGET_CHARS I
+	public static final field INSTANCE Ldev/localintelligence/core/tool/ObservationTruncator;
+	public final fun truncate (Ljava/lang/String;I)Ljava/lang/String;
+	public static synthetic fun truncate$default (Ldev/localintelligence/core/tool/ObservationTruncator;Ljava/lang/String;IILjava/lang/Object;)Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/tool/SimpleToolRegistry : dev/localintelligence/core/tool/ToolRegistry {
+	public fun <init> ()V
+	public fun <init> (Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun all ()Ljava/util/List;
+	public fun byCategory (Ljava/lang/String;)Ljava/util/List;
+	public fun byName (Ljava/lang/String;)Ldev/localintelligence/core/tool/AgentTool;
+}
+
+public final class dev/localintelligence/core/tool/ToolCallValidator {
+	public static final field INSTANCE Ldev/localintelligence/core/tool/ToolCallValidator;
+	public static final field MAX_NAMED_ARGS I
+	public final fun validate (Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;Ljava/util/List;Ldev/localintelligence/core/tool/ToolRegistry;)Ldev/localintelligence/core/tool/ToolCallValidator$Result;
+}
+
+public abstract interface class dev/localintelligence/core/tool/ToolCallValidator$Result {
+}
+
+public final class dev/localintelligence/core/tool/ToolCallValidator$Result$Rejected : dev/localintelligence/core/tool/ToolCallValidator$Result {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/tool/ToolCallValidator$Result$Rejected;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/tool/ToolCallValidator$Result$Rejected;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/tool/ToolCallValidator$Result$Rejected;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getObservation ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/tool/ToolCallValidator$Result$Valid : dev/localintelligence/core/tool/ToolCallValidator$Result {
+	public fun <init> (Ldev/localintelligence/core/tool/AgentTool;)V
+	public final fun component1 ()Ldev/localintelligence/core/tool/AgentTool;
+	public final fun copy (Ldev/localintelligence/core/tool/AgentTool;)Ldev/localintelligence/core/tool/ToolCallValidator$Result$Valid;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/tool/ToolCallValidator$Result$Valid;Ldev/localintelligence/core/tool/AgentTool;ILjava/lang/Object;)Ldev/localintelligence/core/tool/ToolCallValidator$Result$Valid;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getTool ()Ldev/localintelligence/core/tool/AgentTool;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/tool/ToolContext {
+	public fun <init> ()V
+	public fun <init> (ZZLdev/localintelligence/core/tool/CancellationSignal;)V
+	public synthetic fun <init> (ZZLdev/localintelligence/core/tool/CancellationSignal;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Z
+	public final fun component3 ()Ldev/localintelligence/core/tool/CancellationSignal;
+	public final fun copy (ZZLdev/localintelligence/core/tool/CancellationSignal;)Ldev/localintelligence/core/tool/ToolContext;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/tool/ToolContext;ZZLdev/localintelligence/core/tool/CancellationSignal;ILjava/lang/Object;)Ldev/localintelligence/core/tool/ToolContext;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPermissionGranted ()Z
+	public final fun getSignal ()Ldev/localintelligence/core/tool/CancellationSignal;
+	public final fun getUserConfirmed ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/tool/ToolDefinition {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;Ldev/localintelligence/core/tool/ToolRisk;Ljava/util/Set;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;Ldev/localintelligence/core/tool/ToolRisk;Ljava/util/Set;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Lkotlinx/serialization/json/JsonObject;
+	public final fun component5 ()Ldev/localintelligence/core/tool/ToolRisk;
+	public final fun component6 ()Ljava/util/Set;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;Ldev/localintelligence/core/tool/ToolRisk;Ljava/util/Set;Ljava/lang/String;)Ldev/localintelligence/core/tool/ToolDefinition;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/tool/ToolDefinition;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlinx/serialization/json/JsonObject;Ldev/localintelligence/core/tool/ToolRisk;Ljava/util/Set;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/tool/ToolDefinition;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCategory ()Ljava/lang/String;
+	public final fun getDescription ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getRequiredPermission ()Ljava/lang/String;
+	public final fun getRisk ()Ldev/localintelligence/core/tool/ToolRisk;
+	public final fun getSchema ()Lkotlinx/serialization/json/JsonObject;
+	public final fun getTags ()Ljava/util/Set;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class dev/localintelligence/core/tool/ToolError {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getCode ()Ljava/lang/String;
+	public fun getMessage ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/tool/ToolError$Cancelled : dev/localintelligence/core/tool/ToolError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/tool/ToolError$Cancelled;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/tool/ToolError$Cancelled;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/tool/ToolError$Cancelled;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/tool/ToolError$Internal : dev/localintelligence/core/tool/ToolError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/tool/ToolError$Internal;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/tool/ToolError$Internal;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/tool/ToolError$Internal;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/tool/ToolError$InvalidArguments : dev/localintelligence/core/tool/ToolError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/tool/ToolError$InvalidArguments;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/tool/ToolError$InvalidArguments;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/tool/ToolError$InvalidArguments;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/tool/ToolError$NotFound : dev/localintelligence/core/tool/ToolError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/tool/ToolError$NotFound;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/tool/ToolError$NotFound;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/tool/ToolError$NotFound;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/tool/ToolError$PermissionDenied : dev/localintelligence/core/tool/ToolError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/tool/ToolError$PermissionDenied;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/tool/ToolError$PermissionDenied;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/tool/ToolError$PermissionDenied;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/tool/ToolError$Timeout : dev/localintelligence/core/tool/ToolError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/tool/ToolError$Timeout;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/tool/ToolError$Timeout;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/tool/ToolError$Timeout;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/tool/ToolError$Unavailable : dev/localintelligence/core/tool/ToolError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/localintelligence/core/tool/ToolError$Unavailable;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/tool/ToolError$Unavailable;Ljava/lang/String;ILjava/lang/Object;)Ldev/localintelligence/core/tool/ToolError$Unavailable;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/localintelligence/core/tool/ToolRegistry {
+	public abstract fun all ()Ljava/util/List;
+	public fun byCategory (Ljava/lang/String;)Ljava/util/List;
+	public abstract fun byName (Ljava/lang/String;)Ldev/localintelligence/core/tool/AgentTool;
+}
+
+public final class dev/localintelligence/core/tool/ToolRegistry$DefaultImpls {
+	public static fun byCategory (Ldev/localintelligence/core/tool/ToolRegistry;Ljava/lang/String;)Ljava/util/List;
+}
+
+public final class dev/localintelligence/core/tool/ToolResult {
+	public fun <init> (ZLjava/lang/String;Lkotlinx/serialization/json/JsonObject;Ldev/localintelligence/core/tool/ToolError;)V
+	public synthetic fun <init> (ZLjava/lang/String;Lkotlinx/serialization/json/JsonObject;Ldev/localintelligence/core/tool/ToolError;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Lkotlinx/serialization/json/JsonObject;
+	public final fun component4 ()Ldev/localintelligence/core/tool/ToolError;
+	public final fun copy (ZLjava/lang/String;Lkotlinx/serialization/json/JsonObject;Ldev/localintelligence/core/tool/ToolError;)Ldev/localintelligence/core/tool/ToolResult;
+	public static synthetic fun copy$default (Ldev/localintelligence/core/tool/ToolResult;ZLjava/lang/String;Lkotlinx/serialization/json/JsonObject;Ldev/localintelligence/core/tool/ToolError;ILjava/lang/Object;)Ldev/localintelligence/core/tool/ToolResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getData ()Lkotlinx/serialization/json/JsonObject;
+	public final fun getError ()Ldev/localintelligence/core/tool/ToolError;
+	public final fun getObservation ()Ljava/lang/String;
+	public final fun getSuccess ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/localintelligence/core/tool/ToolRisk : java/lang/Enum {
+	public static final field DESTRUCTIVE Ldev/localintelligence/core/tool/ToolRisk;
+	public static final field EXTERNAL_COMMUNICATION Ldev/localintelligence/core/tool/ToolRisk;
+	public static final field PRIVILEGED Ldev/localintelligence/core/tool/ToolRisk;
+	public static final field READ_ONLY Ldev/localintelligence/core/tool/ToolRisk;
+	public static final field REVERSIBLE Ldev/localintelligence/core/tool/ToolRisk;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getRequiresConfirmation ()Z
+	public static fun valueOf (Ljava/lang/String;)Ldev/localintelligence/core/tool/ToolRisk;
+	public static fun values ()[Ldev/localintelligence/core/tool/ToolRisk;
+}
+
+public abstract interface class dev/localintelligence/core/tool/ToolSelector {
+	public abstract fun select (Ljava/lang/String;Ljava/util/List;Ljava/util/List;I)Ljava/util/List;
+}
+

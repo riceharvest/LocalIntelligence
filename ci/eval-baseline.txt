@@ -1,0 +1,25 @@
+# Frozen baseline for the deterministic agent eval suite.
+#
+# docs/architecture.md: "Every major feature must be measurable against the
+# agent evaluation suite." docs/evals.md: "If a feature does not move a number
+# here, it does not ship."
+#
+# A prose rule does not stop a refactor from quietly regressing the agent.
+# scripts/check-evals.sh runs the suite and fails the build if the primary
+# metric (task success) drops below this number.
+#
+# The threshold is EXACT, not a tolerance: one task is 1/50 = 0.02, so any
+# single task regressing drops the score and turns the build red. That is
+# deliberate — a suite that tolerates a failing task is a suite that reports
+# a number nobody reads.
+#
+# To LOWER this baseline you must be able to say why the agent got worse, and
+# the diff of this file is that argument. Lowering it to make a build pass is
+# the one thing this file exists to make visible.
+#
+# primary = task success (0.0 - 1.0)
+primary = 1.00
+# The suite must still contain this many tasks. A smaller suite that still
+# scores 1.00 is not the same evidence, and a suite that silently stops
+# collecting tasks looks exactly like a passing build.
+tasks = 50

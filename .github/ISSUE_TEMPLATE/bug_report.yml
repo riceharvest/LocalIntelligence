@@ -1,0 +1,73 @@
+name: Bug
+about: Something behaves differently from what it should
+title: ""
+labels: ""
+assignees: ""
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Be concrete. A failing eval task name, a tool name and the exact task
+        that broke, or the CI job link, is worth more than a paragraph.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The actual behaviour, not your expectation of it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - Agent loop / a :core contract
+        - A tool returning the wrong result
+        - UI / Compose
+        - Build or CI
+    validations:
+      required: true
+
+  - type: textarea
+    id: trace
+    attributes:
+      label: Logs or step trace
+      description: |
+        Paste the step trace the agent emits rather than describing it.
+
+  - type: input
+    id: model
+    attributes:
+      label: Model and quantization
+      placeholder: e.g. Qwen3 1.7B Q4_K_M
+
+  - type: input
+    id: android
+    attributes:
+      label: Android version
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or tag

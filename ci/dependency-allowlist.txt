@@ -1,0 +1,69 @@
+# Every Gradle dependency and plugin this repo is allowed to use.
+#
+# If a coordinate is not on this list, CI fails. That is the point: the rule in
+# docs/architecture.md is "Do not add dependencies unless it is genuinely
+# necessary", and prose does not stop a swarm from adding Room, Retrofit and
+# OkHttp "temporarily".
+#
+# Adding a line here is the ONLY way to add a dependency, and adding a line is a
+# visible diff in a PR. The justification column is mandatory and non-empty:
+# a dependency nobody can justify is one nobody needs.
+#
+# HOW TO ADD ONE (deliberately two steps, so it cannot happen by accident):
+#   1. append the coordinate + a real justification below
+#   2. add the dependency to gradle/libs.versions.toml
+#   Both must land in the same PR, so the reviewer sees the justification and
+#   the dependency together.
+#
+# Format: <coordinate-or-plugin-id> <TAB or 2+ spaces> <justification>
+# Checked by scripts/check-dependencies.sh
+#
+# --- libraries -------------------------------------------------------------
+# Coroutines: the agent loop is suspend-based; AgentController returns a flow
+# of steps. Already unavoidable on Android.
+org.jetbrains.kotlinx:kotlinx-coroutines-core	agent loop is suspend/flow-based
+org.jetbrains.kotlinx:kotlinx-coroutines-android	Android Main dispatcher for :android
+org.jetbrains.kotlinx:kotlinx-coroutines-test	runTest() for deterministic :core tests
+# Serialization: the action protocol is JSON by definition (docs/architecture §5),
+# and tool arguments are JsonObject. Hand-rolling this would be worse.
+org.jetbrains.kotlinx:kotlinx-serialization-json	the wire format IS json; args are JsonObject
+# JUnit 4: what the existing :core test suite is written against.
+junit:junit	existing test suite baseline
+# AndroidX: platform glue for the two Android modules, and test runners.
+androidx.room:room-runtime	local persistence; SQLite FTS5 for memory search (arch §14)
+androidx.room:room-ktx	Room coroutine/Flow support
+androidx.room:room-compiler	Room annotation processor (ksp)
+androidx.core:core-ktx	Android platform glue
+androidx.activity:activity-compose	Compose host activity
+androidx.lifecycle:lifecycle-runtime-ktx	lifecycle scopes for Android modules
+androidx.lifecycle:lifecycle-viewmodel-compose	ViewModel plumbing for Compose screens
+androidx.lifecycle:lifecycle-runtime-compose	lifecycle-aware Compose
+androidx.navigation:navigation-compose	screen navigation
+androidx.datastore:datastore-preferences	preferences storage
+androidx.compose.ui:ui	Compose runtime UI
+androidx.compose.ui:ui-graphics	Compose graphics
+androidx.compose.ui:ui-tooling	Compose tooling (debug only)
+androidx.compose.ui:ui-tooling-preview	Compose previews
+androidx.compose.material3:material3	Compose Material 3 components
+androidx.compose.material:material-icons-extended	Compose icon set
+androidx.compose:compose-bom	Compose BOM, pins a consistent Compose version
+androidx.test.ext:junit	Android instrumentation test runner
+androidx.test.espresso:espresso-core	Android UI test assertions
+# Google LiteRT-LM: the second on-device inference backend, alongside
+# llama.cpp. docs/architecture.md §3 names LiteRtBackend in the dependency
+# graph, so this is architecturally sanctioned rather than scope creep. Runs
+# fully on-device — no cloud, no telemetry. Google Maven only, not Maven Central.
+com.google.ai.edge.litertlm:litertlm-android	second on-device backend; LiteRtBackend in arch §3
+# --- plugins ---------------------------------------------------------------
+# The Android/Kotlin toolchain itself, plus Room's annotation processor.
+com.android.application	build :app
+com.android.library	build :android
+org.jetbrains.kotlin.android	Kotlin for Android modules
+org.jetbrains.kotlin.jvm	Kotlin for the pure-JVM :core module
+org.jetbrains.kotlin.plugin.compose	Compose compiler plugin
+org.jetbrains.kotlin.plugin.serialization	kotlinx-serialization compiler plugin
+com.google.devtools.ksp	Room's annotation processor (Kotlin Symbol Processing)
+# API-freeze tooling: produces the committed public API dump for :core. It is a
+# dump generator only — scripts/check-api-freeze.sh does the diffing, because
+# BCV's own apiCheck is a no-op under the Gradle configuration cache.
+org.jetbrains.kotlinx.binary-compatibility-validator	generates the frozen :core public API dump

@@ -1,5 +1,16 @@
 name: ci
 
+# Three of these jobs are fast enough to gate every push, and the expensive one
+# is not. That split is the whole design:
+#
+#   policy       — greps only. No JDK, no Gradle, no Android SDK. ~10 seconds.
+#   core         — :core is pure JVM, so tests + evals + API freeze. ~2 minutes.
+#   android-jvm  — :android unit tests, no native build. ~1 minute.
+#   apk          — llama.cpp cross-compiled for two ABIs. 10+ min. Nightly only.
+#
+# A CI run that takes twenty minutes trains a swarm to ignore CI, and once CI is
+# ignored every gate in scripts/ is decoration. See docs/CI.md.
+
 on:
   push:
     branches: [main]
@@ -10,17 +21,43 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  # ---------------------------------------------------------------------
-  # :core is pure JVM on purpose, so the entire brain of the agent - loop,
-  # tool selection, loop detection, context building, memory, and the full
-  # eval suite - is verified in seconds with no emulator and no device.
-  #
-  # This is the job that gates every push. It is fast on purpose: a CI that
-  # takes 20 minutes trains people to ignore it.
-  # ---------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Fast gates. A few greps over files already in the checkout, so an
+  # architecture violation is reported almost immediately rather than after a
+  # build finishes.
+  policy:
+    name: policy (architecture, deps, hygiene)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Rule: ":core is pure Kotlin/JVM — zero android.* types".
+      - name: :core must not touch Android
+        run: ./scripts/check-core-purity.sh
+
+      # Rule: "no new dependency without a reviewed justification",
+      # and "no cloud, no telemetry, no MCP".
+      - name: dependency policy
+        run: ./scripts/check-dependencies.sh
+
+      # Rule: "no secrets, no committed model files, no committed APKs".
+      - name: repository hygiene
+        run: ./scripts/check-repo-hygiene.sh
+
+      # Rule: "formatting consistency across agents".
+      - name: formatting
+        run: ./scripts/check-formatting.sh
+
+  # ---------------------------------------------------------------------------
+  # The brain. :core is pure JVM on purpose, so the entire agent — loop, tool
+  # selection, loop detection, context building, memory, and the full eval suite
+  # — is verified in seconds with no emulator and no device.
   core:
-    name: core (JVM)
+    name: core (JVM tests + evals + API freeze)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,30 +67,44 @@ jobs:
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
 
+      # The architecture's central claim, enforced rather than documented.
+      # Duplicated from the policy job on purpose: this job stays self-contained
+      # and fails for the right reason in isolation.
       - name: Verify :core has no Android dependencies
-        # The architecture's central claim, enforced rather than documented.
-        run: |
-          if grep -rn "import android\." core/src/ ; then
-            echo "::error:::core must stay a pure JVM module — found an android.* import"
-            exit 1
-          fi
-          if grep -rn "com.android" core/build.gradle.kts ; then
-            echo "::error:::core must not apply the Android plugin"
-            exit 1
-          fi
+        run: ./scripts/check-core-purity.sh
 
       - name: Test
         run: ./gradlew :core:test --stacktrace
 
-      - name: Agent eval suite (fakes)
-        # Wired against the REAL AgentController, not a reference double.
-        run: ./gradlew :core:evals
+      # Rule: "the eval suite must report its score" and "a regression in score
+      # fails the build". Wired against the REAL AgentController, not a
+      # reference double. This also fails when the harness reports no score at
+      # all, which a bare `:core:evals` invocation would call green.
+      - name: Eval suite + regression gate
+        run: ./scripts/check-evals.sh
 
-  # ---------------------------------------------------------------------
-  # The JVM half of :android. Split out from the APK build so that a broken
-  # tool implementation fails in ~1 minute rather than after a 10-minute
-  # native cross-compile.
-  # ---------------------------------------------------------------------
+      # Rule: "interfaces in :core are FROZEN". Regenerates the public API dump
+      # and fails if it moved; prints the diff for the reviewer.
+      - name: Frozen :core public API
+        run: ./scripts/check-api-freeze.sh
+
+      # Rule: "no cloud / no telemetry" — against the RESOLVED tree, not the
+      # declared one, so a transitive dependency cannot smuggle a forbidden SDK
+      # past the allowlist.
+      - name: Resolved dependency tree is clean
+        run: |
+          ./gradlew :core:dependencies :android:dependencies :app:dependencies \
+            --configuration releaseRuntimeClasspath -q > /tmp/deps.txt 2>&1 || true
+          if grep -inE 'firebase|crashlytics|sentry|amplitude|mixpanel|segment|appcenter|posthog|datadog|newrelic|bugsnag|amazonaws|software\.amazon|com\.google\.cloud|azure|modelcontextprotocol|jitpack|langchain|llamaindex|openai|anthropic' /tmp/deps.txt; then
+            echo "::error::A forbidden (cloud / telemetry / MCP) dependency appears in the resolved graph"
+            exit 1
+          fi
+          echo "resolved-dependency-policy: OK"
+
+  # ---------------------------------------------------------------------------
+  # The JVM half of :android. Split out from the APK build so that a broken tool
+  # implementation fails in ~1 minute rather than after a 10-minute native
+  # cross-compile.
   android-jvm:
     name: android (JVM tests)
     runs-on: ubuntu-latest
@@ -64,6 +115,12 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
+        with:
+          # The action's default is 'tools platform-tools', and Google removed
+          # the legacy `tools` package from the SDK repository — so the default
+          # makes sdkmanager exit 1 and the job dies inside the action, before
+          # any of our steps run. Name the packages we actually want instead.
+          packages: 'platform-tools platforms;android-36'
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Accept SDK licences
@@ -75,45 +132,3 @@ jobs:
         # Unit tests only. The native library is not needed for these, and
         # building it would add ~10 minutes for no extra signal.
         run: ./gradlew :android:test --stacktrace
-
-  # ---------------------------------------------------------------------
-  # The real APK, including the llama.cpp JNI cross-compile.
-  #
-  # Slow (10+ min cold) and it needs ~2 GB of disk for android/.cxx, so it
-  # runs on pushes to main and on pull_request, but agents should expect to
-  # iterate against `core` and `android-jvm` instead of waiting on this.
-  # ---------------------------------------------------------------------
-  apk:
-    name: android + app (APK)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
-
-      - name: Accept SDK licences
-        run: sdkmanager --licenses <<< $'y\ny\ny\ny\ny\ny\ny\ny\ny\ny\n' || true
-
-      - name: Install NDK and CMake
-        # :android builds a native JNI library, which needs both. Pinning the
-        # versions the CMakeLists.txt declares keeps the build reproducible.
-        run: sdkmanager "ndk;27.1.12297006" "cmake;3.22.1" "platforms;android-36" "build-tools;35.0.1"
-
-      - name: Build debug APK
-        # PIDROID_LLAMA_FETCH makes CMake pull the pinned llama.cpp tag via
-        # FetchContent instead of requiring a submodule checkout. Without it
-        # the configure step fails naming the fix, which is the intended
-        # behaviour locally but is just a broken CI job here.
-        env:
-          PIDROID_LLAMA_FETCH: '1'
-        run: ./gradlew :app:assembleDebug --stacktrace
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: LocalIntelligence-debug
-          path: app/build/outputs/apk/debug/*.apk
