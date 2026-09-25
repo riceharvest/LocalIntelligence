@@ -93,19 +93,3 @@ class RoomSessionStore(
     suspend fun pruneCompactedMessages(sessionId: Long, exclusiveUpperBound: Long): Int =
         withContext(ioDispatcher) { messageDao.deleteBefore(sessionId, exclusiveUpperBound) }
 }
-
-/**
- * Creates the FTS5 virtual table and its sync triggers.
- *
- * Room 2.7.2 ships `@Fts3`/`@Fts4` annotations but **no `@Fts5`**, so there is no
- * annotation-driven way to declare this table. The supported alternative is a
- * `RoomDatabase.Callback` that executes the DDL on create, which is what this is.
- * The consequence, and it is not a small one: because the table is invisible to the
- * Room schema, KSP cannot resolve queries against it, so search must go through
- * `@RawQuery` (`MemoryDao.searchFts`) rather than a checked `@Query`.
- */
-class MemoryFtsCallback : androidx.room.RoomDatabase.Callback() {
-    override fun onCreate(db: SupportSQLiteDatabase) {
-        MemoryQueries.MemoryFtsSchema.CREATE_STATEMENTS.forEach(db::execSQL)
-    }
-}

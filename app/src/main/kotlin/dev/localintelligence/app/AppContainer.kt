@@ -2,13 +2,13 @@ package dev.localintelligence.app
 
 import android.content.Context
 import dev.localintelligence.android.data.LocalIntelligenceDatabase
+import dev.localintelligence.android.data.resilientMemoryStore
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.tools.androidTools
 import dev.localintelligence.core.agent.AgentConfig
 import dev.localintelligence.core.agent.AgentController
-import dev.localintelligence.core.agent.InMemoryMemoryStore
 import dev.localintelligence.core.agent.LoopDetector
 import dev.localintelligence.core.agent.MemoryStore
 import dev.localintelligence.core.agent.Session
@@ -92,7 +92,34 @@ class AppContainer(private val context: Context) {
      */
     val riskPolicy: RiskPolicy by lazy { RiskPolicy() }
 
-    val memoryStore: MemoryStore by lazy { InMemoryMemoryStore() }
+    /**
+     * The memory store the agent runs on.
+     *
+     * WHY this is not `InMemoryMemoryStore()` any more: an in-RAM list is gone the
+     * moment the process is, so every restart forgot everything the agent had learned —
+     * the exact opposite of what a memory is for. The Room schema, entities, DAOs and a
+     * working [dev.localintelligence.android.data.RoomMemoryStore] already existed in
+     * `:android` and were never wired in here; the search path behind them was built on
+     * FTS5, which platform SQLite does not have, so the database could not have been
+     * wired in as it stood. See the KDoc on [MemoryQueries] for that.
+     *
+     * WHY a factory in `:android` rather than `database.memoryStore()` here: `:android`
+     * declares Room as `implementation`, so from `:app` the `RoomDatabase` supertype of
+     * `LocalIntelligenceDatabase` does not resolve and that call does not compile. The
+     * assembly belongs in the module that owns Room regardless.
+     *
+     * WHY the indirection rather than the Room store directly: Room opens the file
+     * lazily, on the first DAO call, not at `build()`. A direct wiring would move the
+     * failure from "store is always in RAM" to "crash in the middle of an agent run" for
+     * any device where the file cannot be opened. The returned store probes on first
+     * use and falls back to `InMemoryMemoryStore` for the rest of the process, so the
+     * worst case is exactly the behaviour this line used to have.
+     *
+     * WHY `by lazy`: the database must not be built just because something read this
+     * property. Construction is deferred to the first memory operation, which keeps the
+     * §16 RAM budget intact for a cold start that never runs a task.
+     */
+    val memoryStore: MemoryStore by lazy { resilientMemoryStore(context) }
 
     val agentConfig: AgentConfig by lazy { AgentConfig() }
 
@@ -117,6 +144,10 @@ class AppContainer(private val context: Context) {
     /**
      * Durable stores. Opened lazily so a cold start that never runs a task never
      * creates the database file.
+     *
+     * Kept public because the session/history side of the schema is reachable through
+     * it. Memory reaches the database through [memoryStore], which does not hand this
+     * out directly — see there for why a failure to open must not be fatal.
      */
     val database: LocalIntelligenceDatabase by lazy { LocalIntelligenceDatabase.build(context) }
 
