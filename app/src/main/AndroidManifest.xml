@@ -12,6 +12,13 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Agent execution runs in a foreground service so a long task survives
+         the user switching apps. Android 14+ requires BOTH the base permission
+         and the type-specific one, or startForegroundService throws. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Needed to read files the user picked via the Storage Access Framework
          and to search shared media. Scoped, not broad. -->
@@ -54,6 +61,32 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+
+        <!-- Agent task execution. Not exported: nothing outside the app may
+             start it. Stops itself on every terminal result. -->
+        <service
+            android:name=".ExecutionService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Delivers a fired alarm. Without this declaration alarm.create
+             reports success for an alarm that will never ring. -->
+        <receiver
+            android:name="dev.localintelligence.android.tools.alarm.AlarmFireReceiver"
+            android:exported="false" />
+
+        <!-- Required for notifications.list / notifications.reply. Android
+             surfaces this as a Settings toggle, not a runtime prompt, so it
+             cannot be requested with requestPermissions(). -->
+        <service
+            android:name="dev.localintelligence.android.tools.notifications.LocalNotificationListenerService"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
     </application>
 
