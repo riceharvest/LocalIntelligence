@@ -69,6 +69,17 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
+    // The second ModelBackend runtime, so tok/s on a real phone can be compared
+    // against llama.cpp rather than argued about. Google's Maven, not Central.
+    //
+    // Its classes are Java 21 bytecode (class file v65). That is fine to COMPILE
+    // against from a jvmToolchain(17) build -- Kotlin reads the higher class
+    // version without complaint -- but it means these classes cannot be LOADED by
+    // a JDK 17 unit-test JVM. That is precisely why every LiteRT-LM type is
+    // reached only through `LiteRtLmEngine`, and why the whole test suite runs
+    // against a fake engine. See LiteRtLmEngine's KDoc.
+    implementation(libs.litertlm.android)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.test.junit)

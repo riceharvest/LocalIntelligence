@@ -15,6 +15,17 @@ androidxTestJunit = "1.2.1"
 espresso = "3.6.1"
 
 [libraries]
+# LiteRT-LM: the second ModelBackend runtime, benchmarked against llama.cpp.
+#
+# Google Maven ONLY. `com.google.ai.edge.litertlm` is not on Maven Central, and
+# searching Central for it returns NOT FOUND. That is a stale Central index, NOT
+# a missing artifact -- do not "fix" it by changing the version. Verify with a
+# real Gradle resolve, or:
+#   curl -s -o /dev/null -w "%{http_code}" \
+#     https://dl.google.com/dl/android/maven2/com/google/ai/edge/litertlm/litertlm-android/0.13.1/litertlm-android-0.13.1.pom
+# The repo's `google()` repository already covers this group.
+litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version = "0.13.1" }
+
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
