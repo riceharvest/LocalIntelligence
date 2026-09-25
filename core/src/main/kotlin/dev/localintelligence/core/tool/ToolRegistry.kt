@@ -1,6 +1,8 @@
 package dev.localintelligence.core.tool
 
 import dev.localintelligence.core.model.ToolArgs
+import dev.localintelligence.core.tool.selection.LexicalNormalizer
+import dev.localintelligence.core.tool.selection.LexicalScorer
 import kotlinx.serialization.json.JsonObject
 
 /** Everything the agent loop needs to route a tool call. Pure data, no Android. */
@@ -43,7 +45,13 @@ fun interface ToolSelector {
 
 /**
  * Default lexical selector: exact substring match on name/description/tags,
- * plus token overlap. Deterministic and dependency-free.
+ * plus token overlap, on STEMMED tokens with a small synonym expansion.
+ * Deterministic and dependency-free.
+ *
+ * The weights and the tie-break live in [LexicalScorer], one file, so the
+ * scoring this class applies and the scoring the eval benchmark replicates
+ * cannot drift apart. This class exists to turn a score into a ranked,
+ * truncated list and nothing else.
  */
 class LexicalToolSelector : ToolSelector {
 
@@ -52,40 +60,13 @@ class LexicalToolSelector : ToolSelector {
         sessionKeywords: List<String>,
         available: List<AgentTool>,
         maxTools: Int,
-    ): List<AgentTool> {
-        if (available.isEmpty()) return emptyList()
-        if (available.size <= maxTools) return available
-
-        val taskTokens = tokenize(task).toSet()
-        val keywordTokens = sessionKeywords.flatMap { tokenize(it) }.toSet()
-
-        val scored = available.map { tool ->
-            val def = tool.definition
-            val nameTokens = tokenize(def.name).toSet()
-            val descTokens = tokenize(def.description).toSet()
-            val tagTokens = def.tags.flatMap { tokenize(it) }.toSet()
-
-            val overlap = taskTokens.intersect(descTokens).size * 2 +
-                taskTokens.intersect(tagTokens).size * 3 +
-                taskTokens.intersect(nameTokens).size * 4 +
-                keywordTokens.intersect(descTokens).size +
-                keywordTokens.intersect(tagTokens).size
-
-            // Exact substring in the task is a strong signal a small model needs.
-            val substringHit = if (task.contains(def.name, ignoreCase = true)) 10 else 0
-
-            tool to (overlap + substringHit)
-        }
-
-        return scored.sortedWith(
-            compareByDescending<Pair<AgentTool, Int>> { it.second }.thenBy { it.first.definition.name },
-        ).take(maxTools).map { it.first }
-    }
-
-    private fun tokenize(text: String): List<String> =
-        text.lowercase()
-            .split(Regex("[^a-z0-9]+"))
-            .filter { it.length > 2 }
+    ): List<AgentTool> = LexicalScorer.rank(
+        task = task,
+        sessionKeywords = sessionKeywords,
+        available = available,
+        maxTools = maxTools,
+        table = LexicalNormalizer.synonymTable,
+    )
 }
 
 /**
