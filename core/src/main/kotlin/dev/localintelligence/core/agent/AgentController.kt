@@ -1,6 +1,7 @@
 package dev.localintelligence.core.agent
 
 import dev.localintelligence.core.context.ContextBuilder
+import dev.localintelligence.core.model.GrammarBuilder
 import dev.localintelligence.core.agent.AgentResult.Stop
 import dev.localintelligence.core.model.GenerationRequest
 import dev.localintelligence.core.model.ModelBackend
@@ -519,11 +520,19 @@ class AgentController(
         }
         return GenerationRequest(
             messages = history,
-            // Constrained generation is P0 (`docs/architecture.md` §15). The grammar
-            // comes from GrammarBuilder.forActions, which lands with the parser
-            // workstream; until then allowedToolNames is what tells a backend which
-            // calls are legal. This is the one line that has to change.
-            grammar = null,
+            // Constrained generation, and this is the line that was the P0.
+            //
+            // WHY IT CANNOT BE NULL ANY MORE: a 1.1B base model asked to "reply
+            // with JSON" will not reply with JSON. It continues the prompt instead,
+            // so every run came back Malformed and the agent could never call a
+            // tool no matter how many were wired up. GBNF makes the only
+            // token-continuations valid be ones that parse as an action.
+            //
+            // WHY IT IS SAFE: an empty tool list yields an empty grammar, and the
+            // JNI sampler chain treats an empty grammar string as "no constraint"
+            // rather than a sampler that accepts nothing. A plain question with
+            // nothing selected therefore still answers in prose.
+            grammar = GrammarBuilder.forActions(visible.map { it.definition }),
             allowedToolNames = visible.map { it.definition.name },
         )
     }
