@@ -102,6 +102,16 @@ fun ModelManagerScreen(
     onDelete: (ImportedModel) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Opens the HuggingFace browser.
+     *
+     * WHY a defaulted parameter rather than a new required one: this screen is
+     * shared with the import-by-hand flow, and the two entry points are
+     * additive. Making the callback required would break every other caller for
+     * no reason; defaulting it keeps the existing flow compiling unchanged and
+     * lets the button render only where a destination exists.
+     */
+    onOpenHub: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -151,6 +161,15 @@ fun ModelManagerScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    // WHY a text button and not another FAB: the FAB is
+                    // "import a file you already have", and this is "go get one
+                    // from the internet". Two floating buttons would collide on
+                    // a phone.
+                    onOpenHub?.let { open ->
+                        TextButton(onClick = open) { Text("Download") }
                     }
                 },
             )
