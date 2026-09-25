@@ -89,32 +89,40 @@ val exact  = ModelMemoryEstimator().estimate(parsedHeader)   // exact
 val final  = GgufMemoryModel.refine(exact, budget)           // same 1.15 factor
 ```
 
-### Why `PreDownloadMemoryModel` is conservative rather than clever
+### Why `PreDownloadMemoryModel` is a measured bound rather than a guess
 
-Before any bytes exist, the KV-cache term is genuinely unknown: it needs
-`block_count`, `attention.head_count_kv` and `key_length`, and none of those are
-in a file name. The model therefore estimates:
+Before any bytes exist, the KV-cache term needs `block_count`,
+`attention.head_count_kv` and `key_length`, and none of those are in a file
+name. The model estimates:
 
 ```
-weights  = fileBytes                      (exact; a GGUF is almost all weights)
-layers   = interpolated from a table of real published block_counts
-hidden   = sqrt(params / (12 * layers))
-kv       = 2 * layers * (hidden/512) * 128 * ctx * 2 bytes
-overhead = max(64 MiB, 2% of weights)
+weights  = fileBytes                      exact; llama.cpp maps the file
+params   = file name, else fileBytes*8/bpw  bpw is measured per quant
+arch     = measured table, else derived     9 real architectures on disk
+kv       = 2 * layers * kvWidth * ctx * 2    kvWidth = head_count_kv * key_length
+overhead = max(64 MiB, 2% of weights)        ESTIMATE, not measured
 total    = weights + kv + overhead
 ```
 
 and `FitGate.ramFit` multiplies that by **1.15** before comparing it to the
-device budget. Both the KV term and the factor err toward refusing a model,
-because a user told "no" for a model that works stops trusting the next "yes",
-while a user told "yes" for a model that does not fit gets OOM-killed
-mid-conversation.
+device budget.
 
-`block_count` is a table rather than a curve because it is not a smooth
-function of parameter count — Qwen2.5-3B has 36 layers and Qwen2.5-7B has 28 —
-so any monotone curve is wrong for one of them. (A `ln(params) * 1.35` curve
-was tried and predicted 29 layers for a 3B model whose real value is 36; that
-was a test failure, not a preference.)
+`kvWidth` is one number rather than `kvHeads * headDim` because grouped-query
+attention is a *ratio* and the ratio is what varies — 1, 2, 4, 7 and 8 all
+occur among the nine architectures measured — while their product is a single
+number per model. The previous version guessed both factors independently (a
+quadratic root for the hidden size, a hard-coded `/512` for the head count, a
+hard-coded `128` for the head dimension) and was wrong by up to 4.4x on the KV
+term, including under-estimating Phi-3-mini by 1.2 GiB.
+
+`arch` is a table of values read out of real files rather than a curve, because
+`block_count` is not a smooth function of parameter count — Qwen2.5-3B has 36
+layers and Qwen2.5-7B has 28 — so any monotone curve is wrong for one of them.
+(A `ln(params) * 1.35` curve was tried and predicted 29 layers for a 3B model
+whose real value is 36; that was a test failure, not a preference.)
+
+The full derivation, the measured tables and the on-device measurement
+procedure are in [`memory-model.md`](memory-model.md).
 
 ## Things found while building, and fixed
 
