@@ -10,11 +10,14 @@ import androidx.room.TypeConverters
  * The LocalIntelligence database. Four tables — `sessions`, `messages`, `memories`,
  * `session_summaries` — per docs/architecture.md section 14.
  *
- * `memories_fts` is intentionally absent from [entities]: it is an FTS5 *virtual*
- * table created by [MemoryFtsCallback], because Room 2.7.2 has no `@Fts5` annotation.
- * Declaring it as an entity is not an option; a virtual table is not an ordinary table.
+ * There is no FTS index and no `RoomDatabase.Callback`. A previous revision created an
+ * FTS5 virtual table from `onCreate`; AOSP's platform SQLite does not enable
+ * `SQLITE_ENABLE_FTS5` at any API level, so that DDL raised `no such module: fts5`
+ * while the database was still being created and left the store permanently
+ * unopenable. Search now runs against the `memories.keywords` projection instead — see
+ * the KDoc on [MemoryQueries] for the full reasoning.
  *
- * @see MemoryFtsCallback for why search uses `@RawQuery`.
+ * @see MemoryQueries for why search is a token-set `LIKE` scan and not FTS5.
  */
 @Database(
     entities = [
@@ -44,10 +47,14 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
          * user's memories on a schema bump is not an acceptable failure mode for the
          * one store that is supposed to be durable. v0 has no migrations because v0 has
          * no v1 to migrate from; the next version adds them deliberately.
+         *
+         * No `addCallback` here, deliberately. Room opens the file lazily on first
+         * query, not at `build()` time, so a caller cannot treat a successful `build()`
+         * as proof the database works — see `ResilientMemoryStore` for how a failure
+         * to actually open is handled.
          */
         fun build(context: Context, name: String = NAME): LocalIntelligenceDatabase =
             Room.databaseBuilder(context.applicationContext, LocalIntelligenceDatabase::class.java, name)
-                .addCallback(MemoryFtsCallback())
                 .build()
     }
 }

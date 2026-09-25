@@ -16,24 +16,44 @@ import kotlinx.coroutines.withContext
  * tested on the JVM. The DAO is then a thin `withContext` wrapper that binds these
  * results and trusts them.
  *
+ * ## WHY THIS IS NOT FTS5 — read this before "optimising" it back
+ *
+ * The obvious way to do lexical search on SQLite is an FTS5 virtual table. On Android
+ * that does not exist. AOSP builds the platform `libsqlite.so` from
+ * `external/sqlite/dist/Android.bp`, and that file defines `-DSQLITE_ENABLE_FTS3`,
+ * `-DSQLITE_ENABLE_FTS3_BACKWARDS` and `-DSQLITE_ENABLE_FTS4` — and **no**
+ * `SQLITE_ENABLE_FTS5` — on every release branch checked, from `android8.0.0_r1`
+ * (API 26, this module's minSdk) through `main`. `CREATE VIRTUAL TABLE ... USING fts5`
+ * therefore fails with `no such module: fts5` on a real device, and because that DDL
+ * ran from a `RoomDatabase.Callback.onCreate`, the failure took the *whole database*
+ * down rather than degrading one query.
+ *
+ * `androidx.sqlite`'s bundled driver does ship FTS5, but adopting it means a
+ * third-party SQLite on a device with the RAM budget of docs/architecture.md §16, to
+ * accelerate a scan over a table already capped at [MAX_ALL_RESULTS] rows. Not a trade
+ * worth making.
+ *
+ * So search is a token-set match over the `keywords` projection, which is the same
+ * thing [dev.localintelligence.core.agent.InMemoryMemoryStore] does in RAM: a memory
+ * matches when *any* query term is one of its tokens, compared on token boundaries so
+ * "nas" cannot match "nasty". Both stores therefore return the same rows for the same
+ * corpus, which is the property that actually matters.
+ *
  * ## Injection model
  *
- * Search input is untrusted (it is model- or user-generated text). Three independent
+ * Search input is untrusted (it is model- or user-generated text). Two independent
  * layers, and the first one alone is sufficient:
  *
  * 1. **Allowlist tokenisation.** [tokenize] keeps only `[a-z0-9]` runs longer than 2
  *    characters, copied from `InMemoryMemoryStore`. Every other character — quote,
- *    semicolon, whitespace, `--`, and C-style comment openers — is a separator and is
- *    destroyed. A double quote cannot survive tokenisation, so it cannot reach step 2
- *    as structure.
- * 2. **FTS5 literal quoting.** Each surviving token is emitted as a double-quoted FTS5
- *    string literal, with `"` doubled per the FTS5 escaping rules. Belt and braces for
- *    step 1; correct in isolation even if [tokenize] is ever loosened.
- * 3. **Bound parameter.** The finished MATCH expression is passed as a `?` bind
- *    argument to SQLite, never concatenated into the statement text. Even a hostile
- *    expression is a *value* here, so it cannot alter statement structure.
+ *    semicolon, whitespace, `--`, `%`, `_`, and C-style comment openers — is a
+ *    separator and is destroyed. Nothing that could close a pattern or a statement
+ *    survives to reach step 2.
+ * 2. **Bound parameter.** The finished LIKE pattern is passed as a `?` bind argument to
+ *    SQLite, never concatenated into the statement text. Even a hostile expression is
+ *    a *value* here, so it cannot alter statement structure.
  *
- * Layers 1 and 3 together mean the attack is dead twice over.
+ * Layers 1 and 2 together mean the attack is dead twice over.
  */
 object MemoryQueries {
 
@@ -57,24 +77,25 @@ object MemoryQueries {
     fun keywords(text: String): String = tokenize(text).joinToString(" ")
 
     /**
-     * Builds the FTS5 MATCH expression, or null when the query has no usable terms.
+     * FTS5 literal quoting is gone with FTS5. What remains is `LIKE` metacharacter
+     * escaping: SQLite treats `%` and `_` as wildcards and honours a backslash escape.
      *
-     * Tokens are OR-joined to match `InMemoryMemoryStore.search`, which accepts a row
-     * when *any* query term is present. Quoting each token makes it a literal, so a
-     * token that happens to spell an FTS5 operator (`or`, `near`, `not`) stays a word.
+     * [tokenize] has already deleted both characters — a surviving term is strictly
+     * `[a-z0-9]{3,}` — so this is dead code in practice. It stays because the property
+     * it guarantees ("no term can widen its own pattern") is exactly the kind of thing
+     * a future loosening of [tokenize] would silently break, and it is cheaper to keep
+     * the guarantee than to re-derive that it still holds.
      */
-    fun buildMatchExpression(query: String): String? {
-        val terms = tokenize(query).distinct()
-        if (terms.isEmpty()) return null
-        return terms.joinToString(" OR ") { term -> "\"${escapeFtsLiteral(term)}\"" }
-    }
+    fun escapeLikeLiteral(raw: String): String =
+        raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     /**
-     * FTS5 string-literal escaping: a double quote is written as two. Applied to
-     * already-tokenised input this is a no-op, but it keeps this function correct for
-     * any caller rather than silently depending on its caller's guarantees.
+     * The SQL `ESCAPE` character [escapeLikeLiteral] emits, declared in the statement
+     * as `ESCAPE '\'`. If the two ever disagree, every pattern silently under-matches
+     * rather than erroring — the kind of bug that stays invisible until a memory fails
+     * to come back.
      */
-    fun escapeFtsLiteral(raw: String): String = raw.replace("\"", "\"\"")
+    const val LIKE_ESCAPE_CHAR: String = "\\"
 
     /** Clamps a caller-supplied limit into `0..MAX_SEARCH_RESULTS`. */
     fun coerceSearchLimit(limit: Int): Int = limit.coerceIn(0, MAX_SEARCH_RESULTS)
@@ -83,24 +104,45 @@ object MemoryQueries {
     fun coerceAllLimit(limit: Int): Int = limit.coerceIn(0, MAX_ALL_RESULTS)
 
     /**
-     * The full search statement. Ordering is importance first, then recency, then id as
-     * a deterministic final tiebreak so pagination cannot flap between equal rows.
+     * One `LIKE` predicate matching a whole token, never a fragment of one.
      *
-     * The FTS table is external-content (`content='memories'`), so it holds only the
-     * inverted index and `rowid` is `memories.id`. Joining back to `memories` is what
-     * lets us sort on columns the index does not carry.
+     * The surrounding spaces are the whole point. `keywords` is a space-joined token
+     * list, so padding both sides turns substring containment back into token
+     * membership: without them `' nas ' LIKE '%nas%'` matches `nasty`, which is the
+     * exact false positive `InMemoryMemoryStore` refuses to produce.
+     *
+     * The `?` is a placeholder, never an interpolated value — see the injection model
+     * on [MemoryQueries].
      */
-    val SEARCH_SQL: String = """
-        SELECT m.id, m.text, m.keywords, m.importance, m.created_at
-        FROM memories_fts
-        JOIN memories m ON m.id = memories_fts.rowid
-        WHERE memories_fts MATCH ?
-        ORDER BY m.importance DESC, m.created_at DESC, m.id DESC
-        LIMIT ?
-    """.trimIndent()
+    private const val LIKE_PREDICATE: String =
+        "(' ' || m.keywords || ' ') LIKE ? ESCAPE '$LIKE_ESCAPE_CHAR'"
 
     /**
-     * The bound arguments for [SEARCH_SQL], or null when there is nothing to search for.
+     * The full search statement, with one placeholder per query term plus one for the
+     * limit.
+     *
+     * `OR` rather than `AND`, matching `InMemoryMemoryStore.search`, which accepts a
+     * row when *any* query term is present. Ordering is importance first, then
+     * recency, then id as a deterministic final tiebreak so pagination cannot flap
+     * between equal rows.
+     *
+     * The statement is built per query because the predicate count is the term count.
+     * Only ever `?` placeholders are generated here; no caller text reaches this
+     * function.
+     */
+    fun searchSql(termCount: Int): String {
+        val predicates = List(termCount) { LIKE_PREDICATE }.joinToString(" OR ")
+        return """
+            SELECT m.id, m.text, m.keywords, m.importance, m.created_at
+            FROM memories m
+            WHERE $predicates
+            ORDER BY m.importance DESC, m.created_at DESC, m.id DESC
+            LIMIT ?
+        """.trimIndent()
+    }
+
+    /**
+     * The bound arguments for [searchSql], or null when there is nothing to search for.
      *
      * Null is load-bearing: a query of only punctuation or 1-2 character tokens must
      * return *empty*, never fall through to "no filter, so return everything".
@@ -112,13 +154,18 @@ object MemoryQueries {
      * would be untestable. Returning them as a plain array keeps that claim honest.
      */
     fun searchArgs(query: String, limit: Int): Array<Any?>? {
-        val match = buildMatchExpression(query) ?: return null
-        return arrayOf<Any?>(match, coerceSearchLimit(limit))
+        val terms = tokenize(query).distinct()
+        if (terms.isEmpty()) return null
+        val patterns = terms.map { "% ${escapeLikeLiteral(it)} %" }
+        return (patterns + coerceSearchLimit(limit)).toTypedArray()
     }
 
     /** The bound query, or null when there is nothing to search for. */
-    fun buildSearchQuery(query: String, limit: Int): SupportSQLiteQuery? =
-        searchArgs(query, limit)?.let { SimpleSQLiteQuery(SEARCH_SQL, it) }
+    fun buildSearchQuery(query: String, limit: Int): SupportSQLiteQuery? {
+        val terms = tokenize(query).distinct()
+        if (terms.isEmpty()) return null
+        return SimpleSQLiteQuery(searchSql(terms.size), searchArgs(query, limit))
+    }
 
     /**
      * Mirrors the SQL `ORDER BY` above, for rows already in hand.
@@ -140,49 +187,10 @@ object MemoryQueries {
         keywords = entity.keywords,
         importance = entity.importance,
     )
-
-    /** DDL + triggers for the FTS5 virtual table. */
-    object MemoryFtsSchema {
-        /**
-         * External-content FTS5 over `memories`: the index does not store a second copy
-         * of the text, which is why the triggers below must fire on every write. The
-         * `IF NOT EXISTS` guards make this safe to re-run.
-         */
-        val CREATE_STATEMENTS: List<String> = listOf(
-            """
-            CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-                text,
-                keywords,
-                content='memories',
-                content_rowid='id'
-            )
-            """.trimIndent(),
-            """
-            CREATE TRIGGER IF NOT EXISTS memories_fts_insert AFTER INSERT ON memories BEGIN
-                INSERT INTO memories_fts(rowid, text, keywords)
-                VALUES (new.id, new.text, new.keywords);
-            END
-            """.trimIndent(),
-            """
-            CREATE TRIGGER IF NOT EXISTS memories_fts_delete AFTER DELETE ON memories BEGIN
-                INSERT INTO memories_fts(memories_fts, rowid, text, keywords)
-                VALUES ('delete', old.id, old.text, old.keywords);
-            END
-            """.trimIndent(),
-            """
-            CREATE TRIGGER IF NOT EXISTS memories_fts_update AFTER UPDATE ON memories BEGIN
-                INSERT INTO memories_fts(memories_fts, rowid, text, keywords)
-                VALUES ('delete', old.id, old.text, old.keywords);
-                INSERT INTO memories_fts(rowid, text, keywords)
-                VALUES (new.id, new.text, new.keywords);
-            END
-            """.trimIndent(),
-        )
-    }
 }
 
 /**
- * [MemoryStore] backed by Room + SQLite FTS5.
+ * [MemoryStore] backed by Room.
  *
  * No embeddings, no vectors, no semantic search: lexical only, per the v0 decision in
  * docs/architecture.md section 14. The database is the cache — this class holds no
@@ -212,7 +220,7 @@ class RoomMemoryStore(
         // No usable terms => no results. Never "everything".
         val raw = MemoryQueries.buildSearchQuery(query, limit) ?: return emptyList()
         return withContext(ioDispatcher) {
-            memoryDao.searchFts(raw)
+            memoryDao.search(raw)
                 .let(MemoryQueries::orderByImportanceThenRecency)
                 .take(MemoryQueries.MAX_SEARCH_RESULTS)
                 .map(MemoryQueries::toMemory)
@@ -220,8 +228,6 @@ class RoomMemoryStore(
     }
 
     override suspend fun forget(id: Long): Boolean = withContext(ioDispatcher) {
-        // The AFTER DELETE trigger removes the FTS row, so a forgotten memory cannot
-        // resurface through search.
         memoryDao.deleteById(id) > 0
     }
 
@@ -229,7 +235,7 @@ class RoomMemoryStore(
         memoryDao.allRows(MemoryQueries.coerceAllLimit(limit)).map(MemoryQueries::toMemory)
     }
 
-    /** Not part of [dev.localintelligence.core.agent.MemoryStore]; used by tests and "forget all" UI. */
+    /** Not part of [dev.localintelligence.core.agent.MemoryStore]; used by "forget all" UI. */
     suspend fun clear() = withContext(ioDispatcher) { memoryDao.clear() }
 
     /** Not part of the interface; lets a caller keep the id sequence monotonic. */

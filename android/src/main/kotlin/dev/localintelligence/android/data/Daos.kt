@@ -77,16 +77,16 @@ interface MemoryDao {
     suspend fun allRows(limit: Int): List<MemoryEntity>
 
     /**
-     * FTS5 search. `@RawQuery` is mandatory, not lazy: the `memories_fts` virtual table
-     * is created in a `RoomDatabase.Callback` (see [MemoryFtsSchema]) because Room
-     * 2.7.2 has no `@Fts5` annotation, so KSP cannot resolve the table and a plain
-     * `@Query` would fail verification at compile time.
+     * Lexical search over the `keywords` projection, built by `MemoryQueries`.
      *
-     * [query] is built by `MemoryQueries.searchQuery`, which binds the MATCH
-     * expression as a parameter. The user's text is never concatenated into SQL.
+     * `@RawQuery` is not an optimisation here, it is a requirement: the number of
+     * `LIKE` predicates is the number of query terms, which is not known at compile
+     * time, so no fixed `@Query` string can express it. `MemoryQueries.searchSql`
+     * emits the statement and `MemoryQueries.searchArgs` the matching bindings; the
+     * user's text is bound as a parameter and never concatenated into the statement.
      */
     @RawQuery(observedEntities = [MemoryEntity::class])
-    suspend fun searchFts(query: SupportSQLiteQuery): List<MemoryEntity>
+    suspend fun search(query: SupportSQLiteQuery): List<MemoryEntity>
 
     @Query("DELETE FROM memories")
     suspend fun clear()
