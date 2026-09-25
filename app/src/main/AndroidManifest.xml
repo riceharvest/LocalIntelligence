@@ -100,6 +100,45 @@
             android:name="dev.localintelligence.android.tools.alarm.AlarmFireReceiver"
             android:exported="false" />
 
+        <!-- Re-arms agent alarms after a reboot.
+
+             A reboot clears every AlarmManager PendingIntent the app registered,
+             so without this a 07:00 alarm silently stopped existing the moment
+             the phone restarted — and alarm.list agreed with the lie, because
+             the registry was in-memory only. RECEIVE_BOOT_COMPLETED was already
+             declared above with no receiver listening for it.
+
+             android:exported="false" is correct even though the broadcast comes
+             from outside the app: BOOT_COMPLETED is a protected broadcast, so
+             only the system can send it, and the platform skips the exported
+             check for protected broadcasts. Keeping the filter narrow means no
+             other app can trigger a re-arm. -->
+        <receiver
+            android:name="dev.localintelligence.android.tools.alarm.AlarmBootReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Where notification access is actually requested.
+
+             The listener service above is bound by the system only after a human
+             grants it in Settings, and nothing in an app can grant it for them.
+             Until something asks, the feature is unreachable: the tools return
+             an honest PermissionDenied, and the user has no way to act on it.
+             This activity is that something.
+
+             Not exported and no LAUNCHER category: it is reached from inside the
+             app (and from a PendingIntent), not from the launcher. -->
+        <activity
+            android:name=".BackgroundAccessActivity"
+            android:exported="false"
+            android:label="@string/background_access_title"
+            android:theme="@style/Theme.LocalIntelligence" />
+
         <!-- Required for notifications.list / notifications.reply. Android
              surfaces this as a Settings toggle, not a runtime prompt, so it
              cannot be requested with requestPermissions(). -->
