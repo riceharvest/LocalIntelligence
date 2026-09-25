@@ -1,7 +1,11 @@
 package dev.localintelligence.core.agent
 
+import dev.localintelligence.core.context.CompactedState
 import dev.localintelligence.core.context.ContextBuilder
+import dev.localintelligence.core.context.ContextCompactor
+import dev.localintelligence.core.context.SUMMARY_PREFIX
 import dev.localintelligence.core.execution.NoProgressWatchdog
+import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.GrammarBuilder
 import dev.localintelligence.core.agent.AgentResult.Stop
 import dev.localintelligence.core.model.GenerationRequest
@@ -10,6 +14,13 @@ import dev.localintelligence.core.model.StopReason
 import dev.localintelligence.core.metrics.RunMetrics
 import dev.localintelligence.core.metrics.RunRecorder
 import dev.localintelligence.core.model.ToolArgs
+import dev.localintelligence.core.model.token.BudgetAction
+import dev.localintelligence.core.model.token.ContextBudget
+import dev.localintelligence.core.model.token.ContextState
+import dev.localintelligence.core.model.token.ProposedStep
+import dev.localintelligence.core.model.token.StepEnforcer
+import dev.localintelligence.core.model.token.StepPlan
+import dev.localintelligence.core.model.token.UsageBucket
 import dev.localintelligence.core.policy.ConfirmationOutcome
 import dev.localintelligence.core.policy.ConfirmationSession
 import dev.localintelligence.core.policy.Decision
@@ -50,6 +61,14 @@ import kotlin.math.min
  *     [RiskPolicy] and is made against the CALL'S ARGUMENTS, not just its
  *     declared risk tier. `docs/architecture.md` §8 — the runtime decides,
  *     never the model, and never the tool.
+ *  8. A step is priced before its tool runs ([StepEnforcer]), and the
+ *     adjustments that pricing asks for are APPLIED to the live window, not
+ *     logged. A step that still does not fit afterwards is refused rather than
+ *     run and then discovered.
+ *  9. Compaction is structured. When the trigger fires, the history is folded
+ *     into a [CompactedState] — task, progress, facts, actions, failures,
+ *     remaining work — and the next prompt is built from that state, so the
+ *     model keeps what matters instead of a truncated transcript.
  */
 /**
  * How [NoProgressWatchdog]'s terminate sentence begins.
@@ -110,6 +129,32 @@ class AgentController(
      * every run without the loop learning what any of those mean.
      */
     private val metrics: RunRecorder? = null,
+    /**
+     * Structured compaction. WHY a collaborator and not a call into
+     * [ContextCompactor]'s statics: the compactor is the seam a model-based
+     * summariser plugs into, and the loop has to hold the instance that seam
+     * configures — a compactor built inside [compactIfNeeded] could never be
+     * swapped without editing this file.
+     *
+     * Defaulted for the same reason as [riskPolicy]: every existing caller
+     * builds a controller without naming it, and a controller that could be
+     * built ungated by omission is a controller that eventually will be.
+     */
+    private val compactor: ContextCompactor = ContextCompactor(
+        workingLimit = config.workingTokenLimit,
+        triggerFraction = COMPACT_AT,
+    ),
+    /**
+     * Optional per-step budget gate. WHY NULLABLE AND NOT A DEFAULT INSTANCE:
+     * the ceiling a step is checked against is derived from the BACKEND's real
+     * context length (`ModelCapabilities.contextLength`), which is not known
+     * until a model is loaded. A defaulted instance would have to hard-code a
+     * window and be wrong for every model it was not written for, so the loop
+     * builds one per call from the loaded model instead. Non-null means the
+     * caller supplied a fixed budget and it is used verbatim — the seam the
+     * eval harness and a device-specific ceiling both need.
+     */
+    private val stepEnforcer: StepEnforcer? = null,
 ) {
     /**
      * Run state. It outlives a single call because
@@ -121,6 +166,25 @@ class AgentController(
     private var step: Int = 0
     private var malformedStreak: Int = 0
     private var pending: PendingCall? = null
+
+    /**
+     * The prompt the backend was last handed — in practice, the prompt for the
+     * step in flight, because the loop builds it at the top of every
+     * iteration, generates, and only then reaches a decision about a tool.
+     *
+     * WHY THE LOOP HOLDS IT: [StepEnforcer] prices a step against the context
+     * as it stands, and the context that stands is the one the model was just
+     * given — system prompt with its tools, working summary, memories, task,
+     * kept turns. The loop could re-derive all of that, but a re-derivation is
+     * a second opinion about what the builder would have emitted, and a
+     * builder that changes would silently stop being priced. Holding the list
+     * that was actually sent means the guard is enforced against exactly what
+     * the model saw.
+     *
+     * A reference, never a copy: the messages are the session's own, so this
+     * costs one list header.
+     */
+    private var lastPrompt: List<ChatMessage> = emptyList()
 
     /**
      * The frozen metrics for the current run, published when it ends.
@@ -184,6 +248,7 @@ class AgentController(
         step = 0
         malformedStreak = 0
         pending = null
+        lastPrompt = emptyList()
         sessions.clear()
         loopDetector.reset()
         // Blast radius is per TASK, not per process. Without this reset the
@@ -336,7 +401,8 @@ class AgentController(
                             return AgentResult.Success(action.text, trace.toList())
                         }
 
-                        is AgentAction.CallTool -> handleCall(action, visible)?.let { return it }
+                        is AgentAction.CallTool ->
+                            handleCall(action, visible, generation.text)?.let { return it }
                     }
                 }
             }
@@ -346,8 +412,20 @@ class AgentController(
         return AgentResult.StepLimitReached
     }
 
-    /** Returns non-null when the run must stop. */
-    private suspend fun handleCall(action: AgentAction.CallTool, visible: List<AgentTool>): AgentResult? {
+    /**
+     * Returns non-null when the run must stop.
+     *
+     * @param reply the model's raw output for this step, carried down to
+     *   [execute] so the step enforcer can price what the model actually
+     *   produced. Empty for a resumed call — the generation that proposed it
+     *   happened before the confirmation dialog, and re-pricing a string the
+     *   loop no longer holds would be inventing a number.
+     */
+    private suspend fun handleCall(
+        action: AgentAction.CallTool,
+        visible: List<AgentTool>,
+        reply: String,
+    ): AgentResult? {
         // (1) Validation first: an unknown tool or a bad argument is a correction,
         // not a loop, and the model is told what was actually wrong.
         val outcome = validator.validate(action.name, action.arguments, visible)
@@ -411,7 +489,7 @@ class AgentController(
                 // would mean `confirmAndResume` could be talked into approving a
                 // call the user was never shown.
                 PolicyOutcome.EXECUTE ->
-                    execute(PendingCall(action.name, tool, action.arguments, step, session = null))
+                    execute(PendingCall(action.name, tool, action.arguments, step, session = null), reply)
 
                 PolicyOutcome.REQUIRE_CONFIRMATION -> {
                     // `park` returns null for a decision that is not a gate. That
@@ -461,6 +539,7 @@ class AgentController(
                             session = null,
                             permissionGranted = false,
                         ),
+                        reply,
                     )
             }
         }
@@ -486,9 +565,21 @@ class AgentController(
         return null
     }
 
-    /** Runs one tool. Returns non-null when the run must stop. */
-    private suspend fun execute(call: PendingCall): AgentResult? {
+    /**
+     * Runs one tool. Returns non-null when the run must stop.
+     *
+     * @param reply the model's raw output for this step, priced by
+     *   [enforceStep] before the tool runs. Empty for a resumed call.
+     */
+    private suspend fun execute(call: PendingCall, reply: String = ""): AgentResult? {
         if (cancelled) return AgentResult.Cancelled
+
+        // The moment the step's cost is committed. BEFORE `call.tool.execute`,
+        // because the whole point of pricing a step is that a step which cannot
+        // fit must not be discovered after the tool has already run — a
+        // four-second prefill on an overflow is the failure this exists to
+        // prevent. Returns non-null only when the step must not run at all.
+        refuseUnaffordableStep(call, reply)?.let { return it }
 
         val context = ToolContext(
             userConfirmed = call.userConfirmed,
@@ -531,6 +622,13 @@ class AgentController(
         trace += StepTrace(call.step, StepTrace.Kind.OBSERVATION, observation, success = result.success)
         metrics?.endPhase(StepTrace.Kind.TOOL_CALL, result.success)
 
+        // The real observation has arrived, so the estimate the step was
+        // approved against is replaced with the thing itself. A tool that
+        // returned far more than the budget predicted is exactly the case the
+        // pre-tool check could not see, and it is cheaper to fold the window
+        // here than to discover the overflow at the next prefill.
+        repriceWithRealObservation(call, reply, observation)
+
         if (cancelled) return AgentResult.Cancelled
         if (loopDetector.hasStalled()) {
             return Stop("no progress: ${call.name} kept returning the same result", trace.toList())
@@ -559,6 +657,337 @@ class AgentController(
         return null
     }
 
+    // ------------------------------------------------- the per-step budget gate
+
+    /**
+     * The enforcer for this step, or null when there is nothing worth
+     * enforcing against.
+     *
+     * Built per call rather than held, because the ceiling it enforces is a
+     * function of the LOADED model: two runs of the same controller with
+     * different models have different windows, and a cached budget would price
+     * the second run against the first one's. [StepEnforcer] holds a
+     * [ContextBudget] and a counter and nothing else, so this is two small
+     * objects per step, not state.
+     *
+     * Null in two cases, and both mean "the gate has nothing to offer":
+     *
+     *  - the window is too small for the gate to mean anything. Below
+     *    [MIN_ENFORCEABLE_LIMIT] there is no room for a request plus a step,
+     *    and enforcing would refuse every call on principle.
+     *  - the request does not fit on its own, i.e. [ContextBudget.floorFor] is
+     *    already over the prompt budget. Nothing the gate drops can change
+     *    that, and the next prefill overflows whether or not this tool runs, so
+     *    refusing every call would disable the agent rather than protect the
+     *    window. A small-context model with a verbose tool list lands here, and
+     *    it keeps behaving exactly as it did before this gate existed — which
+     *    is the right thing for a guard whose remedy does not apply.
+     *
+     * An injected [stepEnforcer] is used verbatim: a caller that supplied a
+     * budget meant it, and this function cannot inspect a budget it does not
+     * own.
+     */
+    private fun enforcement(state: ContextState): StepEnforcer? {
+        stepEnforcer?.let { return it }
+        val limit = workingLimit(model.capabilities.contextLength)
+        if (limit < MIN_ENFORCEABLE_LIMIT) return null
+        val budget = ContextBudget(limitTokens = limit)
+        if (budget.floorFor(state) > budget.promptTokens) return null
+        return StepEnforcer(budget)
+    }
+
+    /**
+     * Prices the step about to run, applies the plan, and stops the run if it
+     * still does not fit.
+     *
+     * This is [StepEnforcer.cheapestReduction]'s stop condition, taken
+     * literally: a step that cannot be made to fit is not retried, and it is
+     * not run. The run ends with the arithmetic in the reason, because "the
+     * agent gave up" is not a thing the user can act on and "this call needed
+     * 4180 tokens and the window holds 3644" is.
+     *
+     * WHY THIS IS RARE RATHER THAN IMPOSSIBLE: the observation estimate alone
+     * is [config.observationBudgetChars] (512 tokens by default), so the step
+     * has to overflow the window on the reply and the arguments alone — a
+     * runaway generation, or a 12KB argument blob. Those are the cases where
+     * a stop is the right answer: the model is not out of ideas, it is out of
+     * room, and no amount of further thinking changes that.
+     */
+    private fun refuseUnaffordableStep(call: PendingCall, reply: String): AgentResult? {
+        val verdict = priceStep(call, reply, observationSample) ?: return null
+        val trim = verdict.plan as? StepPlan.Trim ?: return null
+        val detail = "${call.name} needs ${trim.projectedTokens} tokens and the window holds " +
+            "${trim.limit}; ${verdict.dropped} message(s) were trimmed and nothing else is droppable"
+        trace += StepTrace(
+            call.step, StepTrace.Kind.TOOL_CALL, "refused ${call.name}: step does not fit — $detail",
+            success = false,
+            toolName = call.name,
+        )
+        // The phase ends here, and it ends as a failure: `recordToolCall` has
+        // already counted this attempt as dispatched (the policy allowed it),
+        // so without this the run's tool timings would show a phase that
+        // succeeded and a trace that says it did not.
+        metrics?.endPhase(StepTrace.Kind.TOOL_CALL, success = false)
+        // No `sessions.observe` here: the run is over, so there is no model left
+        // to read it. The reason goes in the Stop, which is what the UI shows.
+        return Stop("context window too small for this step: $detail", trace.toList())
+    }
+
+    /**
+     * Re-prices the step now that the observation is real.
+     *
+     * Adjustments are still applied — that is the point. A tool that returned
+     * six times its estimate is exactly the case the pre-tool check could not
+     * see, and folding the window here costs nothing next to discovering the
+     * overflow at the next prefill. A step is never refused from here: the tool
+     * already ran, so refusing now would report a real result to the user as a
+     * failure and there is nothing left to protect.
+     */
+    private fun repriceWithRealObservation(call: PendingCall, reply: String, observation: String) {
+        priceStep(call, reply, observation)
+    }
+
+    /**
+     * Evaluate, apply, re-evaluate, until it fits or nothing is left to give.
+     *
+     * The re-evaluation is the load-bearing line, and it exists because
+     * [StepEnforcer]'s own KDoc is honest about the limit of its guarantee: the
+     * plan's drops are priced as whole buckets, and the state it re-plans
+     * against does not contain the reply or the arguments. So "apply the list"
+     * can leave the step over the ceiling, and the only way to know it fits is
+     * to ask again with the window the drops actually produced.
+     *
+     * The loop terminates because every iteration either removes a message or
+     * breaks; [MAX_BUDGET_ADJUSTMENTS] is a second bound on top of that, and it
+     * is a QUALITY bound, not a correctness one — a step that needed more than
+     * eight messages given up to fit is a run whose window is structurally too
+     * big, and the answer to that is a stop, not a gutted conversation.
+     */
+    private fun priceStep(call: PendingCall, reply: String, observation: String): StepVerdict? {
+        var state = contextOf(lastPrompt)
+        val enforcer = enforcement(state) ?: return null
+
+        val proposed = ProposedStep(
+            replyCandidate = reply,
+            toolArguments = compactArgs(call.args),
+            observationCandidate = observation,
+            // The summary this step WILL cost is unknown before the tool runs,
+            // and it is not guessed. Once a compaction has happened the working
+            // state is already priced — it is in the prompt the model was sent
+            // — and the next compaction REPLACES it rather than adding to it,
+            // so passing it a second time would double-charge the one case
+            // where the loop actually knows the answer.
+            summaryCandidate = "",
+        )
+
+        var plan = enforcer.evaluate(state, proposed)
+        var applied = 0
+        var labels = ""
+
+        while (plan is StepPlan.Trim && applied < MAX_BUDGET_ADJUSTMENTS) {
+            // The allowance is passed down, not just checked here: a plan can
+            // legitimately list one drop per item in a bucket, and applying the
+            // whole list in a single pass would gut the window past the cap
+            // this loop is supposed to hold it to.
+            val outcome = applyAdjustments(state, plan.adjustments, MAX_BUDGET_ADJUSTMENTS - applied)
+            if (outcome.dropped == 0) break
+            state = outcome.state
+            applied += outcome.dropped
+            labels = if (labels.isEmpty()) outcome.label else "$labels; ${outcome.label}"
+            plan = enforcer.evaluate(state, proposed)
+        }
+
+        if (applied > 0) {
+            trace += StepTrace(
+                call.step, StepTrace.Kind.COMPACTION,
+                "step budget for ${call.name}: dropped $applied message(s) " +
+                    "($labels) — projected ${plan.projectedTokens}/${plan.limit} tokens",
+            )
+        }
+        return StepVerdict(plan, applied)
+    }
+
+    /**
+     * Applies [StepPlan.adjustments] to the live window and returns the state
+     * that results, so the caller can re-price against what happened rather
+     * than against what was planned.
+     *
+     * Each leg, and why it does what it does:
+     *
+     *  - **Observations** are removed from [sessions.messages] as well as from
+     *    the priced state. They are the cheapest thing in a window to lose:
+     *    the model already acted on them and the compaction trigger is about to
+     *    fold the rest into labelled slots anyway.
+     *  - **Turns** are removed from the session too, oldest first, and
+     *    observations are excluded from this leg so the two legs cannot claim
+     *    the same message. User turns are excluded outright: a user turn is an
+     *    instruction, and instructions are the last thing this system gives up.
+     *  - **Memories** are removed from the priced state only. The block is
+     *    re-rendered from the store on every step, so what is actually given up
+     *    is the room the builder spends on it — and the builder drops exactly
+     *    that block when its own budget is exceeded, which is the only
+     *    situation in which a plan asks for it.
+     *  - **Tool definitions** cannot be applied. They are inside the system
+     *    prompt, which is the one component [ContextBudget] never drops, and
+     *    the step gate has no cheaper place to take them from. Treated as
+     *    "nothing left" rather than silently ignored, so an inapplicable plan
+     *    ends as a refusal instead of a lie.
+     *
+     * @param allowance how many messages this pass may give up, so one plan
+     *   cannot drop the whole window in a single call.
+     * @return the reduced state, how many messages were actually given up, and
+     *   a label for the trace.
+     */
+    private fun applyAdjustments(
+        state: ContextState,
+        actions: List<BudgetAction>,
+        allowance: Int,
+    ): Adjustments {
+        var working = state
+        var dropped = 0
+        val labels = StringBuilder()
+
+        for (action in actions) {
+            if (dropped >= allowance) break
+            val given: Boolean
+            val next: ContextState
+            when (action.component) {
+                UsageBucket.OBSERVATION -> {
+                    given = dropOldestObservation(working)
+                    next = working.copy(observations = working.observations.drop(1))
+                }
+
+                UsageBucket.TURN -> {
+                    given = dropOldestTurn(working)
+                    next = working.copy(recentTurns = working.recentTurns.drop(1))
+                }
+
+                UsageBucket.MEMORY -> {
+                    given = working.memories.isNotEmpty()
+                    next = working.copy(memories = working.memories.drop(1))
+                }
+
+                UsageBucket.SUMMARY, UsageBucket.TASK, UsageBucket.TOOL -> {
+                    given = false
+                    next = working
+                }
+            }
+            if (!given) continue
+            if (dropped > 0) labels.append("; ")
+            labels.append(action.label)
+            dropped++
+            working = next
+        }
+        return Adjustments(working, dropped, labels.toString())
+    }
+
+    /**
+     * Removes the oldest tool observation from the live window.
+     *
+     * Guarded on BOTH the priced state and the session: the state says how many
+     * the plan was entitled to drop, and the session says whether there is
+     * still one there to drop. Removing a message that is not in the window
+     * would shrink nothing while the plan believed it had helped.
+     */
+    private fun dropOldestObservation(state: ContextState): Boolean {
+        if (state.observations.isEmpty()) return false
+        val index = sessions.messages.indexOfFirst { it is ChatMessage.ToolObservation }
+        if (index < 0) return false
+        sessions.messages.removeAt(index)
+        return true
+    }
+
+    /** Removes the oldest droppable turn. See [applyAdjustments] for the exclusions. */
+    private fun dropOldestTurn(state: ContextState): Boolean {
+        if (state.recentTurns.isEmpty()) return false
+        val index = (1 until sessions.messages.size).firstOrNull { i ->
+            val message = sessions.messages[i]
+            message !is ChatMessage.ToolObservation && message !is ChatMessage.User
+        } ?: return false
+        sessions.messages.removeAt(index)
+        return true
+    }
+
+    /**
+     * The prompt the model was last given, as a priced [ContextState].
+     *
+     * The mapping is the only place in the loop that decides which prompt slot
+     * a message prices into, and it mirrors [ContextBudget]'s drop order: the
+     * system prompt and the task are the request and are never droppable; the
+     * working state has its own slot; observations are the cheapest thing to
+     * lose; the memory block is re-searchable; everything else the builder
+     * emitted is a turn.
+     *
+     * Three details that look like double counting and are not:
+     *  - the builder re-emits the task as its own user turn, so the turn that
+     *    matches [task] is skipped and priced in `task` instead;
+     *  - the memory block is a `User` message that is not the task, so it goes
+     *    to `memories` rather than to turns — [ContextBudget] already classes
+     *    memories as re-searchable and droppable;
+     *  - the working state arrives as a `System` message carrying
+     *    [SUMMARY_PREFIX], and pricing it as part of the system prompt would
+     *    make the one component the drop order never reaches look undroppable
+     *    in fact as well as in principle.
+     */
+    private fun contextOf(prompt: List<ChatMessage>): ContextState {
+        val system = StringBuilder()
+        var summary = ""
+        val turns = ArrayList<ChatMessage>(prompt.size)
+        val observations = ArrayList<String>(OBSERVATION_LEDGER_SLOTS)
+        val memories = ArrayList<String>(MEMORY_LEDGER_SLOTS)
+
+        for (message in prompt) {
+            when (message) {
+                is ChatMessage.System ->
+                    if (summary.isEmpty() && message.text.startsWith(SUMMARY_PREFIX)) {
+                        summary = message.text
+                    } else {
+                        system.append(message.text).append('\n')
+                    }
+
+                is ChatMessage.User ->
+                    if (message.text == task) Unit else memories += message.text
+
+                is ChatMessage.Assistant -> turns += message
+
+                is ChatMessage.ToolObservation -> observations += message.observation
+            }
+        }
+
+        return ContextState(
+            systemPrompt = system.toString(),
+            task = task,
+            workingSummary = summary,
+            memories = memories,
+            recentTurns = turns,
+            observations = observations,
+        )
+    }
+
+    /**
+     * A representative observation at the full budget length, built once.
+     *
+     * WHY ORDINARY WORDS AND NOT A RUN OF ONE CHARACTER: the default estimator
+     * is character-based (4 chars per token) but a caller may hand
+     * [StepEnforcer] a real BPE counter, and 2048 copies of a single character
+     * price at ~512 tokens under one and ~2048 under the other. The estimate
+     * would then swing by 4x depending on which model happened to be loaded,
+     * which is a budget check that moves for reasons unrelated to the budget.
+     * Real words price within a few percent of the heuristic under both.
+     *
+     * Held for the controller's lifetime: at most [config.observationBudgetChars]
+     * characters, and it is the only buffer the gate owns.
+     */
+    private val observationSample: String by lazy {
+        buildString(config.observationBudgetChars.coerceAtLeast(0)) {
+            while (length < config.observationBudgetChars) append(OBSERVATION_SAMPLE_WORDS)
+        }
+    }
+
+    private data class StepVerdict(val plan: StepPlan, val dropped: Int)
+
+    private data class Adjustments(val state: ContextState, val dropped: Int, val label: String)
+
     // ------------------------------------------------------------ collaborators
 
     private fun selectTools(): List<AgentTool> = try {
@@ -573,13 +1002,26 @@ class AgentController(
         } catch (t: Throwable) {
             emptyList()
         }
-        val history = try {
-            contextBuilder.build(task, sessions.messages, memories, visible.map { it.definition })
+        // The working state goes in BEFORE the builder, because
+        // [DefaultContextBuilder] recognises a summary by position and prefix
+        // and reserves slot 2 for it. That is a contract the builder's own KDoc
+        // assigns to "the agent loop", and this is the line that keeps it:
+        // without it the compacted state is built, stored, counted by the
+        // trigger — and never shown to the model.
+        val history = withWorkingSummary(sessions.messages)
+        val prompt = try {
+            contextBuilder.build(task, history, memories, visible.map { it.definition })
         } catch (t: Throwable) {
-            sessions.messages
+            // The fallback keeps the summary, because losing the working state
+            // to a builder that threw is the one thing worse than an untrimmed
+            // prompt.
+            history
         }
+        // Retained so the step gate prices the context the model is about to be
+        // given rather than a reconstruction of it. See [lastPrompt].
+        lastPrompt = prompt
         return GenerationRequest(
-            messages = history,
+            messages = prompt,
             // Constrained generation, and this is the line that was the P0.
             //
             // WHY IT CANNOT BE NULL ANY MORE: a 1.1B base model asked to "reply
@@ -633,24 +1075,111 @@ class AgentController(
             .joinToString(", ", "{", "}") { (key, value) -> "$key=${value.toString().take(40)}" }
 
     /**
-     * Folds the window when it outgrows the model's context.
+     * Folds the window when it outgrows the model's context, into labelled
+     * slots rather than a truncated transcript.
      *
-     * WHY the trigger is a fraction of the real window rather than the budget:
+     * WHY THE TRIGGER IS A FRACTION OF THE REAL WINDOW RATHER THAN THE BUDGET:
      * the backend knows its own context length, and a hard-coded token ceiling
      * is wrong for every model that is not the one it was written for.
+     *
+     * The test is `ContextCompactor.shouldCompact` with its unknown-window case
+     * resolved: `min(0 * 0.65, limit)` is 0, so a backend that does not know
+     * its window (`ModelCapabilities.UNKNOWN.contextLength`) would compact on
+     * every single step. [workingLimit] falls back to the configured limit
+     * instead, which is what the previous version of this function did and
+     * what a slow, wasteful degradation is worth.
+     *
+     * ## Why this is not a count
+     *
+     * Compaction used to end at `sessions.compact()`, which folds messages into
+     * a summary and then re-inserts that summary as an ordinary Assistant turn.
+     * [DefaultContextBuilder] only lifts a summary it finds at position 0
+     * carrying [SUMMARY_PREFIX] into the slot it budgets first and keeps last —
+     * so the summary was a turn like any other, and a turn is the first thing
+     * dropped when the prompt is over budget, which is exactly when it is most
+     * needed. The state was produced, stored, counted by this very trigger, and
+     * never shown to the model. Now the state is derived over the whole history
+     * first, kept in [Session.workingSummary], and handed to the builder
+     * through [withWorkingSummary] so it lands in the slot that survives.
      */
-    private fun compactIfNeeded() {
+    private suspend fun compactIfNeeded() {
         val active = sessions.tokens(model)
         val window = model.capabilities.contextLength
-        val limit = if (window > 0) {
-            min((window * COMPACT_AT).toInt(), config.workingTokenLimit)
-        } else {
-            config.workingTokenLimit
-        }
+        val limit = workingLimit(window)
         if (active <= limit) return
-        if (!sessions.compact()) return
-        trace += StepTrace(step, StepTrace.Kind.COMPACTION, "compacted $active tokens (limit $limit)")
+
+        // Nothing to fold, nothing to compact. A window that trips the trigger
+        // holding two messages is a model whose context is smaller than its own
+        // request, and folding would only duplicate the task.
+        val keep = sessions.keepRecent.coerceAtLeast(1)
+        if (sessions.messages.size <= keep + 1) return
+
+        // Order matters and is not interchangeable: the slots are derived from
+        // the messages [foldWindow] is about to delete, so compacting after the
+        // fold would summarise a transcript that is already gone.
+        val state: CompactedState =
+            compactor.compact(sessions.messages, sessions.workingSummary, model)
+        sessions.workingSummary = state
+        foldWindow(keep)
+
+        trace += StepTrace(
+            step, StepTrace.Kind.COMPACTION,
+            "compacted $active tokens into working state: ${state.progress.size} progress, " +
+                "${state.actionsTaken.size} actions, ${state.failures.size} failures, " +
+                "${state.knownFacts.size} facts, ${state.remainingWork.size} remaining " +
+                "(limit $limit)",
+        )
     }
+
+    /**
+     * Folds the window down to the task plus the newest [keep] messages.
+     *
+     * WHY THE LOOP DOES THIS AND NOT [Session.compact]: the session's own
+     * compaction has to write its summary into the message list, because it
+     * owns nothing else, and a summary in the list is a turn the builder is
+     * free to drop. The loop owns the prompt, so the loop keeps the state
+     * outside the list where the builder will lift it into its reserved slot.
+     *
+     * Nothing is lost that the [CompactedState] does not already carry: the
+     * caller derived it from these very messages one line earlier, and it
+     * carries the task, the model's turns, every tool outcome and every
+     * failure forward across successive compactions.
+     */
+    private fun foldWindow(keep: Int) {
+        val messages = sessions.messages
+        val head = messages.first()
+        val tail = messages.subList(messages.size - keep, messages.size).toList()
+        messages.clear()
+        messages += head
+        messages += tail
+    }
+
+    /**
+     * The history handed to [ContextBuilder], with the working state in front of
+     * it. Returns the session's own list untouched when there is no state, so
+     * the common path allocates nothing and the builder's `subList` views stay
+     * views.
+     */
+    private fun withWorkingSummary(messages: List<ChatMessage>): List<ChatMessage> {
+        val state = sessions.workingSummary ?: return messages
+        return listOf(compactor.summaryMessage(state)) + messages
+    }
+
+    /**
+     * `min(modelContext * 0.65, workingTokenLimit)` — architecture §12.
+     *
+     * ONE copy of the formula, shared by the compaction trigger and the step
+     * gate, because the two are two halves of one policy: compaction keeps the
+     * window from growing past this, and the gate keeps a single step from
+     * crossing it. Two copies would be two numbers that eventually disagree,
+     * and the disagreement would look like a budget bug.
+     *
+     * The model's window stops us overflowing the KV cache; the working limit
+     * stops us paying for a prefill §9 says we should never pay.
+     */
+    private fun workingLimit(window: Int): Int =
+        if (window > 0) min((window * COMPACT_AT).toInt(), config.workingTokenLimit)
+        else config.workingTokenLimit
 
     private fun failed(toolName: String, detail: String): ToolResult = ToolResult(
         success = false,
@@ -687,5 +1216,41 @@ class AgentController(
         const val TRACE_DETAIL_CHARS = 512
         const val LINE_CHARS = 200
         const val TRUNCATOR_MIN_SAFE_BUDGET = 64
+
+        /**
+         * Most messages the step gate may give up in a single step.
+         *
+         * WHY EIGHT: the loop's whole quality argument for a window is recency
+         * ([ContextBudget]'s drop order), so a gate willing to gut a
+         * conversation is worse than one that admits the window is too small.
+         * Eight is roughly the working target's worth of observations at the
+         * default budget — past that the run is not trimming, it is forgetting.
+         */
+        const val MAX_BUDGET_ADJUSTMENTS = 8
+
+        /**
+         * Below this ceiling the step gate does not run.
+         *
+         * WHY: [ContextBudget] holds back [ContextBudget.DEFAULT_OUTPUT_RESERVE]
+         * for the reply, so a small ceiling leaves a prompt budget too small to
+         * hold a system prompt, a task and a step. A gate that refuses every
+         * call for that reason is not protecting the window, it is disabling the
+         * agent. Compaction still runs at the same number.
+         */
+        const val MIN_ENFORCEABLE_LIMIT = 1024
+
+        /** Initial capacity of the observation ledger in [contextOf]. */
+        const val OBSERVATION_LEDGER_SLOTS = 8
+
+        /** Initial capacity of the memory ledger in [contextOf]. */
+        const val MEMORY_LEDGER_SLOTS = 4
+
+        /**
+         * What the pre-tool observation estimate is made of.
+         *
+         * Ordinary prose so it prices the same under the default character
+         * estimator and under a real BPE counter. See [observationSample].
+         */
+        const val OBSERVATION_SAMPLE_WORDS = "The device reported a result. "
     }
 }
