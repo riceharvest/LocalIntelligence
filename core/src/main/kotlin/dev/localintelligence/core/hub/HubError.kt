@@ -151,8 +151,17 @@ sealed class HubError(override val message: String) : Exception(message) {
                 return GatedRepo(repo)
             }
             return when {
-                status == 401 -> GatedRepo(repo)
-                status == 403 -> GatedRepo(repo)
+                // A bare 401/403 is NOT evidence of gating. Verified against the
+                // live API: a repo that does not exist answers 401 with the body
+                // {"error":"Invalid username or password."} and NO X-Error-Code,
+                // while a genuinely gated repo answers the *metadata* endpoint
+                // 200 with "gated":"manual". Mapping 401 -> GatedRepo therefore
+                // told a user who mistyped a repo name to go accept a licence
+                // page that does not exist. Only an explicit X-Error-Code is
+                // trusted; otherwise 401/403 means we could not authenticate,
+                // which for an anonymous user is indistinguishable from absent.
+                status == 401 || status == 403 ->
+                    if (file != null) FileNotFound(repo, file) else RepoNotFound(repo)
                 status == 404 -> if (file != null) FileNotFound(repo, file) else RepoNotFound(repo)
                 status == 429 -> RateLimited(retryAfterSeconds)
                 status in 500..599 -> ServerUnavailable(status)

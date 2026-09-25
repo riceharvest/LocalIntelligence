@@ -138,13 +138,40 @@ class HuggingFaceClientTest {
     }
 
     @Test
-    fun `401 on a repo listing says gated, not unauthorized`() {
-        // The regression this pins: mapping 401 -> "create a token" tells a user
-        // to mint a credential that cannot open a repo they have not licensed.
-        val error = catchHubError { clientReturning("{}", 401).listGgufFiles(repo("meta-llama/Llama-3.2-1B")) }
+    fun `a bare 401 with no error code is a missing repo, not a gated one`() {
+        // Captured from the live API, not inferred. A repo that does not exist
+        // answers:
+        //   HTTP 401
+        //   {"error":"Invalid username or password."}
+        //   (no X-Error-Code header)
+        // while a genuinely gated repo answers the metadata endpoint 200 with
+        // "gated":"manual". So a bare 401 must NOT produce "accept the licence":
+        // that sent a user who mistyped a repo name to a licence page for a
+        // repository that does not exist.
+        val error = catchHubError {
+            clientReturning("""{"error":"Invalid username or password."}""", 401)
+                .listGgufFiles(repo("thisorg/does-not-exist-xyz"))
+        }
+        assertTrue("got $error", error is HubError.RepoNotFound)
+        assertNoStackTrace(error.message!!)
+    }
+
+    @Test
+    fun `a bare 403 is also not evidence of gating`() {
+        val error = catchHubError { clientReturning("{}", 403).listGgufFiles(repo("m/l")) }
+        assertTrue("got $error", error is HubError.RepoNotFound)
+    }
+
+    @Test
+    fun `gating is still detected when HF says so explicitly`() {
+        // The case that matters: an explicit X-Error-Code is the ONLY trustworthy
+        // signal, so the fix above must not have broken real gated repos.
+        val error = catchHubError {
+            clientReturning("{}", 401, mapOf("X-Error-Code" to "GatedRepo"))
+                .listGgufFiles(repo("meta-llama/Llama-3.2-1B"))
+        }
         assertTrue("got $error", error is HubError.GatedRepo)
         assertTrue(error.message!!.lowercase().contains("gated"))
-        assertNoStackTrace(error.message!!)
     }
 
     @Test

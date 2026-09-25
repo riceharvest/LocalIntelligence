@@ -276,8 +276,20 @@ class HubErrorTest {
     }
 
     @Test
-    fun `a 401 with no error code still says gated`() {
-        val error = HubError.fromStatus(401, "meta-llama/x", null)
+    fun `a 401 with no error code is a missing repo`() {
+        // Verified live, not assumed: HF answers a NONEXISTENT repo with 401 and
+        // no X-Error-Code, and a gated repo's metadata endpoint with 200 +
+        // "gated":"manual". So a bare 401 is not gating evidence, and claiming
+        // otherwise sent a mistyped repo name to a licence page that does not
+        // exist. Only an explicit X-Error-Code may produce GatedRepo.
+        val error = HubError.fromStatus(401, "thisorg/does-not-exist-xyz", null)
+        assertTrue(error is HubError.RepoNotFound)
+        assertTrue("must name the repo", error.message!!.contains("thisorg/does-not-exist-xyz"))
+    }
+
+    @Test
+    fun `gated is reported only on an explicit error code`() {
+        val error = HubError.fromStatus(401, "meta-llama/x", null, errorCode = "GatedRepo")
         assertTrue(error is HubError.GatedRepo)
         assertTrue(error.message.lowercase().contains("gated"))
         assertTrue("must name the repo", error.message!!.contains("meta-llama/x"))
