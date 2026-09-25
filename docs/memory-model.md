@@ -326,6 +326,41 @@ without `-no-snapshot-save`. Not tried, because they destroy state the task
 forbids: `-wipe-data`, and recreating the AVD. A guess would be worse than
 nothing, so here is the procedure instead.
 
+### 6a. A later attempt got further, and still failed
+
+A subsequent attempt cleared the stale lock files left behind by earlier
+killed qemu processes — `~/.android/avd/pixel10pro.avd/{hardware-qemu.ini.lock,
+multiinstance.lock}` — and then got materially further than anything above: with
+`-verbose -show-kernel` the Android kernel log came up and the guest reached
+`init: starting service 'bootanim'`, i.e. the system image booted, `apexd`
+mounted, `surfaceflinger` started. The AVD and its system image are therefore
+NOT corrupt, and the earlier "cannot boot this image" conclusion was wrong.
+
+It then died silently, with no error line, and qemu was gone from the process
+table. Re-running with the exit code captured gives the truth:
+
+```
+EXIT=139        # 128 + 11 = SIGSEGV, i.e. the emulator process itself faults
+```
+
+So this is a host-side emulator crash after a successful guest boot, not an
+Android failure and not an out-of-memory condition (`/proc/pressure/memory`
+reported `some avg10=0.00` throughout; `/dev/zram0` being 100% full is normal
+for zram and is not the cause).
+
+Two false leads worth recording so nobody repeats them:
+- `tcsetattr: Inappropriate ioctl for device` appears in the log of every
+  failing run. It is an artifact of the emulator's controlling terminal under a
+  pipe, not the cause — it appears in runs that reach bootanim and in runs that
+  die earlier, and it does not appear in the `-verbose` run that got furthest.
+- The GUI path (`Created extended window in 292.741ms`) reaches further than
+  `-no-window` in the log, but both die identically, so the display is not it.
+
+Not tried, because they destroy the persistent app data and the staged model:
+`-wipe-data`, and recreating the AVD. Conclusion: the emulator is currently
+unusable on this host and no resident-cost number can be taken. The procedure
+below is what to run on a working emulator or a physical device.
+
 ### 6.1 The procedure
 
 ```bash
