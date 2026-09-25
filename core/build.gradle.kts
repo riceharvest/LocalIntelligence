@@ -37,8 +37,8 @@ tasks.withType<Test>().configureEach {
 tasks.register<JavaExec>("evals") {
     group = "verification"
     description = "Run the deterministic agent evaluation suite."
-    mainClass.set("dev.pidroid.core.eval.EvalMainKt")
+    mainClass.set("dev.localintelligence.core.eval.EvalMainKt")
     classpath = sourceSets["test"].runtimeClasspath
-    val model = project.findProperty("pidroid.model") as String?
+    val model = project.findProperty("localintelligence.model") as String?
     args(if (model != null) listOf("--model", model) else emptyList())
 }

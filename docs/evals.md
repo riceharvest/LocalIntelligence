@@ -140,7 +140,7 @@ quantizations, architectures, and devices.
 ```bash
 ./gradlew :core:test        # deterministic harness tests, seconds, no device
 ./gradlew :core:evals       # the task suite against fakes, seconds
-./gradlew :core:evals -Ppidroid.model=/path/to/model.gguf   # against a real model
+./gradlew :core:evals -PLocalIntelligence.model=/path/to/model.gguf   # against a real model
 ```
 
 Output is one line per task plus a summary:

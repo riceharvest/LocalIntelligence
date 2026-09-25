@@ -1,4 +1,4 @@
-// PiDroid — minimal Android-native agent harness for small local LLMs.
+// LocalIntelligence — minimal Android-native agent harness for small local LLMs.
 //
 // THE ONE ARCHITECTURAL RULE: :core is a PURE KOTLIN/JVM module with ZERO Android
 // dependencies. The agent loop, tool registry, selection, loop detection, context
@@ -30,7 +30,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PiDroid"
+rootProject.name = "LocalIntelligence"
 
 // Coarse modules on purpose. Do NOT add a module per tool, per screen, or per
 // workstream — package boundaries give the separation without the build cost.

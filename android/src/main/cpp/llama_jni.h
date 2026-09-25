@@ -1,6 +1,6 @@
-// llama.cpp JNI surface for PiDroid.
+// llama.cpp JNI surface for LocalIntelligence.
 //
-// C++ side of dev.pidroid.android.inference.LlamaBridge. One object, one model,
+// C++ side of dev.localintelligence.android.inference.LlamaBridge. One object, one model,
 // one context at a time: a phone holds one model resident, so a second load
 // unloads the first (docs/architecture.md section 16).
 //
@@ -18,7 +18,7 @@
 #include <mutex>
 #include <string>
 
-// Why a generation stopped. Mirrors dev.pidroid.core.model.StopReason.
+// Why a generation stopped. Mirrors dev.localintelligence.core.model.StopReason.
 enum class StopCode : int32_t {
     COMPLETED = 0,
     MAX_TOKENS = 1,
@@ -78,63 +78,63 @@ extern "C" {
 
 // Creates the handle. Returns 0 on allocation failure.
 JNIEXPORT jlong JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeCreate(JNIEnv * env, jclass);
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeCreate(JNIEnv * env, jclass);
 
 // Frees the model, context and the handle. Safe on 0. Waits for any in-flight
 // generation on this handle before freeing.
 JNIEXPORT void JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeDestroy(JNIEnv * env, jclass, jlong handle);
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeDestroy(JNIEnv * env, jclass, jlong handle);
 
 JNIEXPORT jstring JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeSystemInfo(JNIEnv * env, jclass);
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeSystemInfo(JNIEnv * env, jclass);
 
 // ---- model -------------------------------------------------------------------
 
 // Loads `path` with the given context length. Returns null on success, else a
 // non-empty error string. `n_threads` 0 means "let llama.cpp decide".
 JNIEXPORT jstring JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeLoadModel(
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
         JNIEnv * env, jclass, jlong handle, jstring path, jint n_ctx, jint n_threads,
         jboolean use_mmap);
 
 // Unloads. Frees native memory; the handle stays valid and can be reloaded.
 JNIEXPORT void JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeUnload(JNIEnv * env, jclass, jlong handle);
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeUnload(JNIEnv * env, jclass, jlong handle);
 
 // Trained context length from the model, for the capability check. 0 if none.
 JNIEXPORT jint JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeModelContextLength(JNIEnv * env, jclass, jlong handle);
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeModelContextLength(JNIEnv * env, jclass, jlong handle);
 
 // ---- tokenisation -------------------------------------------------------------
 
 // Exact token count via llama_tokenize. -1 if no model is loaded.
 JNIEXPORT jint JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeCountTokens(
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeCountTokens(
         JNIEnv * env, jclass, jlong handle, jstring text);
 
 // ---- generation ---------------------------------------------------------------
 
 // Generates, streaming each decoded piece to `onToken` (a
-// dev.pidroid.android.inference.LlamaBridge.TokenSink) as it is produced.
+// dev.localintelligence.android.inference.LlamaBridge.TokenSink) as it is produced.
 //
 // Returns null on success, or an error string. The result is read back through
 // nativeTakeResult after this returns.
 JNIEXPORT jstring JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeGenerate(
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         JNIEnv * env, jclass, jlong handle, jstring prompt, jstring grammar, jfloat temperature,
         jfloat top_p, jfloat min_p, jfloat repeat_penalty, jint seed, jint max_tokens,
         jobject onToken);
 
 // Moves the last outcome off the handle, serialised as a single string.
 JNIEXPORT jstring JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeTakeResult(JNIEnv * env, jclass, jlong handle);
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeTakeResult(JNIEnv * env, jclass, jlong handle);
 
 // Cooperative cancellation. Safe when idle.
 JNIEXPORT void JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeCancel(JNIEnv * env, jclass, jlong handle);
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeCancel(JNIEnv * env, jclass, jlong handle);
 
 // True while a generation is in flight on another thread.
 JNIEXPORT jboolean JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeIsGenerating(JNIEnv * env, jclass, jlong handle);
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeIsGenerating(JNIEnv * env, jclass, jlong handle);
 
 }  // extern "C"

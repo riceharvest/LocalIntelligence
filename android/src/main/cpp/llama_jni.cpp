@@ -246,13 +246,13 @@ llama_sampler * build_chain(const llama_vocab * vocab, const std::string & gramm
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeCreate(JNIEnv *, jclass) {
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeCreate(JNIEnv *, jclass) {
     auto * h = new (std::nothrow) LlamaHandle();
     return reinterpret_cast<jlong>(h);
 }
 
 JNIEXPORT void JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeDestroy(JNIEnv *, jclass, jlong handle) {
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeDestroy(JNIEnv *, jclass, jlong handle) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
         return;
@@ -273,13 +273,13 @@ Java_dev_pidroid_android_inference_LlamaBridge_nativeDestroy(JNIEnv *, jclass, j
 }
 
 JNIEXPORT jstring JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeSystemInfo(JNIEnv * env, jclass) {
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeSystemInfo(JNIEnv * env, jclass) {
     const char * info = llama_print_system_info();
     return to_jstring(env, info != nullptr ? std::string(info) : std::string("unknown"));
 }
 
 JNIEXPORT jstring JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeLoadModel(
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
         JNIEnv * env, jclass, jlong handle, jstring path, jint n_ctx, jint n_threads,
         jboolean use_mmap) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
@@ -378,7 +378,7 @@ Java_dev_pidroid_android_inference_LlamaBridge_nativeLoadModel(
 }
 
 JNIEXPORT void JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeUnload(JNIEnv *, jclass, jlong handle) {
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeUnload(JNIEnv *, jclass, jlong handle) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
         return;
@@ -395,7 +395,7 @@ Java_dev_pidroid_android_inference_LlamaBridge_nativeUnload(JNIEnv *, jclass, jl
 }
 
 JNIEXPORT jint JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeModelContextLength(
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeModelContextLength(
         JNIEnv *, jclass, jlong handle) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
@@ -410,7 +410,7 @@ Java_dev_pidroid_android_inference_LlamaBridge_nativeModelContextLength(
 }
 
 JNIEXPORT jint JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeCountTokens(
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeCountTokens(
         JNIEnv * env, jclass, jlong handle, jstring text) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr || text == nullptr) {
@@ -436,7 +436,7 @@ Java_dev_pidroid_android_inference_LlamaBridge_nativeCountTokens(
 }
 
 JNIEXPORT jboolean JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeIsGenerating(JNIEnv *, jclass, jlong handle) {
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeIsGenerating(JNIEnv *, jclass, jlong handle) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
         return JNI_FALSE;
@@ -445,7 +445,7 @@ Java_dev_pidroid_android_inference_LlamaBridge_nativeIsGenerating(JNIEnv *, jcla
 }
 
 JNIEXPORT void JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeCancel(JNIEnv *, jclass, jlong handle) {
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeCancel(JNIEnv *, jclass, jlong handle) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
         return;
@@ -455,7 +455,7 @@ Java_dev_pidroid_android_inference_LlamaBridge_nativeCancel(JNIEnv *, jclass, jl
 }
 
 JNIEXPORT jstring JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeTakeResult(JNIEnv * env, jclass, jlong handle) {
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeTakeResult(JNIEnv * env, jclass, jlong handle) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
         return nullptr;
@@ -483,7 +483,7 @@ Java_dev_pidroid_android_inference_LlamaBridge_nativeTakeResult(JNIEnv * env, jc
 }
 
 JNIEXPORT jstring JNICALL
-Java_dev_pidroid_android_inference_LlamaBridge_nativeGenerate(
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         JNIEnv * env, jclass, jlong handle, jstring prompt, jstring grammar, jfloat temperature,
         jfloat top_p, jfloat min_p, jfloat repeat_penalty, jint seed, jint max_tokens,
         jobject onToken) {

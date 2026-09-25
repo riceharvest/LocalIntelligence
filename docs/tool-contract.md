@@ -4,7 +4,7 @@ The interfaces in this document are **frozen**. Implement them; do not redesign 
 If one looks wrong, open an issue. A change to anything here needs sign-off because
 every workstream compiles against it.
 
-The canonical definitions live in `core/src/main/kotlin/dev/pidroid/core/`. This
+The canonical definitions live in `core/src/main/kotlin/dev/LocalIntelligence/core/`. This
 document is the human-readable contract; the code is the enforcement.
 
 ---

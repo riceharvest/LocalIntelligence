@@ -31,23 +31,23 @@
     </queries>
 
     <application
-        android:name=".PiDroidApplication"
+        android:name=".LocalIntelligenceApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.PiDroid">
+        android:theme="@style/Theme.LocalIntelligence">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.PiDroid">
+            android:theme="@style/Theme.LocalIntelligence">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Entry point for "share this file to PiDroid". -->
+            <!-- Entry point for "share this file to LocalIntelligence". -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />

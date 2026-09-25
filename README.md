@@ -1,8 +1,8 @@
-# PiDroid
+# LocalIntelligence
 
 **A minimal Android-native agent harness designed for small local LLMs.**
 
-PiDroid is not a framework. It is a small, auditable agent loop plus a set of Android
+LocalIntelligence is not a framework. It is a small, auditable agent loop plus a set of Android
 tools, sized so that a 1-4B parameter model running entirely on the phone can still
 complete real multi-step tasks.
 
@@ -21,7 +21,7 @@ Runs fully offline. No account, no server, no telemetry.
 
 On-device models got small enough to be useful and are still too small to be trusted
 with a large context, many tools, or a complicated protocol. Most agent frameworks
-assume a frontier model on a server. PiDroid assumes the opposite and optimizes
+assume a frontier model on a server. LocalIntelligence assumes the opposite and optimizes
 everything for that assumption:
 
 - **Constrained output.** Grammar-constrained generation means the model physically

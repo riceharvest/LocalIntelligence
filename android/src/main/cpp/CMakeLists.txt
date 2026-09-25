@@ -1,4 +1,4 @@
-# llama.cpp JNI for PiDroid. Built by :android via externalNativeBuild.
+# llama.cpp JNI for LocalIntelligence. Built by :android via externalNativeBuild.
 #
 # The llama.cpp sources are NOT vendored in this repository: they are ~200 MB
 # of upstream and they move. This file fetches a pinned tag with
@@ -33,7 +33,7 @@
 # -----------------------------------------------------------------------
 
 cmake_minimum_required(VERSION 3.22.1)
-project(pidroid_llama CXX)
+project(LocalIntelligence_llama CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -48,7 +48,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 #   3. FetchContent          - when PIDROID_LLAMA_FETCH is ON
 #
 # If none of these produce sources the configure step FAILS LOUDLY rather than
-# producing a stub library. A libpidroid_llama_jni.so with no llama.cpp behind
+# producing a stub library. A libLocalIntelligence_llama_jni.so with no llama.cpp behind
 # it would build clean, load clean, and then fail at the first JNI call, which
 # is far more expensive to diagnose than a build error naming the fix.
 
@@ -164,17 +164,17 @@ add_subdirectory("${_llama_src_dir}" llama.cpp EXCLUDE_FROM_ALL)
 # The JNI layer
 # -----------------------------------------------------------------------
 
-add_library(pidroid_llama_jni SHARED
+add_library(LocalIntelligence_llama_jni SHARED
     llama_jni.cpp
 )
 
-target_include_directories(pidroid_llama_jni PRIVATE
+target_include_directories(LocalIntelligence_llama_jni PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${_llama_src_dir}/include"
     "${_llama_src_dir}/ggml/include"
 )
 
-target_link_libraries(pidroid_llama_jni PRIVATE
+target_link_libraries(LocalIntelligence_llama_jni PRIVATE
     llama
     ggml
     android
@@ -184,7 +184,7 @@ target_link_libraries(pidroid_llama_jni PRIVATE
     # the first time a C++ exception unwinds.
 )
 
-target_compile_options(pidroid_llama_jni PRIVATE
+target_compile_options(LocalIntelligence_llama_jni PRIVATE
     -Wall
     -Wextra
     -Wno-unused-parameter

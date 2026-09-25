@@ -1,8 +1,8 @@
 # Architecture
 
-> **PiDroid is not Hermes for Android.**
+> **LocalIntelligence is not Hermes for Android.**
 >
-> PiDroid is a minimal agent loop designed to make small local language models useful on Android.
+> LocalIntelligence is a minimal agent loop designed to make small local language models useful on Android.
 >
 > **Complexity is considered a regression unless it measurably improves agent task success,
 > inference efficiency, Android capability, or reliability.**
@@ -21,7 +21,7 @@ criteria above, do not make it.
 
 ## 1. Product definition
 
-**PiDroid** — a minimal Android-native agent harness designed specifically for small local LLMs.
+**LocalIntelligence** — a minimal Android-native agent harness designed specifically for small local LLMs.
 
 The v0 flow:
 
@@ -92,7 +92,7 @@ Push the platform out to a function type or an interface owned by `:core` instea
 |        :app  Compose UI    |
 +-------------+-------------+
               |
-       AgentController  (dev.pidroid.core.agent)
+       AgentController  (dev.LocalIntelligence.core.agent)
               |
     +---------+---------+---------+
     |         |         |         |

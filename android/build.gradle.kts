@@ -11,7 +11,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.pidroid.android"
+    namespace = "dev.localintelligence.android"
     compileSdk = 36
 
     defaultConfig {

@@ -10,11 +10,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.pidroid.app"
+    namespace = "dev.localintelligence.app"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "dev.pidroid.app"
+        applicationId = "dev.localintelligence.app"
         minSdk = 26
         targetSdk = 36
         versionCode = 1
