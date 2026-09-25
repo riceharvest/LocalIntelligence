@@ -1,19 +1,139 @@
 package dev.localintelligence.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import dev.localintelligence.android.inference.ImportedModel
+import dev.localintelligence.app.ui.ChatScreen
+import dev.localintelligence.app.ui.ChatViewModel
+import dev.localintelligence.app.ui.LocalIntelligenceTheme
+import dev.localintelligence.app.ui.ModelManagerScreen
+import dev.localintelligence.app.ui.TraceScreen
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
 
+/**
+ * The nav host and the composition root. Two responsibilities, both unavoidable
+ * at this level:
+ *
+ *  1. **Composition root.** The [AppContainer] arrives as a constructor
+ *     parameter and everything below it is passed down explicitly. There is no
+ *     service locator, so a screen cannot acquire a dependency that is missing
+ *     from its signature — which is what makes the `:app` graph readable.
+ *  2. **The SEND entry point.** The manifest already declares an `ACTION_SEND`
+ *     filter ("share this to LocalIntelligence"), and an intent filter that goes
+ *     nowhere is a bug a user finds. A shared payload becomes the first task.
+ *
+ * Note what is *not* here: no permission requests on launch, and no model
+ * loading. Both are gated on a tool actually being invoked
+ * ([dev.localintelligence.app.ui.PermissionScreen]) or an explicit user action
+ * ([dev.localintelligence.app.ui.ModelManagerScreen]).
+ */
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val container = (application as LocalIntelligenceApp).container
+
         setContent {
-            MaterialTheme {
-                Surface { Text("LocalIntelligence") }
+            LocalIntelligenceTheme {
+                val nav = rememberNavController()
+                // The gateway is the screen's whole handle on the agent. It holds
+                // no state of its own — it reads the process-scoped RunSinks the
+                // service writes to — so a rotation cannot desync UI from run.
+                val gateway = remember { ServiceAgentGateway(this, container.runSinks) }
+                val chat: ChatViewModel = viewModel(
+                    factory = remember(gateway) { ChatViewModel.Factory(gateway) },
+                )
+
+                // Survives rotation. The model list is a UI concern: `:android`
+                // has no model table, and adding one is a schema change that
+                // belongs to the Room workstream, not to this screen.
+                val models = remember { mutableStateListOf<ImportedModel>() }
+                val scope = rememberCoroutineScope()
+
+                // A SEND intent arrives before the first frame on a cold start.
+                // `LaunchedEffect(Unit)` makes this run exactly once after
+                // composition rather than on every recomposition.
+                LaunchedEffect(Unit) {
+                    sharedText(intent)?.let { chat.send(it) }
+                }
+
+                NavHost(navController = nav, startDestination = ROUTE_CHAT) {
+                    composable(ROUTE_CHAT) {
+                        ChatScreen(
+                            viewModel = chat,
+                            onOpenTrace = { nav.navigate(ROUTE_TRACE) },
+                            onOpenModels = { nav.navigate(ROUTE_MODELS) },
+                        )
+                    }
+
+                    composable(ROUTE_TRACE) {
+                        TraceScreen(trace = chat.trace.value(), onBack = { nav.popBackStack() })
+                    }
+
+                    composable(ROUTE_MODELS) {
+                        ModelManagerScreen(
+                            models = models,
+                            onImport = { uri ->
+                                // Suspending off the composition: the header read
+                                // is a few hundred bytes over SAF, which on a cloud
+                                // provider is a network round trip and must not
+                                // block a frame.
+                                scope.launch {
+                                    runCatching {
+                                        withContext(Dispatchers.IO) { container.importer.inspect(uri) }
+                                    }.onSuccess { model ->
+                                        models.removeAll { it.uri == model.uri }
+                                        models.add(model)
+                                    }
+                                }
+                            },
+                            onDelete = { model -> models.remove(model) },
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+                }
             }
         }
     }
+
+    private fun sharedText(intent: Intent?): String? = when (intent?.action) {
+        Intent.ACTION_SEND ->
+            intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
+
+        Intent.ACTION_PROCESS_TEXT ->
+            intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
+
+        else -> null
+    }
+
+    private companion object {
+        const val ROUTE_CHAT = "chat"
+        const val ROUTE_TRACE = "trace"
+        const val ROUTE_MODELS = "models"
+    }
 }
+
+/**
+ * Lifecycle-aware read of a [StateFlow].
+ *
+ * A named helper so no file reaches for the non-lifecycle-aware
+ * `collectAsState` by accident — a backgrounded app recomposing a trace is a real
+ * battery bug, and a one-character import difference is the whole defence.
+ */
+@Composable
+private fun <T> StateFlow<T>.value(): T = collectAsStateWithLifecycle().value

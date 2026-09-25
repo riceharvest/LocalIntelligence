@@ -1,0 +1,337 @@
+package dev.localintelligence.app.ui
+
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import dev.localintelligence.android.inference.ImportedModel
+import dev.localintelligence.android.inference.ModelImporter
+import dev.localintelligence.android.inference.RamEstimate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * Model management. A real feature, not a placeholder: the whole point of an
+ * on-device agent is that the model lives on the phone, and the first-run
+ * experience is "here is a 2 GB file, here is your RAM, here is whether it
+ * fits".
+ *
+ * ## Why RAM is shown before anything is loaded
+ *
+ * `RamEstimate` in `:android` does the arithmetic and this screen only renders
+ * it, because getting it wrong costs the user an OOM kill mid-conversation. The
+ * two numbers that matter:
+ *
+ *  - **weights**, constant, ~= the file size;
+ *  - **KV cache**, which scales *linearly* with context. At 3B, every doubling
+ *    of context adds ~448 MiB (`RamEstimate` KDoc). Past ~16K the cache is the
+ *    majority of the footprint, so "pick a context length" is a RAM decision
+ *    dressed as a UI decision, and the screen says so.
+ *
+ * The model is loaded into **native** memory, not the JVM heap, so this does not
+ * come out of `maxMemory()`. `RamEstimate.usableDeviceBytes()` deliberately
+ * reads physical RAM and caps it at 6x the heap ceiling, because the number the
+ * low-memory killer watches is the process footprint.
+ *
+ * ## Why SAF and not a copy
+ *
+ * `ACTION_OPEN_DOCUMENT` hands back a document the app can persist access to
+ * without duplicating the file. A 3B Q4_K_M is ~1.9 GB; copying it on import
+ * would double the device's storage cost, take minutes over USB, and leave two
+ * copies to clean up. See `ModelImporter` for the descriptor lifetime rules.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ModelManagerScreen(
+    models: List<ImportedModel>,
+    onImport: (Uri) -> Unit,
+    onDelete: (ImportedModel) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<ImportedModel?>(null) }
+
+    val picker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        // Persist read access so the model is still there after a reboot. Without
+        // this the URI stops resolving and the entry silently becomes unloadable.
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        }
+        busy = true
+        scope.launch {
+            onImport(uri)
+            busy = false
+        }
+    }
+
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            TopAppBar(
+                title = { Text("Models") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = {
+                    // "application/octet-stream" plus a wildcard: SAF does not
+                    // reliably tag .gguf, and a filter that is too narrow makes
+                    // the model look unimportable.
+                    picker.launch(arrayOf("application/octet-stream", "*/*"))
+                },
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = "Import a GGUF model")
+            }
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            if (busy) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CircularProgressIndicator(Modifier.padding(2.dp), strokeWidth = 2.dp)
+                    Text("Reading the model header…")
+                }
+            }
+
+            if (models.isEmpty() && !busy) {
+                Text(
+                    text = "No models yet. Import a GGUF file to run the agent " +
+                        "on-device — nothing is sent anywhere.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(models, key = { it.uri.toString() }) { model ->
+                    ModelRow(
+                        model = model,
+                        onDelete = { pendingDelete = model },
+                    )
+                }
+            }
+        }
+    }
+
+    pendingDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Remove ${target.displayName}?") },
+            text = {
+                Text(
+                    "This forgets the model. The file itself is untouched — if you " +
+                        "picked it from cloud storage it stays there, and you will " +
+                        "have to grant access again to use it again.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDelete(target)
+                    pendingDelete = null
+                }) {
+                    Text("Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ModelRow(model: ImportedModel, onDelete: () -> Unit) {
+    val context = LocalContext.current
+    val chosenContext = remember(model.uri) {
+        model.trainedContextLength ?: ModelImporter.DEFAULT_CONTEXT_LENGTH
+    }
+    val totalBytes = model.estimate.totalBytes(chosenContext)
+    val fits = model.fitsOnDevice(chosenContext)
+    val maxContext = model.estimate.maxAffordableContext(RamEstimate.usableDeviceBytes())
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = model.displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = listOfNotNull(
+                            model.quantType,
+                            model.architecture,
+                            model.parameterCount?.let { "${formatParams(it)} params" },
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Remove ${model.displayName}")
+                }
+            }
+
+            FactLine("On disk", formatBytes(model.fileSizeBytes))
+            FactLine("Weights in RAM", formatBytes(model.estimate.weightBytes))
+            FactLine("Context", "$chosenContext tokens")
+            FactLine(
+                "RAM at this context",
+                "${formatBytes(totalBytes)}  (KV cache ${formatBytes(model.estimate.kvBytes(chosenContext))})",
+            )
+            if (!model.hasChatTemplate) {
+                FactLine("Chat template", "missing — tool calls will be unreliable")
+            }
+
+            if (!fits) {
+                Card(
+                    colors = androidx.compose.material3.CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = buildString {
+                            append("This model does not fit in this device's usable RAM ")
+                            append("(${formatBytes(RamEstimate.usableDeviceBytes())}). ")
+                            if (maxContext > 0) {
+                                append("Lower the context to ${formatContextCeiling(maxContext)} or below. ")
+                            }
+                            append("Loading it anyway risks the system killing the app mid-task.")
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            } else if (maxContext in 1 until chosenContext) {
+                FactLine(
+                    "Headroom",
+                    "context could go to ${formatContextCeiling(maxContext)} on this device",
+                )
+            }
+
+            // The display name from a content provider is often useless (a hash),
+            // so offer the real one from the provider when it disagrees.
+            val resolved = remember(model.uri) { displayNameOf(context, model.uri) }
+            if (resolved != null && resolved != model.displayName) {
+                FactLine("File", resolved)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FactLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(0.4f),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.weight(0.6f),
+        )
+    }
+}
+
+/** Binary units, because that is how model sizes are quoted. */
+internal fun formatBytes(bytes: Long): String {
+    if (bytes <= 0) return "unknown"
+    val units = listOf("B", "KiB", "MiB", "GiB", "TiB")
+    var value = bytes.toDouble()
+    var unit = 0
+    while (value >= 1024 && unit < units.lastIndex) {
+        value /= 1024
+        unit++
+    }
+    return if (unit == 0) "${bytes} B" else "%.1f %s".format(value, units[unit])
+}
+
+private fun formatParams(count: Long): String = when {
+    count >= 1_000_000_000 -> "%.1fB".format(count / 1_000_000_000.0)
+    count >= 1_000_000 -> "%.0fM".format(count / 1_000_000.0)
+    else -> count.toString()
+}
+
+/** Context lengths are chosen from powers of two, so round down to one. */
+private fun formatContextCeiling(tokens: Int): String {
+    var value = 1024
+    while (value * 2 <= tokens) value *= 2
+    return value.toString()
+}
+
+private fun displayNameOf(context: Context, uri: Uri): String? = runCatching {
+    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+    }
+}.getOrNull()
