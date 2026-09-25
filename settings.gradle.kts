@@ -34,6 +34,6 @@ rootProject.name = "LocalIntelligence"
 
 // Coarse modules on purpose. Do NOT add a module per tool, per screen, or per
 // workstream — package boundaries give the separation without the build cost.
-include(":core")        // pure JVM: contracts, agent loop, tools, memory, evals
+include(":core")        // pure JVM: contracts, agent loop, tools, memory
 include(":android")     // Android library: tool impls, Room, llama.cpp JNI
 include(":app")         // Android application: Compose UI

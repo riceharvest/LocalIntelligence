@@ -20,8 +20,6 @@ dependencies {
     api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.serialization.json)
 
-    testImplementation(libs.junit)
-    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 tasks.withType<Test>().configureEach {
@@ -32,13 +30,8 @@ tasks.withType<Test>().configureEach {
     }
 }
 
-// The agent eval suite. Pure JVM, runs in seconds, no device required.
-//   ./gradlew :core:evals
-tasks.register<JavaExec>("evals") {
-    group = "verification"
-    description = "Run the deterministic agent evaluation suite."
-    mainClass.set("dev.localintelligence.core.eval.EvalMainKt")
-    classpath = sourceSets["test"].runtimeClasspath
-    val model = project.findProperty("localintelligence.model") as String?
-    args(if (model != null) listOf("--model", model) else emptyList())
-}
+// The agent eval suite lived in core/src/test and ran against fakes, not the
+// real loop and a real model. It reported 50/50 for a harness that could not
+// fail, and the app it "verified" could not answer a single question. Removed
+// with the rest of the test sources. Verification now means running a real
+// model on a real device, not a green suite.

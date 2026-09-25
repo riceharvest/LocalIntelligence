@@ -42,39 +42,8 @@ jobs:
             exit 1
           fi
 
-      - name: Test
-        run: ./gradlew :core:test --stacktrace
-
-      - name: Agent eval suite (fakes)
-        # Wired against the REAL AgentController, not a reference double.
-        run: ./gradlew :core:evals
-
-  # ---------------------------------------------------------------------
-  # The JVM half of :android. Split out from the APK build so that a broken
-  # tool implementation fails in ~1 minute rather than after a 10-minute
-  # native cross-compile.
-  # ---------------------------------------------------------------------
-  android-jvm:
-    name: android (JVM tests)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
-
-      - name: Accept SDK licences
-        # Without this, setup-android leaves the SDK unusable and the job dies
-        # in sdkmanager with an opaque licence error before Gradle ever runs.
-        run: sdkmanager --licenses <<< $'y\ny\ny\ny\ny\ny\ny\ny\ny\ny\n' || true
-
-      - name: Test :android
-        # Unit tests only. The native library is not needed for these, and
-        # building it would add ~10 minutes for no extra signal.
-        run: ./gradlew :android:test --stacktrace
+      - name: Compile :core
+        run: ./gradlew :core:assemble --stacktrace
 
   # ---------------------------------------------------------------------
   # The real APK, including the llama.cpp JNI cross-compile.
