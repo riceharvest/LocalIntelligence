@@ -84,8 +84,8 @@ internal data class HubSibling(
             return if (declared < MAX_PLAIN_GIT_BLOB_BYTES) null else declared
         }
 
-    /** HF's LFS OID is a sha256 over the payload. */
-    val sha256: String? get() = lfs?.oid
+    /** HF's LFS digest is a sha256 over the payload. */
+    val sha256: String? get() = lfs?.digest
 
     companion object {
         /**
@@ -100,10 +100,43 @@ internal data class HubSibling(
 /** The LFS pointer embedded in a git blob for a large file. */
 @Serializable
 internal data class HubLfsPointer(
+    /**
+     * HF's LFS digest field, literally named `sha256` in the payload.
+     *
+     * WHY this is the name on the wire: the `?blobs=true` sibling block reads
+     *
+     * ```
+     * "lfs": {"sha256":"9fecc3b3cd76...","size":668788096,"pointerSize":134}
+     * ```
+     *
+     * and it was previously declared as `oid`, which HF does not send in this
+     * endpoint at all. Every file therefore parsed to a null digest, so
+     * [HuggingFaceClient] handed the downloader a `HubGgufFile.sha256` of null
+     * and the checksum gate in the downloader — `if (expected != null && ...)` —
+     * was silently skipped for every download. Verified live: running the real
+     * client against TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF returned
+     * `sha256=null` for every file while the same field in the raw JSON is the
+     * exact digest the downloader wanted.
+     *
+     * `oid` is still accepted because it is the key the git LFS spec uses, and
+     * a mirror that speaks the spec rather than HF's dialect would send it.
+     */
+    val sha256: String? = null,
     val oid: String? = null,
     val size: Long? = null,
     @SerialName("pointerSize") val pointerSize: Long? = null,
-)
+) {
+    /**
+     * The payload digest from whichever key the server used.
+     *
+     * WHY a resolver rather than two field reads at the call site: the two
+     * spellings are interchangeable, and a call site that picks one is a call
+     * site that can pick the wrong one for a given mirror and silently disable
+     * checksum validation — which is exactly the failure this shape prevents.
+     */
+    val digest: String?
+        get() = sha256?.takeIf { it.isNotBlank() } ?: oid?.takeIf { it.isNotBlank() }
+}
 
 /**
  * The subset of `GET /api/models?search=...` this app needs.
