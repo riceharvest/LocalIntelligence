@@ -170,7 +170,22 @@ class ExecutionService : Service() {
         // the user as the useless notice "model failed: ". Loading here turns
         // that into a real, nameable state the chat screen can show.
         val agent = AgentViewModel(
-            controller = container.newController(),
+            // Streaming, wired at last. Every layer below already existed -
+            // generateStreaming on the backend, the per-token JNI callback,
+            // RunSinks.streamingText, appendStreamToken - and the loop called the
+            // non-streaming generate(), so the sink was never fed. On a phone CPU
+            // a small model needs tens of seconds for an answer, and the user
+            // watched a blank composer for all of it.
+            controller = container.newController(
+                // The same guard AgentViewModel.appendStreamToken applies: only
+                // append while the run is live, so a token decoded just after a
+                // cancel does not resurrect a finished transcript.
+                onToken = { token ->
+                    if (sinks.state.value.isActive) {
+                        sinks.streamingText.value += token
+                    }
+                },
+            ),
             scope = serviceScope,
             sinks = sinks,
         )

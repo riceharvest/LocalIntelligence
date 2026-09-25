@@ -236,10 +236,20 @@ class AppContainer(private val context: Context) {
      * decision. Wiring it is what makes the loop observable; storing it is not
      * the loop's business.
      */
+    /**
+     * Builds one single-use controller for one run.
+     *
+     * WHY [onToken] IS A PARAMETER: the sink belongs to the run that is starting
+     * now, and a controller is thrown away after it. A field on the container
+     * would be a second source of truth that a second run could overwrite while
+     * the first is still decoding.
+     */
     fun newController(
         model: ModelBackend = modelBackend,
         metrics: RunRecorder? = null,
+        onToken: ((String) -> Unit)? = null,
     ): AgentController = AgentController(
+        onToken = onToken,
         model = model,
         parser = dev.localintelligence.core.agent.ActionParserImpl,
         tools = tools,

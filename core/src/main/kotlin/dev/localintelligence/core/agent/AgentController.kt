@@ -3,6 +3,7 @@ package dev.localintelligence.core.agent
 import dev.localintelligence.core.context.ContextBuilder
 import dev.localintelligence.core.execution.NoProgressWatchdog
 import dev.localintelligence.core.model.GrammarBuilder
+import dev.localintelligence.core.model.StreamingModelBackend
 import dev.localintelligence.core.agent.AgentResult.Stop
 import dev.localintelligence.core.model.GenerationRequest
 import dev.localintelligence.core.model.ModelBackend
@@ -102,6 +103,21 @@ class AgentController(
     // compares observations and is immune to how slow the hardware is.
     private val noProgress: NoProgressWatchdog =
         NoProgressWatchdog(stallTimeoutMs = null),
+    /**
+     * Called with each decoded token, on the decoding thread.
+     *
+     * WHY THIS IS NULL BY DEFAULT: a caller that does not render tokens should
+     * not pay for the callback, and every existing construction site keeps
+     * working unchanged. It is a parameter rather than a global because the loop
+     * is single-use - a sink is a property of one run, not of the process.
+     *
+     * WHY IT MATTERS: on a phone CPU a small model takes tens of seconds to
+     * answer. generate() returns one blob at the end, so the user watched a
+     * blank composer for the whole run and then saw text appear, which is
+     * indistinguishable from a hung app. Tokens arriving as they decode are the
+     * difference between "slow" and "broken".
+     */
+    private val onToken: ((String) -> Unit)? = null,
     /**
      * Optional run metrics. WHY optional rather than required: metrics are
      * observability, not correctness, and a caller that has nowhere to write
@@ -301,7 +317,26 @@ class AgentController(
             // Selection happens every step, not once: after the first tool result
             // the useful tools usually change.
             val visible = selectTools()
-            val generation = model.generate(buildRequest(visible))
+            // Stream only when somebody is listening. generate() is the same
+            // code path with a null sink, so this is not a second implementation
+            // to keep in sync - it is the same call with the callback attached.
+            val request = buildRequest(visible)
+            // StreamingModelBackend is a separate, OPTIONAL interface, so the
+            // loop asks whether this backend has it rather than assuming. A
+            // backend that cannot stream still works, it just returns one blob:
+            // capability detection, not a cast that throws on a cold path.
+            val streaming = model as? StreamingModelBackend
+            val generation = if (onToken != null && streaming != null) {
+                streaming.generateStreaming(request) { token ->
+                    // A sink that throws must not kill the run: the model has
+                    // already produced the token and the transcript still needs
+                    // it. Swallowing here keeps a UI bug from turning into a
+                    // failed generation the user cannot explain.
+                    runCatching { onToken(token) }
+                }
+            } else {
+                model.generate(request)
+            }
             metrics?.recordGeneration(generation)
             metrics?.endPhase(StepTrace.Kind.GENERATION, generation.stopReason == StopReason.COMPLETED)
             trace += StepTrace(
