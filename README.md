@@ -13,7 +13,10 @@ install APK
   -> the agent calls Android APIs, remembers what matters, and answers
 ```
 
-Runs fully offline. No account, no server, no telemetry.
+**Runs fully on-device. No account, no server, no telemetry.** Nothing the model
+reads or writes leaves the phone. The only network code in this repository is
+the Hugging Face Hub downloader, and it fetches model files — it never uploads
+anything. See [docs/hf-hub-download.md](docs/hf-hub-download.md).
 
 ---
 
@@ -26,29 +29,49 @@ everything for that assumption:
 
 - **Constrained output.** Grammar-constrained generation means the model physically
   cannot emit a malformed action or hallucinate a tool it was not offered.
-- **Small tool surface.** 3-6 tools visible per turn out of the full registry, chosen
+- **Small tool surface.** 3-6 tools visible per turn out of a registry of 22, chosen
   by lexical scoring. Not a second LLM call.
 - **Deterministic reliability.** Loop detection, argument validation, risk gating and
   context budgeting are plain Kotlin. The model is used only where language
   understanding is actually required.
-- **Measured, not vibes.** Every feature has to move a number in the eval suite.
+- **No cloud, no telemetry, no account.** The app is on-device end to end.
 
 > Complexity is considered a regression unless it measurably improves agent task
 > success, inference efficiency, Android capability, or reliability.
 
 ## Status
 
-Early. The agent loop, contracts, and eval harness are the current focus; see
-[docs/roadmap.md](docs/roadmap.md).
+**It builds. Almost nothing about it is measured.**
+
+`:app:assembleDebug` produces an installable debug APK from a clean checkout,
+and CI proves it on every push — green as of run
+[36196368752](https://github.com/riceharvest/LocalIntelligence/actions/runs/36196368752).
+See [docs/build.md](docs/build.md). Beyond that:
+
+- **There are no tests.** The test suite and the fake-backed eval harness were
+  deleted at the owner's explicit instruction, along with all test-only CI jobs.
+  Do not propose restoring them as a goal.
+- **There is no eval runner**, so the project's central question — how small
+  can the model get before the loop stops being reliable — is unanswered.
+- **RAM is unmeasured.** The fit model is derived from real GGUF headers and
+  measured quant tables, but no `dumpsys meminfo` figure has been taken on any
+  device. The procedure is written down; the number is not.
+- **Performance is unmeasured.** The only tok/s figure ever observed is
+  ~0.66 on an x86_64 *emulator*, which says nothing about a phone and is not a
+  device number.
+- **NPU acceleration is unreachable** with the pinned LiteRT-LM 0.13.1. The GPU
+  path is OpenCL. See [docs/acceleration.md](docs/acceleration.md).
+
+See [docs/roadmap.md](docs/roadmap.md) for the item-by-item state.
 
 ## Architecture in one paragraph
 
 `:core` is a pure Kotlin/JVM module with zero Android dependencies — the agent loop,
-tool registry, selection, loop detection, context building, compaction, memory search,
-and the entire eval suite, all unit-testable on the JVM in seconds with no emulator.
-`:android` is the only module allowed to touch the Android framework. `:app` is
-Compose. There is no DI framework, no event bus, and no workflow engine; a dependency
-is a constructor parameter.
+tool registry, selection, loop detection, context building, compaction and memory
+search. `:android` is the only module allowed to touch the Android framework.
+`:app` is Compose. There is no DI framework, no event bus, and no workflow engine;
+a dependency is a constructor parameter. The loop is a `while` loop, deliberately:
+no planner node, no critic, no reflection pass, and no ADK.
 
 Full detail: [docs/architecture.md](docs/architecture.md).
 
@@ -56,24 +79,37 @@ Full detail: [docs/architecture.md](docs/architecture.md).
 
 | Document | What it is |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | North star, module map, loop, budgets. Read first. |
+| [docs/build.md](docs/build.md) | **Start here.** How to build, what the native build needs, why CI was red, what is measured. |
+| [docs/architecture.md](docs/architecture.md) | North star, module map, loop, budgets. |
 | [docs/tool-contract.md](docs/tool-contract.md) | The frozen tool contract. Implement, do not redesign. |
 | [docs/agent-loop.md](docs/agent-loop.md) | The loop, step by step, with failure paths. |
-| [docs/roadmap.md](docs/roadmap.md) | What is being built now, and what is deliberately not. |
-| [docs/evals.md](docs/evals.md) | The eval suite and how to read its output. |
-| [docs/memory-model.md](docs/memory-model.md) | **The RAM fit model**: how the "will this fit" number is derived, what is measured and what is still an estimate, and how to measure the app's real resident cost on a device. |
-| [docs/hf-hub-download.md](docs/hf-hub-download.md) | Downloading from the Hugging Face Hub, resuming, gating, auth. |
+| [docs/roadmap.md](docs/roadmap.md) | What is built, what is verified, what is deliberately not. |
+| [docs/evals.md](docs/evals.md) | Why there is no eval suite, and what is unmeasured. |
+| [docs/memory-model.md](docs/memory-model.md) | The RAM fit model: derivation, what is measured, and the device procedure. |
+| [docs/acceleration.md](docs/acceleration.md) | GPU/NPU reality on LiteRT-LM 0.13.1. |
+| [docs/litertlm-backend.md](docs/litertlm-backend.md) | The second backend and why it cannot load a model yet. |
+| [docs/hf-hub-download.md](docs/hf-hub-download.md) | Hugging Face download, resume, gating, auth. |
 
 ## Building
 
+Requires **JDK 21** and an Android SDK (platform 36, an NDK, CMake 3.22.1).
+
 ```bash
-./gradlew :core:test          # the whole brain, on the JVM, in seconds
-./gradlew :app:assembleDebug  # the APK (needs Android SDK + NDK)
-./gradlew :core:evals         # run the agent eval suite
+export JAVA_HOME=/path/to/jdk-21
+export ANDROID_HOME=/path/to/android-sdk
+
+# llama.cpp is pinned to tag b4661 and is not vendored.
+git clone --depth 1 --branch b4661 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
+
+PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assembleDebug
 ```
 
-`:core` deliberately requires no Android SDK. If you cannot run `:core:test` in a few
-seconds, something has leaked a platform dependency into the core.
+Output: `app/build/outputs/apk/debug/app-debug.apk` — **MEASURED** at
+~83.9 MB (80.0 MiB, debug, unstripped, both ABIs). CI builds this on every push
+and uploads it as an artifact, so you can install exactly what CI built.
+
+Full instructions, the SDK components CI installs, and two traps that will
+otherwise cost you an hour: [docs/build.md](docs/build.md).
 
 ## Contributing
 
@@ -89,10 +125,16 @@ Do not create abstractions for hypothetical future use.
 Do not modify interfaces owned by another workstream.
 Do not add cloud dependencies or telemetry.
 Do not introduce MCP.
-All functionality requires tests.
 Prefer Android/Kotlin platform APIs over wrappers.
 Keep model-visible outputs extremely compact.
 ```
+
+Two rules that are easy to get wrong here:
+
+- **Do not restore the test suite or add a test CI job.** The deletion was
+  deliberate. Verification means running a real model on a real device.
+- **Do not quote a performance or RAM number that was not measured.** There are
+  none. Write "unmeasured" and say how to measure it.
 
 ## License
 

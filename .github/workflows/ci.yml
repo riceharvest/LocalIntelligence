@@ -10,24 +10,63 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Every module declares `kotlin { jvmToolchain(21) }`, and the Android
+  # compileOptions are `JavaVersion.VERSION_21`. This is not a preference:
+  # litertlm-android:0.13.1 ships Java 21 bytecode (class file major 65), so
+  # a JDK 17 toolchain cannot even read the classes this project links
+  # against. setup-java below is what makes 21 available.
+  JAVA_VERSION: '21'
+  # The NDK this build actually compiles against.
+  #
+  # android/build.gradle.kts declares NO `ndkVersion`, so AGP 8.13.2 falls
+  # back to its own compiled-in default. That default is 27.0.12077973 —
+  # verified by extracting AGP and grepping the constant out of
+  # com/android/build/gradle/internal/dsl/CommonExtensionImpl.class, and by
+  # the ANDROID_NDK path in the generated CMakeCache.
+  #
+  # So 27.1.12297006 is NOT what this project builds with today, despite
+  # appearing in older notes. CI installs the version that is genuinely used.
+  # The right fix is `android { ndkVersion = "..." }`, but that file belongs
+  # to another workstream, so it is reported rather than edited here. The
+  # "Verify the resolved NDK" step fails loudly if this ever drifts.
+  NDK_VERSION: '27.0.12077973'
+  CMAKE_VERSION: '3.22.1'
+  ANDROID_PLATFORM: 'android-36'
+  # build-tools is NOT pinned anywhere in this project — neither module sets
+  # buildToolsVersion, so AGP chooses. Observed locally: the build resolves
+  # 35.0.1. 36.0.0 is the newer one that ships platform 36. Both are installed
+  # so the job does not silently depend on which one AGP happens to default to
+  # on any given AGP version.
+  BUILD_TOOLS_VERSIONS: '35.0.1 36.0.0'
+  # The llama.cpp tag this project builds. Pinned deliberately: a newer
+  # llama.cpp removed use_mmap / logits_all / flash_attn from
+  # llama_context_params, and this JNI sets all three, so HEAD does not
+  # compile. b4661 resolves to ec3bc8270bc67b58955748d40a3e558a05b2d8f2.
+  LLAMA_TAG: 'b4661'
+  LLAMA_COMMIT: 'ec3bc8270bc67b58955748d40a3e558a05b2d8f2'
+
 jobs:
   # ---------------------------------------------------------------------
-  # :core is pure JVM on purpose, so the entire brain of the agent - loop,
-  # tool selection, loop detection, context building, memory, and the full
-  # eval suite - is verified in seconds with no emulator and no device.
+  # The core module, compiled on the JVM.
   #
-  # This is the job that gates every push. It is fast on purpose: a CI that
-  # takes 20 minutes trains people to ignore it.
+  # There are NO TESTS in this repository. The test suite was deleted at the
+  # owner's explicit instruction, along with every test-only CI job. This job
+  # therefore compiles :core and nothing else — it does not assert anything
+  # about behaviour, and it is not evidence that the agent works. Its value
+  # is that it catches a broken compile and a leaked android.* import in
+  # seconds instead of 15 minutes.
   # ---------------------------------------------------------------------
   core:
-    name: core (JVM)
+    name: core (JVM compile)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: ${{ env.JAVA_VERSION }}
+
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Verify :core has no Android dependencies
@@ -42,47 +81,142 @@ jobs:
             exit 1
           fi
 
+      - name: Verify the JDK is 21
+        # jvmToolchain(21) either resolves or fails, so this is a cheap guard
+        # against a runner whose preinstalled JDK shadows setup-java, and
+        # against a toolchain silently falling back. It checks JAVA_HOME
+        # rather than bare `java`, because JAVA_HOME is what Gradle's
+        # toolchain detection reads — the runner's default `java` on PATH can
+        # legitimately be a different major version.
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME"
+          "$JAVA_HOME/bin/java" -version
+          if ! "$JAVA_HOME/bin/java" -version 2>&1 | head -1 | grep -qE '"21\.'; then
+            echo "::error::expected JDK 21 in JAVA_HOME, got: $("$JAVA_HOME/bin/java" -version 2>&1 | head -1)"
+            exit 1
+          fi
+
       - name: Compile :core
         run: ./gradlew :core:assemble --stacktrace
 
   # ---------------------------------------------------------------------
-  # The real APK, including the llama.cpp JNI cross-compile.
+  # The real APK, including the llama.cpp JNI cross-compile for arm64-v8a
+  # and x86_64.
   #
-  # Slow (10+ min cold) and it needs ~2 GB of disk for android/.cxx, so it
-  # runs on pushes to main and on pull_request, but agents should expect to
-  # iterate against `core` and `android-jvm` instead of waiting on this.
+  # This is the only job that proves the project builds from a clean
+  # checkout. It is the slow one: llama.cpp is a few hundred translation units
+  # compiled once per ABI, so budget roughly 10-20 minutes cold and ~2 GB of
+  # disk in android/.cxx. Agents should iterate against the `core` job.
   # ---------------------------------------------------------------------
   apk:
     name: android + app (APK)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
-      - uses: android-actions/setup-android@v3
+          java-version: ${{ env.JAVA_VERSION }}
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Accept SDK licences
-        run: sdkmanager --licenses <<< $'y\ny\ny\ny\ny\ny\ny\ny\ny\ny\n' || true
+      # The GitHub runner image already ships an Android SDK at
+      # /usr/local/lib/android/sdk. android-actions/setup-android@v3 was
+      # removed because it fails on current runners: it calls
+      # `sdkmanager tools`, and the deprecated "tools" package was withdrawn
+      # from Google's repository, so the action dies with
+      # "Warning: Failed to find package 'tools'" before the build starts.
+      # That is how every run of this workflow failed, on main and on every
+      # PR. Plain shell against the preinstalled sdkmanager is used instead,
+      # which adds no third-party action and cannot rot this way.
+      - name: Locate the preinstalled Android SDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          if [ ! -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDK=$(dirname "$(dirname "$(command -v sdkmanager || true)")")
+          fi
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "SDK at $SDK"
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" --version
 
-      - name: Install NDK and CMake
-        # :android builds a native JNI library, which needs both. Pinning the
-        # versions the CMakeLists.txt declares keeps the build reproducible.
-        run: sdkmanager "ndk;27.1.12297006" "cmake;3.22.1" "platforms;android-36" "build-tools;35.0.1"
+      - name: Accept SDK licences
+        run: |
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+
+      - name: Install NDK, CMake, platform and build-tools
+        run: |
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          # shellcheck disable=SC2086
+          "$SDKMANAGER" \
+            "ndk;$NDK_VERSION" \
+            "cmake;$CMAKE_VERSION" \
+            "platforms;$ANDROID_PLATFORM" \
+            $(for v in $BUILD_TOOLS_VERSIONS; do echo "build-tools;$v"; done)
+
+      - name: Fetch the pinned llama.cpp source
+        # Done in the workflow rather than by CMake's FetchContent, on
+        # purpose. CMakeLists.txt has a FetchContent branch
+        # (PIDROID_LLAMA_FETCH=1) that CANNOT WORK: FetchContent_MakeAvailable
+        # already calls add_subdirectory on the fetched tree, and line 161
+        # calls add_subdirectory on the same directory a second time, so
+        # CMake fails with
+        #   add_library cannot create target "llama" because another target
+        #   with the same name already exists
+        # That branch has therefore never built anything. It stayed invisible
+        # because PIDROID_LLAMA_DIR short-circuits it locally.
+        #
+        # Cloning the pinned tag here is the reproducible equivalent: same
+        # fixed point, no submodule, no cache, and the resolved commit is
+        # checked so a moved tag cannot silently change what CI builds.
+        # See docs/build.md for the one-line CMakeLists fix that retires this.
+        run: |
+          git clone --depth 1 --branch "$LLAMA_TAG" \
+            https://github.com/ggml-org/llama.cpp.git \
+            "$RUNNER_TEMP/llama.cpp"
+          RESOLVED=$(git -C "$RUNNER_TEMP/llama.cpp" rev-parse HEAD)
+          echo "llama.cpp $LLAMA_TAG -> $RESOLVED"
+          if [ "$RESOLVED" != "$LLAMA_COMMIT" ]; then
+            echo "::error::tag $LLAMA_TAG now resolves to $RESOLVED, expected $LLAMA_COMMIT — the pin moved"
+            exit 1
+          fi
+          echo "PIDROID_LLAMA_DIR=$RUNNER_TEMP/llama.cpp" >> "$GITHUB_ENV"
+
+      - name: Verify the resolved NDK is the one we installed
+        # android/build.gradle.kts does not declare `ndkVersion`, so AGP
+        # picks its own default. If that default is not what this workflow
+        # installed, the build either fails obscurely or — worse — succeeds
+        # against a different NDK than the one CI claims to be testing.
+        # Ask AGP which NDK it will use, and fail loudly on a mismatch.
+        run: |
+          RESOLVED=$("$ANDROID_SDK_ROOT"/cmdline-tools/latest/bin/sdkmanager --list_installed \
+            | sed -n 's/^  ndk;\([0-9.]*\).*/\1/p')
+          echo "installed NDKs: $RESOLVED"
+          if ! echo "$RESOLVED" | grep -qx "$NDK_VERSION"; then
+            echo "::error::expected NDK $NDK_VERSION, installed: $RESOLVED"
+            exit 1
+          fi
 
       - name: Build debug APK
-        # PIDROID_LLAMA_FETCH makes CMake pull the pinned llama.cpp tag via
-        # FetchContent instead of requiring a submodule checkout. Without it
-        # the configure step fails naming the fix, which is the intended
-        # behaviour locally but is just a broken CI job here.
-        env:
-          PIDROID_LLAMA_FETCH: '1'
         run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Report what was actually built
+        # The APK is an artifact a human can install. These three numbers are
+        # the ones worth writing down, and they are the only ones that are
+        # measured rather than estimated. They are debug figures: unstripped
+        # .so files, and one APK carrying both ABIs. A device installs one
+        # ABI. Do not quote these as shipping sizes.
+        run: |
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          echo "APK: $APK"
+          echo "APK bytes: $(stat -c%s "$APK")"
+          unzip -l "$APK" | grep -E 'lib/.*\.so' | awk '{print $1, $4}'
+          echo "--- one ABI's native payload ---"
+          unzip -l "$APK" | grep -E 'lib/arm64-v8a/.*\.so' | awk '{s+=$1} END {print "arm64-v8a total bytes:", s}'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: LocalIntelligence-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

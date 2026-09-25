@@ -449,4 +449,10 @@ unzip -o -q core/build/libs/core.jar -d /tmp/corejar
 javac -cp /tmp/corejar:"$KOTLIN_STDLIB" -d /tmp/probe docs/measure/MemoryModelProbe.java
 java -cp /tmp/probe:/tmp/corejar:"$KOTLIN_STDLIB" MemoryModelProbe \
     /mnt/ssd/models/localintelligence/tinyllama-1.1b.Q4_K_M.gguf
+
+# the app itself
+PIDROID_LLAMA_DIR=/path/to/llama.cpp ./gradlew :app:assembleDebug
 ```
+
+The `:core:assemble` line above is a compile, not a test run. There is no test
+suite in this repository, and no `:core:test`; see docs/build.md.

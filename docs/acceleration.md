@@ -72,8 +72,9 @@ good GPU. The router constructs the backend in one place with both supplied.
 ## Hardware acceleration on Android
 
 **Status: selection, probing and fallback are implemented and compile. No
-accelerator has ever been run, and there are no tests — the suite was deleted.
-There is no measurement in this document, and there should not be one yet.**
+accelerator has ever been run. There are no tests — the suite was deleted at the
+owner's explicit instruction. There is no measurement in this document, and
+there should not be one yet.**
 
 Read the two sections above before quoting any of this. The short version: the
 selection logic is implemented, the hardware is not, and the model format is a
@@ -234,8 +235,11 @@ and accelerator hardware is a property of the *machine*. `AcceleratorAware` is
 opt-in and additive.
 
 This is the point of the whole change: a tok/s number without the hardware it
-came from is not a measurement. `CPU: 8.2 tok/s` and `NPU: 21.4 tok/s` have to be
-distinguishable rows.
+came from is not a measurement. A `CPU: <n> tok/s` row and an `NPU: <n> tok/s`
+row have to be distinguishable rows — which means the values are hardware,
+model, and context specific, and neither of those two numbers exists yet. Do not
+read them as an expectation: **no tok/s figure has been measured on any device
+in this project.**
 
 ## Which chips can reach which path, today
 
@@ -268,16 +272,28 @@ against.
 
 **Verified by running it:**
 
-- The whole project assembles: `./gradlew :core:assemble :android:assemble
-  :app:assembleDebug` → `BUILD SUCCESSFUL`, with llama.cpp at tag **b4661** and
-  the JNI compiled to `liblocalintelligence_llama_jni.so` for both `arm64-v8a`
-  and `x86_64`. The `.so` name is pinned in `CMakeLists.txt` via
+- The whole project assembles: `./gradlew :app:assembleDebug` →
+  `BUILD SUCCESSFUL`, with llama.cpp at tag **b4661** and the JNI compiled to
+  `liblocalintelligence_llama_jni.so` for both `arm64-v8a` and `x86_64`. The
+  `.so` name is pinned in `CMakeLists.txt` via
   `OUTPUT_NAME "localintelligence_llama_jni"`; Android's loader is
   case-sensitive and the CamelCase default made every model load throw.
-- **There are no tests.** `:core/src` and `:android/src` contain only `main`
-  (`ls core/src/` → `main`). The conventional test suite was deliberately
-  deleted, so any earlier claim of a passing test count for this code is void.
-  If a document elsewhere quotes one, treat it as stale.
+  Re-measured on this branch: the packaged `.so` sizes are
+
+  | `.so` | arm64-v8a | x86_64 |
+  |---|---:|---:|
+  | `liblitertlm_jni.so` | 14,882,976 | 18,047,160 |
+  | `libLiteRt.so` | 5,064,136 | 6,997,656 |
+  | `liblocalintelligence_llama_jni.so` | 5,001,336 | 4,948,472 |
+  | `libLiteRtClGlAccelerator.so` | 2,778,128 | 3,466,440 |
+
+  Debug, unstripped. Not shipping figures. See docs/build.md.
+- **There are no tests.** `ls core/src/` → `main`, `ls android/src/` → `main`.
+  The conventional test suite was deliberately deleted at the owner's explicit
+  instruction, so any earlier claim of a passing test count for this code is
+  void. Verified: this repository contains **no** reference to the previously
+  quoted "1959 passing tests" figure, in any document or workflow. If another
+  document quotes a count, treat it as stale.
 - `grep -rn "^import android" core/src/` — empty. `:core` is still pure JVM.
 - The two `uses-native-library` entries are in the built APK, confirmed with
   `aapt2 dump xmltree` (see the PR body for the output).
@@ -298,9 +314,9 @@ anywhere. Therefore:
 
 - **Real NPU acceleration is UNVERIFIED; no device or model was available.**
   Nothing in this repository demonstrates that a `Backend.NPU` engine runs, or
-  that it is faster than anything. There are no tests of the probe either — the
-  `FakeAcceleratorProbe` in `LiteRtLmCapabilityProbe.kt` exists as a seam but
-  nothing exercises it.
+  that it is faster than anything. The probe has no tests either — the
+  `FakeAcceleratorProbe` in `LiteRtLmCapabilityProbe.kt` exists as a seam, but
+  the suite that once exercised it was deleted, so nothing calls it.
 - **Real GPU acceleration is likewise UNVERIFIED.** That the *manifest entries*
   are correct is verified (they are in the APK); that they cause a real OpenCL
   driver to be reachable on a real Pixel is not.
@@ -312,9 +328,10 @@ anywhere. Therefore:
   the app can reach at all.
 - **The emulator cannot settle any of this.** An x86_64 emulator has no vendor
   OpenCL driver and no NPU delegate of any vendor, and llama.cpp on an emulated
-  x86 core runs at roughly 0.66 tok/s, which is indistinguishable from a hang.
-  Every NPU claim made here is therefore unverifiable on the available hardware
-  *by construction*, not merely untested.
+  x86 core was observed at roughly 0.66 tok/s. **That figure describes emulated
+  CPU and nothing else** — it is not a device number, not a baseline, and not
+  evidence that a phone would be slow. Every NPU claim made here is therefore
+  unverifiable on the available hardware *by construction*, not merely untested.
 
 To close the gap: obtain a pre-converted `.litertlm` model, install it on a real
 arm64 phone, run the eval harness once per preference, and record

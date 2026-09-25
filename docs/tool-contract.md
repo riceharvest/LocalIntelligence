@@ -182,7 +182,8 @@ interface ModelBackend {
 ```
 
 `StreamingModelBackend` adds `generateStreaming(request, onToken)`.
-`NoopModelBackend` is the test double.
+`NoopModelBackend` is the null-object implementation used when no real backend is
+wired — not a test double; this repository has no test suite.
 
 No OpenAI-shaped types. No llama.cpp types. No LiteRT types. Inside this interface
 lives only what both backends can honour. `GenerationRequest.messages` is
@@ -206,9 +207,12 @@ backend that throws takes the loop with it.
 6. Add 4-8 retrieval tags: the words a user would actually type.
 7. Implement execute with coercion, cancellation checks, and no escaping throws.
 8. Write the observation by hand. Do not dump the data object.
-9. Test: granted / denied / empty / success / invalid args / large result /
-   API failure / cancellation / observation size.
+9. Check by hand on a device: granted / denied / empty / success / invalid args /
+   large result / API failure / cancellation / observation size.
 ```
 
-Step 9 is not optional and it is not a rubber stamp. A tool with seven of those
-cases covered is a tool that will page you at 2am on someone else's phone.
+Step 9 was "write the nine-case test matrix". The test suite was deleted at the
+owner's explicit instruction, so the cases are now a manual device checklist
+rather than automated assertions — which is exactly why **none of the 22 tools
+has been verified end to end**. A tool with seven of those cases checked by hand
+is a tool that will page you at 2am on someone else's phone.

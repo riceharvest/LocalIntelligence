@@ -30,9 +30,10 @@ from the GGUF **tensor table** — exact, and the correct authority for a memory
 model. This branch was built and tested without it (it is not on `origin/main`
 at the time of writing), so it does not hard-depend on it.
 
-`core/model/gguf` has since landed on `origin/main` (commit `216a955`), so the
-seam is now **compiled and tested against the real estimator** — see
-`GgufMemoryModel` and `GgufMemoryModelTest` below.
+`core/model/gguf` has since landed on `origin/main`, so the seam is now
+**compiled against the real estimator** — see `GgufMemoryModel` below. The
+`GgufMemoryModelTest` that drove it was deleted with the rest of the test
+sources, so the seam is compile-checked but not exercised.
 
 The seam is three declarations in `core/hub/FitGate.kt`:
 
@@ -63,11 +64,11 @@ val plan = client.plan(file, contextLength, budget, model = { fb, q, ctx, pc ->
 ### The seam is closed, not just declared
 
 `GgufMemoryModel` in `core/hub/GgufMemoryModel.kt` adapts the landed
-`ModelMemoryEstimator` to the hub's `MemoryModel` interface, and
-`GgufMemoryModelTest` drives it against the gguf workstream's own
-`TinyModelSpec` fixture. A seam nobody has ever called is a guess; this one
-fails to compile the moment the estimator's signature changes, rather than
-failing silently at runtime on a user's phone.
+`ModelMemoryEstimator` to the hub's `MemoryModel` interface. A seam nobody has
+ever called is a guess; this one at least fails to compile the moment the
+estimator's signature changes, rather than failing silently at runtime on a
+user's phone. It is called from `HuggingFaceClient.probeHeader` → `plan()`; see
+docs/memory-model.md for the measured agreement between the two paths.
 
 It is deliberately **not** wired into `ModelDownloader`. The reason is the one
 that makes the seam necessary in the first place:
@@ -146,7 +147,7 @@ procedure are in [`memory-model.md`](memory-model.md).
   the copy loop is only reached *between* buffer reads, so a download parked in
   a blocked read on a dead link did not observe a cancel until that read
   returned — up to the full 60 s read timeout. A test hung for exactly 60 s and
-  exposed it. `ModelDownloader` now registers a cancellation handler that
+  exposed it. (The test is gone; the fix it produced is in the code.) `ModelDownloader` now registers a cancellation handler that
   closes the response body, which shuts the socket and makes the cancel
   prompt. This is the requirement `docs/tool-contract.md` states as "check
   `context.signal` in any loop or long read", taken seriously.
@@ -175,10 +176,12 @@ non-exportable and lives in the TEE where the device has one; what lands in the
 preferences XML is `iv:ciphertext`.
 
 **The feature works fully without a token.** `HubTokenSource.NONE` is the
-default, every ungated download needs nothing, and the no-token path is the one
-covered by the JVM tests. The Keystore round-trip itself is **unverified** —
-`KeyGenParameterSpec` needs a real Android Keystore, which does not exist on the
-JVM, and the project's suites are JVM-only.
+default and every ungated download needs nothing.
+
+The Keystore round-trip is **unverified**. `KeyGenParameterSpec` needs a real
+Android Keystore, which does not exist on the JVM — and the JVM tests that used
+to cover the no-token path were deleted with the rest of the test sources, so
+**nothing automated covers any of this now**.
 
 ## What is NOT verified
 
@@ -186,15 +189,16 @@ JVM, and the project's suites are JVM-only.
 
 Specifically untested:
 
-- `UrlConnectionTransport` against a real socket. Every decision it feeds
-  (resume, 206 handling, error mapping) is tested through `HubTransport`; the
-  class that opens the connection is not.
+- `UrlConnectionTransport` against a real socket. It is the class that opens
+  the connection, and nothing exercises it. (It used to be covered through a
+  fake `HubTransport`; those tests were deleted.)
 - `KeystoreTokenStore` encrypt/decrypt round-trip (needs a device Keystore).
 - `AndroidDeviceBudget` against real `StatFs` / `ActivityManager` values.
-- The HF API's live response shapes. The fixtures are hand-written from the
-  documented shape of `GET /api/models/{id}?blobs=true`, and deliberately keep
-  its awkward cases (pointer `size` beside `lfs.size`, `gated` as a string, a
-  sibling with no size, a nested path, a shard marker).
+- The HF API's live response shapes. Hand-written fixtures modelled the
+  documented shape of `GET /api/models/{id}?blobs=true`, including its awkward
+  cases (pointer `size` beside `lfs.size`, `gated` as a string, a sibling with
+  no size, a nested path, a shard marker) — but the fixtures are gone with the
+  test suite, so those shapes are no longer checked against anything.
 
 No real HF token was used, requested, or committed. Test fixtures contain no
 credential.
