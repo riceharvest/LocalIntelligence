@@ -2,6 +2,7 @@ package dev.localintelligence.app
 
 import android.content.Context
 import dev.localintelligence.android.data.LocalIntelligenceDatabase
+import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.core.agent.AgentConfig
@@ -14,9 +15,11 @@ import dev.localintelligence.core.agent.ToolCallValidatorGate
 import dev.localintelligence.core.context.ContextBuilder
 import dev.localintelligence.core.context.DefaultContextBuilder
 import dev.localintelligence.core.model.ModelBackend
+import dev.localintelligence.core.model.ModelSpec
 import dev.localintelligence.core.tool.LexicalToolSelector
 import dev.localintelligence.core.tool.SimpleToolRegistry
 import dev.localintelligence.core.tool.ToolRegistry
+import kotlinx.coroutines.CancellationException
 
 /**
  * The DI system. `docs/architecture.md` §3: *"If you need a dependency injected,
@@ -83,6 +86,72 @@ class AppContainer(private val context: Context) {
      * that survives configuration change for free.
      */
     val runSinks: RunSinks by lazy { RunSinks() }
+
+    /**
+     * Whether the backend can actually answer, published rather than inferred.
+     *
+     * The service sets this after a real [loadModel] attempt; the chat screen
+     * reads it to decide whether it can offer a composer at all. Without it the
+     * only signal reaching the user is the backend's `StopReason.ERROR` with an
+     * empty body, which renders as the useless notice `model failed: `.
+     */
+    val modelAvailability: ModelAvailabilityHolder by lazy { ModelAvailabilityHolder() }
+
+    /**
+     * The model the agent should run, chosen by the user in the model manager.
+     *
+     * Null means "nothing imported", which is the state of a fresh install and
+     * a legitimate thing for the UI to render — it is not an error, and it is
+     * not a reason to crash on first send.
+     */
+    @Volatile
+    var selectedModel: ImportedModel? = null
+
+    /**
+     * Loads [model] into the inference backend and records the outcome.
+     *
+     * Returns the resulting [ModelAvailability] instead of throwing, because
+     * every caller wants the same thing: state to render. A load failure is an
+     * expected outcome of picking the wrong file, not an exceptional one, and a
+     * thrown exception here would reach the UI as a crash on a button press.
+     *
+     * Loading on the calling coroutine's dispatcher is deliberate: this runs
+     * 2 GB of native allocation and must never sit on the main thread.
+     */
+    suspend fun loadModel(model: ImportedModel): ModelAvailability = try {
+        modelBackend.load(
+            ModelSpec(
+                // The backend opens this as a URI; see LlamaCppBackend.load.
+                id = model.uri.toString(),
+                displayName = model.displayName,
+                sizeBytes = model.fileSizeBytes,
+                parameterCount = model.parameterCount,
+                quantType = model.quantType,
+                supportedBackends = model.supportedBackends,
+            ),
+        )
+        selectedModel = model
+        ModelAvailability.Ready.also { modelAvailability.set(it) }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        ModelAvailability.Failed(describeLoadFailure(t))
+            .also { modelAvailability.set(it) }
+    }
+
+    /**
+     * Ensures a model is resident, loading the selected one if needed.
+     *
+     * Idempotent, because [ExecutionService] calls it on every task and a
+     * second 2 GB load for a task the user just sent would be both slow and a
+     * reliable way to get OOM-killed.
+     */
+    suspend fun ensureModelReady(): ModelAvailability {
+        if (modelAvailability.current.canRun) return ModelAvailability.Ready
+        val model = selectedModel ?: return ModelAvailability.None
+            .also { modelAvailability.set(it) }
+        return loadModel(model)
+    }
 
     /**
      * Builds the agent loop for one run.

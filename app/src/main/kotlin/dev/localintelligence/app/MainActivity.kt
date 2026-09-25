@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -56,7 +57,12 @@ class MainActivity : ComponentActivity() {
                 // service writes to — so a rotation cannot desync UI from run.
                 val gateway = remember { ServiceAgentGateway(this, container.runSinks) }
                 val chat: ChatViewModel = viewModel(
-                    factory = remember(gateway) { ChatViewModel.Factory(gateway) },
+                    factory = remember(gateway, container) {
+                        ChatViewModel.Factory(
+                            gateway = gateway,
+                            modelAvailability = container.modelAvailability,
+                        )
+                    },
                 )
 
                 // Survives rotation. The model list is a UI concern: `:android`
@@ -82,7 +88,15 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable(ROUTE_TRACE) {
-                        TraceScreen(trace = chat.trace.value(), onBack = { nav.popBackStack() })
+                        // `runState` is forwarded so the trace's empty state can
+                        // distinguish "nothing has run" from "the run you just
+                        // watched ended without recording a step".
+                        val traceState by chat.runState.collectAsStateWithLifecycle()
+                        TraceScreen(
+                            trace = chat.trace.value(),
+                            runState = traceState,
+                            onBack = { nav.popBackStack() },
+                        )
                     }
 
                     composable(ROUTE_MODELS) {
@@ -93,16 +107,33 @@ class MainActivity : ComponentActivity() {
                                 // is a few hundred bytes over SAF, which on a cloud
                                 // provider is a network round trip and must not
                                 // block a frame.
-                                scope.launch {
-                                    runCatching {
-                                        withContext(Dispatchers.IO) { container.importer.inspect(uri) }
-                                    }.onSuccess { model ->
+                                //
+                                // Failures are rethrown rather than swallowed. The
+                                // screen catches them and shows a banner; the
+                                // previous `.onSuccess{}`-only chain dropped them,
+                                // so a non-GGUF file produced no feedback at all.
+                                withContext(Dispatchers.IO) { container.importer.inspect(uri) }
+                                    .also { model ->
                                         models.removeAll { it.uri == model.uri }
                                         models.add(model)
+                                        // The newly imported model is the one the
+                                        // agent will run. Selecting it here is what
+                                        // makes the chat composer become usable;
+                                        // loading itself is deferred to the
+                                        // service, which must not touch 2 GB on
+                                        // the main thread for a row tap.
+                                        container.selectedModel = model
                                     }
+                            },
+                            onDelete = { model ->
+                                models.remove(model)
+                                // Drop the selection too, or the chat keeps
+                                // offering to send with a model the user has just
+                                // told us to forget.
+                                if (container.selectedModel?.uri == model.uri) {
+                                    container.selectedModel = null
                                 }
                             },
-                            onDelete = { model -> models.remove(model) },
                             onBack = { nav.popBackStack() },
                         )
                     }

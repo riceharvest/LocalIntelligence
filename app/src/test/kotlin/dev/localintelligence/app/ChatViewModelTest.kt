@@ -3,6 +3,7 @@ package dev.localintelligence.app
 import dev.localintelligence.app.ui.ChatMessage
 import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.ToolApproval
+import dev.localintelligence.app.ui.traceEmptyMessage
 import dev.localintelligence.core.agent.ActionParserImpl
 import dev.localintelligence.core.agent.AgentConfig
 import dev.localintelligence.core.agent.AgentController
@@ -36,7 +37,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -112,7 +112,7 @@ class ChatViewModelTest {
 
         harness.viewModel.send("   ")   // blank
 
-        assertEquals(0, harness.backend.generateCalls)
+        assertEquals(0, harness.scripted.generateCalls)
         assertTrue(harness.viewModel.messages.value.isEmpty())
         assertEquals(RunState.Idle, harness.viewModel.runState.value)
     }
@@ -238,7 +238,7 @@ class ChatViewModelTest {
         assertEquals("declining must not execute the tool", 0, tool.executionCount)
         // And the model was told, so it can route around the action rather than
         // retrying it or stalling.
-        val told = harness.backend.seenMessages.last()
+        val told = harness.scripted.seenMessages.last()
             .filterIsInstance<CoreChatMessage.Assistant>()
         assertTrue(
             "the model was not told the user declined; got $told",
@@ -504,9 +504,14 @@ class ChatViewModelTest {
         assertTrue(RunState.Finished(RunOutcome.StepLimitReached).isTerminal)
         assertTrue(RunState.Finished(RunOutcome.Failed("x")).isTerminal)
 
-        // These two must NOT stop the service, or a 2 GB decode is killed
-        // mid-flight — or a user is asked to approve a tool that already ran.
+        // These three must NOT stop the service. Getting either wrong is a real
+        // production bug in opposite directions:
+        //  - treating LoadingModel as terminal kills a 2 GB load mid-flight and
+        //    leaves the user staring at a run that dies for no stated reason;
+        //  - treating Running or AwaitingApproval as terminal leaks a foreground
+        //    service and a pinned notification.
         assertFalse(RunState.Running.isTerminal)
+        assertFalse(RunState.LoadingModel.isTerminal)
         assertFalse(
             RunState.AwaitingApproval(
                 toolName = "file.delete",
@@ -514,6 +519,29 @@ class ChatViewModelTest {
                 risk = ToolRisk.DESTRUCTIVE,
                 arguments = "{}",
             ).isTerminal,
+        )
+    }
+
+    /**
+     * The inverse predicate, and the one a screen actually branches on.
+     *
+     * `isActive` exists so a screen cannot accidentally compute
+     * `state is Running` and forget `LoadingModel` / `AwaitingApproval` — the
+     * bug that shows a SEND button during a run already in flight.
+     */
+    @Test
+    fun everyNonTerminalStateIsActive() {
+        assertFalse(RunState.Idle.isActive)
+        assertFalse(RunState.Finished(RunOutcome.Answer("x")).isActive)
+        assertTrue(RunState.Running.isActive)
+        assertTrue(RunState.LoadingModel.isActive)
+        assertTrue(
+            RunState.AwaitingApproval(
+                toolName = "t",
+                description = "d",
+                risk = ToolRisk.DESTRUCTIVE,
+                arguments = "{}",
+            ).isActive,
         )
     }
 
@@ -550,13 +578,13 @@ class ChatViewModelTest {
 
 // --------------------------------------------------------------------- doubles
 
-private fun respond(text: String): GenerationResult =
+internal fun respond(text: String): GenerationResult =
     GenerationResult(text = "<respond>$text</respond>")
 
-private fun call(name: String, args: String): GenerationResult =
+internal fun call(name: String, args: String): GenerationResult =
     GenerationResult(text = """<tool name="$name">$args</tool>""")
 
-private fun def(name: String, risk: ToolRisk) = ToolDefinition(
+internal fun def(name: String, risk: ToolRisk) = ToolDefinition(
     name = name,
     description = "Does $name.",
     category = name.substringBefore('.'),
@@ -570,7 +598,7 @@ private fun def(name: String, risk: ToolRisk) = ToolDefinition(
 )
 
 /** A tool whose behaviour is a lambda, recording every call and its context. */
-private class FakeTool(
+internal class FakeTool(
     override val definition: ToolDefinition,
     private val behavior: suspend (ToolArgs, ToolContext) -> ToolResult,
 ) : AgentTool {
@@ -585,7 +613,7 @@ private class FakeTool(
 }
 
 /** Scripted backend. Once the script runs out the last response repeats. */
-private open class ScriptedBackend(
+internal open class ScriptedBackend(
     private val responses: List<GenerationResult>,
 ) : ModelBackend {
     override val id: String = "fake"
@@ -625,7 +653,7 @@ private open class ScriptedBackend(
  * `StopReason.CANCELLED`, which is exactly how the real backend reports a
  * cooperative stop, and the loop turns that into `AgentResult.Cancelled`.
  */
-private class BlockingBackend(
+internal class BlockingBackend(
     /** Completed with the reason to report; [StopReason.CANCELLED] on a stop. */
     private val gate: CompletableDeferred<StopReason>,
 ) : ScriptedBackend(emptyList()) {
@@ -647,14 +675,20 @@ private class BlockingBackend(
     }
 }
 
-/** Fails the way a real inference backend can: by throwing, despite the contract. */
-private class ThrowingBackend : ScriptedBackend(emptyList()) {
+/**
+ * Fails the way a real inference backend can: by throwing, despite the contract.
+ *
+ * `IllegalStateException` is what `LlamaCppBackend.load` raises via `error(...)`
+ * when the native library is missing, so this is the production failure mode and
+ * not an invented one.
+ */
+internal class ThrowingBackend : ScriptedBackend(emptyList()) {
     override suspend fun generate(request: GenerationRequest): GenerationResult =
         throw IllegalStateException("inference backend died")
 }
 
 /** Minimal context builder: system prompt, task, then history. */
-private object FlatContextBuilder : ContextBuilder {
+internal object FlatContextBuilder : ContextBuilder {
     override fun build(
         task: String,
         history: List<CoreChatMessage>,
@@ -671,16 +705,56 @@ private object FlatContextBuilder : ContextBuilder {
  * detector and the real tool selector; only the backend and the tools are
  * doubles.
  */
-private class Harness(
+internal class Harness(
     responses: List<GenerationResult>,
     tools: List<AgentTool> = emptyList(),
     backend: ModelBackend = ScriptedBackend(responses),
     config: AgentConfig = AgentConfig(),
+    modelAvailability: ModelAvailabilityHolder = ModelAvailabilityHolder(
+        // Ready by default: these tests are about the run, not the model. The
+        // model-gating tests pass their own holder explicitly.
+        ModelAvailability.Ready,
+    ),
+    /**
+     * Runs the agent on a scope the test owns, instead of the shared one.
+     *
+     * This is what makes the collector-scope tests possible: the ViewModel's
+     * collector has to be a child of a scope the test can cancel and observe,
+     * and it must be that scope alone — the service scope stands in for the
+     * foreground service, which must *survive* the ViewModel being cleared.
+     */
+    extraScope: CoroutineScope? = null,
 ) {
-    val backend: ScriptedBackend = backend as ScriptedBackend
+    /**
+     * The scripted backend, when this harness was given one.
+     *
+     * Null for tests that supply a bespoke backend (a blocking one, a throwing
+     * one) and never read the script. Exposed as nullable so those tests are not
+     * forced to satisfy a cast they have no use for.
+     */
+    val backend: ScriptedBackend? = backend as? ScriptedBackend
+
+    /**
+     * The scripted backend, for tests that assert on its call counters.
+     *
+     * A separate accessor so the nullable [backend] stays honest and the
+     * `!!`-free call sites keep reading as assertions rather than as plumbing.
+     */
+    val scripted: ScriptedBackend
+        get() = requireNotNull(backend) {
+            "this harness was built with a bespoke backend and has no script"
+        }
     private val registry = SimpleToolRegistry(tools)
-    val scopeJob: Job = SupervisorJob()
-    private val scope = CoroutineScope(scopeJob + Dispatchers.Unconfined)
+
+    /** Stands in for the foreground service's scope: long-lived, process-wide. */
+    val serviceJob: Job = SupervisorJob()
+    val serviceScope = CoroutineScope(serviceJob + Dispatchers.Unconfined)
+
+    /** Stands in for `viewModelScope`: dies with the ViewModel. */
+    private val screenJob: Job = SupervisorJob()
+    private val screenScope = CoroutineScope(screenJob + Dispatchers.Unconfined)
+
+    private val agentScope = extraScope ?: screenScope
 
     val agent = AgentViewModel(
         controller = AgentController(
@@ -695,10 +769,14 @@ private class Harness(
             sessions = dev.localintelligence.core.agent.Session(),
             config = config,
         ),
-        scope = scope,
+        scope = agentScope,
     )
 
-    val viewModel = ChatViewModel(gateway = agent, scopeOverride = scope)
+    val viewModel = ChatViewModel(
+        gateway = agent,
+        scopeOverride = screenScope,
+        modelAvailability = modelAvailability,
+    )
 
     /**
      * Active child coroutines of the harness scope.
@@ -707,9 +785,29 @@ private class Harness(
      * ViewModel's lifetime; that is why the leak assertions compare against a
      * baseline rather than against zero.
      */
-    fun activeChildren(): Int = scopeJob.children.count { it.isActive }
+    fun activeChildren(): Int = screenJob.children.count { it.isActive }
+
+    /**
+     * Clears the ViewModel the way the framework does on `onCleared`.
+     *
+     * `onCleared` is protected, so the test cancels the scope that stands in for
+     * `viewModelScope` instead. That is the same effect and the same lifecycle
+     * event, which is what matters for a leak assertion.
+     */
+    fun clearViewModel() {
+        screenJob.cancel()
+    }
+
+    /**
+     * True while the agent's scope is still usable.
+     *
+     * The counterpart to [clearViewModel]: a rotation or a backgrounded app must
+     * not take a live decode down with it.
+     */
+    fun serviceAlive(): Boolean = serviceJob.isActive
 
     fun close() {
-        scope.cancel()
+        screenJob.cancel()
+        serviceJob.cancel()
     }
 }

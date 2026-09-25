@@ -12,14 +12,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -39,12 +42,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.inference.RamEstimate
+import dev.localintelligence.app.describeLoadFailure
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -78,12 +85,20 @@ import kotlinx.coroutines.withContext
  * without duplicating the file. A 3B Q4_K_M is ~1.9 GB; copying it on import
  * would double the device's storage cost, take minutes over USB, and leave two
  * copies to clean up. See `ModelImporter` for the descriptor lifetime rules.
+ *
+ * ## Why [onImport] suspends
+ *
+ * It is a `suspend` function so the screen can hold `busy` across the *real*
+ * duration of the read. As a plain `(Uri) -> Unit` it returned instantly, the
+ * spinner cleared before the header had even been opened, and a failed import
+ * had nowhere to report to — which is how a user ends up tapping import on a
+ * JPEG and getting silence.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelManagerScreen(
     models: List<ImportedModel>,
-    onImport: (Uri) -> Unit,
+    onImport: suspend (Uri) -> Unit,
     onDelete: (ImportedModel) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -92,6 +107,16 @@ fun ModelManagerScreen(
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<ImportedModel?>(null) }
+
+    // The reason the last import failed, or null.
+    //
+    // Previously the import ran under `runCatching { ... }.onSuccess { ... }`
+    // with no `onFailure`, so picking a 40 MB JPEG produced *no* feedback at
+    // all: the spinner stopped, no row appeared, no message. A user cannot
+    // distinguish "that file is not a model" from "the app is broken", and
+    // the second is what they will assume. Surfacing the reason is the
+    // difference between a bug report and a retry.
+    var importError by remember { mutableStateOf<String?>(null) }
 
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -105,9 +130,15 @@ fun ModelManagerScreen(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
         }
+        importError = null
         busy = true
         scope.launch {
-            onImport(uri)
+            // `onImport` performs the header read and reports its own failure
+            // through this screen's error state, so a throw here is still
+            // caught: an uncaught exception in this scope would cancel the
+            // whole composition scope and leave `busy` stuck on forever.
+            runCatching { onImport(uri) }
+                .onFailure { importError = describeLoadFailure(it) }
             busy = false
         }
     }
@@ -149,7 +180,14 @@ fun ModelManagerScreen(
                 }
             }
 
-            if (models.isEmpty() && !busy) {
+            if (importError != null) {
+                ImportErrorBanner(
+                    message = importError!!,
+                    onDismiss = { importError = null },
+                )
+            }
+
+            if (models.isEmpty() && !busy && importError == null) {
                 Text(
                     text = "No models yet. Import a GGUF file to run the agent " +
                         "on-device — nothing is sent anywhere.",
@@ -197,6 +235,42 @@ fun ModelManagerScreen(
                 TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/**
+ * A failed import, stated plainly and dismissible.
+ *
+ * Dismissible because the failure is about one file, not the screen: the user
+ * should be able to try a different one without navigating away and back. A live
+ * region so it is announced — otherwise the only signal is a visual change that
+ * a screen-reader user has no way to detect.
+ */
+@Composable
+private fun ImportErrorBanner(message: String, onDismiss: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Filled.Close, contentDescription = "Dismiss this error")
+            }
+        }
     }
 }
 

@@ -63,7 +63,11 @@
         </activity>
 
         <!-- Agent task execution. Not exported: nothing outside the app may
-             start it. Stops itself on every terminal result. -->
+             start it. Stops itself on every terminal result.
+
+             The foregroundServiceType must match
+             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC in the service, or
+             startForeground throws on API 34+. -->
         <service
             android:name=".ExecutionService"
             android:exported="false"
@@ -87,7 +91,6 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
-
     </application>
 
 </manifest>
