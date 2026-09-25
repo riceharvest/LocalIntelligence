@@ -132,6 +132,36 @@ class MainActivity : ComponentActivity() {
                                         container.selectedModel = model
                                     }
                             },
+                            onScanLocal = {
+                                // Adopt GGUF files already in app storage. A model
+                                // can be there because it was downloaded, pushed
+                                // over adb, or restored from a backup, and none of
+                                // those need the SAF picker — the app already owns
+                                // the bytes, so it can just read the header.
+                                withContext(Dispatchers.IO) {
+                                    container.modelsDir.listFiles()
+                                        ?.filter { it.isFile && it.name.endsWith(".gguf") }
+                                        ?.forEach { file ->
+                                            val uri = android.net.Uri.fromFile(file)
+                                            val model = container.importer.inspect(uri)
+                                            models.removeAll { it.uri == model.uri }
+                                            models.add(model)
+                                            container.selectedModel = model
+                                            // Load it for real rather than pretending
+                                            // a "selected" state exists. ModelAvailability
+                                            // only has None/Ready/Failed, and Ready
+                                            // means RESIDENT, so anything less is a
+                                            // lie — and the chat composer reads this
+                                            // holder, so a model on disk that was never
+                                            // loaded still reads as "import a model".
+                                            // The load is 2 GB of native work, hence
+                                            // the IO dispatcher and the honest failure
+                                            // path: a bad model surfaces as Failed with
+                                            // the reason, not as a silent no-op.
+                                            container.loadModel(model)
+                                        }
+                                }
+                            },
                             onDelete = { model ->
                                 models.remove(model)
                                 // Drop the selection too, or the chat keeps

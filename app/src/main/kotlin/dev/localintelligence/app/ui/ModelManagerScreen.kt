@@ -112,6 +112,17 @@ fun ModelManagerScreen(
      * lets the button render only where a destination exists.
      */
     onOpenHub: (() -> Unit)? = null,
+    /**
+     * Imports every GGUF already sitting in the app's own storage.
+     *
+     * WHY THIS EXISTS: the picker and the downloader are both fine, and both
+     * were useless during development because a model had been pushed onto the
+     * device by hand — the app had no way to notice a file it already owned.
+     * Scanning for a model the app can already see is the shortest honest path
+     * from "the file is on the phone" to "the app is using it", and it is what
+     * makes a pushed model usable without re-downloading 668 MB.
+     */
+    onScanLocal: (suspend () -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -170,6 +181,22 @@ fun ModelManagerScreen(
                     // a phone.
                     onOpenHub?.let { open ->
                         TextButton(onClick = open) { Text("Download") }
+                    }
+                    // WHY next to Download rather than in the FAB: both of these
+                    // are "get a model" actions, so they belong together. The FAB
+                    // stays "import a file you already have somewhere else".
+                    onScanLocal?.let { scan ->
+                        TextButton(
+                            onClick = {
+                                busy = true
+                                scope.launch {
+                                    runCatching { scan() }
+                                        .onFailure { importError = describeLoadFailure(it) }
+                                    busy = false
+                                }
+                            },
+                            enabled = !busy,
+                        ) { Text("Scan storage") }
                     }
                 },
             )

@@ -100,7 +100,12 @@ fun ChatScreen(
     }
 
     Scaffold(
-        modifier = modifier,
+        // WHY imePadding LIVES HERE, NOT ON THE LAZYCOLUMN: the composer is the
+        // Scaffold's bottomBar. An inset on the LazyColumn pads the message list
+        // and leaves the composer underneath the keyboard, which is why the text
+        // box used to be unreachable. The window that has to shrink is the one
+        // that contains the composer.
+        modifier = modifier.imePadding(),
         topBar = {
             TopAppBar(
                 title = { Text("LocalIntelligence") },
@@ -131,8 +136,7 @@ fun ChatScreen(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .imePadding(),
+                .padding(padding),  // IME inset is applied on the Scaffold.
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
