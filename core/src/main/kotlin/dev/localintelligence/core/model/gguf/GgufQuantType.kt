@@ -24,14 +24,16 @@ enum class GgufQuantType(
     F16(1, "F16", 1, 2),
     Q4_0(2, "Q4_0", 32, 18),
     Q4_1(3, "Q4_1", 32, 20),
-    @Deprecated("Removed from llama.cpp; kept so an old file still reports a name instead of UNKNOWN.")
+    // Q4_2 and Q4_3 were removed from llama.cpp years ago. They are listed because a file
+    // converted back then can still declare them, and a reader that answers "unknown"
+    // for a real format is less useful than one that names it. Not annotated
+    // @Deprecated: these entries document the format, they are not deprecated API.
     Q4_2(4, "Q4_2", 32, 22),
-    @Deprecated("Removed from llama.cpp; kept so an old file still reports a name instead of UNKNOWN.")
     Q4_3(5, "Q4_3", 32, 24),
     Q5_0(6, "Q5_0", 32, 22),
     Q5_1(7, "Q5_1", 32, 24),
     Q8_0(8, "Q8_0", 32, 34),
-    @Deprecated("Not produced by any current llama.cpp.")
+    // Likewise unused by any current llama.cpp writer, but still a valid type id.
     Q8_1(9, "Q8_1", 32, 36),
     Q2_K(10, "Q2_K", 256, 84),
     Q3_K(11, "Q3_K", 256, 110),
