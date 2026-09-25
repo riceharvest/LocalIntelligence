@@ -139,6 +139,19 @@ fun ModelManagerScreen(
     // difference between a bug report and a retry.
     var importError by remember { mutableStateOf<String?>(null) }
 
+    // Set after a "Scan storage" tap.
+    //
+    // WHY THIS EXISTS: `onScanLocal` is a `suspend () -> Unit`, because the
+    // loop over the models directory lives in `MainActivity` and that file is
+    // not this screen's to change. So this screen genuinely cannot know how
+    // many files the scan adopted — which means it must not claim a number.
+    // A tap that finds nothing used to produce no signal at all: the spinner
+    // stopped and the screen was exactly as it was, so "I scanned and there is
+    // nothing here" and "the button did nothing" looked identical. The notice
+    // says what the button did and points at the list, which is all that is
+    // known, and the empty state underneath it does the rest.
+    var scanNotice by remember { mutableStateOf<String?>(null) }
+
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -152,6 +165,7 @@ fun ModelManagerScreen(
             )
         }
         importError = null
+        scanNotice = null
         busy = true
         scope.launch {
             // `onImport` performs the header read and reports its own failure
@@ -189,9 +203,15 @@ fun ModelManagerScreen(
                         TextButton(
                             onClick = {
                                 busy = true
+                                importError = null
                                 scope.launch {
                                     runCatching { scan() }
                                         .onFailure { importError = describeLoadFailure(it) }
+                                        .onSuccess {
+                                            scanNotice = "Scanned this app's own storage for " +
+                                                "GGUF files. Anything found is now in the " +
+                                                "list."
+                                        }
                                     busy = false
                                 }
                             },
@@ -204,6 +224,11 @@ fun ModelManagerScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
+                    // Guarded rather than disabled: `FloatingActionButton` has
+                    // no `enabled` parameter, and a second picker launched on top
+                    // of a running header read gives two imports racing over
+                    // the same list.
+                    if (busy) return@FloatingActionButton
                     // "application/octet-stream" plus a wildcard: SAF does not
                     // reliably tag .gguf, and a filter that is too narrow makes
                     // the model look unimportable.
@@ -233,14 +258,42 @@ fun ModelManagerScreen(
                 )
             }
 
-            if (models.isEmpty() && !busy && importError == null) {
+            scanNotice?.let { notice ->
                 Text(
-                    text = "No models yet. Import a GGUF file to run the agent " +
-                        "on-device — nothing is sent anywhere.",
-                    style = MaterialTheme.typography.bodyLarge,
+                    text = notice,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
+            }
+
+            if (models.isEmpty() && !busy && importError == null) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        text = "No models yet. Import a GGUF file to run the agent " +
+                            "on-device — nothing is sent anywhere.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // The hand-pushed case, named. A model can reach a phone
+                    // over USB, out of a backup, or from the Hub download, and
+                    // none of those go through the file picker. Without this
+                    // the only visible route to a model is a picker the user
+                    // may not know they have, and the screen reads as broken
+                    // for a phone that already has a perfectly good GGUF on
+                    // it. The Scan storage button above is the fix; this line
+                    // says so.
+                    if (onScanLocal != null) {
+                        Text(
+                            text = "Copied a .gguf onto this phone with a cable, or " +
+                                "downloaded one already? Scan storage finds models " +
+                                "the app can already see.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
             }
 
             LazyColumn(
@@ -323,12 +376,23 @@ private fun ImportErrorBanner(message: String, onDismiss: () -> Unit) {
 @Composable
 private fun ModelRow(model: ImportedModel, onDelete: () -> Unit) {
     val context = LocalContext.current
-    val chosenContext = remember(model.uri) {
-        model.trainedContextLength ?: ModelImporter.DEFAULT_CONTEXT_LENGTH
-    }
-    val totalBytes = model.estimate.totalBytes(chosenContext)
-    val fits = model.fitsOnDevice(chosenContext)
-    val maxContext = model.estimate.maxAffordableContext(RamEstimate.usableDeviceBytes())
+    // WHY THIS IS `DEFAULT_CONTEXT_LENGTH` AND NOT THE MODEL'S TRAINED ONE:
+    // it is the context the app will actually allocate. `AppContainer.loadModel`
+    // gates on `ModelImporter.DEFAULT_CONTEXT_LENGTH` and the backend creates
+    // the KV cache at that size, so that is the only number whose RAM figure
+    // describes the load.
+    //
+    // This used to be `model.trainedContextLength ?: DEFAULT`. A 4B model
+    // trained at 32K therefore rendered "Context 32768", a KV cache eight
+    // times larger than the real one, and — because `fitsOnDevice` was asked
+    // about the same 32K — a flat "This model does not fit in this device's
+    // usable RAM. It will not load" for a model the app loads at 4K without
+    // complaint. A refusal with a real-looking number attached, and false.
+    // Showing the trained length is honest *as a fact about the file*, which
+    // is why it is still shown — as its own line, labelled, below.
+    val loadContext = ModelImporter.DEFAULT_CONTEXT_LENGTH
+    val totalBytes = model.estimate.totalBytes(loadContext)
+    val fits = model.fitsOnDevice(loadContext)
 
     Card(Modifier.fillMaxWidth()) {
         Column(
@@ -357,13 +421,40 @@ private fun ModelRow(model: ImportedModel, onDelete: () -> Unit) {
                 }
             }
 
-            FactLine("On disk", formatBytes(model.fileSizeBytes))
-            FactLine("Weights in RAM", formatBytes(model.estimate.weightBytes))
-            FactLine("Context", "$chosenContext tokens")
+            // "On disk" is the only number on this card that was measured: it
+            // is `File.length()` on the file itself. Everything below it is
+            // arithmetic on that number plus the header, and the card says so
+            // once, here, instead of leaving four confident figures looking
+            // equally solid.
+            FactLine("On disk (measured)", formatBytes(model.fileSizeBytes))
+            FactLine("Weights, estimated", formatBytes(model.estimate.weightBytes))
+            FactLine("RAM at load (estimated)", formatBytes(totalBytes))
             FactLine(
-                "RAM at this context",
-                "${formatBytes(totalBytes)}  (KV cache ${formatBytes(model.estimate.kvBytes(chosenContext))})",
+                "  of which KV cache",
+                formatBytes(model.estimate.kvBytes(loadContext)),
             )
+            FactLine("Context at load", "$loadContext tokens")
+            model.trainedContextLength?.let { trained ->
+                // The trained length is a property of the file, and it is NOT
+                // what this app will use. Shown because it is genuinely useful
+                // to know the model is capable of more, labelled so that it is
+                // never read as the size of the cache about to be allocated.
+                FactLine("Model's own max context", "$trained tokens (not used)")
+            }
+            // The disclaimer the numbers above need. There is no measured
+            // figure anywhere in this app: nothing has been profiled on a
+            // phone, so every RAM number here is arithmetic on the file size
+            // and the header. Saying so once per row is the difference
+            // between a number the user can reason about and one they have to
+            // take on faith — and the load gate uses the same arithmetic, so
+            // the row and the gate agree.
+            Text(
+                text = "RAM figures are calculated from the file size and the model's " +
+                    "header. They are not measured on this phone.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             if (!model.hasChatTemplate) {
                 FactLine("Chat template", "missing — tool calls will be unreliable")
             }
@@ -375,37 +466,33 @@ private fun ModelRow(model: ImportedModel, onDelete: () -> Unit) {
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(
-                        text = buildString {
-                            append("This model does not fit in this device's usable RAM ")
-                            append("(${formatBytes(RamEstimate.usableDeviceBytes())}). ")
-                            if (maxContext > 0) {
-                                append("Lower the context to ${formatContextCeiling(maxContext)} or below. ")
-                            }
-                            // The load gate REFUSES a model this size rather than
-                            // attempting it, so there is no crash to warn about
-                            // and no "load anyway" the user could be choosing.
-                            // The previous wording — "Loading it anyway risks the
-                            // system killing the app mid-task" — described a
-                            // consequence this build makes impossible and implied
-                            // a choice this screen does not offer, so a user read
-                            // a risk they were being invited to take and had no
-                            // way to decline or accept.
-                            append(
-                                "It will not load: the app refuses a model larger " +
-                                    "than the device's usable RAM, rather than " +
-                                    "being killed part-way through a task.",
-                            )
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(12.dp),
-                    )
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            text = "This model will not load on this phone. It needs " +
+                                "about ${formatBytes(totalBytes)} and this device has " +
+                                "${formatBytes(RamEstimate.usableDeviceBytes())} usable " +
+                                "for the app. The load gate refuses it rather than " +
+                                "letting the system kill the app part-way through a task.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        // The previous version told the user to "Lower the
+                        // context to 2048 or below" and offered "context could
+                        // go to 16384" as headroom. There is no context control
+                        // anywhere in this app: every load uses the fixed
+                        // 4096 above. Both sentences named a lever the user
+                        // does not have, so a refused model read as a
+                        // settings problem instead of the one thing it is —
+                        // too big for this phone, and the fix is a smaller
+                        // model. The one real lever is named instead.
+                        Text(
+                            text = "The only way to make this phone run something is a " +
+                                "smaller model. A lower quantization of the same " +
+                                "family is usually the cheapest way there.",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
                 }
-            } else if (maxContext in 1 until chosenContext) {
-                FactLine(
-                    "Headroom",
-                    "context could go to ${formatContextCeiling(maxContext)} on this device",
-                )
             }
 
             // The display name from a content provider is often useless (a hash),
@@ -453,13 +540,6 @@ private fun formatParams(count: Long): String = when {
     count >= 1_000_000_000 -> "%.1fB".format(count / 1_000_000_000.0)
     count >= 1_000_000 -> "%.0fM".format(count / 1_000_000.0)
     else -> count.toString()
-}
-
-/** Context lengths are chosen from powers of two, so round down to one. */
-private fun formatContextCeiling(tokens: Int): String {
-    var value = 1024
-    while (value * 2 <= tokens) value *= 2
-    return value.toString()
 }
 
 private fun displayNameOf(context: Context, uri: Uri): String? = runCatching {

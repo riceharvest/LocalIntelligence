@@ -35,6 +35,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -48,6 +51,7 @@ import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.blockingReason
 import dev.localintelligence.app.isActive
+import kotlinx.coroutines.delay
 
 /**
  * The chat. A message list, a text field, a send button, and a STOP button while
@@ -514,9 +518,23 @@ private fun EmptyState(
  * that takes a long time. A screen-reader user otherwise gets silence for the
  * whole of a model load, which is the same problem this line exists to fix for
  * everyone else.
+ *
+ * ## Why it counts
+ *
+ * A spinner with no clock cannot answer the only question a slow run raises:
+ * is this working, or is it stuck? There is no timeout in the agent loop —
+ * `AgentController` awaits the backend's `generate` and a native decode that
+ * has stopped making progress simply never returns — so a hung run is
+ * indistinguishable from a slow one, and a user watching an unchanging dot has
+ * no basis for deciding whether to press Stop. Elapsed seconds give them one.
+ *
+ * No estimate of the remaining time is shown. There is no measured decode
+ * figure for this app on any phone, so any "about 2 minutes left" would be
+ * invented.
  */
 @Composable
 private fun ProgressLine(label: String) {
+    val elapsed = rememberElapsedSeconds()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -533,6 +551,37 @@ private fun ProgressLine(label: String) {
             text = label,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
         )
+        // `weight` on the label and the clock last, so a long label wraps
+        // instead of pushing the count off the edge where nobody can see it.
+        if (elapsed > 0) {
+            Text(
+                text = formatElapsed(elapsed),
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
+}
+
+/** Seconds since this composable entered composition; 0 before the first tick. */
+@Composable
+private fun rememberElapsedSeconds(): Int {
+    var seconds by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            seconds += 1
+        }
+    }
+    return seconds
+}
+
+/** "4s", "2m 05s", "1h 12m". Deliberately has no "remaining" form. */
+private fun formatElapsed(seconds: Int): String = when {
+    seconds < 60 -> "${seconds}s"
+    seconds < 3600 -> "%dm %02ds".format(seconds / 60, seconds % 60)
+    else -> "%dh %02dm".format(seconds / 3600, (seconds % 3600) / 60)
 }

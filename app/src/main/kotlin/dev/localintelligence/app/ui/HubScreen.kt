@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -28,6 +30,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,9 +63,11 @@ import dev.localintelligence.core.hub.formatBytes
 @Composable
 fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    // WHY a local: `HubUiState.blocked` is a computed property, and a computed
-    // property cannot be smart-cast across a recomposition boundary.
+    // WHY a local: `HubUiState.blocked` and `HubUiState.stopped` are computed
+    // properties, and a computed property cannot be smart-cast across a
+    // recomposition boundary.
     val blocked = state.blocked
+    val stopped = state.stopped
 
     Scaffold(
         topBar = {
@@ -99,7 +108,15 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                     Text("Find models")
                 }
                 if (state.loading) {
-                    CircularProgressIndicator(modifier = Modifier.height(24.dp))
+                    // Labelled, because a bare spinner next to a button is a
+                    // control that cannot say what it is waiting for, and this
+                    // one waits on somebody else's server. Announced as a live
+                    // region so a screen-reader user hears the wait start.
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .height(24.dp)
+                            .semantics { contentDescription = "Asking HuggingFace for this repository" },
+                    )
                 }
             }
         }
@@ -110,6 +127,7 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                     text = message,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
             }
         }
@@ -126,7 +144,7 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                             "Download size: ${formatBytes(selected.sizeBytes)}",
                             style = MaterialTheme.typography.bodyMedium,
                         )
-                        // WHY the basis is shown and not just the verdict: a
+                        // WHY THE BASIS IS SHOWN AND NOT JUST THE VERDICT: a
                         // refusal computed from a 4 MiB header probe is a fact
                         // about this file, while one computed from its NAME is a
                         // guess, and the user is being asked to spend 668 MB of
@@ -135,9 +153,12 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                         // can check and a number they have to trust.
                         Text(
                             if (state.exactFit) {
-                                "Measured from the model's own header."
+                                "The size and the memory figure are read from the " +
+                                    "model's own header, over the network, before you " +
+                                    "download it. Not a measurement of this phone."
                             } else {
-                                "Estimated from the file name — could not read the model's header."
+                                "The header could not be read, so the memory figure " +
+                                    "below is estimated from the file name and size."
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -151,8 +172,51 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                                 MaterialTheme.colorScheme.error
                             },
                         )
+                        // WHY THE RANGE IS RENDERED AT ALL: `RamFit` carries
+                        // `lowBytes`/`highBytes` and an `uncertain` verdict that
+                        // the screen previously dropped on the floor, so a
+                        // name-derived estimate was shown as one confident
+                        // point figure. The two ends are the same calculation
+                        // under the architecture assumptions that separate a
+                        // phone-sized KV cache from a desktop-sized one, and
+                        // `uncertain` is core's own statement that the verdict
+                        // could land on either side. Showing it is the only way
+                        // the refusal below it can be trusted.
+                        if (plan.ram.uncertain) {
+                            Text(
+                                "Estimated range: ${formatBytes(plan.ram.lowBytes)} to " +
+                                    "${formatBytes(plan.ram.highBytes)}." +
+                                    if (state.exactFit) {
+                                        " The figure above is the one the load gate " +
+                                            "will use."
+                                    } else {
+                                        " That is wide enough for the verdict above " +
+                                            "to go either way."
+                                    },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        // WHY THE STALE SENTENCE IS CORRECTED HERE: when the
+                        // header was read, `FitGate.explanation` may still say
+                        // "the file's own header settles it for 8 MB of
+                        // download" — a promise of a step this screen already
+                        // took. Left alone, the screen offers the user a
+                        // download that is already in the number above it. The
+                        // wording lives in :core, which this screen does not
+                        // own, so the correction is made here.
+                        if (state.exactFit && plan.ram.fits &&
+                            plan.ram.highBytes > plan.ram.availableBytes
+                        ) {
+                            Text(
+                                "That header has already been read, so the higher figure " +
+                                    "is not needed. This one loads.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         Text(
-                            "Free storage: ${formatBytes(plan.freeDiskBytes)}",
+                            "Free storage on this phone: ${formatBytes(plan.freeDiskBytes)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -184,7 +248,11 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            CircularProgressIndicator(modifier = Modifier.height(24.dp))
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .height(24.dp)
+                                    .semantics { contentDescription = "Starting the download" },
+                            )
                             Text("Starting download…")
                         }
                     }
@@ -202,6 +270,33 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
+                // WHY THE STOPPED STATE IS RENDERED RATHER THAN FALLING THROUGH
+                // TO THE IDLE BUTTON: the transfer is resumable and the bytes
+                // already spent are known, so the alternative was a button
+                // reading "Download (668 MB)" under a message that says
+                // "Tap retry to resume" — naming a control that did not exist
+                // while quoting a size the next tap would not transfer.
+                state.stopped != null -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = stopped!!.error.message,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = if (state.partialBytesKept > 0) {
+                                "${formatBytes(state.partialBytesKept)} is already on " +
+                                    "this phone and is kept. The button below resumes " +
+                                    "from there rather than starting again."
+                            } else {
+                                "Nothing was kept, so the button below starts from " +
+                                    "the beginning."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 blocked != null -> {
                     // The refusal is shown in full, not summarised: the user is
                     // being refused a 2 GB download and deserves the reason.
@@ -211,10 +306,29 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
+                selected == null -> {
+                    // The idle state. This used to render nothing at all: a
+                    // fresh screen was a text field, a button, and 24 dp of
+                    // bottom padding, which is indistinguishable from a screen
+                    // that failed to load. A user who opened "Download a model"
+                    // and saw nothing had no way to learn what the field wanted
+                    // in it.
+                    Text(
+                        text = "Type a HuggingFace repository — owner/name, like " +
+                            "Qwen/Qwen3-0.6B-GGUF — and Find models will list the " +
+                            "GGUF files in it with the size of each and whether it " +
+                            "fits in this phone's memory, before anything is " +
+                            "downloaded. Gated repositories need a licence accepted " +
+                            "on huggingface.co first; this app has no token field, " +
+                            "so a private or gated repository will be refused.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 else -> {
                     Button(
                         onClick = viewModel::startDownload,
-                        enabled = state.selected != null && state.plan?.isAllowed == true,
+                        enabled = state.plan?.isAllowed == true,
                     ) {
                         // WHY the label changes: the button's action changes too.
                         // "Download" on a file that is already in app storage
@@ -223,6 +337,10 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                         Text(
                             when {
                                 state.alreadyOnDevice -> "Add to models"
+                                // A resume moves only the missing bytes, so the
+                                // full size next to it would be a second
+                                // overstatement on the same button.
+                                state.resumable -> "Resume download"
                                 else -> "Download${state.sizeLabel?.let { " ($it)" } ?: ""}"
                             },
                         )
@@ -235,7 +353,21 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
     }
 }
 
-/** One selectable quant row, with the size beside it. */
+/**
+ * One selectable quant row, with the size beside it.
+ *
+ * ## Why the row is the touch target and not the radio
+ *
+ * Only the 20 dp `RadioButton` was clickable before. The filename and size
+ * beside it are the information a user picks from, and a 20 dp target is
+ * below the 48 dp accessibility floor, so a motor-impaired user could not
+ * reliably select a quant at all — and a screen reader reached a bare radio
+ * button whose label was whatever the row's `Text` children happened to be
+ * announced as. `selectable` with `Role.RadioButton` makes the whole row one
+ * node that reads as "4-bit Q4_K_M, 668 MB, qwen3-4b-q4_k_m.gguf, selected" and
+ * takes one double-tap anywhere across it. The radio's own `onClick` is null so
+ * it does not become a second, nested tap target for the same action.
+ */
 @Composable
 private fun QuantRow(
     file: HubGgufFile,
@@ -243,11 +375,24 @@ private fun QuantRow(
     enabled: Boolean,
     onSelect: () -> Unit,
 ) {
+    // No contentDescription on purpose: `selectable` merges the row's own
+    // children, so TalkBack reads the quant, the size and the filename in one
+    // pass. Overriding it would replace those with a duplicate string that has
+    // to be kept in step with them.
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .selectable(
+                selected = selected,
+                enabled = enabled,
+                role = Role.RadioButton,
+                onClick = onSelect,
+            )
+            .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = onSelect, enabled = enabled)
+        RadioButton(selected = selected, onClick = null, enabled = enabled)
         Column(Modifier.padding(start = 8.dp)) {
             Text(
                 file.quant?.label ?: "unknown quant",
@@ -274,13 +419,31 @@ private fun DownloadProgressBlock(
         // bar that suddenly becomes determinate looks like a glitch, and the
         // total is -1 whenever the server did not send Content-Length.
         val fraction = progress.fraction
+        // The bar carries its own spoken value. A bare progress indicator is
+        // announced as "progress indicator" and nothing else, so a screen-reader
+        // user watching a 668 MB transfer has no way to know whether it is at
+        // 2% or 90% — the one number this whole block exists to deliver.
+        val spoken = if (fraction != null) {
+            "Downloading, ${(fraction * 100).toInt()} percent, " +
+                "${formatBytes(progress.bytesDownloaded)} of " +
+                "${formatBytes(progress.totalBytes)}"
+        } else {
+            "Downloading, ${formatBytes(progress.bytesDownloaded)} so far, " +
+                "total size not reported by the server"
+        }
         if (fraction != null) {
             LinearProgressIndicator(
                 progress = { fraction },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = spoken },
             )
         } else {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = spoken },
+            )
         }
         val rateLabel = if (progress.bytesPerSecond > 0) {
             "${formatBytes(progress.bytesPerSecond)}/s"
@@ -288,7 +451,18 @@ private fun DownloadProgressBlock(
             "starting…"
         }
         Text(
-            "${formatBytes(progress.bytesDownloaded)} of ${formatBytes(progress.totalBytes)} — $rateLabel",
+            // WHY THE TOTAL IS CONDITIONAL: the server does not always send
+            // Content-Length, and `totalBytes` is -1 when it does not. The
+            // previous line printed it unconditionally, so a HuggingFace
+            // response without a length rendered the literal "12.0 MB of -1 B"
+            // to the user.
+            text = if (progress.totalBytes > 0) {
+                "${formatBytes(progress.bytesDownloaded)} of " +
+                    "${formatBytes(progress.totalBytes)} — $rateLabel"
+            } else {
+                "${formatBytes(progress.bytesDownloaded)} downloaded — " +
+                    "the server did not say how big this file is — $rateLabel"
+            },
             style = MaterialTheme.typography.bodySmall,
         )
         OutlinedButton(onClick = onCancel) { Text("Cancel") }

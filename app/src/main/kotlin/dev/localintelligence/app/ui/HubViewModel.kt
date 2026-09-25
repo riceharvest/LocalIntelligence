@@ -98,12 +98,39 @@ data class HubUiState(
     val alreadyOnDevice: Boolean = false,
     /** Set once a finished download has been adopted by the rest of the app. */
     val registeredNote: String? = null,
+    /**
+     * Bytes still sitting in the `.part` file from a download that stopped.
+     *
+     * WHY THIS IS HERE: the downloader keeps a partial transfer so the next
+     * attempt resumes instead of spending the user's data again. Without this
+     * field the screen cannot tell a stopped 120 MB transfer from one that
+     * never started, so it fell through to a button labelled "Download
+     * (668 MB)" — a full-size promise for a download that would actually move
+     * 548 MB, or none at all. The `HubError.ConnectionLost` message the user
+     * sees says "Tap retry to resume where it stopped", so the screen also has
+     * to offer something that is recognisably a retry.
+     *
+     * Zero means nothing usable is on disk and the next tap starts from zero.
+     */
+    val partialBytesKept: Long = 0,
 ) {
     /** The plan the user is being asked to approve, or the refusal. */
     val blocked: HubError? get() = plan?.reject
 
     /** The size label shown before starting. */
     val sizeLabel: String? get() = selected?.let { formatBytes(it.sizeBytes) }
+
+    /**
+     * True when the next tap continues a transfer rather than starting one.
+     *
+     * The button label, the byte count and the size estimate all have to agree
+     * with this, or the user is quoted 668 MB for 120 MB of work.
+     */
+    val resumable: Boolean
+        get() = partialBytesKept > 0 && progress is DownloadProgress.Stopped
+
+    /** The download stopped for a reason the user may be able to do something about. */
+    val stopped: DownloadProgress.Stopped? get() = progress as? DownloadProgress.Stopped
 }
 
 /**
@@ -154,7 +181,24 @@ class HubViewModel(
                 return
             }
             is HubRepoId.Result.Valid -> {
-                _state.update { it.copy(loading = true, error = null) }
+                // WHY EVERY DOWNLOAD FIELD IS CLEARED HERE: `resolve` is also
+                // how the user gets from a finished download to a different
+                // repo. The previous version only touched `loading` and
+                // `error`, so the completed state survived the navigation and
+                // the new repo's screen rendered "Downloaded. Open Models to
+                // load it." in primary colour — a success belonging to a file
+                // that was not on screen. A stale success is the most
+                // confident lie this state machine can tell.
+                _state.update {
+                    it.copy(
+                        loading = true,
+                        error = null,
+                        progress = null,
+                        partialBytesKept = 0,
+                        registeredNote = null,
+                        downloading = false,
+                    )
+                }
                 viewModelScope.launch {
                     val result = runCatching { client.listGgufFiles(parsed.repoId, tokenSource.token()) }
                     result.onSuccess { files ->
@@ -197,11 +241,19 @@ class HubViewModel(
         viewModelScope.launch {
             val planned = planFor(file)
             _state.update {
+                // The transfer state belongs to the file it happened on. Tapping
+                // a different quant used to leave the previous file's progress
+                // or its "Downloaded." note on screen, describing bytes that are
+                // not this file's.
                 it.copy(
                     selected = file,
                     plan = planned.first,
                     exactFit = planned.second,
                     alreadyOnDevice = planned.third,
+                    progress = null,
+                    partialBytesKept = 0,
+                    registeredNote = null,
+                    error = null,
                 )
             }
         }
@@ -253,7 +305,19 @@ class HubViewModel(
         }
 
         current.downloadJob?.cancel()
-        _state.update { it.copy(downloading = true, progress = null, error = null, registeredNote = null) }
+        _state.update {
+            it.copy(
+                downloading = true,
+                progress = null,
+                error = null,
+                registeredNote = null,
+                // Cleared because a fresh attempt decides for itself: the
+                // `.part` file is still on disk and the downloader will resume
+                // it, so the first progress event repopulates this from what is
+                // really there rather than from what was there last time.
+                partialBytesKept = 0,
+            )
+        }
 
         val job = viewModelScope.launch {
             downloader.download(file, plan).collect { event ->
@@ -271,13 +335,31 @@ class HubViewModel(
                                 error = null,
                                 registeredNote = note,
                                 alreadyOnDevice = true,
+                                partialBytesKept = 0,
                             )
                         }
                     }
+                    // WHY THE KEPT BYTES ARE RECORDED: a stop is the one state
+                    // the user has to act on, and "Connection dropped" alone
+                    // does not tell them whether the next tap is a 548 MB
+                    // transfer or a 30-second one. The downloader keeps the
+                    // `.part` file, so the honest number is in the event.
+                    //
+                    // `error` is deliberately left alone. It is the "this repo
+                    // could not be resolved" slot at the top of the screen, and
+                    // a stop renders its own message next to the resume button.
+                    // Setting both printed the same sentence twice, which reads
+                    // as two different failures.
                     is DownloadProgress.Stopped -> _state.update {
-                        it.copy(downloading = false, progress = event, error = event.error.message)
+                        it.copy(
+                            downloading = false,
+                            progress = event,
+                            partialBytesKept = event.partialBytesKept,
+                        )
                     }
-                    is DownloadProgress.InProgress -> _state.update { it.copy(progress = event) }
+                    is DownloadProgress.InProgress -> _state.update {
+                        it.copy(progress = event, partialBytesKept = event.bytesDownloaded)
+                    }
                 }
             }
         }
@@ -307,10 +389,29 @@ class HubViewModel(
      * The `.part` file is kept by the downloader so the next attempt resumes
      * rather than restarting; nothing appears at the final path. That is the
      * invariant, and it is why this does not need to clean anything up.
+     *
+     * WHY A `Stopped` EVENT IS WRITTEN HERE RATHER THAN LEAVING THE LAST
+     * `InProgress`: cancelling the collecting coroutine means no further event
+     * arrives, so `progress` used to stay pinned at the last in-flight value
+     * while `downloading` went false. The screen's next branch was then the
+     * idle "Download (668 MB)" button, with the bar vanished and nothing said
+     * about the 120 MB now sitting on disk. The user was told a download had
+     * never started when they had just stopped one on purpose. The byte count
+     * is the last one the downloader reported, which is what the `.part` file
+     * holds.
      */
     fun cancelDownload() {
+        val kept = _state.value.partialBytesKept
         _state.value.downloadJob?.cancel()
-        _state.update { it.copy(downloading = false) }
+        _state.update {
+            it.copy(
+                downloading = false,
+                downloadJob = null,
+                progress = DownloadProgress.Stopped(HubError.Cancelled, kept),
+                error = null,
+                partialBytesKept = kept,
+            )
+        }
     }
 
     /** Best-effort search. A failure leaves the list empty, never throws. */
@@ -322,7 +423,14 @@ class HubViewModel(
 
     /** Clears a completed download so the user can pick another quant. */
     fun reset() {
-        _state.update { it.copy(progress = null, error = null, downloading = false) }
+        _state.update {
+            it.copy(
+                progress = null,
+                error = null,
+                downloading = false,
+                partialBytesKept = 0,
+            )
+        }
     }
 
     companion object {
