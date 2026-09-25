@@ -1,5 +1,6 @@
 package dev.localintelligence.android.tools.contacts
 
+import android.content.Context
 import android.content.ContentResolver
 import android.database.Cursor
 import android.provider.ContactsContract
@@ -367,8 +368,7 @@ class ContactsSearchTool internal constructor(
 ) : AgentTool {
 
     /** Production wiring: `ContactsSearchTool(context.contentResolver)`. */
-    @JvmOverloads
-    constructor(resolver: ContentResolver) : this(ResolverContactsProvider(resolver))
+        constructor(resolver: ContentResolver) : this(ResolverContactsProvider(resolver))
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "contacts.search",
@@ -506,8 +506,7 @@ class ContactsGetTool internal constructor(
 ) : AgentTool {
 
     /** Production wiring: `ContactsGetTool(context.contentResolver)`. */
-    @JvmOverloads
-    constructor(resolver: ContentResolver) : this(ResolverContactsProvider(resolver))
+        constructor(resolver: ContentResolver) : this(ResolverContactsProvider(resolver))
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "contacts.get",
@@ -657,4 +656,23 @@ private fun Cursor.stringOrEmpty(column: String): String {
 private fun Cursor.longOrZero(column: String): Long {
     val index = getColumnIndex(column)
     return if (index < 0 || isNull(index)) 0L else getLong(index)
+}
+
+
+// =====================================================================================
+// The tool set
+// =====================================================================================
+
+/**
+ * Both contacts tools, wired to a real [Context].
+ *
+ * WHY a factory: see the note on `calendarTools`. The composition root is the
+ * single place that knows the shipped tool set, and this is what it calls.
+ */
+fun contactsTools(context: Context): List<AgentTool> {
+    val resolver = context.applicationContext.contentResolver
+    return listOf(
+        ContactsSearchTool(resolver),
+        ContactsGetTool(resolver),
+    )
 }

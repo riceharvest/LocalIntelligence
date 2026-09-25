@@ -1056,3 +1056,27 @@ internal object LABELS {
         return label
     }
 }
+
+
+// =====================================================================================
+// The tool set
+// =====================================================================================
+
+/**
+ * All three notification tools.
+ *
+ * WHY this takes no [Context] while the other factories do: these tools talk to
+ * [LocalNotificationListenerService], which is bound by the system rather than
+ * reached through a resolver, and each tool already defaults its `listener` to
+ * the live service instance. Passing a context in would suggest the tools hold
+ * one, and they deliberately do not — a tool that kept a `Context` would leak
+ * whatever the user was doing through the notification shade.
+ *
+ * The context is threaded through only at REPLY time, via
+ * [NotificationProjector], because that is the single call that needs it.
+ */
+fun notificationTools(): List<AgentTool> = listOf(
+    NotificationListTool(),
+    NotificationReplyTool(),
+    NotificationDismissTool(),
+)

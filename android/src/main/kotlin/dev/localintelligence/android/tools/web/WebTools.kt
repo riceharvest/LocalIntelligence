@@ -1151,3 +1151,22 @@ class WebFetchTool private constructor(
         fun withOpener(opener: ResponseOpener): WebFetchTool = WebFetchTool(opener)
     }
 }
+
+
+// =====================================================================================
+// The tool set
+// =====================================================================================
+
+/**
+ * The one tool that reaches the internet.
+ *
+ * WHY a factory for a single tool: the other eight families each have one, and
+ * [dev.localintelligence.android.di.AgentGraph] composes the tool set out of
+ * them. A family of one that skips the pattern is the kind of asymmetry the
+ * next person re-discovers.
+ *
+ * No [Context] parameter, and that is the design rather than an omission: the
+ * fetcher is an [HttpUrlConnectionOpener] with no access to app state, so it
+ * cannot read anything the user did not explicitly ask it to fetch.
+ */
+fun webTools(): List<AgentTool> = listOf(WebFetchTool())

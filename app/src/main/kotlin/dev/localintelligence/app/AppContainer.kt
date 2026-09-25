@@ -5,6 +5,7 @@ import dev.localintelligence.android.data.LocalIntelligenceDatabase
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.android.inference.ModelImporter
+import dev.localintelligence.android.tools.androidTools
 import dev.localintelligence.core.agent.AgentConfig
 import dev.localintelligence.core.agent.AgentController
 import dev.localintelligence.core.agent.InMemoryMemoryStore
@@ -14,8 +15,10 @@ import dev.localintelligence.core.agent.Session
 import dev.localintelligence.core.agent.ToolCallValidatorGate
 import dev.localintelligence.core.context.ContextBuilder
 import dev.localintelligence.core.context.DefaultContextBuilder
+import dev.localintelligence.core.metrics.RunRecorder
 import dev.localintelligence.core.model.ModelBackend
 import dev.localintelligence.core.model.ModelSpec
+import dev.localintelligence.core.policy.RiskPolicy
 import dev.localintelligence.core.tool.LexicalToolSelector
 import dev.localintelligence.core.tool.SimpleToolRegistry
 import dev.localintelligence.core.tool.ToolRegistry
@@ -50,11 +53,44 @@ class AppContainer(private val context: Context) {
     /**
      * The one tool registry for the process.
      *
-     * Today the shipped tool workstreams have not landed on this branch, so the
-     * registry starts empty rather than being faked. When they do land, the wiring
-     * is one line in [tools] — not a refactor.
+     * This used to be `SimpleToolRegistry(emptyList())` with a comment saying
+     * the tool workstreams had not landed. They had — all nine families ship in
+     * `:android` — so the agent was handed an empty registry and could not
+     * read a battery level, open a file, or look up a contact. Every end-to-end
+     * task was unreachable no matter what the model produced.
+     *
+     * WHY the assembly lives in `:android` and not here: the tools are that
+     * module's, and `:app` is Compose and nothing else
+     * (`docs/architecture.md` §4). Listing nine families here would mean a
+     * `:app` edit every time a tool lands.
+     *
+     * WHY it is safe to build eagerly-in-a-lazy: `androidTools` only
+     * constructs tool objects. No platform call happens, no service is
+     * resolved, and no model is touched — the RAM budget of §16 is untouched by
+     * a few kilobytes of definition objects.
      */
-    val tools: ToolRegistry by lazy { SimpleToolRegistry(androidTools()) }
+    val tools: ToolRegistry by lazy { SimpleToolRegistry(androidTools(context)) }
+
+    /**
+     * The risk policy, shared by every controller this container builds.
+     *
+     * WHY one instance and not one per controller:
+     * [dev.localintelligence.core.policy.BlastRadiusTracker] holds per-task
+     * counters, and the cap the user cares about is "20 destructive actions in
+     * one task". A policy per controller gives every run a fresh budget, so the
+     * limit never binds. The controller calls `resetTask()` at the start of
+     * every run, which is what scopes the budget to a task rather than to this
+     * object.
+     *
+     * WHY `PolicyConfig.default`: it is the configuration where ignorance
+     * denies — an empty `grantedPermissions` means a tool declaring an
+     * ungranted permission returns `REQUIRE_PERMISSION` rather than executing,
+     * and an empty `knownTargets` means an external send to anyone the user has
+     * not vouched for is held for confirmation. The wiring here is what makes
+     * that default real; changing the default is a product decision, not a
+     * wiring one.
+     */
+    val riskPolicy: RiskPolicy by lazy { RiskPolicy() }
 
     val memoryStore: MemoryStore by lazy { InMemoryMemoryStore() }
 
@@ -168,8 +204,23 @@ class AppContainer(private val context: Context) {
      * A function, not a singleton, and that is the point: a controller is
      * single-use. `cancel()` is sticky, and an `AwaitingConfirmation` has to be
      * resumed on the same instance that staged it. One call is one run.
+     *
+     * WHY `riskPolicy` is passed rather than left to the default: the argument
+     * is [riskPolicy] so the per-task blast-radius budget is shared across runs
+     * instead of resetting per controller. Left defaulted it would still gate
+     * correctly — the parameter has a default — but the destructive-action cap
+     * would never bind, because a fresh tracker starts at zero every time.
+     *
+     * WHY `metrics` is a parameter and not built here: a recorder is
+     * [dev.localintelligence.core.metrics.RunRecorder], and who keeps the
+     * resulting [dev.localintelligence.core.metrics.RunMetrics] is the caller's
+     * decision. Wiring it is what makes the loop observable; storing it is not
+     * the loop's business.
      */
-    fun newController(model: ModelBackend = modelBackend): AgentController = AgentController(
+    fun newController(
+        model: ModelBackend = modelBackend,
+        metrics: RunRecorder? = null,
+    ): AgentController = AgentController(
         model = model,
         parser = dev.localintelligence.core.agent.ActionParserImpl,
         tools = tools,
@@ -180,18 +231,9 @@ class AppContainer(private val context: Context) {
         memory = memoryStore,
         sessions = Session(),
         config = agentConfig,
+        riskPolicy = riskPolicy,
+        metrics = metrics,
     )
-
-    /**
-     * The Android tool implementations, from `:android`.
-     *
-     * Empty on this branch: the calendar/device/files/notify tool workstreams are
-     * separate PRs and this one must not touch their files. When they land they
-     * are registered here, in `Application.onCreate`, from the platform context
-     * each tool needs. Deliberately a seam with a body rather than a TODO in a
-     * comment, so the wiring is visible and type-checked the day it is filled.
-     */
-    private fun androidTools(): List<dev.localintelligence.core.tool.AgentTool> = emptyList()
 
     // ---- HuggingFace download -----------------------------------------
     //
