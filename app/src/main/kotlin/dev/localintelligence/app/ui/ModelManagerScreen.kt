@@ -382,7 +382,20 @@ private fun ModelRow(model: ImportedModel, onDelete: () -> Unit) {
                             if (maxContext > 0) {
                                 append("Lower the context to ${formatContextCeiling(maxContext)} or below. ")
                             }
-                            append("Loading it anyway risks the system killing the app mid-task.")
+                            // The load gate REFUSES a model this size rather than
+                            // attempting it, so there is no crash to warn about
+                            // and no "load anyway" the user could be choosing.
+                            // The previous wording — "Loading it anyway risks the
+                            // system killing the app mid-task" — described a
+                            // consequence this build makes impossible and implied
+                            // a choice this screen does not offer, so a user read
+                            // a risk they were being invited to take and had no
+                            // way to decline or accept.
+                            append(
+                                "It will not load: the app refuses a model larger " +
+                                    "than the device's usable RAM, rather than " +
+                                    "being killed part-way through a task.",
+                            )
                         },
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(12.dp),

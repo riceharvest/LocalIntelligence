@@ -99,6 +99,7 @@ fun TraceView(
     var expanded by remember(trace) { mutableStateOf(emptySet<Int>()) }
 
     Column(modifier.fillMaxWidth()) {
+        TraceRunCaption(runState)
         TraceSummary(trace)
         HorizontalDivider()
         LazyColumn(Modifier.fillMaxWidth()) {
@@ -120,23 +121,69 @@ fun TraceView(
 }
 
 /**
+ * Says whose run this is.
+ *
+ * `RunSinks.reset()` is never called — the sinks are created once in
+ * `AppContainer` and shared by every `AgentViewModel` the service builds — so
+ * the trace on screen is whatever the *last reporting run* left there. Opening
+ * this screen during a second run therefore shows the first run's steps with
+ * nothing to say so, and the natural reading is that the run in progress has
+ * already done those things. It has not: the controller is per-run and its trace
+ * list starts empty, so the list only ever belongs to one run.
+ */
+@Composable
+private fun TraceRunCaption(runState: RunState?) {
+    val caption = when (runState) {
+        // A run in flight cannot be showing its own steps, because the runtime
+        // has not reported back yet. Saying so is the whole point.
+        null, RunState.Idle -> "The most recent run that reported its steps."
+        RunState.LoadingModel, RunState.Running ->
+            "A run is in progress. These are the steps from the previous one — " +
+                "this run's steps arrive when it reports back."
+        is RunState.AwaitingApproval ->
+            "Steps from the run now waiting on your approval."
+        is RunState.Finished -> "The most recent run."
+    }
+    Text(
+        text = caption,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+    )
+}
+
+/**
  * Why the trace is empty, in the user's terms.
  *
  * A function rather than three inline `Text` calls so the mapping is one
  * exhaustive `when` over the run state: adding a sixth `RunState` breaks the
  * build here instead of silently falling back to the "send a task" message,
  * which would be wrong for every new state.
+ *
+ * ## Why the in-flight messages do not promise a live list
+ *
+ * `AgentViewModel` writes the trace into its sink only inside `publish()`, which
+ * runs at an approval or a terminal outcome — never while the loop is between
+ * steps. So an empty trace during a run does not mean "nothing is happening"; it
+ * means the loop has not reported back yet, and the list will be populated in
+ * one go when it does. The previous wording for `LoadingModel` said "steps
+ * appear as soon as it does", which describes a live tail this build does not
+ * have, and sent the user back to a screen that stayed empty.
  */
 internal fun traceEmptyMessage(runState: RunState?): String = when (runState) {
     null, RunState.Idle -> "No trace yet. Send a task to see what the loop did."
 
     RunState.LoadingModel ->
-        "No trace yet. The model is still loading — steps appear as soon as it does."
+        "No trace yet. The model is still loading, and the loop has not " +
+            "recorded anything. The run reports its steps when it finishes."
 
-    RunState.Running -> "No trace yet. The first step is still running."
+    RunState.Running ->
+        "No trace yet. The run is still going; it reports its steps when it " +
+            "reaches an answer, an approval prompt, or a stop."
 
     is RunState.AwaitingApproval ->
-        "The tool is waiting for your approval. Its steps appear once you answer."
+        "The tool is waiting for your approval. The steps from before the " +
+            "prompt are here; the rest appear when the run reports back."
 
     is RunState.Finished -> when (val outcome = runState.outcome) {
         is RunOutcome.Answer ->
@@ -200,8 +247,15 @@ fun TraceScreen(
 /** Counts and timings across the whole run. Cheap, and answers "was it slow?". */
 @Composable
 private fun TraceSummary(trace: List<StepTrace>) {
+    // Only TOOL_CALL entries are tool calls. The previous version counted every
+    // `!success` row, and a MALFORMED generation is recorded with
+    // `success = false` — so a run whose model failed to emit a parseable
+    // action four times reported "0 ok / 4 failed" *tools* when it had made no
+    // tool call at all. A count that misattributes a generation failure to the
+    // phone is worse than no count.
     val okCalls = trace.count { it.kind == StepTrace.Kind.TOOL_CALL && it.success }
-    val failures = trace.count { !it.success }
+    val failedCalls = trace.count { it.kind == StepTrace.Kind.TOOL_CALL && !it.success }
+    val malformed = trace.count { it.kind == StepTrace.Kind.MALFORMED }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -209,7 +263,14 @@ private fun TraceSummary(trace: List<StepTrace>) {
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         SummaryCell("steps", trace.maxOf { it.step }.toString())
-        SummaryCell("tools", "$okCalls ok / $failures failed")
+        SummaryCell("tools", "$okCalls ok / $failedCalls failed")
+        if (malformed > 0) {
+            // Broken out rather than folded into the tool count, because it is a
+            // different failure with a different fix: the model emitted something
+            // the parser would not accept, which is a prompt or grammar problem,
+            // not a phone problem.
+            SummaryCell("unparseable", malformed.toString())
+        }
         SummaryCell("total", formatMs(trace.sumOf { it.durationMs }))
     }
 }

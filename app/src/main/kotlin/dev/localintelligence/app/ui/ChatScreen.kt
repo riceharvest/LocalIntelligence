@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.blockingReason
+import dev.localintelligence.app.isActive
 
 /**
  * The chat. A message list, a text field, a send button, and a STOP button while
@@ -71,14 +72,19 @@ fun ChatScreen(
     val streaming by viewModel.streamingText.collectAsStateWithLifecycle()
     val input by viewModel.input.collectAsStateWithLifecycle()
     val modelState by viewModel.modelState.collectAsStateWithLifecycle()
-    val busy = viewModel.isBusy
+    // Derived from the collected `runState` rather than read from
+    // `viewModel.isBusy`, which is a plain getter over `runState.value`. A
+    // non-observable read happens to be correct here only because this
+    // composable also collects `runState`; deriving it keeps that guarantee
+    // local instead of resting on a coincidence in another file.
+    val busy = runState.isActive
     val blocked = modelState.blockingReason()
 
     val listState = rememberLazyListState()
     // The progress line participates in the count because it is a real row: the
     // auto-scroll has to reach it, or a run that is waiting on a model load
     // scrolls the user's own question off the top of the screen.
-    val progress = runState.progressLabel
+    val progress = progressLine(runState)
     val rowCount = messages.size +
         (if (streaming.isNotEmpty()) 1 else 0) +
         (if (progress != null) 1 else 0)
@@ -144,10 +150,14 @@ fun ChatScreen(
                 item("empty") {
                     EmptyState(
                         blockedReason = blocked,
-                        // Structural, not string-matched: only "nothing imported"
-                        // is fixable by going to the model screen. A load that
-                        // already failed is not.
-                        canFixByImporting = modelState is ModelAvailability.None,
+                        // Structural, not string-matched, and both cases get a
+                        // route: "nothing imported" is fixed by going to the
+                        // model screen, and a *failed* load is fixed by choosing a
+                        // different file on it. The previous version only offered
+                        // the button for `None`, so a model the loader had just
+                        // rejected left the user on a dead end with no way to
+                        // reach the one screen that lists the alternatives.
+                        isMissingModel = modelState is ModelAvailability.None,
                         onOpenModels = onOpenModels,
                     )
                 }
@@ -158,6 +168,7 @@ fun ChatScreen(
                     is ChatMessage.Assistant -> AssistantBubble(message.text)
                     is ChatMessage.Notice -> NoticeLine(message.text)
                     is ChatMessage.ToolStep -> ToolStepRow(message)
+                    is ChatMessage.Approval -> ApprovalRow(message)
                 }
             }
             if (progress != null) {
@@ -292,37 +303,124 @@ private fun StreamingBubble(text: String) {
  * would put a fabricated "assistant" turn in the transcript. It is deliberately
  * quiet: monospace, smaller, and it shows the raw observation because a
  * paraphrase here would let the app claim the phone said something it did not.
+ *
+ * ## The three shapes a row can take
+ *
+ *  - **A result.** The runtime dispatched the tool and the phone answered. The
+ *    observation is rendered exactly as the runtime recorded it.
+ *  - **A failure.** Same, with the runtime's success flag false.
+ *  - **A refusal.** No observation at all, because the runtime never dispatched
+ *    the tool: a policy `BLOCK`, a rejected argument, an approval that could not
+ *    be claimed. These were previously rendered as "running…", which told the
+ *    user a call was in flight at the exact moment the app had already decided
+ *    not to make it — a refusal the user could watch as a spinner, forever, with
+ *    no way to tell it from a tool that was genuinely still working. The
+ *    runtime's own sentence is shown instead, and the row is styled as a
+ *    failure because that is what it is.
+ *
+ * Note the consequence: with the current gateway there is no "in flight" shape
+ * at all. `AgentViewModel` publishes the trace only when the run reports back —
+ * at an approval or a terminal outcome — so a `TOOL_CALL` is never observed
+ * before its `OBSERVATION`. If the trace is ever made live, the honest rendering
+ * for the gap is the runtime's `detail` line, which is what this uses.
  */
 @Composable
 private fun ToolStepRow(step: ChatMessage.ToolStep) {
-    val pending = step.observation == null
+    val refused = step.observation == null
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(
-            text = "\u25B8 ${step.toolName}${if (step.args.isNotBlank()) " ${step.args}" else ""}",
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        // A refusal can arrive without a tool name — the two approval paths that
+        // fail to claim a call do exactly that. Showing the runtime's sentence
+        // in the name slot and then again in the body would read as a stutter,
+        // so with no name there is only the one line.
+        if (step.toolName.isNotBlank()) {
+            Text(
+                text = "▸ ${step.toolName}${if (step.args.isNotBlank()) " ${step.args}" else ""}",
+                style = MaterialTheme.typography.labelMedium,
+                fontFamily = FontFamily.Monospace,
+                color = if (refused) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+            )
+        }
         Text(
             text = when {
-                pending -> "running\u2026"
-                step.success -> step.observation.orEmpty()
-                else -> "failed: ${step.observation.orEmpty()}"
+                refused -> step.detail
+                step.success -> step.observation
+                else -> "failed: ${step.observation}"
             },
             style = MaterialTheme.typography.bodySmall,
             fontFamily = FontFamily.Monospace,
-            color = if (pending) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else if (step.success) {
+            color = if (step.success && !refused) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             } else {
                 MaterialTheme.colorScheme.error
             },
+            modifier = Modifier.padding(start = 14.dp),
+        )
+        if (!refused && step.durationMs > 0) {
+            // The runtime measures every dispatch. It was captured in the row and
+            // then never shown, so the one number that answers "was it slow?" was
+            // thrown away on the floor.
+            Text(
+                text = "took ${step.durationMs}ms",
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 14.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The user's answer to an approval prompt.
+ *
+ * Without this the decline vanished: the dialog closed, `ChatViewModel` recorded
+ * it in a list no screen read, and the transcript resumed as if nothing had been
+ * asked. For a destructive action that is the worst outcome available — the user
+ * cannot afterwards tell whether the agent acted, and the app cannot show them.
+ *
+ * The wording states the consequence because it is the real one: on a decline
+ * `AgentController.confirmAndResume` puts "The user declined <tool>. Do not call
+ * it again." into the session, so the model is told and told not to retry. On an
+ * approval the staged call runs exactly as it was shown.
+ */
+@Composable
+private fun ApprovalRow(approval: ChatMessage.Approval) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = if (approval.approved) {
+                "▸ you approved ${approval.toolName}"
+            } else {
+                "▸ you declined ${approval.toolName}"
+            },
+            style = MaterialTheme.typography.labelMedium,
+            fontFamily = FontFamily.Monospace,
+            color = if (approval.approved) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+        )
+        Text(
+            text = if (approval.approved) {
+                "The agent was told, and it may now run this call."
+            } else {
+                "The agent was told, and was told not to try it again."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 14.dp),
         )
     }
@@ -340,6 +438,32 @@ private fun NoticeLine(text: String) {
 }
 
 /**
+ * The one line that says work is happening, or null when nothing is.
+ *
+ * ## Why `Running` gets a line at all
+ *
+ * `RunState.progressLabel` is null for `Running` on purpose: it is right not to
+ * put "Working…" next to a finished answer, where it would describe work that
+ * is not happening. But that left the *longest* phase of a run with no indicator
+ * whatsoever. A decode on a phone takes seconds to minutes, `streamingText` is
+ * never fed (`AgentController` calls `generate`, not `generateStreaming`), and
+ * so the screen the user had just typed into sat showing their own question and
+ * nothing else — the exact "the app is not wired in" impression this state is
+ * supposed to avoid.
+ *
+ * So `Running` gets the same treatment `LoadingModel` already had. The wording
+ * claims work and says where it happens; it does not narrate reasoning, because
+ * `AgentAction` is `Respond | CallTool` and the model has no thought channel to
+ * report. A "thinking…" label would be a narration the system cannot back.
+ */
+private fun progressLine(state: RunState): String? = when (state) {
+    RunState.Idle, is RunState.Finished -> null
+    RunState.LoadingModel -> state.progressLabel
+    RunState.Running -> "Working. The model is running on this phone."
+    is RunState.AwaitingApproval -> state.progressLabel
+}
+
+/**
  * The first-run and no-model states, in one place.
  *
  * The reason this takes a [blockedReason] rather than reading the model state
@@ -347,14 +471,15 @@ private fun NoticeLine(text: String) {
  * are different sentences to a user, and only [ModelAvailability] knows which
  * one applies. The composable renders; it does not decide.
  *
- * A button appears only when there is somewhere to go. Offering "Open models"
- * when the problem is a *failed* load would be sending the user somewhere that
- * cannot fix it.
+ * A button appears whenever a route exists, and the two cases are worded
+ * differently because the actions differ: there is nothing to choose between
+ * when no model was ever imported, and everything to choose between when the one
+ * you picked would not load.
  */
 @Composable
 private fun EmptyState(
     blockedReason: String?,
-    canFixByImporting: Boolean,
+    isMissingModel: Boolean,
     onOpenModels: () -> Unit,
 ) {
     Column(
@@ -365,22 +490,18 @@ private fun EmptyState(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = if (blockedReason == null) {
-                "Ask the agent to do something on this phone."
-            } else {
-                blockedReason
-            },
+            text = blockedReason ?: "Ask the agent to do something on this phone.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (canFixByImporting) {
+        if (blockedReason != null) {
             // 48dp: the minimum touch target. A plain TextButton would be 40dp
             // and sit below the platform accessibility floor.
             Button(
                 onClick = onOpenModels,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text("Import a model")
+                Text(if (isMissingModel) "Import a model" else "Choose a different model")
             }
         }
     }
