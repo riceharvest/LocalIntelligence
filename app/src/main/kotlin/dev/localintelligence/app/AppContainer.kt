@@ -20,6 +20,15 @@ import dev.localintelligence.core.tool.LexicalToolSelector
 import dev.localintelligence.core.tool.SimpleToolRegistry
 import dev.localintelligence.core.tool.ToolRegistry
 import kotlinx.coroutines.CancellationException
+import dev.localintelligence.core.hub.DeviceBudget
+import dev.localintelligence.core.hub.HubTokenSource
+import dev.localintelligence.core.hub.HuggingFaceClient
+import dev.localintelligence.android.hub.AndroidDeviceBudget
+import dev.localintelligence.android.hub.KeystoreTokenStore
+import dev.localintelligence.android.hub.ModelDownloader
+import dev.localintelligence.android.hub.UrlConnectionTransport
+import dev.localintelligence.app.ui.HubViewModel
+import java.io.File
 
 /**
  * The DI system. `docs/architecture.md` §3: *"If you need a dependency injected,
@@ -183,4 +192,59 @@ class AppContainer(private val context: Context) {
      * comment, so the wiring is visible and type-checked the day it is filled.
      */
     private fun androidTools(): List<dev.localintelligence.core.tool.AgentTool> = emptyList()
+
+    // ---- HuggingFace download -----------------------------------------
+    //
+    // WHY lazy: the models directory is only touched when the user opens the
+    // hub screen, so a cold start that goes straight to chat never creates it
+    // and never opens a socket.
+
+    /**
+     * Where downloaded models live.
+     *
+     * WHY app-private (`filesDir`), not shared storage: a 2 GB model in a
+     * user-visible directory is visible to every other app and survives an
+     * uninstall, and this app has no use for either. `filesDir/models` is
+     * removed with the app, which is the behaviour a user expects from a
+     * 2 GB download they did not explicitly ask to keep.
+     */
+    val modelsDir: File by lazy { File(context.filesDir, "models").apply { mkdirs() } }
+
+    val hubBudget: DeviceBudget by lazy { AndroidDeviceBudget(context, modelsDir) }
+
+    /**
+     * The optional read token. Null on a fresh install, and every ungated
+     * download works without it — the gate is a capability, not a
+     * requirement.
+     */
+    val hubTokenSource: HubTokenSource by lazy { KeystoreTokenStore(context) }
+
+    val hubClient: HuggingFaceClient by lazy {
+        HuggingFaceClient(UrlConnectionTransport(), tokenSource = hubTokenSource)
+    }
+
+    /**
+     * WHY the client takes a token source rather than a token: the token is
+     * read at request time, so a user who adds one in settings does not need
+     * the client rebuilt and no cached request list goes stale.
+     */
+    val hubDownloader: ModelDownloader by lazy {
+        ModelDownloader(
+            client = hubClient,
+            transport = UrlConnectionTransport(),
+            modelsDir = modelsDir,
+            tokenSource = hubTokenSource,
+        )
+    }
+
+    /**
+     * The hub ViewModel. One per screen instance, not a singleton: a screen
+     * that is popped must not leave a download running behind it.
+     */
+    fun newHubViewModel(): HubViewModel = HubViewModel(
+        client = hubClient,
+        downloader = hubDownloader,
+        budget = hubBudget,
+        tokenSource = hubTokenSource,
+    )
 }

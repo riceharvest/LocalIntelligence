@@ -16,6 +16,8 @@ import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.app.ui.ChatScreen
 import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
+import dev.localintelligence.app.ui.HubScreen
+import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.ModelManagerScreen
 import dev.localintelligence.app.ui.TraceScreen
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +80,11 @@ class MainActivity : ComponentActivity() {
                     sharedText(intent)?.let { chat.send(it) }
                 }
 
+                // One hub ViewModel per navigation, created here rather than
+                // in the container, so popping the screen cancels its download
+                // with its ViewModel scope instead of leaving it running.
+                var hub: HubViewModel? = null
+
                 NavHost(navController = nav, startDestination = ROUTE_CHAT) {
                     composable(ROUTE_CHAT) {
                         ChatScreen(
@@ -134,8 +141,15 @@ class MainActivity : ComponentActivity() {
                                     container.selectedModel = null
                                 }
                             },
+                            onOpenHub = { nav.navigate(ROUTE_HUB) },
                             onBack = { nav.popBackStack() },
                         )
+                    }
+
+                    composable(ROUTE_HUB) {
+                        val vm = remember { container.newHubViewModel() }
+                        hub = vm
+                        HubScreen(viewModel = vm, onBack = { nav.popBackStack() })
                     }
                 }
             }
@@ -156,6 +170,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_CHAT = "chat"
         const val ROUTE_TRACE = "trace"
         const val ROUTE_MODELS = "models"
+        const val ROUTE_HUB = "hub"
     }
 }
 
