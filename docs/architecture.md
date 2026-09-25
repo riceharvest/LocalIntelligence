@@ -12,7 +12,9 @@
 > Deterministic software should solve deterministic problems. The LLM is used only for
 > decisions that require language understanding or reasoning.
 >
-> Every major feature must be measurable against the agent evaluation suite.
+> Every major feature should be measurable. Today it is not: the eval suite was
+> deleted, so nothing in this repository is measured except the build and the
+> GGUF-derived RAM model. See docs/evals.md.
 
 Read this before writing any code. If your change cannot be justified against one of the four
 criteria above, do not make it.
@@ -67,15 +69,16 @@ Everything that decides anything lives there:
 - loop detection
 - context building, budgeting, compaction
 - memory search and session summary
-- the entire evaluation suite
-- every mock, fake, and deterministic backend
 
-Consequences, all of them good:
+Consequences:
 
-1. `./gradlew :core:test` runs in seconds. No emulator, no device, no SDK, no NDK.
+1. `./gradlew :core:assemble` runs in seconds. No emulator, no device, no SDK, no NDK.
 2. A swarm of 20 agents can work in parallel without stepping on each other's build state.
-3. The parts most likely to be wrong (the loop, the selection, the budget) are the parts
-   easiest to test.
+3. The parts most likely to be wrong (the loop, the selection, the budget) would be the
+   easiest to test — **if this project had tests. It does not.** The test suite and the
+   fake-backed eval harness were deleted at the owner's explicit instruction, because the
+   harness proved a fake could satisfy a fake. Verification is now a human running a real
+   model on a real device. See docs/evals.md.
 
 **:android** is the only module allowed to touch the Android framework.
 **:app** is Compose and nothing else.
@@ -118,7 +121,7 @@ DI system.
 
 | Module | Type | Owns | May NOT |
 |---|---|---|---|
-| `:core` | Kotlin JVM | everything that decides anything; all evals | import `android.*` |
+| `:core` | Kotlin JVM | everything that decides anything | import `android.*` |
 | `:android` | Android library | Android tool impls, Room, llama.cpp JNI | contain agent logic |
 | `:app` | Android application | Compose UI, navigation, permissions UX | contain business logic |
 
@@ -395,6 +398,13 @@ runtime knows to fall back rather than silently ignoring the request.
 
 This is a phone. RAM is the scarcest resource on the device, more than CPU.
 
+**No RAM figure in this document or anywhere else in this repository has been
+measured on a device.** An attempt to boot an AVD for the measurement failed
+(SIGSEGV in the emulator) and was refused rather than replaced with an estimate.
+The fit model is derived from real GGUF headers and 160 measured GGUFs — see
+docs/memory-model.md — but the app's own resident cost is **unmeasured**. The
+procedure to measure it is written down there, in section 6.1.
+
 - The model is loaded into native memory, never onto the JVM heap.
 - One model resident at a time. Loading a second unloads the first.
 - The tool registry, the session store, and the context builder must be able to run in
@@ -433,9 +443,14 @@ successful result       -> correct observation
 invalid arguments       -> correct ToolError.InvalidArguments
 large result            -> observation still under budget
 Android API failure     -> no exception escapes
-cancellation            -> returns promptly
-unit tests              -> cover all of the above
+cancellation            -> returns promptly, and CancellationException is
+                           rethrown rather than swallowed
 ```
+
+The "unit tests -> cover all of the above" line was removed with the test suite.
+Every row above is now a manual check on a real device. `CancellationException`
+remains a hard invariant: structured-concurrency cancellation is rethrown, never
+converted into a failed `ToolResult`.
 
 `observation.length <= ObservationTruncator.DEFAULT_BUDGET_CHARS`, or the tool carries
 an explicit documented exemption.
@@ -453,10 +468,14 @@ Do not add cloud dependencies.
 Do not add telemetry.
 Do not introduce MCP.
 Do not implement features outside the assigned issue.
-All functionality requires tests.
 Prefer Android/Kotlin platform APIs over wrappers.
 Keep model-visible outputs extremely compact.
 ```
+
+"Do not restore the deleted test suite" replaced "All functionality requires
+tests". That rule described a suite that no longer exists, and left in place it
+reads as an instruction to rebuild one. The deletion was deliberate; see
+docs/evals.md.
 
 If you believe an interface is wrong, open an issue. Do not change it in your PR.
 A swarm that can redesign the contracts is not a swarm, it is 20 authors.

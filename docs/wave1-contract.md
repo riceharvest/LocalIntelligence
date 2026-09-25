@@ -204,13 +204,21 @@ Agent D must NOT define its own `Session`; if they collide, integration will pic
 ## Build commands (verbatim — CI runs exactly these)
 
 ```bash
-export JAVA_HOME=$HOME/jdk17
+export JAVA_HOME=$HOME/jdk21        # 21, not 17 — see below
 export ANDROID_HOME=$HOME/Android/Sdk
 
-./gradlew :core:test          # the whole brain, JVM only, ~3s warm
-./gradlew :app:assembleDebug  # APK, ~60s cold
+git clone --depth 1 --branch b4661 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
+PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :core:assemble
+PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assembleDebug
 ```
 
-`:core` must never import `android.*`. CI fails the build if it does. If your
-verification suddenly needs an emulator, you have put a platform dependency in the
-wrong module.
+`$HOME/jdk17` is wrong. Every module declares `kotlin { jvmToolchain(21) }` and
+LiteRT-LM 0.13.1 ships Java 21 bytecode, so a JDK 17 toolchain cannot build this
+project. See docs/build.md.
+
+`:core:assemble` replaced `:core:test`: the test sources were deleted at the
+owner's explicit instruction, so there is nothing for `:core:test` to run.
+
+`:core` must never import `android.*`. CI fails the build if it does. Full build
+instructions and the two traps that will cost you an hour are in
+docs/build.md.

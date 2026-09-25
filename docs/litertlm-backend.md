@@ -1,6 +1,7 @@
 # LiteRT-LM as a second ModelBackend
 
-**Status: implemented, unit-tested, not yet run on a device.**
+**Status: implemented and compiled. Not run on a device, and not tested — this
+repository has no test suite.**
 
 `dev.localintelligence.inference.litertlm` in `:android` is a second
 `ModelBackend` on Google's LiteRT-LM runtime. It exists so "which runtime is
@@ -46,9 +47,8 @@ All three `.so` files (`liblitertlm_jni.so`, `libLiteRt.so`,
 
 ## The constraint that shaped the design
 
-**LiteRT-LM 0.13.1 is Java 21 bytecode (class file major version 65). This repo
-compiles with `jvmToolchain(17)`, so the unit-test JVM is JDK 17 and cannot load
-it:**
+**LiteRT-LM 0.13.1 is Java 21 bytecode (class file major version 65). A JDK 17
+JVM cannot load it:**
 
 ```
 java.lang.UnsupportedClassVersionError:
@@ -60,16 +60,21 @@ java.lang.UnsupportedClassVersionError:
 Compiling against it is fine — Kotlin reads the higher class version without
 complaint. *Loading* it on JDK 17 is not.
 
+**This project actually builds on JDK 21**, and that is deliberate rather than
+accidental: every module declares `kotlin { jvmToolchain(21) }`, and
+`litertlm-android:0.13.1` requires class file 65. See docs/build.md.
+
 So every LiteRT-LM type is reached through the `LiteRtLmEngine` /
-`LiteRtLmConversation` seam, and the whole test suite runs against
-`FakeLiteRtLmEngine`. `NativeLiteRtLmEngine.kt` is the only file in the package
-that imports `com.google.ai.edge.litertlm`, which also means it is the only file
+`LiteRtLmConversation` seam, which keeps the LiteRT-LM import confined to a
+single file. `NativeLiteRtLmEngine.kt` is the only file in the package that
+imports `com.google.ai.edge.litertlm`, which also means it is the only file
 that breaks when the LiteRT-LM API changes shape.
 
-This is a genuine constraint, not a workaround: the backend's actual job —
-mapping the frozen `GenerationRequest` onto a streaming runtime, deciding when to
-stop, mapping failures onto `StopReason` — is pure logic and is now tested
-without a 22 MB native engine attached.
+**There is no `FakeLiteRtLmEngine` test suite.** The tests that once exercised
+this seam were deleted with the rest of the test sources, so the backend's
+mapping logic — `GenerationRequest` onto a streaming runtime, stop decisions,
+failures onto `StopReason` — is **unverified**. No claims are made about it
+beyond "it compiles".
 
 ## Three decisions worth knowing about
 
@@ -105,13 +110,23 @@ the backend enforces the budget itself and cancels when it is exceeded.
 
 ## What is verified, and what is not
 
-Verified for real:
+**MEASURED, re-run on this branch:**
 
-- `:android:assembleDebug` — succeeds.
-- `:android:test` — 966 tests, 0 failures, 0 errors, 0 skipped, of which **67 are
-  new** (42 backend, 15 model source, 10 delta tracker).
-- `:core` has no `import android.*` and `git diff origin/main -- core/` is empty.
-- The three LiteRT-LM native libraries package into the APK for both ABIs.
+- `:app:assembleDebug` succeeds from a clean checkout with llama.cpp pinned at
+  tag b4661.
+- The three LiteRT-LM native libraries package into the APK for both ABIs:
+
+  | `.so` | arm64-v8a | x86_64 |
+  |---|---:|---:|
+  | `liblitertlm_jni.so` | 14,882,976 | 18,047,160 |
+  | `libLiteRt.so` | 5,064,136 | 6,997,656 |
+  | `libLiteRtClGlAccelerator.so` | 2,778,128 | 3,466,440 |
+
+- `grep -rn "import android\." core/src/` is empty. `:core` is still pure JVM.
+- There is **no `:android:test` task with results to report.** The figure of 966
+  tests, 0 failures quoted here previously described a suite that no longer
+  exists; it was deleted at the owner's explicit instruction. Any document
+  quoting a test count for this repository is quoting a deleted suite.
 
 **Not verified — no device has been used.** The real engine has never been
 constructed: there is no `.litertlm` model on any machine here and no emulator in
@@ -127,6 +142,11 @@ the loop. So these are unproven:
   usable in a tok/s comparison,
 - measured tok/s against llama.cpp. **This is the entire point of the backend and
   it is still unmeasured.**
+
+There is also no model to measure. LiteRT-LM 0.13.1 reads `.litertlm`, there is
+no GGUF-to-`.litertlm` converter in this app or in Google's, and no `.litertlm`
+file has been placed on a device. The backend is reachable only by hand-sideloading
+one into `filesDir/models`. See docs/acceleration.md.
 
 The LiteRT-LM Kotlin API was reverse-engineered from the shipped
 `classes.jar` (`javap`) plus the v0.13.1 sources on GitHub, not from a running
