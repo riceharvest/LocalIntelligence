@@ -5,8 +5,15 @@ import android.content.res.AssetFileDescriptor
 import android.database.Cursor
 import android.net.Uri
 import android.provider.OpenableColumns
+import dev.localintelligence.core.model.gguf.GgufByteSource
+import dev.localintelligence.core.model.gguf.GgufHeader
+import dev.localintelligence.core.model.gguf.GgufParser
+import dev.localintelligence.core.model.gguf.GgufValue
+import dev.localintelligence.core.model.gguf.GgufWarning
+import dev.localintelligence.core.model.gguf.KvCacheType
+import dev.localintelligence.core.model.gguf.MemoryEstimate
+import dev.localintelligence.core.model.gguf.ModelMemoryEstimator
 import java.io.FileNotFoundException
-import java.io.InputStream
 
 /**
  * Brings a user-picked GGUF file into the app as a *loadable reference*, and
@@ -31,6 +38,33 @@ import java.io.InputStream
  * mmap path will fail on them. [LoadedModel.isMmapCapable] reports what the
  * platform said, so the backend can fall back to a read-into-RAM load rather
  * than pretending.
+ *
+ * ## There is exactly one GGUF parser, and it is not here
+ *
+ * The header is parsed by `dev.localintelligence.core.model.gguf.GgufParser`.
+ * This file used to carry a second, independent implementation of the same
+ * binary format; it was deleted, and the reasons are recorded in
+ * `docs/architecture.md`. Briefly, the two disagreed about the one number the
+ * product leads with:
+ *
+ *  * the deleted parser read the tensor table only on request, and by default
+ *    it did not — so its weights figure was the *file size*, which for a real
+ *    Q4_K_M includes a 5.13 MiB header and is not the weight section;
+ *  * it derived the weights from `params * 4.83 / 8` whenever the file length
+ *    was unavailable, which is the normal case for a stream-backed SAF
+ *    provider, and which collapses to **0 bytes** for any model whose header
+ *    carries no `general.parameter_count` — reporting a 1,056 MiB model as
+ *    352 MiB, in the direction that says "it fits";
+ *  * it hard-coded a 4.83 bits/weight figure for *every* quantisation, so a
+ *    BF16 model's fallback estimate was wrong by 3.4x;
+ *  * its `general.file_type` label table is misaligned with llama.cpp's from id
+ *    22 upward, so a real IQ4_XS model (id 30) displayed as `UNKNOWN_30` and
+ *    BF16 (id 32) as `UNKNOWN_32`.
+ *
+ * All four were measured against the same real files; see the table in
+ * `docs/architecture.md`. None of them are reachable now. This module keeps
+ * only what is genuinely Android-specific: the descriptor, the content URI, and
+ * the device-budget arithmetic that has no JVM equivalent.
  */
 class ModelImporter(private val contentResolver: ContentResolver) {
 
@@ -44,8 +78,8 @@ class ModelImporter(private val contentResolver: ContentResolver) {
         try {
             val size = lengthOf(afd, uri)
             afd.createInputStream().use { input ->
-                val meta = GgufReader.parse(input, size)
-                return describe(meta, uri, size, contextLength)
+                val header = readHeader(input, size)
+                return describe(header, uri, size, contextLength)
             }
         } finally {
             afd.close()
@@ -59,7 +93,7 @@ class ModelImporter(private val contentResolver: ContentResolver) {
     fun openForLoad(uri: Uri): LoadedModel {
         val afd = openAsset(uri)
         val size = lengthOf(afd, uri)
-        val meta = try {
+        val header = try {
             // WHY NOT `afd.createInputStream().use { }`: closing that stream
             // closes the AssetFileDescriptor underneath it, and THIS descriptor
             // has to stay open for the life of the model, because nativePath()
@@ -71,7 +105,7 @@ class ModelImporter(private val contentResolver: ContentResolver) {
             // never handed to a closing stream.
             val header = openAsset(uri)
             try {
-                GgufReader.parse(header.createInputStream(), size)
+                readHeader(header.createInputStream(), size)
             } finally {
                 header.close()
             }
@@ -79,30 +113,49 @@ class ModelImporter(private val contentResolver: ContentResolver) {
             afd.close()
             throw e
         }
-        return LoadedModel(afd, meta, uri)
+        return LoadedModel(afd, header, uri)
     }
+
+    /**
+     * The one place this module turns bytes into a header.
+     *
+     * WHY `size` is handed through: [GgufByteSource.ofStream] buffers a bounded
+     * prefix, and a buffer length standing in for a file length makes
+     * `GgufHeader.fileBytes` wrong. That field decides the `FILE_SIZE` weights
+     * fallback and the "this file is truncated" warning, so passing the real
+     * length when the platform gave us one is load-bearing, not tidiness.
+     */
+    private fun readHeader(input: java.io.InputStream, size: Long): GgufHeader =
+        GgufParser.parse(
+            GgufByteSource.ofStream(input, declaredSizeBytes = size),
+        )
 
     /** Turns a parsed header into the record the model manager shows. */
     fun describe(
-        meta: GgufMetadata,
+        header: GgufHeader,
         uri: Uri,
         fileSizeBytes: Long,
         contextLength: Int = DEFAULT_CONTEXT_LENGTH,
     ): ImportedModel {
-        val estimate = RamEstimate.from(meta, contextLength)
+        val estimate = RamEstimate.from(header, contextLength)
         return ImportedModel(
             uri = uri,
-            displayName = meta.name ?: displayNameFromUri(uri),
+            displayName = header.metadata.name ?: displayNameFromUri(uri),
             fileSizeBytes = fileSizeBytes,
-            architecture = meta.architecture,
-            quantType = meta.quantType,
-            trainedContextLength = meta.contextLength,
-            parameterCount = meta.parameterCount,
-            hasChatTemplate = meta.hasChatTemplate,
+            architecture = header.metadata.architecture,
+            quantType = header.dominantQuantType?.label ?: header.metadata.fileType?.label,
+            trainedContextLength = header.metadata.contextLength?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+            parameterCount = header.tensorTableParameterCount ?: header.metadata.declaredParameterCount,
+            hasChatTemplate = header.hasChatTemplate(),
             supportedBackends = setOf(BACKEND_LLAMA_CPP),
             estimate = estimate,
         )
     }
+
+    private fun GgufHeader.hasChatTemplate(): Boolean =
+        metadata.fields["tokenizer.chat_template"]?.let {
+            (it as? GgufValue.Text)?.value?.isNotBlank() == true
+        } == true
 
     private fun openAsset(uri: Uri): AssetFileDescriptor =
         contentResolver.openAssetFileDescriptor(uri, "r")
@@ -133,7 +186,9 @@ class ModelImporter(private val contentResolver: ContentResolver) {
             }
         } catch (_: Exception) {
             // A provider is allowed to reject the projection. Unknown length is
-            // a supported state, not a failure.
+            // a supported state, not a failure — and with the core parser it is
+            // now a *degraded* state rather than a wrong one, because the tensor
+            // table still yields the exact weight size.
             null
         } finally {
             cursor?.close()
@@ -147,6 +202,32 @@ class ModelImporter(private val contentResolver: ContentResolver) {
         const val BACKEND_LLAMA_CPP = "llamacpp"
         const val DEFAULT_CONTEXT_LENGTH = 4096
     }
+}
+
+/**
+ * A zero-logic view of the two header facts the llama.cpp backend branches on.
+ *
+ * WHY this exists at all: `LlamaCppBackend.deriveCapabilities` is typed against a
+ * class named `GgufMetadata` in this package, and that file is owned by another
+ * agent, so its signature cannot be changed from here. Rather than keep a 700-line
+ * second parser alive to satisfy a type name, this is a projection: it holds a
+ * core [GgufHeader] and forwards. It parses nothing, retains nothing, and cannot
+ * disagree with the parser, because it has no arithmetic of its own.
+ *
+ * It should be deleted the moment `LlamaCppBackend` is next edited to take a
+ * `GgufHeader` directly. That is a two-line change on that side.
+ */
+class GgufMetadata internal constructor(private val header: GgufHeader) {
+    /** Trained context length, saturating at `Int.MAX_VALUE` for the native loader's ABI. */
+    val contextLength: Int?
+        get() = header.metadata.contextLength?.let {
+            if (it > Int.MAX_VALUE) Int.MAX_VALUE else it.toInt()
+        }
+
+    /** True when the file ships a chat template, which tool calling depends on. */
+    val hasChatTemplate: Boolean
+        get() = (header.metadata.fields["tokenizer.chat_template"] as? GgufValue.Text)
+            ?.value?.isNotBlank() == true
 }
 
 /** What the model manager needs to show one row, without loading anything. */
@@ -176,9 +257,34 @@ data class ImportedModel(
  */
 class LoadedModel internal constructor(
     private val afd: AssetFileDescriptor,
-    val metadata: GgufMetadata,
+    /** The authoritative header. There is no second `GgufMetadata` any more. */
+    val header: GgufHeader,
     val uri: Uri,
 ) : AutoCloseable {
+
+    /**
+     * The two header facts the llama.cpp backend reads, projected for its
+     * existing signature. Zero logic; see [GgufMetadata].
+     */
+    val metadata: GgufMetadata get() = GgufMetadata(header)
+
+    /**
+     * The trained context length, as an `Int` for the native loader.
+     *
+     * WHY a narrowing conversion rather than a second parser field: the loader
+     * takes an `Int`, and a model declaring a context larger than `Int.MAX_VALUE`
+     * is not loadable on this ABI regardless. Saturating is the honest answer and
+     * keeps the clamp in one place.
+     */
+    val contextLength: Int?
+        get() = header.metadata.contextLength?.let {
+            if (it > Int.MAX_VALUE) Int.MAX_VALUE else it.toInt()
+        }
+
+    /** Whether the file's own metadata says it ships a chat template. */
+    val hasChatTemplate: Boolean
+        get() = (header.metadata.fields["tokenizer.chat_template"] as? GgufValue.Text)
+            ?.value?.isNotBlank() == true
 
     /**
      * Whether the backing storage can plausibly be `mmap`-ed. FUSE-backed SAF
@@ -223,95 +329,134 @@ class LoadedModel internal constructor(
  * use. It comes out of the process's total footprint, which on Android is what
  * the low-memory killer actually watches.
  *
- * ### Worked example: 3B Q4_K_M at 4K context
+ * ## The arithmetic is not written here
  *
- * Using real llama-3.2-3B architecture numbers (28 layers, 3072 embedding,
- * 24 heads, 8 KV heads, head_dim 128) and 3,211,758,208 parameters:
+ * Every number below is produced by `ModelMemoryEstimator` in `:core`, from the
+ * same tensor table the pre-download fit gate uses. This type is a thin adapter
+ * that re-evaluates the estimate at whatever context length the UI is currently
+ * showing, because a user moving a context slider needs a new number without a
+ * re-parse. There is deliberately no second copy of the formula here — a second
+ * copy is what produced a RAM estimate that disagreed with the one shown at
+ * download time.
  *
- * ```
- * weights   = params * 4.83 bits / 8
- *           = 3,211,758,208 * 4.83 / 8
- *           = 1,939,099,018 B          (1.81 GiB)
- * kv/token  = n_layer * n_head_kv * head_dim * 2 (K and V) * 2 (f16)
- *           = 28 * 8 * 128 * 2 * 2
- *           = 4,096 B per token per layer  -> 114,688 B per token
- * kv @ 4K   = 28 * 4,096 * 4,096
- *           = 469,762,048 B          (448 MiB, 0.44 GiB)
- * logits    = n_vocab * 4 B         = 128,256 * 4 = 513,024 B (0.5 MiB)
- * compute   = 128 MiB               (ubatch scratch + graph)
- * ---------------------------------------------
- * TOTAL     = 2,543,591,818 B       (2.37 GiB)
- * ```
+ * ## What changed, and why the old numbers were wrong
  *
- * 4.83 bits/weight for Q4_K_M is the effective figure including the K-quant
- * superblock scales; it reproduces the published 1.93 GB file size to within 1%.
- *
- * **The KV cache is the part that scales with context**, and it is the reason
- * context length has to be a deliberate choice on a phone:
+ * The previous implementation, which this replaces, computed:
  *
  * ```
- *  ctx  1K -> kv  0.11 GiB   total  2.04 GiB
- *  ctx  4K -> kv  0.44 GiB   total  2.37 GiB
- *  ctx  8K -> kv  0.88 GiB   total  2.81 GiB
- *  ctx 32K -> kv  3.50 GiB   total  5.43 GiB
- * ctx 128K -> kv 14.00 GiB   total 15.93 GiB   (a 3B model cannot do this on a phone)
+ * weights   = fileSizeBytes                      (or params * 4.83 / 8)
+ * kv/token  = layers * kvHeads * headDim * 2 (K,V) * 2 (f16)
+ * logits    = guessedVocab * 4
+ * compute   = 128 MiB, flat, always
  * ```
  *
- * It is strictly linear: every doubling of context adds 448 MiB at this model
- * size. Weights are constant, so past ~16K the KV cache is the majority of the
- * footprint.
+ * Every one of those is wrong in a way that matters, and all of it was measured
+ * against real files rather than argued:
+ *
+ *  * **`fileSizeBytes` is not the weight section.** It includes the header. On a
+ *    real 1,056.15 MiB Spark-X2.5-1.7B Q4_K_M the tensor table sums to
+ *    1,102,073,856 B against a 1,107,457,888 B file — a 5,384,032 B (5.13 MiB)
+ *    overstatement on every model.
+ *  * **The `params * 4.83 / 8` fallback collapses to zero.** It is taken when
+ *    the file length is unknown, which is the normal case for a stream-backed
+ *    SAF provider, and it multiplies a `general.parameter_count` that most
+ *    modern converters do not write. On the same model the old code reported
+ *    **0 bytes of weights** and a 352.58 MiB total, versus 1,339.02 MiB from
+ *    the tensor table — a 3.8x under-report in the direction that says "it
+ *    fits", on the exact figure that gates a load.
+ *  * **4.83 bits/weight was applied to every quantisation.** It is the Q4_K_M
+ *    effective width. Used as a fallback for the same model's BF16 sibling it
+ *    is 3.4x too small.
+ *  * **The 128 MiB compute buffer was flat and unmeasured.** The core estimator
+ *    uses `max(64 MiB, 2% of weights)`, which on the same file is 67,108,864 B
+ *    — half the old constant, and it still scales.
+ *  * **The vocabulary was guessed from embedding width** (32k/151936/128256)
+ *    because the token count was "not a header field". It is: the core parser
+ *    retains the array's element count, so the real 131,072 is available for
+ *    free, and a guessed 151,936 was inflating the logits term by 0.10 MiB.
+ *
+ * None of the old numbers were measurements. These are derived from the file,
+ * and [MemoryEstimate.basis] says which of them are exact.
  */
 data class RamEstimate(
-    val weightBytes: Long,
-    val layerCount: Int,
-    val kvHeads: Int,
-    val headDim: Int,
-    val kvBytesPerElement: Int,
-    val vocabSize: Int,
-    val computeBufferBytes: Long,
+    /** The header this estimate is derived from. Kept so a context change can re-evaluate. */
+    val header: GgufHeader,
+    private val estimator: ModelMemoryEstimator = ModelMemoryEstimator(),
 ) {
-    /** KV cache bytes per token. Independent of context length; scales with it. */
-    val kvBytesPerToken: Long
-        get() = layerCount.toLong() * kvHeads * headDim * 2L * kvBytesPerElement
+    private fun at(contextLength: Int): MemoryEstimate =
+        estimator.estimate(header, contextLengthOverride = contextLength.toLong())
 
-    fun kvBytes(contextLength: Int): Long = kvBytesPerToken * contextLength
+    /**
+     * Bytes of weights, at the measured default context.
+     *
+     * This is a property of the file, not of the context, so evaluating at any
+     * context gives the same figure; the UI reads it as "Weights in RAM".
+     */
+    val weightBytes: Long get() = at(ModelImporter.DEFAULT_CONTEXT_LENGTH).weightsBytes
 
-    fun logitsBytes(): Long = vocabSize.toLong() * 4L
+    /** The estimate backing the last call, for callers that want the inputs and warnings. */
+    fun estimate(contextLength: Int = ModelImporter.DEFAULT_CONTEXT_LENGTH): MemoryEstimate =
+        at(contextLength)
 
-    fun totalBytes(contextLength: Int): Long =
-        weightBytes + kvBytes(contextLength) + logitsBytes() + computeBufferBytes
+    /** KV cache bytes at [contextLength]. Independent of the weights; scales linearly with context. */
+    fun kvBytes(contextLength: Int): Long = at(contextLength).kvCacheBytes
 
-    /** Ceiling on the context length that fits in [available] bytes, 0 if none does. */
+    /**
+     * The KV cache type this estimate assumes.
+     *
+     * f16, the llama.cpp default. Exposed so a UI can say which one it priced;
+     * the alternative types live in `KvCacheType` in `:core`.
+     */
+    val kvCacheType: KvCacheType get() = KvCacheType.F16
+
+    /** Total native bytes at [contextLength]. */
+    fun totalBytes(contextLength: Int): Long = at(contextLength).totalBytes
+
+    /**
+     * Ceiling on the context length that fits in [available] bytes, 0 if none does.
+     *
+     * WHY this solves rather than scans: the KV term is exactly linear in
+     * context, so the answer is `(available - fixed) / bytesPerToken`. A binary
+     * search would arrive at the same number while hiding the arithmetic the user
+     * is being asked to trust.
+     */
     fun maxAffordableContext(available: Long): Int {
-        val fixed = weightBytes + logitsBytes() + computeBufferBytes
+        val probe = at(1)
+        val perToken = probe.kvCacheBytes
+        if (perToken <= 0L) return 0
+        // Everything that does not scale with context: weights plus the runtime
+        // buffer allowance, which the core estimator derives from the weights.
+        val fixed = probe.weightsBytes + probe.overheadBytes
         val forKv = available - fixed
-        if (forKv <= 0L || kvBytesPerToken <= 0L) return 0
-        val n = forKv / kvBytesPerToken
+        if (forKv <= 0L) return 0
+        val n = forKv / perToken
         return if (n > Int.MAX_VALUE) Int.MAX_VALUE else n.toInt()
     }
 
     fun fitsIn(available: Long, contextLength: Int): Boolean =
         totalBytes(contextLength) <= available
 
+    /**
+     * The header warnings worth surfacing on an imported model.
+     *
+     * WHY re-derive rather than cache: the warnings that matter for an import
+     * (truncated tensor table, declared data past the end of the file, an absent
+     * context length) are the ones a user can act on, and they are produced by
+     * the same parse as the number shown next to them.
+     */
+    fun warnings(): List<GgufWarning> = at(ModelImporter.DEFAULT_CONTEXT_LENGTH).warnings
+
     companion object {
-        /**
-         * Q4_K_M effective bits per weight, including the K-quant superblock
-         * scales and the 6-bit scales on the half-quantized attention tensors.
-         */
-        const val Q4_K_M_BITS_PER_WEIGHT = 4.83
-
-        /**
-         * llama.cpp's peak working set for a ubatch of a few hundred tokens on
-         * a 3B. Measured in practice, not derived; it is flat in context length
-         * and only moves with n_ubatch.
-         */
-        const val DEFAULT_COMPUTE_BUFFER_BYTES = 128L * 1024 * 1024
-
         /**
          * Usable memory, after the JVM heap, the app's own footprint, and the
          * headroom Android needs before it starts killing background processes.
          * Deliberately conservative: an app that gets OOM-killed mid-conversation
          * is worse than an app that declines to load a model.
+         *
+         * This is the *budget* side of the comparison and has no counterpart in
+         * `:core`: it asks what this device can give, not what this file needs.
+         * It reads `/proc/meminfo`, which is a Linux interface and therefore not
+         * something a pure-JVM module may touch.
          */
         fun usableDeviceBytes(): Long {
             val runtime = Runtime.getRuntime()
@@ -340,67 +485,15 @@ data class RamEstimate(
         }
 
         /**
-         * Estimates from a parsed header. Falls back to a per-parameter
-         * estimate when the header omits the architecture fields, because a
-         * wrong-but-plausible number is more useful to the UI than none.
+         * Estimates from a parsed header, at [contextLength].
+         *
+         * Every input is the file's own: the weight section from the tensor
+         * table, the KV geometry from the `<arch>.*` keys, the overhead from the
+         * estimator's documented constants. There is no file-size shortcut and no
+         * bits-per-weight guess, because the tensor table is present in the same
+         * parse and makes both unnecessary.
          */
-        fun from(meta: GgufMetadata, contextLength: Int = ModelImporter.DEFAULT_CONTEXT_LENGTH): RamEstimate {
-            val layers = meta.blockCount ?: 0
-            val embedding = meta.embeddingLength ?: 0
-            val heads = meta.attentionHeadCount ?: 0
-            val kvHeads = meta.attentionHeadCountKv ?: heads
-            // head_dim is the one llama.cpp derives rather than stores; honour
-            // the explicit overrides when the header carries them.
-            val headDim = meta.keyLength ?: meta.ropeDimensionCount
-                ?: if (heads > 0 && embedding > 0) embedding / heads else 0
-
-            // The file size is the ground truth for the weights -- but only if
-            // it is actually a file size. When the caller did not know the
-            // length, the parser falls back to the bytes it consumed, which is
-            // the header alone (a few hundred bytes). Treating that as the
-            // weight size would understate a 2 GB model as a few KB, so fall
-            // through to the parameter count instead. A GGUF is always larger
-            // than its own header, hence the `> kvSectionBytes` test.
-            val fileBytes = meta.fileSizeBytes
-            val weightBytes = if (fileBytes > meta.kvSectionBytes && fileBytes > 0) {
-                fileBytes
-            } else {
-                val params = meta.parameterCount ?: 0
-                (params * Q4_K_M_BITS_PER_WEIGHT / 8.0).toLong()
-            }
-
-            val vocab = estimateVocab(meta)
-
-            return RamEstimate(
-                weightBytes = weightBytes,
-                layerCount = layers,
-                kvHeads = kvHeads,
-                headDim = headDim,
-                // f16 KV cache: the default, and quantising it to q8_0 is a
-                // deliberate future change, not the default behaviour.
-                kvBytesPerElement = 2,
-                vocabSize = vocab,
-                computeBufferBytes = DEFAULT_COMPUTE_BUFFER_BYTES,
-            )
-        }
-
-        /**
-         * Vocabulary size. The token *count* is not a header field (counting
-         * 128k tokens would mean reading them all), so this is an estimate
-         * sized to the model's embedding width, which tracks vocab closely for
-         * every family in the 1-4B range. It only feeds the logits buffer,
-         * which is 0.5 MiB either way.
-         */
-        private fun estimateVocab(meta: GgufMetadata): Int {
-            val embedding = meta.embeddingLength ?: 0
-            return when {
-                embedding <= 0 -> DEFAULT_VOCAB
-                embedding >= 4096 -> 128_256   // llama-3 family
-                embedding >= 2048 -> 151_936   // qwen2 family
-                else -> 32_000                 // small models
-            }
-        }
-
-        const val DEFAULT_VOCAB = 32_000
+        fun from(header: GgufHeader, contextLength: Int = ModelImporter.DEFAULT_CONTEXT_LENGTH): RamEstimate =
+            RamEstimate(header)
     }
 }
