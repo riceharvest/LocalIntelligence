@@ -13,6 +13,7 @@ import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.LogSeverity
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
+import dev.localintelligence.core.model.AcceleratorKind
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -135,7 +136,7 @@ internal class NativeLiteRtLmEngine(
             applyExperimentalFlags()
             val engineConfig = EngineConfig(
                 modelPath = config.modelPath,
-                backend = Backend.CPU(numOfThreads = config.numThreads),
+                backend = config.accelerator.toNativeBackend(config.numThreads, config.nativeLibraryDir),
                 maxNumTokens = config.contextLength,
                 cacheDir = config.cacheDir,
             )
@@ -143,7 +144,8 @@ internal class NativeLiteRtLmEngine(
                 Engine(engineConfig)
             } catch (e: Throwable) {
                 throw LiteRtLmEngineException(
-                    "could not construct a LiteRT-LM engine for ${config.modelPath}: " +
+                    "could not construct a LiteRT-LM engine for ${config.modelPath} " +
+                        "on ${config.accelerator.name}: " +
                         (e.message ?: e::class.java.simpleName),
                     e,
                 )
@@ -154,12 +156,50 @@ internal class NativeLiteRtLmEngine(
             } catch (e: Throwable) {
                 closeQuietly(created)
                 throw LiteRtLmEngineException(
-                    "LiteRT-LM could not load ${config.modelPath}: " +
+                    "LiteRT-LM could not load ${config.modelPath} on " +
+                        "${config.accelerator.name}: " +
                         (e.message ?: e::class.java.simpleName),
                     e,
                 )
             }
             return NativeLiteRtLmEngine(created)
+        }
+
+        /**
+         * Maps a resolved [AcceleratorKind] onto LiteRT-LM's `Backend` sealed class.
+         *
+         * ## Why this mapping is a `when` and not a lookup
+         *
+         * The three cases are not symmetric and pretending they are would hide the
+         * one that matters:
+         *
+         * - [AcceleratorKind.CPU] carries [LiteRtLmEngineConfig.numThreads] and
+         *   nothing else.
+         * - [AcceleratorKind.GPU] takes **no** parameters at all. Verified by
+         *   `javap` on the shipped 0.13.1 AAR: `Backend$GPU` has a single no-arg
+         *   constructor and no properties. There is no thread count, no
+         *   "prefer low power" flag, nothing to get wrong — and equally, no way to
+         *   ask the GPU backend for anything the class does not offer.
+         * - [AcceleratorKind.NPU] takes only [LiteRtLmEngineConfig.nativeLibraryDir].
+         *   Passing null would construct `Backend.NPU("")` (its default) and the
+         *   runtime would log `Dispatch library directory is not set` and fall back
+         *   internally, silently. Passing the real dir is the only difference
+         *   between a working NPU and a slow one, so it is threaded through rather
+         *   than defaulted away.
+         *
+         * LiteRT-LM 0.13.1 also has a `Backend.GOOGLE_TENSOR` in its sources, but
+         * it is **not** in the published 0.13.1 artifact — `javap` lists exactly
+         * `Backend$CPU`, `Backend$GPU` and `Backend$NPU`. It is therefore not
+         * selectable here, and pretending otherwise would mean a build that only
+         * fails on a Pixel.
+         */
+        private fun AcceleratorKind.toNativeBackend(
+            numThreads: Int,
+            nativeLibraryDir: String?,
+        ): Backend = when (this) {
+            AcceleratorKind.CPU -> Backend.CPU(numOfThreads = numThreads)
+            AcceleratorKind.GPU -> Backend.GPU()
+            AcceleratorKind.NPU -> Backend.NPU(nativeLibraryDir.orEmpty())
         }
 
         /**

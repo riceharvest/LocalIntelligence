@@ -45,6 +45,27 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.LocalIntelligence">
 
+        <!-- LiteRT-LM GPU acceleration. LiteRT's GPU accelerator reaches the GPU
+             through OpenCL, and Android's linker namespaces (API 24+) will not
+             hand a vendor driver to an app that has not declared it. Without these
+             two lines the GPU backend still runs: LiteRT logs "Failed to load
+             OpenCL library with dlopen" and falls back internally, silently, to
+             something slower than CPU. Declaring them is what makes the runtime's
+             own capability probe honest instead of a guess.
+
+             libOpenCL.so is the generic ICD soname; Adreno and Google Tensor ship
+             libOpenCL-car.so / libOpenCL-pixel.so instead, which is why the
+             capability probe checks all three. Both are declared
+             required="false": a device legitimately may not have any of them, and
+             a hard requirement would exclude it from the store rather than letting
+             it run on CPU. See docs/acceleration.md. -->
+        <uses-native-library
+            android:name="libvndksupport.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

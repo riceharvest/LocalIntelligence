@@ -1,5 +1,11 @@
 package dev.localintelligence.inference.litertlm
 
+import dev.localintelligence.core.model.AcceleratorAware
+import dev.localintelligence.core.model.AcceleratorKind
+import dev.localintelligence.core.model.AcceleratorPreference
+import dev.localintelligence.core.model.AcceleratorProbe
+import dev.localintelligence.core.model.AcceleratorReport
+import dev.localintelligence.core.model.AcceleratorSelector
 import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.GenerationRequest
 import dev.localintelligence.core.model.GenerationResult
@@ -54,6 +60,21 @@ import java.util.concurrent.atomic.AtomicReference
  * back as `StopReason.ERROR` or `StopReason.CANCELLED` with whatever text was
  * produced still intact.
  *
+ * ## Acceleration degrades, it does not fail
+ *
+ * `acceleratorPreference` is resolved against `capabilityProbe` at load time, and
+ * the resulting tier is reported through [acceleratorReport]. A phone with no NPU
+ * delegate, or no OpenCL driver, loads the model on CPU and says why — it does
+ * not throw, because "this phone has no NPU" is a fact about the phone, not an
+ * error in the request. See [LiteRtLmCapabilityProbe] for what is actually
+ * checked, and [loadWithAcceleratorFallback] for the second fallback that catches
+ * an accelerator which passed the probe and then failed to initialise.
+ *
+ * The reason this lives in the backend rather than in the UI: a tok/s number
+ * without the hardware it came from is not a measurement. [acceleratorReport] is
+ * what makes `CPU: 8.2 tok/s` and `NPU: 21.4 tok/s` distinguishable rows rather
+ * than two numbers a reader has to guess at.
+ *
  * ## Cancellation
  *
  * [cancel] sets a flag and calls through to the runtime's own cancellation. A
@@ -96,7 +117,37 @@ class LiteRtLmBackend(
      * malformed action in `ActionParserImpl` several layers up.
      */
     private val supportsToolCalling: Boolean = false,
-) : StreamingModelBackend {
+    /**
+     * Which hardware the user asked for. [AcceleratorPreference.AUTO] by default.
+     *
+     * Exposed as a constructor knob rather than a `Build.*` read because the
+     * whole point is that the answer is *decided at runtime* and *reported*; a
+     * value chosen at construction time is a decision the user can make and a
+     * benchmark can pin.
+     */
+    private val acceleratorPreference: AcceleratorPreference =
+        AcceleratorPreference.DEFAULT,
+    /**
+     * What the device can actually do.
+     *
+     * Injected, and defaulting to [CpuOnlyAcceleratorProbe] rather than to a real
+     * probe, so constructing this backend from a JVM test or a headless harness
+     * cannot accidentally reach for a device. On Android, pass
+     * `LiteRtLmCapabilityProbe(context.applicationInfo.nativeLibraryDir)`. See that
+     * class for why a library check beats a `Build.SOC_MODEL` match.
+     */
+    private val capabilityProbe: AcceleratorProbe = CpuOnlyAcceleratorProbe,
+    /**
+     * The `Backend.NPU` dispatch directory, threaded to the runtime only for NPU.
+     *
+     * Separate from [capabilityProbe] because a probe *searches* a directory while
+     * the runtime *uses* it, and the probe's directory is a place to look rather
+     * than a value to hand over. Defaults to null, which makes NPU resolve to
+     * unavailable with a stated reason instead of silently constructing
+     * `Backend.NPU("")`.
+     */
+    private val nativeLibraryDir: String? = null,
+) : StreamingModelBackend, AcceleratorAware {
 
     override val id: String = BACKEND_LITERTLM
 
@@ -105,6 +156,18 @@ class LiteRtLmBackend(
 
     @Volatile
     private var currentCapabilities: ModelCapabilities = ModelCapabilities.UNKNOWN
+
+    /**
+     * The accelerator actually in use, and why it is not what was asked for.
+     *
+     * [AcceleratorReport.UNKNOWN] until the first successful load, because before
+     * that there is no engine and no answer to give. Reported through
+     * [ModelBackend.acceleratorReport] so the UI and the benchmark read the same
+     * value the load path used.
+     */
+    @Volatile
+    override var acceleratorReport: AcceleratorReport = AcceleratorReport.UNKNOWN
+        private set
 
     override val capabilities: ModelCapabilities
         get() = currentCapabilities
@@ -123,7 +186,7 @@ class LiteRtLmBackend(
         // Resolve and validate BEFORE claiming the load slot: a bad path should
         // not make a concurrent load look busy, and it costs nothing to check.
         val resolved = modelSource.resolve(model)
-        val config = LiteRtLmEngineConfig(
+        val baseConfig = LiteRtLmEngineConfig(
             modelPath = resolved.absolutePath,
             // Clamped here rather than trusting the caller: below the minimum
             // nothing fits, and above the ceiling a typo asks for an allocation
@@ -144,17 +207,12 @@ class LiteRtLmBackend(
             // Drop the previous engine only once the new one is known good. A
             // failed load must leave a working model working -- tearing down first
             // and failing second would turn a bad path into a lost model.
-            val created = engineFactory.create(config)
-            if (!created.isAlive) {
-                created.close()
-                throw LiteRtLmEngineException(
-                    "the LiteRT-LM engine reported a dead model at ${resolved.absolutePath}",
-                )
-            }
+            val outcome = loadWithAcceleratorFallback(resolved.absolutePath, baseConfig)
             synchronized(generationLock) {
                 val previous = engine
-                engine = created
-                currentCapabilities = deriveCapabilities(config.contextLength)
+                engine = outcome.engine
+                currentCapabilities = deriveCapabilities(baseConfig.contextLength)
+                acceleratorReport = outcome.report
                 cancelRequested.set(false)
                 // Close outside the swap but inside the lock, so no generation can
                 // start against the engine being retired.
@@ -165,10 +223,117 @@ class LiteRtLmBackend(
         }
     }
 
+    /**
+     * Builds an engine, degrading through the accelerator ladder if one fails.
+     *
+     * ## Why there is a second fallback after the probe
+     *
+     * [AcceleratorSelector] answers "can this device do this", from a directory
+     * listing and a load attempt. That is a strong signal, not a guarantee:
+     *
+     * - A vendor NPU delegate can be present in the APK and still be built for a
+     *   different Hexagon generation than the SoC in this phone.
+     * - `Engine.initialize()` for the GPU backend can fail on a driver that
+     *   enumerates an OpenCL device but cannot compile the model's kernels.
+     *
+     * Both failures happen *after* the model file has been opened, and both would
+     * otherwise be a `load()` that throws on a phone that is perfectly capable of
+     * running the model on its GPU. So the ladder is walked a second time here,
+     * using the engine factory as the oracle: whatever tier finally builds is the
+     * tier that is reported. CPU is always tried, so this terminates.
+     *
+     * The runtime message from the failed attempt is preserved, because "the NPU
+     * failed and here is the driver's own words" is the difference between a
+     * reportable bug and an unexplained slowdown.
+     */
+    private fun loadWithAcceleratorFallback(
+        modelPath: String,
+        baseConfig: LiteRtLmEngineConfig,
+    ): LoadOutcome {
+        val selection = AcceleratorSelector.resolve(acceleratorPreference, capabilityProbe)
+        // Start at the tier the probe cleared, NOT at the top of the preference.
+        // Walking from the top would re-attempt an accelerator the probe already
+        // established is absent -- on a phone with no NPU that means a doomed
+        // Engine() call on every load, which is the slow, noisy thing this whole
+        // class exists to avoid.
+        val ladder = selection.requested.candidates()
+            .dropWhile { it != selection.active }
+        var lastError: Throwable? = null
+        val failures = mutableListOf<String>()
+
+        for (kind in ladder) {
+            val config = baseConfig.copy(
+                accelerator = kind,
+                nativeLibraryDir = nativeLibraryDir.takeIf { kind == AcceleratorKind.NPU },
+            )
+            try {
+                val created = engineFactory.create(config)
+                if (!created.isAlive) {
+                    created.close()
+                    throw LiteRtLmEngineException(
+                        "the LiteRT-LM engine reported a dead model at $modelPath " +
+                            "on ${kind.name}",
+                    )
+                }
+                return LoadOutcome(
+                    engine = created,
+                    report = reportFor(selection, kind, failures),
+                )
+            } catch (e: Throwable) {
+                lastError = e
+                failures += "${kind.name}: ${e.message ?: e::class.java.simpleName}"
+            }
+        }
+
+        // Unreachable while CPU is in every candidate list, which the selector
+        // guarantees. Kept so that a future edit to the ladder degrades into a
+        // clear error rather than a null engine.
+        throw LiteRtLmEngineException(
+            "LiteRT-LM could not load $modelPath on any accelerator " +
+                "(${failures.joinToString("; ")})",
+            lastError,
+        )
+    }
+
+    /**
+     * Folds runtime failures into the pre-selected report.
+     *
+     * Two separate degradations are merged into one sentence, because they are
+     * two separate reasons and a reader needs both: the probe may already have
+     * passed over a tier, and the engine may then have failed on the tier the
+     * probe chose. Dropping either one makes the report lie about what happened.
+     */
+    private fun reportFor(
+        selection: AcceleratorReport,
+        active: AcceleratorKind,
+        failures: List<String>,
+    ): AcceleratorReport {
+        val probeReason = selection.fallbackReason
+        val runtimeReason = if (failures.isEmpty()) {
+            null
+        } else {
+            "the ${selection.active.name} engine failed to initialise (" +
+                failures.joinToString("; ") + ")"
+        }
+        val combined = listOfNotNull(probeReason, runtimeReason)
+        return selection.copy(
+            active = active,
+            fallbackReason = when {
+                combined.isEmpty() -> null
+                combined.size == 1 -> combined.first()
+                else -> combined.joinToString("; ")
+            },
+        )
+    }
+
     override suspend fun unload() = withContext(ioDispatcher) {
         synchronized(generationLock) {
             releaseLocked()
             currentCapabilities = ModelCapabilities.UNKNOWN
+            // Nothing is running, so there is no accelerator to report. Leaving
+            // the old one would have the UI claiming an NPU run is in progress
+            // after the engine is gone.
+            acceleratorReport = AcceleratorReport.UNKNOWN
         }
     }
 
@@ -523,6 +688,19 @@ class LiteRtLmBackend(
 
 /** Terminal state, internal because only this package produces it. */
 internal enum class GenerationOutcome { COMPLETED, ERROR }
+
+/**
+ * What a load produced: the engine, and the accelerator it is really on.
+ *
+ * Paired rather than returned separately because the two must be swapped in
+ * together under [LiteRtLmBackend]'s generation lock. A window in which the new
+ * engine is visible but the old accelerator is still reported is exactly how a
+ * benchmark ends up labelling a CPU run as an NPU run.
+ */
+internal class LoadOutcome(
+    val engine: LiteRtLmEngine,
+    val report: AcceleratorReport,
+)
 
 /** A validated request, or the reason it is not one. */
 internal class PreparedRequest(

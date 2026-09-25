@@ -1,5 +1,7 @@
 package dev.localintelligence.inference.litertlm
 
+import dev.localintelligence.core.model.AcceleratorKind
+
 /**
  * The seam between [LiteRtLmBackend] and Google's LiteRT-LM runtime.
  *
@@ -154,6 +156,25 @@ data class LiteRtLmEngineConfig(
     val numThreads: Int,
     val cacheDir: String?,
     val enableBenchmark: Boolean,
+    /**
+     * Which piece of hardware this engine should run on.
+     *
+     * Additive and defaulted to [AcceleratorKind.CPU] so every existing call site
+     * keeps its behaviour. The resolved report travels separately rather than
+     * riding in here, because this config is the *request* and the report is the
+     * *outcome* — a field claiming to be the outcome would be a guess until the
+     * engine is built.
+     */
+    val accelerator: AcceleratorKind = AcceleratorKind.CPU,
+    /**
+     * `Backend.NPU(nativeLibraryDir)` — the directory LiteRT-LM dlopens vendor
+     * dispatch delegates from.
+     *
+     * Null for every non-NPU tier, and ignored by them. Carried here rather than
+     * captured in the native adapter so the whole engine request stays one value a
+     * test can assert on.
+     */
+    val nativeLibraryDir: String? = null,
 )
 
 /** One request's worth of conversation state. */
