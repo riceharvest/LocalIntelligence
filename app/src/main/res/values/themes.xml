@@ -1,4 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.LocalIntelligence" parent="android:Theme.Material.NoActionBar" />
+
+    <!--
+      Theme for CreateDocumentActivity, which exists only to launch the system
+      document picker and return.
+
+      Translucent + NoTitleBar so the user sees the picker over whatever was on
+      screen, with no window of our own chrome in between. A visible blank
+      Activity between the tap and the picker reads as a crash, and this Activity
+      is frequently launched by an agent step the user did not directly touch.
+
+      animation is null so the transition is instant. A fade on a window that
+      exists for milliseconds is a flicker, not a transition.
+
+      This is a window theme, not a Material one: the Activity never inflates a
+      layout, so inheriting from Theme.Material would only pull in attributes
+      that can never apply.
+    -->
+    <style name="Theme.LocalIntelligence.Transparent" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

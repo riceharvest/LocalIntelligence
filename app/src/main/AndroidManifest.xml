@@ -55,6 +55,73 @@
             </intent-filter>
         </activity>
 
+        <!--
+          FileProvider. The ONLY way this app hands a file to another app.
+
+          Three attributes, each load-bearing:
+
+            android:exported="false"
+              No other app may bind or query this provider directly. Access is
+              only ever through a per-URI grant attached to a specific Intent,
+              which is what grantUriPermissions below enables. Without
+              exported="false" this would be a globally-readable window onto
+              our private storage.
+
+            android:grantUriPermissions="true"
+              Required for a content:// URI to carry a FLAG_GRANT_*_URI_PERMISSION
+              grant. This is what makes sharing revocable and per-URI: the grant
+              dies with the Intent that carried it, so a share does not become a
+              permanent capability.
+
+          The authority is ${applicationId}.fileprovider rather than a literal.
+          A provider authority is a device-global namespace; deriving it from the
+          applicationId guarantees no collision with another app, and keeps a
+          debug build from colliding with a release build on a shared device.
+
+          The scope lives in res/xml/file_paths.xml, and that file declares
+          exactly one path: <files-path name="out" path="out/" />. No
+          root-path, no external-path, no cache-path, no whole-files-dir.
+          ProviderPathScopeTest enforces that on the JVM.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!--
+          The SAF document-creation bridge. This is the manifest entry that
+          makes files.write_text work on API 26-28: ACTION_CREATE_DOCUMENT
+          delivers its result to an Activity, and an Activity cannot be
+          registered at runtime, so it has to be declared here.
+
+          exported="false": no other app may launch it. It is reached only from
+          inside this process via an explicit component (see
+          CreateDocumentActivity.intent), and it takes no caller-supplied data
+          that a stranger could use to do anything a legitimate caller could not.
+          There is deliberately no intent-filter, so nothing external can reach
+          it — a share target would need exported="true" and a considered answer
+          about which apps may invoke it, and this Activity is not a share entry
+          point.
+
+          noHistory is deliberately NOT set. It reads as the right instinct for
+          a millisecond-lived Activity and is exactly wrong here: noHistory
+          finishes the Activity as soon as it is no longer visible, which happens
+          the moment the system picker covers it. The result would then be
+          delivered to a dead Activity and onActivityResult would never run, so
+          files.write_text would hang instead of returning. Every terminal path in
+          the Activity already calls finish() (setResult + finish, or cancel()),
+          so the back stack is left clean without it.
+        -->
+        <activity
+            android:name=".document.CreateDocumentActivity"
+            android:exported="false"
+            android:theme="@style/Theme.LocalIntelligence.Transparent" />
+
     </application>
 
 </manifest>
