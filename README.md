@@ -43,9 +43,10 @@ everything for that assumption:
 
 **It builds. Almost nothing about it is measured.**
 
-`:app:assembleDebug` produces an installable debug APK from a clean checkout —
-that is verified and reproducible (see [docs/build.md](docs/build.md)). Beyond
-that:
+`:app:assembleDebug` produces an installable debug APK from a clean checkout,
+and CI proves it on every push — green as of run
+[36196368752](https://github.com/riceharvest/LocalIntelligence/actions/runs/36196368752).
+See [docs/build.md](docs/build.md). Beyond that:
 
 - **There are no tests.** The test suite and the fake-backed eval harness were
   deleted at the owner's explicit instruction, along with all test-only CI jobs.
@@ -104,7 +105,8 @@ PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assembleDebug
 ```
 
 Output: `app/build/outputs/apk/debug/app-debug.apk` — **MEASURED** at
-83,920,165 bytes (80.0 MiB, debug, unstripped, both ABIs).
+~83.9 MB (80.0 MiB, debug, unstripped, both ABIs). CI builds this on every push
+and uploads it as an artifact, so you can install exactly what CI built.
 
 Full instructions, the SDK components CI installs, and two traps that will
 otherwise cost you an hour: [docs/build.md](docs/build.md).

@@ -135,11 +135,17 @@ changing what is compiled.
 
 ## 4. Measured build output
 
-**MEASURED** from `./gradlew :app:assembleDebug` on this branch.
+**MEASURED**, from `./gradlew :app:assembleDebug` locally and independently on
+a GitHub runner (run 36196368752, PR #43):
 
-| | bytes | |
-|---|---:|---|
-| `app-debug.apk` | 83,920,165 | 80.0 MiB, **debug, unstripped** |
+| | local bytes | runner bytes | |
+|---|---:|---:|---|
+| `app-debug.apk` | 83,920,165 | 83,920,725 | 80.0 MiB, **debug, unstripped** |
+
+The 560-byte difference between the two builds is normal APK variance (build
+timestamps, zip alignment) and is the reason to quote a size as approximate.
+The per-library figures below are from the local build; the runner's
+`liblitertlm_jni.so` and `libLiteRt*.so` sizes matched them exactly.
 
 Native payload, as packaged in the APK:
 
@@ -208,11 +214,12 @@ llama.cpp, verifies the resolved NDK and the resolved llama.cpp commit, builds
 The APK is uploaded as a build artifact (`LocalIntelligence-debug`,
 14-day retention) so a human can install and run what CI built.
 
-**UNVERIFIED:** the workflow as written has not been executed on a GitHub runner.
-It was written against a local reproduction of the runner's SDK state. The
-individual commands were each verified locally, and the two failure modes it
-exists to prevent were both reproduced and confirmed fixed, but the first
-GitHub-hosted run is the real proof. Check it before trusting it.
+**VERIFIED on a GitHub runner.** Run
+[36196368752](https://github.com/riceharvest/LocalIntelligence/actions/runs/36196368752)
+on PR #43 completed **success**: `core (JVM compile)` in 39s, and
+`android + app (APK)` in 4m39s, with the `LocalIntelligence-debug` artifact
+uploaded (45,901,152 bytes compressed). It resolved NDK 27.0.12077973 and
+llama.cpp `b4661` -> `ec3bc82` on the runner itself.
 
 ---
 
