@@ -81,6 +81,15 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="*/*" />
             </intent-filter>
+
+            <!-- The launcher shortcut into the scheduled-tasks screen. Without
+                 this declaration the shortcut in res/xml/shortcuts.xml is
+                 silently dropped by the package parser and the feature is
+                 unreachable — which is the same class of bug as an intent
+                 filter that goes nowhere. -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <!-- Agent task execution. Not exported: nothing outside the app may
@@ -115,6 +124,37 @@
              other app can trigger a re-arm. -->
         <receiver
             android:name="dev.localintelligence.android.tools.alarm.AlarmBootReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Fires a scheduled task, and re-arms every schedule after a reboot.
+
+             The boot filters are the same two the agent-alarm receiver below
+             uses, and the reason is the same: a reboot clears every
+             AlarmManager PendingIntent the app registered. A schedule that
+             silently stops existing while the UI still lists it is the exact
+             failure this project treats as the worst kind of bug, and it is
+             only avoidable because the receiver is declared here.
+
+             One receiver rather than two: :android's AlarmBootReceiver already
+             re-arms clock alarms from AlarmRegistry, but AlarmRegistry is a
+             different store in a different module and AlarmSpec has no field
+             for a task prompt, so it cannot re-arm these. Collapsing the two
+             re-arm paths into a single receiver is a one-line follow-up for
+             whoever owns :android; adding a second component for the same
+             broadcast here was the worse trade.
+
+             Not exported, and the filter is narrow: BOOT_COMPLETED is a
+             protected broadcast, so only the system can send it, and the
+             platform skips the exported check for protected broadcasts. No
+             other app can make this app run an agent task. -->
+        <receiver
+            android:name=".execution.ScheduledTaskFireReceiver"
             android:enabled="true"
             android:exported="false">
             <intent-filter>

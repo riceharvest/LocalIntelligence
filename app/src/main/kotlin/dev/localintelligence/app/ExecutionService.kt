@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import dev.localintelligence.core.agent.StepTrace
+import dev.localintelligence.app.execution.ScheduledRunRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -106,7 +107,10 @@ class ExecutionService : Service() {
                 // seconds, and the five-second foreground deadline does not pause
                 // for it.
                 startTaskForeground()
-                startRun(task)
+                startRun(
+                    task,
+                    intent.getStringExtra(EXTRA_SCHEDULED_TASK_ID),
+                )
             }
 
             ACTION_CONFIRM -> {
@@ -183,7 +187,7 @@ class ExecutionService : Service() {
 
     // ----------------------------------------------------------------- internals
 
-    private fun startRun(task: String) {
+    private fun startRun(task: String, scheduledTaskId: String?) {
         // A controller is single-use (cancel is sticky; a pending confirmation
         // must be resumed on the same instance), so every task gets a new one.
         //
@@ -192,6 +196,12 @@ class ExecutionService : Service() {
         // returns an empty ERROR result when no handle is open — which reaches
         // the user as the useless notice "model failed: ". Loading here turns
         // that into a real, nameable state the chat screen can show.
+        //
+        // Claimed here rather than in `onStartCommand` so the id is bound to
+        // the same statement that creates the agent: a run that exists is a run
+        // that is claimed. Released in `stopForegroundAndSelf`, which every exit
+        // path reaches.
+        ScheduledRunRegistry.begin(scheduledTaskId)
         val agent = AgentViewModel(
             // Streaming, wired at last. Every layer below already existed -
             // generateStreaming on the backend, the per-token JNI callback,
@@ -243,6 +253,13 @@ class ExecutionService : Service() {
         // stopSelf() and lingers in the shade with nothing behind it.
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
+        // The single release point for the scheduled-run claim. Every exit from
+        // this service — terminal result, `finally`, onDestroy, and the
+        // "no agent to talk to" early returns — comes through here, so a stale
+        // claim (which would make a later delete cancel a run that is not
+        // running) has nowhere to hide. Idempotent, so the double call that
+        // `onDestroy` after `stopSelf` produces is harmless.
+        ScheduledRunRegistry.end()
     }
 
     private fun mainActivityIntent(): PendingIntent = PendingIntent.getActivity(
@@ -275,18 +292,42 @@ class ExecutionService : Service() {
         const val EXTRA_APPROVED = "approved"
 
         /**
+         * Null for a run the user started, an id for one a scheduled alarm
+         * started. Read once in `onStartCommand` and handed straight to
+         * `ScheduledRunRegistry.begin`; it is never used to decide *what* runs,
+         * only who is responsible for the run while it is in flight.
+         */
+        const val EXTRA_SCHEDULED_TASK_ID = "scheduledTaskId"
+
+        /**
          * Starts a run. Always `startForegroundService`, so `onStartCommand` is
          * obliged to post the notification within five seconds — and we post it
          * before doing any work, which is why a slow model load cannot trip
          * `ForegroundServiceDidNotStartInTimeException`.
          *
-         * Callers must be in the foreground. Android 12+ throws from a background
-         * start, and the only legitimate start here is the user pressing Send.
+         * [scheduledTaskId] is non-null when a scheduled alarm triggered this
+         * run rather than the user pressing Send. It is recorded in
+         * [dev.localintelligence.app.execution.ScheduledRunRegistry] so that
+         * deleting the task while it is mid-run can stop it — and, just as
+         * importantly, so that deleting a *different* task does not.
+         *
+         * ## Why the background caller is now legitimate
+         *
+         * This previously said "callers must be in the foreground, and the only
+         * legitimate start here is the user pressing Send". That was true when
+         * it was written and is now false: the platform documents an exact alarm
+         * as an exemption from the API 31+ background start restriction
+         * ("your app invokes an exact alarm to complete an action that the user
+         * requests"). A scheduled task is exactly that — an action the user
+         * asked for, at a time the user chose. The exemption is a platform
+         * contract, not a workaround, which is why this stayed a plain
+         * `startForegroundService` instead of growing a fallback path.
          */
-        fun start(context: Context, task: String) {
+        fun start(context: Context, task: String, scheduledTaskId: String? = null) {
             val intent = Intent(context, ExecutionService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_TASK, task)
+                .putExtra(EXTRA_SCHEDULED_TASK_ID, scheduledTaskId)
             ContextCompat.startForegroundService(context, intent)
         }
 

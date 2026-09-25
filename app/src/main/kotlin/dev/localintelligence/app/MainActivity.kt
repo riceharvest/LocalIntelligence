@@ -44,6 +44,8 @@ import dev.localintelligence.app.ui.HubScreen
 import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.ModelManagerScreen
 import dev.localintelligence.app.ui.TraceScreen
+import dev.localintelligence.app.ui.trace.ScheduleScreen
+import dev.localintelligence.app.ui.trace.ScheduleViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -99,6 +101,11 @@ class MainActivity : ComponentActivity() {
                 // composition rather than on every recomposition.
                 LaunchedEffect(Unit) {
                     sharedText(intent)?.let { chat.send(it) }
+                    // The launcher shortcut's destination. Also read on a warm
+                    // launch via onNewIntent, so long-pressing the icon while
+                    // the app is already open does not land the user back on
+                    // the chat screen they left.
+                    destination(intent)?.let { nav.navigate(it) }
                 }
 
                 // One hub ViewModel per navigation, created here rather than
@@ -206,6 +213,29 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    composable(ROUTE_SCHEDULE) {
+                        // One ViewModel per navigation, created here rather than
+                        // held in the container, so popping the screen cancels
+                        // whatever it had in flight. The readiness half is read
+                        // from the SAME ModelAvailability holder the chat screen
+                        // reads: two independent readiness signals would give
+                        // the user two different answers about one phone.
+                        val vm: ScheduleViewModel = viewModel(
+                            factory = remember(container) {
+                                ScheduleViewModel.Factory(
+                                    context = this@MainActivity,
+                                    modelAvailability = { container.modelAvailability.current },
+                                    hasSelectedModel = { container.selectedModel != null },
+                                )
+                            },
+                        )
+                        ScheduleScreen(
+                            viewModel = vm,
+                            onBack = { nav.popBackStack() },
+                            onOpenModels = { nav.navigate(ROUTE_MODELS) },
+                        )
+                    }
+
                     composable(ROUTE_HUB) {
                         val vm = remember { container.newHubViewModel() }
                         hub = vm
@@ -221,9 +251,32 @@ class MainActivity : ComponentActivity() {
             intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
 
         Intent.ACTION_PROCESS_TEXT ->
-            intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
+            intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT).toString()
 
         else -> null
+    }
+
+    /**
+     * The route a launcher shortcut asked for.
+     *
+     * Null for an unknown value rather than a default route. Silently opening
+     * the chat screen for a shortcut pointing somewhere unknown is a feature
+     * that looks broken, and the honest outcome — the app opens where it always
+     * opens — is indistinguishable, so the check is the whole value here.
+     *
+     * A string rather than a typed constant because the value crosses a process
+     * boundary (the launcher writes the extra, this process reads it) and a
+     * `Parcelable` route object would need a serializable type for no gain.
+     */
+    private fun destination(intent: Intent?): String? =
+        intent?.getStringExtra(EXTRA_DESTINATION)?.takeIf { it == DESTINATION_SCHEDULE }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // `setIntent` rather than leaving the Activity's own intent stale: the
+        // LaunchedEffect above reads `intent`, the Activity property, and a new
+        // delivery that is not recorded there is simply lost.
+        setIntent(intent)
     }
 
     private companion object {
@@ -231,6 +284,11 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_TRACE = "trace"
         const val ROUTE_MODELS = "models"
         const val ROUTE_HUB = "hub"
+        const val ROUTE_SCHEDULE = "schedule"
+
+        /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
+        const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"
+        const val DESTINATION_SCHEDULE = ROUTE_SCHEDULE
     }
 }
 

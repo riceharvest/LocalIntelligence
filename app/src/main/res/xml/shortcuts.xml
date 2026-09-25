@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One static shortcut: straight to the scheduled-tasks screen.
+
+  WHY A SHORTCUT RATHER THAN A BUTTON IN THE CHAT SCREEN: the chat screen is
+  owned by another workstream in this repo, and a feature whose only way in is a
+  button somebody else has not added yet is a feature nobody can reach. A
+  long-press on the launcher icon is reachable today, needs no edit to a file
+  this change does not own, and costs the user one long-press.
+
+  The shortcut is a convenience, not the only door. MainActivity also handles
+  the extra on a normal launch, so once a button is added to the chat header the
+  shortcut becomes redundant and can be deleted in one file.
+
+  targetActivity + the extra is how the destination is chosen: MainActivity
+  reads EXTRA_DESTINATION and navigates before the first frame, so the user
+  never sees the chat screen flash past on the way to the schedule.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="scheduled-tasks"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_schedule"
+        android:shortcutShortLabel="@string/schedule_shortcut_short"
+        android:shortcutLongLabel="@string/schedule_shortcut_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="dev.localintelligence.app"
+            android:targetClass="dev.localintelligence.app.MainActivity">
+            <extra
+                android:name="dev.localintelligence.app.extra.DESTINATION"
+                android:value="schedule" />
+        </intent>
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+
+</shortcuts>
