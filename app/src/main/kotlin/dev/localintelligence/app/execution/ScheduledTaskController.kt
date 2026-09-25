@@ -97,6 +97,18 @@ object ScheduledTaskController {
      * is a tap rather than a retype, and so the user can see that a task exists
      * and is deliberately not running — which is the difference between "paused"
      * and "gone".
+     *
+     * ## A run already in flight is left to finish
+     *
+     * `pause` does not cancel. The user asked to stop the *schedule*, not to
+     * interrupt work already done on their behalf, and killing a half-finished
+     * agent run to satisfy a pause would be a surprising thing for a button
+     * labelled "Pause" to do. The run keeps going, reaches its own terminal
+     * state, and `ScheduledRunReporter` writes the outcome onto this row —
+     * re-reading it, which is why the pause survives: the reporter replaces
+     * only `lastResult`, so a task paused mid-run comes back saying
+     * "Paused. Not scheduled." *and* what the run it just finished actually
+     * said. Both are true and the user needs both.
      */
     fun pause(context: Context, taskId: String): Boolean {
         val store = ScheduledTaskStore(context)

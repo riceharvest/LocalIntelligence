@@ -14,6 +14,8 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import dev.localintelligence.core.agent.StepTrace
 import dev.localintelligence.app.execution.ScheduledRunRegistry
+import dev.localintelligence.app.execution.ScheduledRunReporter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -86,6 +88,36 @@ class ExecutionService : Service() {
     private var agent: AgentViewModel? = null
     private var watcher: Job? = null
 
+    /**
+     * The scheduled task this run belongs to, or null for a hand-started one.
+     *
+     * Held here rather than re-read from the Intent because the id is needed at
+     * *settle* time — minutes later, possibly after a rotation or a
+     * process-death-and-relaunch of the service — and an Intent is not a place
+     * to keep anything. Null for a user-started run, which has no row to report
+     * into and is already visible in the transcript.
+     */
+    @Volatile
+    private var scheduledTaskIdInFlight: String? = null
+
+    /**
+     * What [dev.localintelligence.app.AppContainer.ensureModelReady] returned
+     * for this run, or null while the load is still in flight.
+     *
+     * Recorded rather than re-queried so "the model was never available" stays
+     * a fact about *this* run. Re-reading the process-wide holder at settle
+     * time would let a later load mask the fact that this one never ran.
+     */
+    @Volatile
+    private var readinessInFlight: ModelAvailability? = null
+
+    /**
+     * True once this run has written its outcome, so the two paths that can
+     * reach a terminal state (the watcher and `onDestroy`) cannot both write.
+     */
+    @Volatile
+    private var reportedInFlight: Boolean = false
+
     override fun onCreate() {
         super.onCreate()
         container = (application as LocalIntelligenceApp).container
@@ -153,7 +185,14 @@ class ExecutionService : Service() {
         if (watcher?.isActive != true) {
             watcher = serviceScope.launch {
                 try {
-                    sinks.state.filter { it.isTerminal }.first()
+                    val terminal = sinks.state.filter { it.isTerminal }.first()
+                    // The result is written HERE, from the same terminal state
+                    // that stops the service, so the two can never disagree
+                    // about whether a run finished. A run that does not settle
+                    // its outcome is the bug this whole reporter exists to fix,
+                    // so it happens on the one path every terminal state
+                    // reaches, not on a path that has to remember to be called.
+                    reportOutcome(terminal)
                 } finally {
                     stopForegroundAndSelf()
                 }
@@ -172,6 +211,23 @@ class ExecutionService : Service() {
         // Braces to the watcher's braces: if the system is taking us down, the
         // notification and the foreground flag go with it, and the in-flight
         // decode is cancelled rather than left running against a dead service.
+        //
+        // The outcome is settled here first, and `interruptedIfUnfinished` is
+        // what makes it honest: `agent?.cancel()` below only sets a flag, and
+        // the terminal state it leads to is published asynchronously by a
+        // coroutine that `serviceScope.cancel()` is about to tear down. Reading
+        // the state *first* would therefore see `Running`, and the run would be
+        // left on the fire path's "Started, waiting for the result." forever —
+        // which is the stranding this whole reporter exists to prevent.
+        //
+        // This is not a guess. The service is being destroyed, the run cannot
+        // continue in this process, and the service is START_NOT_STICKY so
+        // Android will not resume it: the run was interrupted before it
+        // finished, which is the same fact
+        // [dev.localintelligence.app.AgentViewModel.CANCELLED_REASON] names and
+        // the same sentence the watcher would have written had it lived long
+        // enough to see the cancel land.
+        reportOutcome(sinks.state.value, interruptedIfUnfinished = true)
         agent?.cancel()
         watcher?.cancel()
         stopForegroundAndSelf()
@@ -202,6 +258,8 @@ class ExecutionService : Service() {
         // that is claimed. Released in `stopForegroundAndSelf`, which every exit
         // path reaches.
         ScheduledRunRegistry.begin(scheduledTaskId)
+        scheduledTaskIdInFlight = scheduledTaskId
+        readinessInFlight = null
         val agent = AgentViewModel(
             // Streaming, wired at last. Every layer below already existed -
             // generateStreaming on the backend, the per-token JNI callback,
@@ -223,7 +281,16 @@ class ExecutionService : Service() {
             sinks = sinks,
         )
         this.agent = agent
-        agent.prepareThenStart(task) { container.ensureModelReady() }
+        agent.prepareThenStart(task) {
+            // ONE load, exactly as before. This is the same call
+            // `ensureModelReady` always got — the wrapper only *records what it
+            // returned*, so the reporter can tell "the run was blocked before it
+            // started" apart from "the run started and then failed". Reading the
+            // result rather than re-deriving it from a failure string is the
+            // whole point: a task that never ran must not be reported as a run
+            // that failed.
+            container.ensureModelReady().also { readinessInFlight = it }
+        }
     }
 
     private fun startTaskForeground() {
@@ -245,6 +312,88 @@ class ExecutionService : Service() {
             )
         } else {
             ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, 0)
+        }
+    }
+
+    /**
+     * Writes a finished run's outcome into its scheduled task, once.
+     *
+     * ## Why the guard is a flag and not "is the row there"
+     *
+     * The row being present does not mean the outcome is unreported: the
+     * watcher and `onDestroy` both reach here, and the second call would
+     * rewrite the first one's sentence with a state read at a different
+     * moment. The flag makes the second call a no-op even when it carries a
+     * different state, which is the case that matters.
+     *
+     * ## Why it cannot throw
+     *
+     * Both callers are unwinding paths — a `finally` and `onDestroy` — so a
+     * `SharedPreferences` write that failed would take the process down while
+     * it was trying to record why it was going down. Every throwable is
+     * therefore logged rather than propagated.
+     *
+     * ## `CancellationException` is not a failure to report
+     *
+     * The project's hard rule is that structured cancellation stays
+     * cancellation. Two things follow, and they are different things:
+     *
+     *  - A *cancelled run* is a real outcome and is reported as one. That is
+     *    [RunOutcome.Cancelled], published by `AgentViewModel` as a
+     *    `Finished` state long before this function is reached, so it arrives
+     *    here as data and not as a thrown exception.
+     *  - A `CancellationException` *thrown through this function* is
+     *    cancellation of the code doing the reporting. It is not an outcome
+     *    and must not be recorded as one — so `ScheduledRunReporter.settle`
+     *    is not given a chance to turn it into a "Failed:" sentence, and the
+     *    exception is logged and dropped rather than rethrown, because
+     *    rethrowing out of `onDestroy` would crash the service and lose the
+     *    notification teardown. Nothing is written, and the row keeps the
+     *    fire path's "Started, waiting for the result." — which is the honest
+     *    state for a run this process was not allowed to finish reporting.
+     *
+     * ## [interruptedIfUnfinished]
+     *
+     * Only `onDestroy` passes true. A non-terminal state there means the
+     * process is going away with the run still in flight, which *is* an
+     * outcome — an interrupted one — so it is reported as the cancellation it
+     * is. The watcher passes false because there, a non-terminal state means
+     * the run is simply still going, and inventing an outcome for it would be
+     * the exact "reports something it did not do" bug this replaces.
+     */
+    private fun reportOutcome(
+        state: RunState,
+        interruptedIfUnfinished: Boolean = false,
+    ) {
+        if (scheduledTaskIdInFlight == null) return
+        if (reportedInFlight) return
+        val outcome = when {
+            state is RunState.Finished -> state
+            // Destroyed with work in flight. See the KDoc: the run cannot
+            // continue and Android will not resume the service, so this is a
+            // cancellation, reported with the same reason constant
+            // `AgentViewModel` uses for a scope torn down mid-run.
+            interruptedIfUnfinished -> RunState.Finished(
+                RunOutcome.Failed(AgentViewModel.CANCELLED_REASON),
+            )
+            // Still running. Reporting now would be inventing an outcome.
+            else -> return
+        }
+        reportedInFlight = true
+        try {
+            ScheduledRunReporter.settle(
+                context = applicationContext,
+                scheduledTaskId = scheduledTaskIdInFlight,
+                state = outcome,
+                trace = sinks.trace.value,
+                readiness = readinessInFlight,
+            )
+        } catch (e: CancellationException) {
+            // Not a run outcome. See the KDoc: logged, not rethrown, not
+            // recorded. The flag stands, so nothing retries it.
+            android.util.Log.w(TAG, "scheduled run result reporting was cancelled", e)
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "could not record the scheduled run result", t)
         }
     }
 
@@ -360,6 +509,13 @@ class ExecutionService : Service() {
         // Nothing outside this class posts one, but Kotlin allows only one
         // companion per class, so they live here under a section marker rather
         // than in a second one.
+
+        /**
+         * Log tag for the result-reporting path. Private, because a log tag is
+         * an implementation detail — and deliberately a constant rather than
+         * the class name, so it stays stable if the class is ever renamed.
+         */
+        private const val TAG = "ExecutionService"
 
         /** Private: the channel is an implementation detail of this service. */
         private const val CHANNEL_ID = "execution"

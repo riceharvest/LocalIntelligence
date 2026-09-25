@@ -37,12 +37,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -52,6 +54,8 @@ import dev.localintelligence.app.data.ScheduledTask
 import dev.localintelligence.app.data.TaskAction
 import dev.localintelligence.app.data.TaskBlocker
 import dev.localintelligence.app.data.TaskCadence
+import dev.localintelligence.app.execution.ScheduledRunReporter.FAILED_PREFIX
+import dev.localintelligence.app.execution.ScheduledRunReporter.REFUSED_PREFIX
 
 /**
  * Create, see and delete a scheduled task.
@@ -234,6 +238,18 @@ private enum class CadenceChoice(val label: String, val cadence: TaskCadence) {
 }
 
 /**
+ * How many lines a result may occupy in a list row.
+ *
+ * The stored string is already capped by `ScheduledRunReporter`; this is the
+ * second cap, and it is the one that guarantees a row's height. A scheduled
+ * task's answer is a paragraph and a `LazyColumn` item is not — a row that
+ * grows to fit a 400-character answer pushes the next task off the screen,
+ * which for a screen whose job is comparing tasks is a worse failure than
+ * truncating one.
+ */
+private const val RESULT_MAX_LINES = 3
+
+/**
  * One scheduled task.
  *
  * The row shows three things and each answers a question the user actually has:
@@ -305,15 +321,29 @@ private fun TaskRow(
             )
 
             task.lastResult?.let { result ->
+                LastRunLine(
+                    task = task,
+                    isRunning = isRunning,
+                )
                 Text(
                     text = result,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = resultColor(result),
+                    // Bounded here as well as at write time. The stored value
+                    // is already truncated by `ScheduledRunReporter`, but a
+                    // row written by an older version of the app is not, and
+                    // `maxLines` is the only thing standing between a 4 KB
+                    // observation and a list row that is taller than the
+                    // screen. Two lines, because the outcome is the thing the
+                    // user opened this screen for and the full answer is one
+                    // tap away in the chat transcript.
+                    maxLines = RESULT_MAX_LINES,
+                    overflow = TextOverflow.Ellipsis,
                     // A result that changes on its own (a run finishing while
                     // the screen is open) must be announced, or a screen-reader
                     // user never learns the outcome.
                     modifier = Modifier
-                        .padding(top = 4.dp)
+                        .padding(top = 2.dp)
                         .semantics { liveRegion = LiveRegionMode.Polite },
                 )
             }
@@ -389,7 +419,63 @@ private fun BlockerList(
 }
 
 /**
- * A refused action, in the user's terms.
+ * When the last run happened, and — if this task is running right now — that
+ * the sentence below it is about a run still in flight.
+ *
+ * ## Why the time is on its own line
+ *
+ * A result on its own is a claim with no date. "Failed: the model was not
+ * ready." read tomorrow morning is about *this morning's* run; read next week
+ * it is about a run the user has long forgotten scheduling, and they will
+ * assume it is current. Pairing the two is what makes the outcome checkable.
+ *
+ * Shown only when there is a result to explain. A task that has never fired has
+ * nothing to date, and "Last run: never" is a worse line than no line — the
+ * empty state above the list already says there is nothing yet.
+ */
+@Composable
+private fun LastRunLine(task: ScheduledTask, isRunning: Boolean) {
+    val at = task.lastRunAtMillis ?: return
+    Text(
+        text = if (isRunning) {
+            "Running now. Started at ${timeOf(at)}."
+        } else {
+            "Last ran at ${timeOf(at)}."
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 6.dp),
+    )
+}
+
+/**
+ * The colour of a result line.
+ *
+ * Not decoration: a list of sixteen tasks read at a glance needs the failure
+ * and the refusal to be findable without reading every sentence. `Answered:`
+ * stays in the neutral variant colour so a normal result does not shout, and
+ * the two that need action are tinted. Exact-alarm access and no-model are not
+ * failures of the *run*, so they stay neutral — the blockers list above is
+ * where the user fixes those, and painting them red here would point at the
+ * wrong thing.
+ */
+@Composable
+private fun resultColor(result: String): Color = when {
+    result.startsWith(REFUSED_PREFIX) || result.startsWith(FAILED_PREFIX) ->
+        MaterialTheme.colorScheme.error
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+private fun timeOf(millis: Long): String =
+    java.time.format.DateTimeFormatter
+        .ofPattern("d MMM, HH:mm", java.util.Locale.getDefault())
+        .format(
+            java.time.Instant.ofEpochMilli(millis)
+                .atZone(java.time.ZoneId.systemDefault()),
+        )
+
+/**
+ * Why a refused action, in the user's terms.
  *
  * Separate from [BlockerList] because a refusal is about *this press* — "the
  * store is full", "Android said no" — while a blocker is about the device
