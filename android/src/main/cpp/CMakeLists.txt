@@ -103,6 +103,9 @@ if(NOT _llama_src_dir AND PIDROID_LLAMA_FETCH)
     )
     FetchContent_MakeAvailable(llama)
     set(_llama_src_dir "${llama_SOURCE_DIR}")
+    # MakeAvailable has already added the subdirectory, so the later
+    # add_subdirectory() must be skipped on this path.
+    set(_llama_src_dir_from_fetchcontent ON)
 endif()
 
 if(NOT _llama_src_dir)
@@ -158,7 +161,20 @@ set(GGML_CPU_ALL_VARIANTS ${PIDROID_GGML_CPU_ALL_VARIANTS} CACHE BOOL "" FORCE)
 option(PIDROID_GGML_CPU_REPACK "Build the repack kernels" OFF)
 set(GGML_CPU_REPACK ${PIDROID_GGML_CPU_REPACK} CACHE BOOL "" FORCE)
 
-add_subdirectory("${_llama_src_dir}" llama.cpp EXCLUDE_FROM_ALL)
+# ---------------------------------------------------------------------------
+# Add the llama.cpp tree exactly once.
+#
+# WHY this is conditional: FetchContent_MakeAvailable(llama) has already
+# called add_subdirectory() on _llama_src_dir by the time we get here. Doing it
+# again - unconditionally, as this used to - makes CMake fail with
+# `add_library cannot create target "llama"`, so the PIDROID_LLAMA_FETCH=1 path
+# could never have worked. It stayed invisible because the local build sets
+# PIDROID_LLAMA_DIR, which short-circuits the fetch branch entirely and
+# therefore never exercised it.
+# ---------------------------------------------------------------------------
+if(NOT _llama_src_dir_from_fetchcontent)
+    add_subdirectory("${_llama_src_dir}" llama.cpp EXCLUDE_FROM_ALL)
+endif()
 
 # -----------------------------------------------------------------------
 # The JNI layer

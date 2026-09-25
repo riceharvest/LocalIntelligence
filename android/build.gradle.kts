@@ -14,6 +14,13 @@ android {
     namespace = "dev.localintelligence.android"
     compileSdk = 36
 
+    // Pinned explicitly. With no declaration AGP 8.13.2 falls back to a
+    // default compiled into the plugin (27.0.12077973), which is not the NDK
+    // this module is built and tested against. That made the local build and
+    // the CI build silently use different toolchains, and meant CI had to
+    // guess. See docs/build.md.
+    ndkVersion = "27.1.12297006"
+
     defaultConfig {
         minSdk = 26
         testOptions.targetSdk = 36
