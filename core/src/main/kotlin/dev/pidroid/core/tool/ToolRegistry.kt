@@ -1,6 +1,7 @@
 package dev.pidroid.core.tool
 
 import dev.pidroid.core.model.ToolArgs
+import kotlinx.serialization.json.JsonObject
 
 /** Everything the agent loop needs to route a tool call. Pure data, no Android. */
 interface ToolRegistry {
@@ -95,15 +96,22 @@ object ObservationTruncator {
     const val DEFAULT_BUDGET_CHARS = 2048
 
     fun truncate(observation: String, budget: Int = DEFAULT_BUDGET_CHARS): String {
+        if (budget <= 0) return ""
         if (observation.length <= budget) return observation
-        val head = observation.take(budget - 40)
-        val dropped = observation.length - head.length
-        return "$head\n…[truncated $dropped chars]"
+        // The suffix must fit inside the budget, and a budget smaller than the
+        // suffix must not produce a negative take().
+        val marker = "…[truncated]"
+        if (budget <= marker.length) return observation.take(budget)
+        val head = observation.take(budget - marker.length)
+        return head + marker
     }
 }
 
 /** Validates a tool call against the registry before execution. */
 object ToolCallValidator {
+    /** Cap on how many offending argument names are echoed back to the model. */
+    const val MAX_NAMED_ARGS = 8
+
     sealed interface Result {
         data class Valid(val tool: AgentTool) : Result
         data class Rejected(val observation: String) : Result
@@ -118,10 +126,28 @@ object ToolCallValidator {
         val tool = visible.firstOrNull { it.definition.name == name }
             ?: return Result.Rejected("Unknown tool \"$name\".")
 
-        if (args.keys.any { it !in tool.definition.schema.keys }) {
+        val properties = tool.definition.schema["properties"]
+            ?.let { it as? JsonObject }
+            ?.keys
+            ?: emptySet()
+
+        val unexpected = args.keys.filter { it !in properties }
+        if (unexpected.isNotEmpty()) {
+            // A confused model can emit dozens of invented argument names. This
+            // observation goes straight back into the prompt, so it is capped like
+            // any other model-visible output — a 4KB rejection would blow the
+            // context budget on the very turn that is already going wrong.
+            val named = unexpected.take(MAX_NAMED_ARGS).joinToString()
+            val more = if (unexpected.size > MAX_NAMED_ARGS) {
+                " (+${unexpected.size - MAX_NAMED_ARGS} more)"
+            } else {
+                ""
+            }
             return Result.Rejected(
-                "Tool \"$name\" got unexpected argument(s): " +
-                    args.keys.filter { it !in tool.definition.schema.keys }.joinToString(),
+                ObservationTruncator.truncate(
+                    "Tool \"$name\" got unexpected argument(s): $named$more. " +
+                        "It accepts: ${properties.joinToString()}"
+                )
             )
         }
         // Unavailable tools (repeated failures) are rejected before re-execution.
