@@ -342,6 +342,49 @@ class ModelDownloader(
     }
 
     /**
+     * The final path this file will occupy in [modelsDir] — the same directory
+     * `MainActivity`'s Scan-storage button lists.
+     *
+     * WHY it is public: after a download finishes, something has to hand THAT
+     * file to `ModelImporter` for the app to be able to load it, and
+     * reconstructing the name from the repo id at the call site would be a second
+     * implementation of a naming rule that exists precisely so there is only one.
+     */
+    fun localFileFor(file: HubGgufFile): File = partialFileFor(file).finalFile
+
+    /**
+     * True when this exact file is already on disk, complete and correct.
+     *
+     * ## Why the digest, and not just the length
+     *
+     * Because a length match is not identity. The final name is derived from
+     * `owner__name__file`, so re-uploading a file under the same name in the same
+     * repo produces the same path with different bytes, and a user who already
+     * has it should not spend 668 MB to get a second copy.
+     *
+     * `HubGgufFile.sha256` is HF's own published digest, so when it is present the
+     * check is exact: a 668 MB hash on a file that is already there, which is a
+     * second or two of I/O against a download that would be minutes and
+     * megabytes. When it is absent (a non-LFS blob, or a mirror that omits it)
+     * the length check is the strongest thing available and is used alone —
+     * which still catches the case that matters most, the model being here
+     * already.
+     */
+    fun isDownloaded(file: HubGgufFile): Boolean {
+        val partial = partialFileFor(file)
+        if (!partial.isComplete(file.sizeBytes)) return false
+        val expected = file.sha256 ?: return true
+        val actual = Sha256.ofFile(partial.finalFile) ?: return false
+        if (!Sha256.matches(expected, actual)) {
+            // Wrong bytes under the right name. Discard so the next download is a
+            // real one rather than a resume from a partial that matches nothing.
+            partial.finalFile.delete()
+            return false
+        }
+        return true
+    }
+
+    /**
      * The `.part` and final paths for [file].
      *
      * WHY the local name is derived and flattened: two repos can contain the

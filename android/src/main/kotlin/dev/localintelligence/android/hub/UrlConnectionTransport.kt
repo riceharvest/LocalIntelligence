@@ -55,7 +55,10 @@ class UrlConnectionTransport(
                 instanceFollowRedirects = false
                 request.headers.forEach { (k, v) -> setRequestProperty(k, v) }
                 auth?.let { setRequestProperty("Authorization", "Bearer $it") }
-                request.rangeFrom?.let { setRequestProperty("Range", "bytes=$it-") }
+                // A closed range (`bytes=0-N`) is what the header probe needs; an
+                // open one (`bytes=N-`) is what resume needs. Both come from one
+                // place so the two spellings cannot drift apart.
+                request.rangeHeader()?.let { setRequestProperty("Range", it) }
             }
             val status = try {
                 connection.responseCode

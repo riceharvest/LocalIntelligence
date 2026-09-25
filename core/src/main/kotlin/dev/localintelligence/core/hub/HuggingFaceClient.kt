@@ -1,8 +1,34 @@
 package dev.localintelligence.core.hub
 
+import dev.localintelligence.core.model.gguf.GgufHeader
+import dev.localintelligence.core.model.gguf.GgufLimits
+import dev.localintelligence.core.model.gguf.GgufParser
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.IOException
+import java.io.InputStream
+
+/**
+ * Reads at most [limit] bytes from this stream and stops.
+ *
+ * WHY it exists: the header probe asks for `Range: bytes=0-4194303`, but a server
+ * that ignores the range answers 200 and streams the whole 668 MB model. Without
+ * this cap the "cheap probe" would silently become the most expensive request the
+ * app makes — the exact outcome the probe exists to prevent.
+ */
+private fun InputStream.readBounded(limit: Long): ByteArray {
+    val out = java.io.ByteArrayOutputStream()
+    val buffer = ByteArray(64 * 1024)
+    var total = 0L
+    while (total < limit) {
+        val want = minOf(buffer.size.toLong(), limit - total).toInt()
+        val read = read(buffer, 0, want)
+        if (read <= 0) break
+        out.write(buffer, 0, read)
+        total += read
+    }
+    return out.toByteArray()
+}
 
 /**
  * Talks to the HuggingFace REST API: list a repo's GGUF files, size them, and
@@ -63,9 +89,9 @@ class HuggingFaceClient(
         } catch (e: IOException) {
             throw mapIoException(e)
         }
-        response.body?.close()
 
         if (response.status !in 200..299) {
+            response.body?.close()
             throw HubError.fromStatus(
                 status = response.status,
                 repo = repo.id,
@@ -74,10 +100,26 @@ class HuggingFaceClient(
                 retryAfterSeconds = response.header("Retry-After")?.toLongOrNull(),
             )
         }
-        val body = response.body ?: throw HubError.RepoNotFound(repo.id)
-        val text = body.readBytes().decodeToString()
+        // WHY the body is consumed inside a `use` and the close is NOT hoisted
+        // above the status check: reading a closed HttpURLConnection stream
+        // throws `IOException: stream is closed`, so a `close()` before the read
+        // makes every successful listing fail. Verified against the live API by
+        // running this class on a desktop JVM: before this change, all four of
+        // A/C/D/E in the probe threw that exact exception and no repo ever
+        // listed a single file, so the Hub screen's Download button could never
+        // be reached for ANY repo. The status check only needs headers, so the
+        // body is closed on that path and never read.
+        val text = response.body?.use { it.readBytes() }?.decodeToString()
+            ?: throw HubError.RepoNotFound(repo.id)
         val parsed = runCatching { json.decodeFromString(HubModelResponse.serializer(), text) }
             .getOrElse { throw HubError.UnexpectedStatus(response.status) }
+        // A gated repo answers 200 with `"gated":"manual"` and a full sibling
+        // list, so without this the picker offers a download that cannot
+        // succeed: the resolve endpoint answers 401 + X-Error-Code: GatedRepo
+        // (verified live for google/gemma-7b and meta-llama/Llama-3.2-1B-Instruct).
+        // Refusing here names the real fix — accept the licence, add a token —
+        // instead of letting the user start a 34 GB download that dies at byte 0.
+        if (parsed.isGated) throw HubError.GatedRepo(repo.id)
         return toGgufFiles(repo, parsed)
     }
 
@@ -118,6 +160,67 @@ class HuggingFaceClient(
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    /**
+     * Fetches a bounded prefix of [file] and parses the GGUF header out of it.
+     *
+     * ## Why this exists when the downloader is 30 lines away
+     *
+     * Because the whole product decision this feature makes — "will this model
+     * work on this phone" — is made *before* the bytes arrive, and a decision
+     * made from a file name is a guess. [PreDownloadMemoryModel] has to invent
+     * `block_count`, `attention.head_count_kv` and `key_length` from a
+     * parameter-count proxy because a GGUF file name contains none of them.
+     * [ModelMemoryEstimator] computes the same terms from the actual tensor
+     * table and is exact.
+     *
+     * A GGUF header is a few hundred KiB to a couple of MiB at the front of the
+     * file, and HF honours a closed byte range (verified live: `Range: bytes=0-N`
+     * answers 206 with exactly N bytes and a `Content-Range` naming the total).
+     * So the exact answer is available for the price of a 4 MiB range request —
+     * 0.6% of the 668 MB the user is about to spend, and the alternative is
+     * guessing about a decision that costs them the whole download.
+     *
+     * Returns null on ANY failure — offline, 401, a truncated prefix, a
+     * non-GGUF body. A null is not an error: the caller falls back to
+     * [PreDownloadMemoryModel], which is conservative in the safe direction.
+     * Making the probe best-effort is what keeps a flaky network from blocking a
+     * download the user is entitled to.
+     */
+    fun probeHeader(
+        file: HubGgufFile,
+        token: String? = null,
+        prefixBytes: Long = HEADER_PROBE_BYTES,
+    ): GgufHeader? {
+        val response = try {
+            transport.open(
+                HubRequest(
+                    url = downloadUrl(file.repo, file.path),
+                    rangeFrom = 0L,
+                    rangeTo = (prefixBytes - 1).coerceAtLeast(0L),
+                    authToken = tokenOrNull(token),
+                ),
+            )
+        } catch (_: IOException) {
+            return null
+        }
+        if (response.status !in 200..299) {
+            response.body?.close()
+            return null
+        }
+        val bytes = try {
+            response.body?.use { it.readBounded(prefixBytes) }
+        } catch (_: IOException) {
+            null
+        } ?: return null
+        // A 200 for a range request means the server ignored the Range and is
+        // streaming the entire model. `readBounded` caps it, so this stays a
+        // 4 MiB read rather than a 668 MB one, and the parse below then sees a
+        // valid header anyway.
+        return runCatching {
+            GgufParser.parse(bytes, GgufLimits(), GgufParser.TruncationPolicy.PARTIAL)
+        }.getOrNull()
     }
 
     /**
@@ -204,14 +307,29 @@ class HuggingFaceClient(
         budget: DeviceBudget,
         alreadyOnDiskBytes: Long = 0L,
         model: MemoryModel = PreDownloadMemoryModel,
+        /**
+         * The real header, when one could be fetched.
+         *
+         * WHY this is a parameter rather than something [plan] fetches itself:
+         * [plan] is called on every selection change, and a network round trip
+         * inside a function that is also called from the download path would make
+         * the pre-flight decision non-deterministic and slow. The caller
+         * ([HuggingFaceClient.probeHeader]) fetches once per file and hands the
+         * result in, so this stays a pure function of its arguments.
+         *
+         * A null header means "estimate from the name", which is
+         * [PreDownloadMemoryModel] and is conservative in the safe direction.
+         */
+        header: GgufHeader? = null,
     ): DownloadPlan {
+        val effectiveModel = header?.let { GgufMemoryModel.from(it) } ?: model
         val ram = FitGate.ramFit(
             fileBytes = file.sizeBytes,
             quant = file.quant,
             contextLength = contextLength,
             budget = budget,
-            model = model,
-            parameterCount = parseParameterCount(file.fileName),
+            model = effectiveModel,
+            parameterCount = header?.let { null } ?: parseParameterCount(file.fileName),
         )
         val stillNeeded = (file.sizeBytes - alreadyOnDiskBytes).coerceAtLeast(0L)
         val headroom = maxOf(
@@ -312,6 +430,21 @@ class HuggingFaceClient(
 
     companion object {
         const val DEFAULT_BASE_URL = "https://huggingface.co"
+
+        /**
+         * How many leading bytes the header probe asks for.
+         *
+         * WHY 4 MiB, and the measurement behind it: parsing the real header of a
+         * locally cached TinyLlama-1.1B-Chat Q4_K_M shows it spans **1,709,436
+         * bytes** — 0.26% of its own 668,788,096-byte file. Probing 64 KiB, 256 KiB
+         * and 1 MiB all truncate inside the tokenizer's vocabulary and return a
+         * header with **0 tensors**, which is the failure mode that matters: the
+         * estimator then falls back to `FILE_SIZE` basis and its weights figure
+         * becomes the size of the probe, not the size of the model. 4 MiB clears
+         * the real 1.7 MB header with room for a 151936-token vocabulary, which
+         * is the largest any current release ships.
+         */
+        const val HEADER_PROBE_BYTES: Long = 4L * 1024 * 1024
 
         /**
          * Reads a parameter count out of a file name, e.g. `Qwen3-4B-Instruct`.

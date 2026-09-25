@@ -12,13 +12,53 @@ import dev.localintelligence.core.hub.HubTokenSource
 import dev.localintelligence.core.hub.HuggingFaceClient
 import dev.localintelligence.core.hub.formatBytes
 import dev.localintelligence.android.hub.ModelDownloader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+
+/**
+ * Registers a finished download with the rest of the app so it can be selected
+ * and loaded.
+ *
+ * ## WHY this is a seam and not a call to [ModelImporter] inside the ViewModel
+ *
+ * Because a download that lands on disk and is never registered is invisible:
+ * the model manager lists what has been *adopted*, not what exists in the files
+ * directory, and the agent runs [AppContainer.selectedModel]. A `Done` event
+ * that nothing acts on is the exact failure this type exists to make impossible
+ * to write — the ViewModel cannot finish a download without offering the result
+ * to someone who can register it.
+ *
+ * The implementation belongs to the composition root, because registering means
+ * inspecting the header, adding to the model list and selecting it, and all
+ * three need the container.
+ */
+fun interface DownloadedModelRegistrar {
+    /**
+     * Adopts [file] and returns a short line for the UI, or null when the file
+     * could not be adopted (which the caller must surface — a downloaded model
+     * that is not loadable is a failure, not a success).
+     */
+    suspend fun register(file: File): String?
+
+    companion object {
+        /**
+         * The default: report the path and adopt nothing.
+         *
+         * WHY a default exists at all rather than making the parameter required:
+         * so the failure mode is visible. A build that never wires a registrar
+         * still shows the user exactly where the bytes went, which is a support
+         * answer, instead of silently dropping the model.
+         */
+        val NONE: DownloadedModelRegistrar = DownloadedModelRegistrar { null }
+    }
+}
 
 /**
  * Screen state for the HuggingFace download flow.
@@ -45,6 +85,19 @@ data class HubUiState(
     val downloadJob: Job? = null,
     /** True while a download is running, so the UI can disable the pickers. */
     val downloading: Boolean = false,
+    /**
+     * The real GGUF header for [selected], when one could be fetched.
+     *
+     * Non-null means the fit verdict below was computed from the file's own
+     * tensor table rather than from its name. The UI shows which of the two it
+     * used, because "estimated from the file name" and "measured from the
+     * header" deserve different amounts of the user's trust.
+     */
+    val exactFit: Boolean = false,
+    /** The file is already in app storage at its final path, checksum-verified. */
+    val alreadyOnDevice: Boolean = false,
+    /** Set once a finished download has been adopted by the rest of the app. */
+    val registeredNote: String? = null,
 ) {
     /** The plan the user is being asked to approve, or the refusal. */
     val blocked: HubError? get() = plan?.reject
@@ -70,6 +123,7 @@ class HubViewModel(
     private val downloader: ModelDownloader,
     private val budget: DeviceBudget,
     private val tokenSource: HubTokenSource = HubTokenSource.NONE,
+    private val registrar: DownloadedModelRegistrar = DownloadedModelRegistrar.NONE,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HubUiState())
@@ -110,13 +164,16 @@ class HubViewModel(
                             contextLength = DEFAULT_CONTEXT_LENGTH,
                             budget = budget,
                         )
+                        val planned = best?.let { planFor(it) }
                         _state.update {
                             it.copy(
                                 loading = false,
                                 error = if (loadable.isEmpty()) "That repository has no GGUF files this app can use." else null,
                                 files = loadable,
                                 selected = best,
-                                plan = best?.let { f -> client.plan(f, DEFAULT_CONTEXT_LENGTH, budget) },
+                                plan = planned?.first,
+                                exactFit = planned?.second == true,
+                                alreadyOnDevice = planned?.third == true,
                             )
                         }
                     }.onFailure { e ->
@@ -137,7 +194,38 @@ class HubViewModel(
 
     /** Selects a specific quant and recomputes the plan for it. */
     fun select(file: HubGgufFile) {
-        _state.update { it.copy(selected = file, plan = client.plan(file, DEFAULT_CONTEXT_LENGTH, budget)) }
+        viewModelScope.launch {
+            val planned = planFor(file)
+            _state.update {
+                it.copy(
+                    selected = file,
+                    plan = planned.first,
+                    exactFit = planned.second,
+                    alreadyOnDevice = planned.third,
+                )
+            }
+        }
+    }
+
+    /**
+     * Computes the plan for [file] against the device, using the real header when
+     * one can be fetched.
+     *
+     * WHY the probe is here and not in [HuggingFaceClient.plan]: the probe is a
+     * network call, and this is the one place in the screen's lifecycle where a
+     * network call belongs — it is already off the main thread inside
+     * `viewModelScope`, it happens once per selection rather than once per
+     * recomposition, and its result is cached in [HubUiState] so tapping a
+     * different quant does not re-probe the one already probed.
+     *
+     * @return plan, whether the verdict is exact (from the tensor table rather
+     *   than the file name), and whether the file is already on disk.
+     */
+    private suspend fun planFor(file: HubGgufFile): Triple<DownloadPlan, Boolean, Boolean> {
+        val header = client.probeHeader(file, tokenSource.token())
+        val plan = client.plan(file, DEFAULT_CONTEXT_LENGTH, budget, header = header)
+        val onDevice = withContext(Dispatchers.IO) { downloader.isDownloaded(file) }
+        return Triple(plan, header != null, onDevice)
     }
 
     /**
@@ -155,14 +243,36 @@ class HubViewModel(
         val plan = current.plan ?: return
         if (plan.reject != null) return
 
+        // Already on disk, already checksum-verified. Starting again would spend
+        // 668 MB of the user's data to produce the identical file, and the
+        // downloader would answer `Discard("already complete")` and restart from
+        // byte 0 anyway. So the button adopts instead of downloading.
+        if (current.alreadyOnDevice) {
+            viewModelScope.launch { adopt(file) }
+            return
+        }
+
         current.downloadJob?.cancel()
-        _state.update { it.copy(downloading = true, progress = null, error = null) }
+        _state.update { it.copy(downloading = true, progress = null, error = null, registeredNote = null) }
 
         val job = viewModelScope.launch {
             downloader.download(file, plan).collect { event ->
                 when (event) {
-                    is DownloadProgress.Done -> _state.update {
-                        it.copy(downloading = false, progress = event, error = null)
+                    is DownloadProgress.Done -> {
+                        // Registration happens HERE, inside the Done branch, and
+                        // not in the UI: a `Done` that only renders text is
+                        // exactly the bug this closes. The bytes exist; the app
+                        // must be able to select and load them.
+                        val note = adopt(event.file)
+                        _state.update {
+                            it.copy(
+                                downloading = false,
+                                progress = event,
+                                error = null,
+                                registeredNote = note,
+                                alreadyOnDevice = true,
+                            )
+                        }
                     }
                     is DownloadProgress.Stopped -> _state.update {
                         it.copy(downloading = false, progress = event, error = event.error.message)
@@ -172,6 +282,23 @@ class HubViewModel(
             }
         }
         _state.update { it.copy(downloadJob = job) }
+    }
+
+    /**
+     * Hands the downloaded file to the app and reports what happened.
+     *
+     * WHY a failure here is an error and not a shrug: a GGUF that is on disk but
+     * not adopted cannot be loaded, cannot be selected and does not appear in the
+     * model list. Telling the user "downloaded!" in that state is a lie with a
+     * 668 MB price tag, so the failure is surfaced and the path is named.
+     */
+    private suspend fun adopt(file: HubGgufFile): String? {
+        val local = downloader.localFileFor(file)
+        if (!local.isFile) {
+            return "Downloaded, but the file is not where the app looks for models."
+        }
+        val note = runCatching { registrar.register(local) }.getOrNull()
+        return note ?: "Saved to ${local.name}. Open Models to load it."
     }
 
     /**

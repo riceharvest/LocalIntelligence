@@ -55,11 +55,34 @@ data class HubRequest(
     val headers: Map<String, String> = emptyMap(),
     val rangeFrom: Long? = null,
     /**
-     * Sent as `Authorization: Bearer <token>`. Never logged, never placed in a
+     * Last byte of a CLOSED range, or null for an open-ended one.
+     *
+     * WHY this exists alongside [rangeFrom]: resume needs `bytes=N-` (to the
+     * end of the entity), while the pre-download header probe needs
+     * `bytes=0-4194303` (a bounded prefix). An open-ended `bytes=0-` is a
+     * request for the entire 668 MB model, which is the one thing the probe
+     * exists to avoid. Defaulting to null keeps every existing construction site
+     * byte-for-byte identical.
+     */
+    val rangeTo: Long? = null,
+    /**
+     * Sent as `Authorization: Bearer *** Never logged, never placed in a
      * URL, never persisted outside the secure store.
      */
     val authToken: String? = null,
 ) {
+    /**
+     * The `Range` header value this request implies, or null for a full body.
+     *
+     * WHY a function rather than an inline `when` at the transport: the open and
+     * closed spellings must agree with each other, and a second construction of
+     * the same header in the transport is a second place to get it wrong.
+     */
+    fun rangeHeader(): String? {
+        val from = rangeFrom ?: return null
+        val to = rangeTo
+        return if (to != null) "bytes=$from-$to" else "bytes=$from-"
+    }
     /**
      * WHY this is hand-written: as a `data class` the compiler generates a
      * `toString` that prints every property, including this one. A token in a

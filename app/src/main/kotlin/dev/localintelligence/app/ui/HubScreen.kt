@@ -126,6 +126,22 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                             "Download size: ${formatBytes(selected.sizeBytes)}",
                             style = MaterialTheme.typography.bodyMedium,
                         )
+                        // WHY the basis is shown and not just the verdict: a
+                        // refusal computed from a 4 MiB header probe is a fact
+                        // about this file, while one computed from its NAME is a
+                        // guess, and the user is being asked to spend 668 MB of
+                        // their data on the strength of it. Saying which one they
+                        // are looking at is the difference between a number they
+                        // can check and a number they have to trust.
+                        Text(
+                            if (state.exactFit) {
+                                "Measured from the model's own header."
+                            } else {
+                                "Estimated from the file name — could not read the model's header."
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         Text(
                             plan.ram.explanation,
                             style = MaterialTheme.typography.bodyMedium,
@@ -174,8 +190,14 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                     }
                 }
                 state.progress is DownloadProgress.Done -> {
+                    // WHY the completion state says what happened to the MODEL and
+                    // not just to the download: the question behind every one of
+                    // these bytes is "can I use this now", and "downloaded to app
+                    // storage" does not answer it. `registeredNote` carries the
+                    // registrar's own answer, including its failure cases.
+                    val note = state.registeredNote
                     Text(
-                        "Downloaded to app storage.",
+                        note ?: "Downloaded. Open Models to load it.",
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -194,7 +216,16 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                         onClick = viewModel::startDownload,
                         enabled = state.selected != null && state.plan?.isAllowed == true,
                     ) {
-                        Text("Download${state.sizeLabel?.let { " ($it)" } ?: ""}")
+                        // WHY the label changes: the button's action changes too.
+                        // "Download" on a file that is already in app storage
+                        // promises 668 MB of transfer that will not happen, and
+                        // "Add to models" is the action that will.
+                        Text(
+                            when {
+                                state.alreadyOnDevice -> "Add to models"
+                                else -> "Download${state.sizeLabel?.let { " ($it)" } ?: ""}"
+                            },
+                        )
                     }
                 }
             }
