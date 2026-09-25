@@ -121,6 +121,33 @@ internal class NativeLiteRtLmEngine(
         const val TERMINAL_TIMEOUT_MINUTES = 10L
 
         /**
+         * How often [NativeLiteRtLmConversation.send] re-checks the latch.
+         *
+         * Short enough that a cancel is felt as a stop rather than a lag, long
+         * enough that a generation is not spinning. 200 ms costs 5 wakeups a
+         * second on a thread that is otherwise blocked in native decode.
+         *
+         * `internal` rather than `private`: [NativeLiteRtLmConversation] is a
+         * separate top-level class, not a nested one, so a private companion
+         * member is not in its scope.
+         */
+        internal const val POLL_INTERVAL_MS = 200L
+
+        /**
+         * How long to wait for the runtime to acknowledge a cancel before
+         * returning the partial answer anyway.
+         *
+         * A cancel that the runtime never confirms is not a reason to hold the
+         * calling thread: the text produced so far is already in the tracker's
+         * hands and the backend reports it with `StopReason.CANCELLED`. Two
+         * seconds is long enough for a decode to unwind cleanly and short enough
+         * that a wedged runtime does not read as a hung app.
+         *
+         * `internal` for the same reason as [POLL_INTERVAL_MS].
+         */
+        internal const val CANCEL_GRACE_MS = 2_000L
+
+        /**
          * Builds a real engine for [config].
          *
          * `enableBenchmark` is set here, before any engine is constructed, because
@@ -282,21 +309,64 @@ internal class NativeLiteRtLmConversation(
             done.countDown()
         }
 
-        val finished = done.await(
-            NativeLiteRtLmEngine.TERMINAL_TIMEOUT_MINUTES,
-            TimeUnit.MINUTES,
-        )
-        if (!finished) {
-            // The runtime never reported a terminal event. Cancel so the native
-            // decode stops, and report the failure rather than returning whatever
-            // partial text happened to arrive as a completed answer.
-            cancel()
-            listener.onError(
-                LiteRtLmEngineException(
-                    "the LiteRT-LM runtime produced no terminal event within " +
-                        "${NativeLiteRtLmEngine.TERMINAL_TIMEOUT_MINUTES} minutes",
-                ),
-            )
+        // Poll rather than take the latch in one blocking `await`. A single
+        // await of the full timeout makes a cancelled generation indistinguishable
+        // from a stuck one: `cancelProcess()` is a request, and if the runtime
+        // does not answer it with a terminal event the caller blocks for the whole
+        // window. On a phone that is a stop button that does nothing for ten
+        // minutes, which is the freeze this polling exists to prevent.
+        //
+        // The constants are on NativeLiteRtLmEngine's companion, qualified
+        // because this class is a separate top-level declaration.
+        val deadline = System.nanoTime() +
+            NativeLiteRtLmEngine.TERMINAL_TIMEOUT_MINUTES * 60L * 1_000_000_000L
+        var cancelObservedAt = 0L
+        while (true) {
+            if (done.await(
+                    NativeLiteRtLmEngine.POLL_INTERVAL_MS,
+                    TimeUnit.MILLISECONDS,
+                )
+            ) {
+                break
+            }
+
+            if (System.nanoTime() >= deadline) {
+                // The runtime never reported a terminal event. Cancel so the
+                // native decode stops, and report the failure rather than
+                // returning whatever partial text happened to arrive as a
+                // completed answer.
+                cancel()
+                listener.onError(
+                    LiteRtLmEngineException(
+                        "the LiteRT-LM runtime produced no terminal event within " +
+                            "${NativeLiteRtLmEngine.TERMINAL_TIMEOUT_MINUTES} minutes",
+                    ),
+                )
+                break
+            }
+
+            // Cancel was requested but the runtime has not acknowledged it. Give
+            // it a short grace period to unwind its own decode, then stop
+            // waiting: the user asked to stop, and continuing to block the calling
+            // thread to preserve a decode they just cancelled is the wrong trade.
+            if (cancelled.get()) {
+                if (cancelObservedAt == 0L) {
+                    cancelObservedAt = System.nanoTime()
+                    cancel()
+                } else if (
+                    System.nanoTime() - cancelObservedAt >
+                    NativeLiteRtLmEngine.CANCEL_GRACE_MS * 1_000_000L
+                ) {
+                    listener.onError(
+                        LiteRtLmEngineException(
+                            "cancelled, but the LiteRT-LM runtime did not acknowledge " +
+                                "the cancel within ${NativeLiteRtLmEngine.CANCEL_GRACE_MS} ms; " +
+                                "returning the partial answer",
+                        ),
+                    )
+                    break
+                }
+            }
         }
         if (cancelled.get()) cancel()
     }
