@@ -777,10 +777,11 @@ sealed interface ChatMessage {
 internal fun RunOutcome.transcriptLine(): String {
     val line = notice
     if (this !is RunOutcome.Failed) return line
-    if (!reason.startsWith(RAW_MODEL_FAILURE)) return line
-    return "The model stopped while it was generating, and produced no answer. " +
-        "The runtime's own error is on the Trace screen."
+    // Delegates to the one sanitiser. This used to be a second copy of the same
+    // rule, and the two already disagreed on the last sentence: the transcript
+    // pointed at the Trace screen for the raw error, while the Trace screen
+    // said it never shows raw error text. A user who followed the pointer was
+    // sent somewhere the promised text did not exist.
+    return safeFailureReason(line)
 }
 
-/** The prefix `AgentController` puts on a failed generation. */
-private const val RAW_MODEL_FAILURE = "model failed: "

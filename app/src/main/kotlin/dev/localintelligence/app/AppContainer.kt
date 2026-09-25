@@ -126,6 +126,29 @@ class AppContainer(private val context: Context) {
      */
     val memoryStore: MemoryStore by lazy { resilientMemoryStore(context) }
 
+    /**
+     * The conversation, kept across runs.
+     *
+     * WHY THIS IS NOT `Session()` PER RUN: a controller is single-use by design -
+     * it owns per-run mutable state and is thrown away afterwards. But the
+     * conversation is not per-run. It used to be constructed inline as
+     * `sessions = Session()` on every `newController()` call, which meant a
+     * second message carried nothing at all: the model had no idea what had
+     * already been said. The app then looked like it had no memory while
+     * claiming to be an agent that remembers. `RoomSessionStore` has been fully
+     * implemented this whole time and had zero callers.
+     *
+     * One instance per container, so both entry points - a chat turn and a
+     * scheduled task - share the same thread of conversation, which is what a
+     * user means by "the conversation".
+     *
+     * WHY NOT GUARDED: the container is constructed once and lives for the
+     * process, and `ExecutionService` serialises runs on a single serviceScope,
+     * so two runs cannot interleave writes. If that ever changes, this needs a
+     * lock - noted here so the invariant is not lost.
+     */
+    val session: Session by lazy { Session() }
+
     val agentConfig: AgentConfig by lazy { AgentConfig() }
 
     /**
@@ -330,7 +353,9 @@ class AppContainer(private val context: Context) {
         loopDetector = LoopDetector(),
         contextBuilder = contextBuilder,
         memory = memoryStore,
-        sessions = Session(),
+        // The shared conversation, not a fresh one. See [session] for why this
+        // used to silently discard everything the model had already been told.
+        sessions = session,
         config = agentConfig,
         riskPolicy = riskPolicy,
         metrics = metrics,

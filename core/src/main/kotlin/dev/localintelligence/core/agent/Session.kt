@@ -26,9 +26,22 @@ class Session(
 
     var workingSummary: CompactedState? = null
 
-    /** Records the task as the opening user turn. Idempotent. */
+    /**
+     * Records the task as a new opening user turn.
+     *
+     * WHY NOT IDEMPOTENT ANY MORE: this used to add the turn only if the
+     * session held no [ChatMessage.User] at all, which is correct for a
+     * single-run session and catastrophic for a shared one. With one
+     * long-lived session per app, the second question the user ever asked was
+     * silently dropped - the model would answer the first question again and
+     * the app would look broken in a way nothing could explain. Every turn is
+     * now appended.
+     *
+     * The list is bounded by the session's own compaction ([keepRecent] and
+     * [compact]), so this cannot grow without limit.
+     */
     fun start(task: String) {
-        if (messages.none { it is ChatMessage.User }) messages += ChatMessage.User(task)
+        messages += ChatMessage.User(task)
     }
 
     /**

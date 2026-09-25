@@ -3,6 +3,7 @@ package dev.localintelligence.app
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import dev.localintelligence.android.inference.LlamaCppBackend
 
 /**
  * What the UI is allowed to claim about the model, derived from what actually
@@ -99,8 +100,10 @@ internal fun describeLoadFailure(cause: Throwable?): String = when (cause) {
         "That file is no longer readable. Import it again from your files app."
 
     is OutOfMemoryError ->
-        "There is not enough memory to load that model. Pick a smaller one, " +
-            "or lower its context length in Models."
+        "There is not enough memory to load that model. Pick a smaller one. " +
+            "Context length is fixed at ${LlamaCppBackend.DEFAULT_CONTEXT_LENGTH} " +
+            "tokens and there is no control for it yet, so a smaller model is " +
+            "the only lever."
 
     else -> {
         // The raw message is NOT shown. It is a native or JNI string and can be
