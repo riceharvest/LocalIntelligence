@@ -3,4 +3,8 @@
     <string name="app_name">LocalIntelligence</string>
     <!-- Label for the screen that requests notification access. -->
     <string name="background_access_title">Background access</string>
+    <!-- Launcher shortcut into the scheduled-tasks screen. Short label is what
+         the launcher shows under the icon, so it is kept to one word. -->
+    <string name="schedule_shortcut_short">Schedule</string>
+    <string name="schedule_shortcut_long">Scheduled tasks</string>
 </resources>
