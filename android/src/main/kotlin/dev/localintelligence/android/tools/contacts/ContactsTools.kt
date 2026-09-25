@@ -12,6 +12,9 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.contracts.PermissionDenial
+import dev.localintelligence.core.tool.contracts.PlatformGrant
+import dev.localintelligence.core.tool.contracts.ToolPermissions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -365,10 +368,12 @@ internal class ResolverContactsProvider(private val resolver: ContentResolver) :
  */
 class ContactsSearchTool internal constructor(
     private val provider: ContactsProvider,
+    private val grant: PlatformGrant,
 ) : AgentTool {
 
     /** Production wiring: `ContactsSearchTool(context.contentResolver)`. */
-        constructor(resolver: ContentResolver) : this(ResolverContactsProvider(resolver))
+        constructor(resolver: ContentResolver, grant: PlatformGrant) :
+            this(ResolverContactsProvider(resolver), grant)
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "contacts.search",
@@ -399,7 +404,14 @@ class ContactsSearchTool internal constructor(
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         withContext(Dispatchers.IO) {
-            if (!context.permissionGranted) return@withContext denied()
+            // The permission question is asked of the PLATFORM, not of
+            // `context.permissionGranted`. That flag is filled from a set the
+            // app never populates, so it is false on every call; asking it
+            // would fabricate a denial for a user who had granted contacts,
+            // and skipping it would return an empty list for a user who had
+            // not. Both are lies, and the second is the one that makes the
+            // model say "you have no contacts".
+            if (!grant.isGranted(ToolPermissions.CONTACTS)) return@withContext denied()
             if (context.signal.isCancelled()) return@withContext cancelled()
 
             val query = optionalString(args, "query", ContactsArgs.MAX_QUERY_CHARS)
@@ -477,9 +489,8 @@ class ContactsSearchTool internal constructor(
 
     private fun denied(): ToolResult = ToolResult(
         success = false,
-        observation = "Contacts access has not been granted, so no contacts were read. " +
-            "Ask the user to grant the Contacts permission, then retry once.",
-        error = ToolError.PermissionDenied("READ_CONTACTS not granted"),
+        observation = PermissionDenial.observation("contacts.search", ToolPermissions.CONTACTS),
+        error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.CONTACTS)),
     )
 
     private fun invalid(message: String): ToolResult = ToolResult(
@@ -503,10 +514,12 @@ class ContactsSearchTool internal constructor(
  */
 class ContactsGetTool internal constructor(
     private val provider: ContactsProvider,
+    private val grant: PlatformGrant,
 ) : AgentTool {
 
     /** Production wiring: `ContactsGetTool(context.contentResolver)`. */
-        constructor(resolver: ContentResolver) : this(ResolverContactsProvider(resolver))
+        constructor(resolver: ContentResolver, grant: PlatformGrant) :
+            this(ResolverContactsProvider(resolver), grant)
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "contacts.get",
@@ -531,7 +544,11 @@ class ContactsGetTool internal constructor(
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         withContext(Dispatchers.IO) {
-            if (!context.permissionGranted) return@withContext denied()
+            // Asked of the platform, not of `context.permissionGranted` — see
+            // the note on contacts.search. Without this the notFound() branch
+            // below is reached for a user who simply was not allowed to look,
+            // and the model reports that the contact does not exist.
+            if (!grant.isGranted(ToolPermissions.CONTACTS)) return@withContext denied()
             if (context.signal.isCancelled()) return@withContext cancelled()
 
             val id = when (val parsed = ContactsArgs.parseContactId(primitive(args, "id")?.content)) {
@@ -614,9 +631,8 @@ class ContactsGetTool internal constructor(
 
     private fun denied(): ToolResult = ToolResult(
         success = false,
-        observation = "Contacts access has not been granted, so the contact could not be read. " +
-            "Ask the user to grant the Contacts permission, then retry once.",
-        error = ToolError.PermissionDenied("READ_CONTACTS not granted"),
+        observation = PermissionDenial.observation("contacts.get", ToolPermissions.CONTACTS),
+        error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.CONTACTS)),
     )
 
     private fun invalid(message: String): ToolResult = ToolResult(
@@ -669,10 +685,10 @@ private fun Cursor.longOrZero(column: String): Long {
  * WHY a factory: see the note on `calendarTools`. The composition root is the
  * single place that knows the shipped tool set, and this is what it calls.
  */
-fun contactsTools(context: Context): List<AgentTool> {
+fun contactsTools(context: Context, grant: PlatformGrant): List<AgentTool> {
     val resolver = context.applicationContext.contentResolver
     return listOf(
-        ContactsSearchTool(resolver),
-        ContactsGetTool(resolver),
+        ContactsSearchTool(resolver, grant),
+        ContactsGetTool(resolver, grant),
     )
 }

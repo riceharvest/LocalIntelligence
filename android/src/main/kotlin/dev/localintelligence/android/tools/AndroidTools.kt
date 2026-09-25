@@ -49,16 +49,22 @@ import dev.localintelligence.core.tool.catalogue.V0ToolCatalogue
  */
 fun androidTools(context: Context): List<AgentTool> {
     val appContext = context.applicationContext
+    // The one platform-truthful answer to "may this app do this right now",
+    // built once and shared. See AndroidPlatformGrant for why the runtime's
+    // ToolContext.permissionGranted cannot be the source of this fact: it is
+    // filled from a permission set nothing populates, so it is false for every
+    // permissioned tool on every call.
+    val grant = AndroidPlatformGrant(appContext)
     val tools = buildList {
-        addAll(deviceTools(appContext))
-        addAll(fileTools(appContext))
+        addAll(deviceTools(appContext, grant))
+        addAll(fileTools(appContext, grant))
         addAll(appTools(appContext))
         addAll(clipboardTools(appContext))
-        addAll(alarmTools(appContext))
-        addAll(calendarTools(appContext))
-        addAll(contactsTools(appContext))
-        addAll(notificationTools())
-        addAll(webTools())
+        addAll(alarmTools(appContext, grant))
+        addAll(calendarTools(appContext, grant))
+        addAll(contactsTools(appContext, grant))
+        addAll(notificationTools(grant))
+        addAll(webTools(grant))
     }
     return requireCatalogueAgreement(tools)
 }

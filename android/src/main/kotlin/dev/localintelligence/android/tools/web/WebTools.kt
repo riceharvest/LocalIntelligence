@@ -9,6 +9,9 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.contracts.PermissionDenial
+import dev.localintelligence.core.tool.contracts.PlatformGrant
+import dev.localintelligence.core.tool.contracts.ToolPermissions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -768,7 +771,7 @@ internal class WebFetcher(
     private val opener: ResponseOpener,
 ) {
 
-    fun fetch(url: String, maxChars: Int, context: ToolContext): ToolResult {
+    fun fetch(url: String, maxChars: Int, context: ToolContext, grant: PlatformGrant): ToolResult {
         // The caller's knob is clamped to MAX_MAX_CHARS, and then to the
         // contract ceiling. The ceiling always wins: a model asking for 8000
         // characters does not get to decide that the 2048-char observation
@@ -782,12 +785,19 @@ internal class WebFetcher(
 
         try {
             if (context.signal.isCancelled()) return cancelled()
-            if (!context.permissionGranted) {
+            // Asked of the platform, not of `context.permissionGranted`. That
+            // flag was filled from a set nothing populates, so it was false on
+            // every call and web.fetch — the one tool that reaches the internet,
+            // and therefore the one that answers weather, news and prices — was
+            // dead on a fully working install. The old message ("not granted
+            // for this call ... once the user allows it") also described a
+            // consent dialog that does not exist: INTERNET is an install-time
+            // permission, granted by being in the manifest, which it is.
+            if (!grant.isGranted(ToolPermissions.INTERNET_REQUIREMENT)) {
                 return ToolResult(
                     success = false,
-                    observation = "Network access was not granted for this call, so no request " +
-                        "was made. Try again once the user allows it.",
-                    error = ToolError.PermissionDenied("context.permissionGranted is false"),
+                    observation = PermissionDenial.observation("web.fetch", ToolPermissions.INTERNET_REQUIREMENT),
+                    error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.INTERNET_REQUIREMENT)),
                 )
             }
 
@@ -1043,13 +1053,16 @@ internal class HttpUrlConnectionOpener : ResponseOpener {
  */
 class WebFetchTool private constructor(
     private val opener: ResponseOpener,
+    private val grant: PlatformGrant,
 ) : AgentTool {
 
-    constructor() : this(HttpUrlConnectionOpener())
+    constructor(grant: PlatformGrant) : this(HttpUrlConnectionOpener(), grant)
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "web.fetch",
-        description = "Fetches a web page over http or https and returns its readable text.",
+        description = "Fetches a web page over http or https and returns its readable text, " +
+            "with any HTML markup stripped out. There is no format argument: the result is " +
+            "always plain text.",
         category = "web",
         schema = buildJsonObject {
             put("type", JsonPrimitive("object"))
@@ -1070,33 +1083,27 @@ class WebFetchTool private constructor(
                         "maxChars",
                         buildJsonObject {
                             put("type", JsonPrimitive("integer"))
+                            put("minimum", JsonPrimitive(MIN_MAX_CHARS))
+                            put("maximum", JsonPrimitive(MAX_MAX_CHARS))
                             put(
                                 "description",
                                 JsonPrimitive(
                                     "Characters of text to return, $DEFAULT_MAX_CHARS by default, " +
-                                        "at most $MAX_MAX_CHARS.",
+                                        "at most $MAX_MAX_CHARS. The whole response is also capped " +
+                                        "at the observation budget, so a larger value may not " +
+                                        "return more text.",
                                 ),
                             )
                         },
                     )
-                    put(
-                        "format",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put(
-                                "enum",
-                                kotlinx.serialization.json.buildJsonArray {
-                                    add(JsonPrimitive("auto"))
-                                    add(JsonPrimitive("text"))
-                                    add(JsonPrimitive("html"))
-                                },
-                            )
-                            put(
-                                "description",
-                                JsonPrimitive("Hint only; HTML is always stripped to text."),
-                            )
-                        },
-                    )
+                    // Removed rather than documented around. This advertised a
+                    // three-value enum and the tool never read it: `execute`
+                    // pulls only "url" and "maxChars". An argument the model can
+                    // send and that provably does nothing is a schema lying
+                    // about its own arguments, and "html" in particular implies
+                    // raw markup can be returned, which this tool will not do.
+                    // HTML is always stripped to text — that is now stated in
+                    // the tool description instead of being an argument.
                 },
             )
             put("required", kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive("url")) })
@@ -1105,7 +1112,7 @@ class WebFetchTool private constructor(
         tags = setOf(
             "web", "fetch", "url", "internet", "page", "website", "read online", "http",
         ),
-        requiredPermission = "android.permission.INTERNET",
+        requiredPermission = null,
     )
 
     /**
@@ -1133,7 +1140,7 @@ class WebFetchTool private constructor(
                     min = MIN_MAX_CHARS,
                     max = MAX_MAX_CHARS,
                 )
-                WebFetcher(opener).fetch(accepted.url, maxChars, context)
+                WebFetcher(opener).fetch(accepted.url, maxChars, context, grant)
             } catch (e: Exception) {
                 // WebFetcher is already total. This is the last line: an
                 // exception must never escape execute() into the agent loop.
@@ -1148,7 +1155,8 @@ class WebFetchTool private constructor(
 
     internal companion object {
         /** Test seam: a [WebFetchTool] backed by a scripted transport. */
-        fun withOpener(opener: ResponseOpener): WebFetchTool = WebFetchTool(opener)
+        fun withOpener(opener: ResponseOpener, grant: PlatformGrant): WebFetchTool =
+            WebFetchTool(opener, grant)
     }
 }
 
@@ -1169,4 +1177,4 @@ class WebFetchTool private constructor(
  * fetcher is an [HttpUrlConnectionOpener] with no access to app state, so it
  * cannot read anything the user did not explicitly ask it to fetch.
  */
-fun webTools(): List<AgentTool> = listOf(WebFetchTool())
+fun webTools(grant: PlatformGrant): List<AgentTool> = listOf(WebFetchTool(grant))

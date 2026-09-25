@@ -478,7 +478,13 @@ class AppsListTool(private val appContext: Context) : AgentTool {
         },
         risk = ToolRisk.READ_ONLY,
         tags = setOf("apps", "applications", "installed", "launcher", "home screen", "what apps do i have", "packages"),
-        requiredPermission = "android.permission.QUERY_ALL_PACKAGES is NOT used; package visibility rules apply on API 30+",
+        // No permission, and the field now says so. It used to hold the
+        // sentence "QUERY_ALL_PACKAGES is NOT used; package visibility rules
+        // apply on API 30+", which is documentation masquerading as a permission
+        // name: no host can ever grant a sentence, and a UI that renders this
+        // field as a permission prompt would prompt for something that does not
+        // exist. The real mechanism is the <queries> element in the manifest.
+        requiredPermission = null,
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
@@ -530,6 +536,11 @@ class AppsOpenTool(private val appContext: Context) : AgentTool {
                 },
             )
             putJsonArray("required") { }
+            // Truthful: `required: []` alone told the model an empty call was
+            // fine, and the tool then rejected it. One of the two arguments is
+            // genuinely required, just not expressible as a named `required`
+            // entry, so the standard constraint for that is minProperties.
+            put("minProperties", 1)
             put("additionalProperties", false)
         },
         risk = ToolRisk.REVERSIBLE,
@@ -646,6 +657,10 @@ class AppsShareTool(private val appContext: Context) : AgentTool {
                 },
             )
             putJsonArray("required") { }
+            // One of 'uri' or 'text' is genuinely required; the tool rejects a
+            // call with neither. Declared so the model is not invited to make
+            // the call the tool will refuse.
+            put("minProperties", 1)
             put("additionalProperties", false)
         },
         risk = ToolRisk.EXTERNAL_COMMUNICATION,

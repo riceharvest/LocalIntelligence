@@ -21,6 +21,9 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.contracts.PermissionDenial
+import dev.localintelligence.core.tool.contracts.PlatformGrant
+import dev.localintelligence.core.tool.contracts.ToolPermissions
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -589,6 +592,7 @@ class NotificationListTool(
     private val listener: () -> LocalNotificationListenerService? = {
         LocalNotificationListenerService.connected
     },
+    private val grant: PlatformGrant = PlatformGrant.GRANT_ALL,
 ) : AgentTool {
 
     override val definition: ToolDefinition = ToolDefinition(
@@ -639,15 +643,22 @@ class NotificationListTool(
             "notifications", "alerts", "messages", "list", "banner",
             "inbox", "what came in", "ping",
         ),
-        requiredPermission = "BIND_NOTIFICATION_LISTENER_SERVICE (user grant in Settings)",
+        requiredPermission = null,
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
         return try {
-            if (!context.permissionGranted) {
+            // The grant is asked of the PLATFORM. It used to be read from
+            // `context.permissionGranted`, which is filled from a set nothing
+            // populates and so was false on every call — meaning a user who HAD
+            // granted notification access was told they had not, and a user who
+            // had not was told the same thing for a different reason they could
+            // not act on. `grant` calls NotificationListenerService
+            // .isGranted(), which reads the system allow list directly.
+            if (!grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER)) {
                 return failed(
-                    "Notification access was not granted for this call. " + Notifications.notEnabledNotice(),
-                    ToolError.PermissionDenied("context.permissionGranted is false"),
+                    PermissionDenial.observation("notifications.list", ToolPermissions.NOTIFICATION_LISTENER),
+                    ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.NOTIFICATION_LISTENER)),
                 )
             }
             if (context.signal.isCancelled()) return cancelled()
@@ -775,6 +786,7 @@ class NotificationReplyTool(
         { context, sbn, text ->
             context?.let { NotificationProjector.sendReply(it, sbn, text) } ?: false
         },
+    private val grant: PlatformGrant = PlatformGrant.GRANT_ALL,
 ) : AgentTool {
 
     override val definition: ToolDefinition = ToolDefinition(
@@ -818,7 +830,7 @@ class NotificationReplyTool(
             "reply", "respond", "answer", "message back", "notification", "chat",
             "text message", "send",
         ),
-        requiredPermission = "BIND_NOTIFICATION_LISTENER_SERVICE (user grant in Settings)",
+        requiredPermission = null,
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
@@ -836,9 +848,13 @@ class NotificationReplyTool(
                 return invalid("The reply is ${text.length} characters, over the 2000 limit. " +
                     "Send a short message.")
             }
-            if (!context.permissionGranted) {
-                return denied("Notification access was not granted for this call. " +
-                    Notifications.notEnabledNotice())
+            // Platform truth — see the note on notifications.list. Nothing is
+            // sent on this path, and the message says so.
+            if (!grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER)) {
+                return denied(
+                    PermissionDenial.observation("notifications.reply", ToolPermissions.NOTIFICATION_LISTENER) +
+                        " No reply was sent.",
+                )
             }
             if (context.signal.isCancelled()) return cancelled()
 
@@ -977,6 +993,7 @@ class NotificationDismissTool(
     private val listener: () -> LocalNotificationListenerService? = {
         LocalNotificationListenerService.connected
     },
+    private val grant: PlatformGrant = PlatformGrant.GRANT_ALL,
 ) : AgentTool {
 
     override val definition: ToolDefinition = ToolDefinition(
@@ -1007,7 +1024,7 @@ class NotificationDismissTool(
             "dismiss", "clear", "notification", "remove", "silence", "swipe away",
             "banner",
         ),
-        requiredPermission = "BIND_NOTIFICATION_LISTENER_SERVICE (user grant in Settings)",
+        requiredPermission = null,
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
@@ -1021,12 +1038,16 @@ class NotificationDismissTool(
                     error = ToolError.InvalidArguments("key is required"),
                 )
             }
-            if (!context.permissionGranted) {
+            // Platform truth — see the note on notifications.list.
+            if (!grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER)) {
                 return ToolResult(
                     success = false,
-                    observation = "Notification access was not granted for this call. " +
-                        Notifications.notEnabledNotice() + " Nothing was dismissed.",
-                    error = ToolError.PermissionDenied("notification listener not granted"),
+                    observation = PermissionDenial.observation(
+                        "notifications.dismiss", ToolPermissions.NOTIFICATION_LISTENER,
+                    ) + " Nothing was dismissed.",
+                    error = ToolError.PermissionDenied(
+                        PermissionDenial.summary(ToolPermissions.NOTIFICATION_LISTENER),
+                    ),
                 )
             }
             if (context.signal.isCancelled()) return cancelled()
@@ -1202,8 +1223,8 @@ internal object LABELS {
  * The context is threaded through only at REPLY time, via
  * [NotificationProjector], because that is the single call that needs it.
  */
-fun notificationTools(): List<AgentTool> = listOf(
-    NotificationListTool(),
-    NotificationReplyTool(),
-    NotificationDismissTool(),
+fun notificationTools(grant: PlatformGrant): List<AgentTool> = listOf(
+    NotificationListTool(grant = grant),
+    NotificationReplyTool(grant = grant),
+    NotificationDismissTool(grant = grant),
 )

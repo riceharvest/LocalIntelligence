@@ -14,6 +14,9 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.contracts.PermissionDenial
+import dev.localintelligence.core.tool.contracts.PlatformGrant
+import dev.localintelligence.core.tool.contracts.ToolPermissions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -553,12 +556,13 @@ internal class ResolverCalendarProvider(private val resolver: ContentResolver) :
 class CalendarSearchTool internal constructor(
     private val provider: CalendarProvider,
     private val zone: ZoneId,
+    private val grant: PlatformGrant,
 ) : AgentTool {
 
     /** Production wiring: `CalendarSearchTool(context.contentResolver)`. */
     @JvmOverloads
-    constructor(resolver: ContentResolver, zone: ZoneId = ZoneId.systemDefault()) :
-        this(ResolverCalendarProvider(resolver), zone)
+    constructor(resolver: ContentResolver, zone: ZoneId = ZoneId.systemDefault(), grant: PlatformGrant) :
+        this(ResolverCalendarProvider(resolver), zone, grant)
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "calendar.search",
@@ -601,7 +605,12 @@ class CalendarSearchTool internal constructor(
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         withContext(Dispatchers.IO) {
-            if (!context.permissionGranted) return@withContext denied()
+            // Asked of the platform, not of `context.permissionGranted` — that
+            // flag comes from a set nothing populates and is false on every
+            // call. Trusting it fabricates a denial; ignoring it returns
+            // "No events ... between ..." for a calendar the app was not
+            // allowed to open, and the model tells the user they are free.
+            if (!grant.isGranted(ToolPermissions.CALENDAR_READ)) return@withContext denied()
             if (context.signal.isCancelled()) return@withContext cancelled()
 
             val now = System.currentTimeMillis()
@@ -692,9 +701,8 @@ class CalendarSearchTool internal constructor(
 
     private fun denied(): ToolResult = ToolResult(
         success = false,
-        observation = "Calendar access has not been granted, so no events were read. " +
-            "Ask the user to grant the Calendar permission, then retry once.",
-        error = ToolError.PermissionDenied("READ_CALENDAR not granted"),
+        observation = PermissionDenial.observation("calendar.search", ToolPermissions.CALENDAR_READ),
+        error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.CALENDAR_READ)),
     )
 
     private fun invalid(message: String): ToolResult = ToolResult(
@@ -747,12 +755,13 @@ class CalendarSearchTool internal constructor(
 class CalendarCreateTool internal constructor(
     private val provider: CalendarProvider,
     private val zone: ZoneId,
+    private val grant: PlatformGrant,
 ) : AgentTool {
 
     /** Production wiring: `CalendarCreateTool(context.contentResolver)`. */
     @JvmOverloads
-    constructor(resolver: ContentResolver, zone: ZoneId = ZoneId.systemDefault()) :
-        this(ResolverCalendarProvider(resolver), zone)
+    constructor(resolver: ContentResolver, zone: ZoneId = ZoneId.systemDefault(), grant: PlatformGrant) :
+        this(ResolverCalendarProvider(resolver), zone, grant)
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "calendar.create",
@@ -795,7 +804,12 @@ class CalendarCreateTool internal constructor(
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         withContext(Dispatchers.IO) {
-            if (!context.permissionGranted) return@withContext denied()
+            // Platform truth, not the unmaintained context flag — see the note
+            // on calendar.search. Here it matters twice over, because the
+            // create path's failure mode is a provider insert that returns
+            // null and is reported as "nothing was created" for a user who
+            // simply lacks WRITE_CALENDAR.
+            if (!grant.isGranted(ToolPermissions.CALENDAR_WRITE)) return@withContext denied()
             if (context.signal.isCancelled()) return@withContext cancelled()
 
             val title = optionalString(args, "title", CalendarArgs.MAX_TITLE_CHARS)
@@ -894,9 +908,8 @@ class CalendarCreateTool internal constructor(
 
     private fun denied(): ToolResult = ToolResult(
         success = false,
-        observation = "Calendar write access has not been granted, so no event was created. " +
-            "Ask the user to grant the Calendar permission, then retry once.",
-        error = ToolError.PermissionDenied("WRITE_CALENDAR not granted"),
+        observation = PermissionDenial.observation("calendar.create", ToolPermissions.CALENDAR_WRITE),
+        error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.CALENDAR_WRITE)),
     )
 
     private fun invalid(message: String): ToolResult = ToolResult(
@@ -929,10 +942,10 @@ class CalendarCreateTool internal constructor(
  * One [ContentResolver] shared by both tools. Constructing a second costs a
  * binder round trip and buys nothing: the resolver is a handle, not a pool.
  */
-fun calendarTools(context: Context): List<AgentTool> {
+fun calendarTools(context: Context, grant: PlatformGrant): List<AgentTool> {
     val resolver = context.applicationContext.contentResolver
     return listOf(
-        CalendarSearchTool(resolver),
-        CalendarCreateTool(resolver),
+        CalendarSearchTool(resolver, ZoneId.systemDefault(), grant),
+        CalendarCreateTool(resolver, ZoneId.systemDefault(), grant),
     )
 }

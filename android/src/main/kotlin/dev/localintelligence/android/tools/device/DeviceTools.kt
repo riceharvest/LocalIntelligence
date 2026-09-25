@@ -18,6 +18,9 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.contracts.PermissionDenial
+import dev.localintelligence.core.tool.contracts.PlatformGrant
+import dev.localintelligence.core.tool.contracts.ToolPermissions
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -702,14 +705,13 @@ class DeviceBatteryTool(private val platform: DevicePlatform) : AgentTool {
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
-        if (!context.permissionGranted) {
-            return ToolResult(
-                success = false,
-                observation = "No permission to read the battery. Tell the user it is unavailable " +
-                    "in this session; do not retry.",
-                error = ToolError.PermissionDenied("battery read denied"),
-            )
-        }
+        // The `permissionGranted` gate that used to be here is removed rather
+        // than replaced, and that is the point. Reading the battery needs no
+        // permission at all — ACTION_BATTERY_CHANGED is a protected sticky
+        // broadcast any app may read — so a denial here could only ever have
+        // been fabricated. It read "unavailable in this session; do not
+        // retry", which is unfixable advice: there is no session, and no
+        // permission to grant. The tool is now honest by simply working.
         if (context.signal.isCancelled()) {
             return ToolResult(
                 success = false,
@@ -755,14 +757,9 @@ class DeviceInfoTool(private val platform: DevicePlatform) : AgentTool {
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
-        if (!context.permissionGranted) {
-            return ToolResult(
-                success = false,
-                observation = "No permission to read device information. Tell the user it is " +
-                    "unavailable in this session; do not retry.",
-                error = ToolError.PermissionDenied("device info denied"),
-            )
-        }
+        // No fabricated gate: Build.*, DisplayMetrics, ActivityManager
+        // .getMemoryInfo and StatFs are all readable without a permission. See
+        // the note on device.battery.
         if (context.signal.isCancelled()) {
             return ToolResult(
                 success = false,
@@ -781,7 +778,10 @@ class DeviceInfoTool(private val platform: DevicePlatform) : AgentTool {
     }
 }
 
-class DeviceVibrateTool(private val platform: DevicePlatform) : AgentTool {
+class DeviceVibrateTool(
+    private val platform: DevicePlatform,
+    private val grant: PlatformGrant,
+) : AgentTool {
 
     override val definition = ToolDefinition(
         name = "device.vibrate",
@@ -796,12 +796,16 @@ class DeviceVibrateTool(private val platform: DevicePlatform) : AgentTool {
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
-        if (!context.permissionGranted) {
+        // Platform truth. VIBRATE is a normal (install-time) permission, so it
+        // is either in the manifest or the call throws SecurityException — but
+        // asking is still correct, because the old flag was a lie in BOTH
+        // directions: it denied users who had the permission, and its message
+        // named no permission to grant.
+        if (!grant.isGranted(ToolPermissions.VIBRATE_REQUIREMENT)) {
             return ToolResult(
                 success = false,
-                observation = "No permission to vibrate the phone. Tell the user it is unavailable " +
-                    "in this session; do not retry.",
-                error = ToolError.PermissionDenied("vibrate denied"),
+                observation = PermissionDenial.observation("device.vibrate", ToolPermissions.VIBRATE_REQUIREMENT),
+                error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.VIBRATE_REQUIREMENT)),
             )
         }
         if (context.signal.isCancelled()) {
@@ -893,14 +897,7 @@ class DeviceOpenSettingsTool(private val platform: DevicePlatform) : AgentTool {
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
-        if (!context.permissionGranted) {
-            return ToolResult(
-                success = false,
-                observation = "No permission to open settings. Tell the user it is unavailable " +
-                    "in this session; do not retry.",
-                error = ToolError.PermissionDenied("open settings denied"),
-            )
-        }
+        // No permission gates launching a settings activity, so no denial here.
 
         val requested = when (val parsed = ArgCoerce.string(args, "screen")) {
             is ArgResult.Present -> parsed.value
@@ -1157,9 +1154,9 @@ class AndroidDevicePlatform(private val context: Context) : DevicePlatform {
 }
 
 /** All four device tools, wired to a real [Context]. */
-fun deviceTools(context: Context): List<AgentTool> = listOf(
+fun deviceTools(context: Context, grant: PlatformGrant): List<AgentTool> = listOf(
     DeviceBatteryTool(AndroidDevicePlatform(context)),
     DeviceInfoTool(AndroidDevicePlatform(context)),
-    DeviceVibrateTool(AndroidDevicePlatform(context)),
+    DeviceVibrateTool(AndroidDevicePlatform(context), grant),
     DeviceOpenSettingsTool(AndroidDevicePlatform(context)),
 )

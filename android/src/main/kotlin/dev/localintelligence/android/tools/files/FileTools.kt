@@ -14,6 +14,9 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.contracts.PermissionDenial
+import dev.localintelligence.core.tool.contracts.PlatformGrant
+import dev.localintelligence.core.tool.contracts.ToolPermissions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
@@ -955,8 +958,25 @@ private fun ok(observation: String, data: JsonObject? = null) =
 private fun fail(observation: String, error: ToolError) =
     ToolResult(success = false, observation = observation, error = error)
 
+/**
+ * The one denial shape for the whole family.
+ *
+ * Shared because five tools that each invented their own sentence is how four
+ * of them ended up saying "grant the storage permission" — which on Android 13+
+ * names a permission that does not exist for documents, sending the user to a
+ * Settings screen where the toggle they need is not.
+ */
+private fun denied(tool: String, requirement: dev.localintelligence.core.tool.contracts.PlatformRequirement) =
+    fail(
+        PermissionDenial.observation(tool, requirement),
+        ToolError.PermissionDenied(PermissionDenial.summary(requirement)),
+    )
+
 /** Documents visible to this app, newest first. */
-class FilesListTool(private val appContext: Context) : AgentTool {
+class FilesListTool(
+    private val appContext: Context,
+    private val grant: PlatformGrant,
+) : AgentTool {
 
     override val definition = ToolDefinition(
         name = "files.list",
@@ -980,17 +1000,18 @@ class FilesListTool(private val appContext: Context) : AgentTool {
         },
         risk = ToolRisk.READ_ONLY,
         tags = setOf("files", "documents", "downloads", "storage", "browse", "my files", "what files do i have"),
-        requiredPermission = "android.permission.READ_EXTERNAL_STORAGE (API<=32; API 33+ needs a SAF grant)",
+        requiredPermission = null,
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         ToolSafety.guard("files.list") {
-            if (!context.permissionGranted) {
-                return@guard fail(
-                    "No file access. Grant the storage permission or pick a folder for this " +
-                        "app, then list files again.",
-                    ToolError.PermissionDenied("storage permission not granted"),
-                )
+            // The decisive question. On Android 13+ NO runtime permission lets
+            // this app read a document the user has not handed over, so the
+            // honest answer is a refusal that explains the file picker rather
+            // than a "No documents matched." line the model would report to the
+            // user as "you have no documents".
+            if (!grant.isGranted(ToolPermissions.DOCUMENT_READ)) {
+                return@guard denied("files.list", ToolPermissions.DOCUMENT_READ)
             }
             val limit = FileArgs.limit(args.str("limit"))
             val rows = readRows(appContext, limit = limit)
@@ -1008,7 +1029,10 @@ class FilesListTool(private val appContext: Context) : AgentTool {
 }
 
 /** Search documents by name, MIME type and modification window. */
-class FilesSearchTool(private val appContext: Context) : AgentTool {
+class FilesSearchTool(
+    private val appContext: Context,
+    private val grant: PlatformGrant,
+) : AgentTool {
 
     override val definition = ToolDefinition(
         name = "files.search",
@@ -1050,17 +1074,17 @@ class FilesSearchTool(private val appContext: Context) : AgentTool {
         },
         risk = ToolRisk.READ_ONLY,
         tags = setOf("search", "find", "look for", "filename", "extension", "mime type", "recent files", "modified"),
-        requiredPermission = "android.permission.READ_EXTERNAL_STORAGE (API<=32; API 33+ needs a SAF grant)",
+        requiredPermission = null,
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         ToolSafety.guard("files.search") {
-            if (!context.permissionGranted) {
-                return@guard fail(
-                    "No file access. Grant the storage permission or pick a folder for this " +
-                        "app, then search again.",
-                    ToolError.PermissionDenied("storage permission not granted"),
-                )
+            // Platform truth, not the unmaintained context flag. A search that
+            // silently matches nothing is indistinguishable from a search over
+            // an index this app cannot see, and the model will say the file
+            // does not exist.
+            if (!grant.isGranted(ToolPermissions.DOCUMENT_READ)) {
+                return@guard denied("files.search", ToolPermissions.DOCUMENT_READ)
             }
             val query = FileArgs.optionalString(args.str("query"), FileArgs.MAX_NAME_CHARS)
             val mime = FileArgs.optionalString(args.str("mime"), FileArgs.MAX_MIME_CHARS)
@@ -1103,7 +1127,10 @@ class FilesSearchTool(private val appContext: Context) : AgentTool {
 }
 
 /** Read a text document, hard-capped. */
-class FilesReadTextTool(private val appContext: Context) : AgentTool {
+class FilesReadTextTool(
+    private val appContext: Context,
+    private val grant: PlatformGrant,
+) : AgentTool {
 
     override val definition = ToolDefinition(
         name = "files.read_text",
@@ -1125,16 +1152,13 @@ class FilesReadTextTool(private val appContext: Context) : AgentTool {
         },
         risk = ToolRisk.READ_ONLY,
         tags = setOf("read", "open", "text", "contents", "preview", "file content", "what does the file say"),
-        requiredPermission = "android.permission.READ_EXTERNAL_STORAGE (API<=32; API 33+ needs a SAF grant)",
+        requiredPermission = null,
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         ToolSafety.guard("files.read_text") {
-            if (!context.permissionGranted) {
-                return@guard fail(
-                    "No file access. Grant the storage permission, then read the file again.",
-                    ToolError.PermissionDenied("storage permission not granted"),
-                )
+            if (!grant.isGranted(ToolPermissions.DOCUMENT_READ)) {
+                return@guard denied("files.read_text", ToolPermissions.DOCUMENT_READ)
             }
             val raw = FileArgs.stringOrNull(args.str("uri"))
             if (raw == null) {
@@ -1195,7 +1219,10 @@ class FilesReadTextTool(private val appContext: Context) : AgentTool {
 }
 
 /** Write text to a document. */
-class FilesWriteTextTool(private val appContext: Context) : AgentTool {
+class FilesWriteTextTool(
+    private val appContext: Context,
+    private val grant: PlatformGrant,
+) : AgentTool {
 
     override val definition = ToolDefinition(
         name = "files.write_text",
@@ -1224,18 +1251,28 @@ class FilesWriteTextTool(private val appContext: Context) : AgentTool {
             putJsonArray("required") { add("content") }
             put("additionalProperties", false)
         },
-        risk = ToolRisk.REVERSIBLE,
+        // DESTRUCTIVE, escalated from REVERSIBLE, and the catalogue agrees.
+        //
+        // The `name` branch (create a new file in Downloads) is genuinely
+        // reversible. The `uri` branch is not: it overwrites an existing
+        // document and the previous contents are unrecoverable — no trash, no
+        // undo, no backup. `files.delete`, which is strictly less destructive
+        // because at least the file is visibly gone, is already DESTRUCTIVE, so
+        // leaving this one at REVERSIBLE meant a silent overwrite auto-executed
+        // with no confirmation at all.
+        //
+        // Schema and escalation note: `content` alone is a creation and is safe.
+        // Supplying `uri` alongside it is the destructive act, and the runtime
+        // gates on the tool tier, so the confirmation covers both.
+        risk = ToolRisk.DESTRUCTIVE,
         tags = setOf("write", "save", "create file", "new note", "store text", "overwrite", "export"),
-        requiredPermission = "android.permission.WRITE_EXTERNAL_STORAGE (API<=28 only; API 29+ needs none)",
+        requiredPermission = null,
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         ToolSafety.guard("files.write_text") {
-            if (!context.permissionGranted) {
-                return@guard fail(
-                    "No write access. Grant the storage permission, then write again.",
-                    ToolError.PermissionDenied("storage permission not granted"),
-                )
+            if (!grant.isGranted(ToolPermissions.DOCUMENT_WRITE)) {
+                return@guard denied("files.write_text", ToolPermissions.DOCUMENT_WRITE)
             }
             val content = FileArgs.optionalString(args.str("content"), FileArgs.MAX_WRITE_CHARS)
             if (content == null) {
@@ -1279,7 +1316,10 @@ class FilesWriteTextTool(private val appContext: Context) : AgentTool {
 }
 
 /** Delete exactly one document. */
-class FilesDeleteTool(private val appContext: Context) : AgentTool {
+class FilesDeleteTool(
+    private val appContext: Context,
+    private val grant: PlatformGrant,
+) : AgentTool {
 
     override val definition = ToolDefinition(
         name = "files.delete",
@@ -1305,16 +1345,13 @@ class FilesDeleteTool(private val appContext: Context) : AgentTool {
         },
         risk = ToolRisk.DESTRUCTIVE,
         tags = setOf("delete", "remove", "erase", "trash", "get rid of", "unlink"),
-        requiredPermission = "android.permission.WRITE_EXTERNAL_STORAGE (API<=28 only) or a SAF grant",
+        requiredPermission = null,
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         ToolSafety.guard("files.delete") {
-            if (!context.permissionGranted) {
-                return@guard fail(
-                    "No file access. Grant the storage permission, then delete again.",
-                    ToolError.PermissionDenied("storage permission not granted"),
-                )
+            if (!grant.isGranted(ToolPermissions.DOCUMENT_WRITE)) {
+                return@guard denied("files.delete", ToolPermissions.DOCUMENT_WRITE)
             }
             val explicitUri = FileArgs.contentUri(args.str("uri"))
             val rawUri = FileArgs.stringOrNull(args.str("uri"))
@@ -1573,10 +1610,10 @@ private fun createInDownloads(context: Context, plan: WritePlan.CreateInDownload
 }
 
 /** Every file tool, in registry order. */
-fun fileTools(context: Context): List<AgentTool> = listOf(
-    FilesListTool(context),
-    FilesSearchTool(context),
-    FilesReadTextTool(context),
-    FilesWriteTextTool(context),
-    FilesDeleteTool(context),
+fun fileTools(context: Context, grant: PlatformGrant): List<AgentTool> = listOf(
+    FilesListTool(context, grant),
+    FilesSearchTool(context, grant),
+    FilesReadTextTool(context, grant),
+    FilesWriteTextTool(context, grant),
+    FilesDeleteTool(context, grant),
 )

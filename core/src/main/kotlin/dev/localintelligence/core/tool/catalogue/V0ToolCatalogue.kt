@@ -148,8 +148,7 @@ object V0ToolCatalogue {
                 "files", "documents", "downloads", "folder",
                 "what files do i have", "list my files",
             ),
-            requiredPermission = "android.permission.READ_EXTERNAL_STORAGE " +
-                "(API<=32; API 33+ needs a SAF grant)",
+            requiredPermission = null,
         ),
 
         ToolDefinition(
@@ -188,8 +187,7 @@ object V0ToolCatalogue {
                 "search", "find", "look for", "where is",
                 "pdf", "report", "downloaded", "my note",
             ),
-            requiredPermission = "android.permission.READ_EXTERNAL_STORAGE " +
-                "(API<=32; API 33+ needs a SAF grant)",
+            requiredPermission = null,
         ),
 
         ToolDefinition(
@@ -208,8 +206,7 @@ object V0ToolCatalogue {
                 "read", "open file", "contents", "text",
                 "preview", "what does it say", "summarize this file", "show me the file",
             ),
-            requiredPermission = "android.permission.READ_EXTERNAL_STORAGE " +
-                "(API<=32; API 33+ needs a SAF grant)",
+            requiredPermission = null,
         ),
 
         ToolDefinition(
@@ -233,13 +230,27 @@ object V0ToolCatalogue {
                     put("description", "The text to write.")
                 }
             },
-            risk = ToolRisk.REVERSIBLE,
+            // ESCALATED from REVERSIBLE, deliberately, and it is the only tier
+            // change in this change-set.
+            //
+            // It was REVERSIBLE on the grounds that "a note can be deleted
+            // again". That reasoning only covers `name` (create a new file in
+            // Downloads). The OTHER branch of the same tool — `uri` — opens
+            // an existing document and overwrites it. The previous contents are
+            // gone: no trash, no undo, no backup, and the model chose the URI
+            // from a fuzzy name match. That is the same irreversible loss the
+            // catalogue already calls DESTRUCTIVE one entry below
+            // (files.delete), and a tool that can destroy a document must not
+            // auto-execute.
+            //
+            // The cost is a confirmation on "save my notes", which is the
+            // right trade against silently overwriting a file.
+            risk = ToolRisk.DESTRUCTIVE,
             tags = setOf(
                 "save", "write", "note", "notes",
                 "new note", "create file", "jot down", "export",
             ),
-            requiredPermission = "android.permission.WRITE_EXTERNAL_STORAGE " +
-                "(API<=28 only; API 29+ needs none)",
+            requiredPermission = null,
         ),
 
         ToolDefinition(
@@ -266,8 +277,7 @@ object V0ToolCatalogue {
                 "delete", "remove", "erase", "trash",
                 "get rid of", "pdf", "invoice", "document",
             ),
-            requiredPermission = "android.permission.WRITE_EXTERNAL_STORAGE " +
-                "(API<=28 only) or a SAF grant",
+            requiredPermission = null,
         ),
 
         // ----------------------------------------------------------------- apps
@@ -479,6 +489,8 @@ object V0ToolCatalogue {
                 "vibrate", "buzz", "vibration", "shake",
                 "ringer", "find my phone", "ring",
             ),
+            // A normal (install-time) permission. Named here as documentation
+            // and rendered in the approval dialog; it is not a runtime grant.
             requiredPermission = "android.permission.VIBRATE",
         ),
 
@@ -778,8 +790,7 @@ object V0ToolCatalogue {
                 "notifications", "alerts", "what came in", "miss",
                 "messages", "whatsapp", "what did i miss", "anything new",
             ),
-            requiredPermission = "BIND_NOTIFICATION_LISTENER_SERVICE " +
-                "(user grant in Settings)",
+            requiredPermission = null,
         ),
 
         ToolDefinition(
@@ -807,8 +818,7 @@ object V0ToolCatalogue {
                 "reply", "respond", "answer", "text back",
                 "message back", "quick reply", "send a message", "tell them",
             ),
-            requiredPermission = "BIND_NOTIFICATION_LISTENER_SERVICE " +
-                "(user grant in Settings)",
+            requiredPermission = null,
         ),
 
         ToolDefinition(
@@ -828,8 +838,7 @@ object V0ToolCatalogue {
                 "dismiss", "clear notification", "swipe away", "silence",
                 "get rid of notification", "mark as read", "no more alerts",
             ),
-            requiredPermission = "BIND_NOTIFICATION_LISTENER_SERVICE " +
-                "(user grant in Settings)",
+            requiredPermission = null,
         ),
 
         // ------------------------------------------------------------------- web
@@ -860,7 +869,7 @@ object V0ToolCatalogue {
                 "web", "internet", "online", "look up",
                 "website", "weather", "forecast", "right now",
             ),
-            requiredPermission = "android.permission.INTERNET",
+            requiredPermission = null,
         ),
     )
 

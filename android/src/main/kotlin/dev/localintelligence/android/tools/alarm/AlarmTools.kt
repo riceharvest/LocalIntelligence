@@ -24,6 +24,8 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.contracts.PermissionDenial
+import dev.localintelligence.core.tool.contracts.PlatformGrant
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -682,7 +684,10 @@ private val CANCEL_SCHEMA: ToolArgs = buildJsonObject {
 // Tools
 // =====================================================================================
 
-class AlarmCreateTool(private val platform: AlarmPlatform) : AgentTool {
+class AlarmCreateTool(
+    private val platform: AlarmPlatform,
+    private val grant: PlatformGrant,
+) : AgentTool {
 
     override val definition = ToolDefinition(
         name = "alarm.create",
@@ -700,14 +705,14 @@ class AlarmCreateTool(private val platform: AlarmPlatform) : AgentTool {
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
-        if (!context.permissionGranted) {
-            return ToolResult(
-                success = false,
-                observation = "No permission to set alarms. Tell the user it is unavailable in " +
-                    "this session; do not retry.",
-                error = ToolError.PermissionDenied("alarm.create denied"),
-            )
-        }
+        // The `permissionGranted` gate that used to be here was removed, not
+        // replaced, and the reason is specific: this tool ALREADY has the
+        // correct check further down — platform.canScheduleExactAlarms(), which
+        // asks Android and names the Alarms & reminders screen. The fabricated
+        // gate ran first and shadowed it, so the one honest denial this tool
+        // can produce was unreachable. SCHEDULE_EXACT_ALARM is a special-access
+        // grant, not a runtime permission, so there was never anything for the
+        // removed gate to have been right about.
 
         val repeat = ArgCoerce.booleanOrNull(args["repeat"])
         if (repeat == true) {
@@ -862,14 +867,13 @@ class AlarmListTool(private val platform: AlarmPlatform) : AgentTool {
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
-        if (!context.permissionGranted) {
-            return ToolResult(
-                success = false,
-                observation = "No permission to read alarms. Tell the user it is unavailable in " +
-                    "this session; do not retry.",
-                error = ToolError.PermissionDenied("alarm.list denied"),
-            )
-        }
+        // No gate. This reads the app's own SharedPreferences-backed registry —
+        // it touches no protected API and needs no permission. The removed
+        // check was not merely useless but actively harmful: its message told
+        // the model to report "no permission to read alarms" and stop, when the
+        // truth was available one line below. Worse, because this tool's whole
+        // value is refusing to mislead about which alarms exist, a fabricated
+        // denial here could not be distinguished from a real one.
 
         val specs = mutableListOf<AlarmSpec>()
         val pending = AlarmRegistry.all()
@@ -922,14 +926,10 @@ class AlarmCancelTool(private val platform: AlarmPlatform) : AgentTool {
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
-        if (!context.permissionGranted) {
-            return ToolResult(
-                success = false,
-                observation = "No permission to cancel alarms. Tell the user it is unavailable " +
-                    "in this session; do not retry.",
-                error = ToolError.PermissionDenied("alarm.cancel denied"),
-            )
-        }
+        // No gate. `AlarmManager.cancel` on this app's own PendingIntent needs
+        // no permission, and the ambiguity guard below — not a permission —
+        // is what makes this safe. The removed check would have refused a
+        // cancellation the user explicitly asked for.
 
         val id = (ArgCoerce.string(args, "id") as? ArgResult.Present)?.value
         val label = (ArgCoerce.string(args, "label") as? ArgResult.Present)?.value
@@ -1399,10 +1399,10 @@ class AlarmBootReceiver : BroadcastReceiver() {
  * The boot receiver does not come through here — it constructs a platform
  * directly — so it attaches for itself.
  */
-fun alarmTools(context: Context): List<AgentTool> {
+fun alarmTools(context: Context, grant: PlatformGrant): List<AgentTool> {
     AlarmRegistry.attach(context.applicationContext)
     return listOf(
-        AlarmCreateTool(AndroidAlarmPlatform(context)),
+        AlarmCreateTool(AndroidAlarmPlatform(context), grant),
         AlarmListTool(AndroidAlarmPlatform(context)),
         AlarmCancelTool(AndroidAlarmPlatform(context)),
     )

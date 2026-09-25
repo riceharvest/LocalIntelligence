@@ -14,6 +14,8 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.contracts.PermissionDenial
+import dev.localintelligence.core.tool.contracts.ToolPermissions
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -172,13 +174,23 @@ object ClipboardText {
     }
 
     fun describeEmpty(): String =
-        "The clipboard is empty. On Android 10 and later this tool can only read the clipboard " +
-            "while the app is in the foreground or is the active keyboard, so the clip may exist " +
-            "but be unreadable right now. Ask the user to focus the app and retry once."
+        "The clipboard reads as empty. This is the same result Android returns when the app is " +
+            "in the background, which it is not allowed to read from Android 10 onward, so the " +
+            "clipboard may well hold something this app simply cannot see right now. " +
+            "Ask the user to open the app and try again before telling them the clipboard is empty."
 
-    fun describePermissionDenied(): String =
-        "No permission to use the clipboard. Tell the user it is unavailable in this session; " +
-            "do not retry."
+    /**
+     * The focus-rule denial, in the shared shape.
+     *
+     * This is the one clipboard failure that is genuinely a refusal, and it is
+     * the failure Android gives you NO signal for: `getPrimaryClip` returns
+     * null for a background app exactly as it does for an empty clipboard. The
+     * only honest answer names the focus rule, because "your clipboard is
+     * empty" is a statement about the user's phone that this app cannot
+     * actually support.
+     */
+    fun describeBackgroundDenied() =
+        PermissionDenial.observation("clipboard.read", ToolPermissions.CLIPBOARD_BACKGROUND_READ)
 
     fun writeData(label: String, text: String): ToolArgs = buildJsonObject {
         put("written", true)
@@ -248,13 +260,12 @@ class ClipboardWriteTool(private val platform: ClipboardPlatform) : AgentTool {
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
-        if (!context.permissionGranted) {
-            return ToolResult(
-                success = false,
-                observation = ClipboardText.describePermissionDenied(),
-                error = ToolError.PermissionDenied("clipboard write denied"),
-            )
-        }
+        // No gate, and deliberately so. `ClipboardManager.setPrimaryClip`
+        // requires no permission on any API level this app supports, so the
+        // old `permissionGranted` check could only ever be a fabricated denial
+        // — and it told the user "No permission to use the clipboard", naming
+        // a permission that does not exist and that they therefore cannot
+        // grant. A user asking to copy a number was told to give up.
 
         val rawText = when (val parsed = ArgCoerce.string(args, "text")) {
             is ArgResult.Present -> parsed.value
@@ -342,13 +353,10 @@ class ClipboardReadTool(private val platform: ClipboardPlatform) : AgentTool {
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
-        if (!context.permissionGranted) {
-            return ToolResult(
-                success = false,
-                observation = ClipboardText.describePermissionDenied(),
-                error = ToolError.PermissionDenied("clipboard read denied"),
-            )
-        }
+        // No permission gate: there is no clipboard permission to hold. What
+        // gates a read is Android 10's focus rule, and that is reported by
+        // describeEmpty() below, which is already the honest shape — it says
+        // the app could not read the clipboard rather than that it is empty.
         if (context.signal.isCancelled()) {
             return ToolResult(
                 success = false,
