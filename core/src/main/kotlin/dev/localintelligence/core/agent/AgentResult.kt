@@ -54,6 +54,14 @@ data class StepTrace(
     val detail: String,
     val durationMs: Long = 0,
     val success: Boolean = true,
+    // WHY THESE EXIST: `detail` for a TOOL_CALL was `name + compactArgs(args)`,
+    // which is a display string with no separator contract. A UI that wants the
+    // tool name and its arguments has to substring it, and a tool whose name
+    // contains a brace, or an argument value that does, breaks that. The UI is
+    // exactly where this matters: it renders the call and the phone's answer.
+    // Null on every other kind, which is what a reader checks.
+    val toolName: String? = null,
+    val toolArgs: String? = null,
 ) {
     enum class Kind { GENERATION, TOOL_CALL, OBSERVATION, MALFORMED, COMPACTION }
 }

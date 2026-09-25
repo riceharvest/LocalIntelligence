@@ -13,6 +13,7 @@ import dev.localintelligence.core.agent.LoopDetector
 import dev.localintelligence.core.agent.MemoryStore
 import dev.localintelligence.core.agent.Session
 import dev.localintelligence.core.agent.ToolCallValidatorGate
+import dev.localintelligence.android.inference.RamEstimate
 import dev.localintelligence.core.context.ContextBuilder
 import dev.localintelligence.core.context.DefaultContextBuilder
 import dev.localintelligence.core.metrics.RunRecorder
@@ -163,7 +164,24 @@ class AppContainer(private val context: Context) {
      * Loading on the calling coroutine's dispatcher is deliberate: this runs
      * 2 GB of native allocation and must never sit on the main thread.
      */
-    suspend fun loadModel(model: ImportedModel): ModelAvailability = try {
+    suspend fun loadModel(model: ImportedModel): ModelAvailability {
+        return try {
+        // Refuse before the native load, not after. A model that needs more RAM
+        // than this device has is an OOM kill: on Android the process dies and
+        // the user loses the conversation, with a system dialog that says nothing
+        // about which model did it. The estimate is already on ImportedModel and
+        // ModelManagerScreen renders it, so the only missing piece was the gate.
+        // This is where a download that was judged too large at plan time still
+        // gets caught, e.g. a model sideloaded onto a smaller device.
+        if (!model.fitsOnDevice(ModelImporter.DEFAULT_CONTEXT_LENGTH)) {
+            val needed = model.estimate.totalBytes(ModelImporter.DEFAULT_CONTEXT_LENGTH)
+            val have = RamEstimate.usableDeviceBytes()
+            return ModelAvailability.Failed(
+                "This model needs about ${needed / (1024 * 1024)} MiB of RAM and " +
+                    "this device has about ${have / (1024 * 1024)} MiB usable. " +
+                    "Pick a smaller quant, or a shorter context.",
+            ).also { modelAvailability.set(it) }
+        }
         modelBackend.load(
             ModelSpec(
                 // The backend opens this as a URI; see LlamaCppBackend.load.
@@ -179,9 +197,10 @@ class AppContainer(private val context: Context) {
         ModelAvailability.Ready.also { modelAvailability.set(it) }
     } catch (e: CancellationException) {
         throw e
-    } catch (t: Throwable) {
-        ModelAvailability.Failed(describeLoadFailure(t))
-            .also { modelAvailability.set(it) }
+        } catch (t: Throwable) {
+            ModelAvailability.Failed(describeLoadFailure(t))
+                .also { modelAvailability.set(it) }
+        }
     }
 
     /**

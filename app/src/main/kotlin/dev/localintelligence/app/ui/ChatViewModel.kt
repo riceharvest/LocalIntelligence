@@ -140,6 +140,41 @@ class ChatViewModel(
         // this collector is re-subscribed whenever the scope restarts. Two runs
         // that both end in `Cancelled` are equal data classes, so equality would
         // silently swallow the second one.
+        // Tool calls appear as they happen, not when the run ends. Waiting until
+        // the end would put every call above the answer, which reads as if the
+        // agent did everything at once after thinking about it.
+        //
+        // Keyed on the StepTrace instance, because TOOL_CALL and OBSERVATION are
+        // emitted as separate entries and only the pair makes a row: the call
+        // alone would show a tool name with no result, which is worse than
+        // showing nothing.
+        val renderedSteps = mutableSetOf<StepTrace>()
+        scope.launch {
+            gateway.trace.collect { steps ->
+                steps.forEach { step ->
+                    if (step.kind != StepTrace.Kind.TOOL_CALL) return@forEach
+                    if (!renderedSteps.add(step)) return@forEach
+                    // The matching OBSERVATION is the next entry with the same
+                    // step number. Until it arrives, show the call as pending.
+                    val observation = steps.firstOrNull {
+                        it.kind == StepTrace.Kind.OBSERVATION && it.step == step.step
+                    }
+                    _messages.update { list ->
+                        list + ChatMessage.ToolStep(
+                            // From the explicit fields, never by cutting up
+                            // `detail`: that string is a display format and
+                            // parsing it is how a tool named "files.read_text"
+                            // ends up displayed as "files".
+                            toolName = step.toolName ?: step.detail,
+                            args = step.toolArgs.orEmpty(),
+                            observation = observation?.detail,
+                            durationMs = observation?.durationMs ?: 0L,
+                            success = observation?.success ?: true,
+                        )
+                    }
+                }
+            }
+        }
         var lastTerminal: RunState.Finished? = gateway.runState.value as? RunState.Finished
         scope.launch {
             gateway.runState.collect { state ->
@@ -223,11 +258,35 @@ class ChatViewModel(
     }
 }
 
-/** One row of the transcript. A flat list, not a tree: the runtime is a loop. */
+/**
+ * One row of the transcript. A flat list, not a tree: the runtime is a loop.
+ *
+ * WHY [ToolStep] EXISTS: without it the agent was invisible. The loop called
+ * device.battery, read the real percentage, and put it in the transcript of the
+ * model conversation — where the user never sees it. The screen then showed the
+ * question, a pause, and an answer, which is indistinguishable from an app that
+ * ignored the request. Acting on the phone and saying so are the same feature.
+ */
 sealed interface ChatMessage {
     data class User(val text: String) : ChatMessage
     data class Assistant(val text: String) : ChatMessage
     data class Notice(val text: String) : ChatMessage
+
+    /**
+     * A call the agent made, and what the phone said back.
+     *
+     * [observation] is the tool's real return value, truncated for display only
+     * here; the model receives it in full. Showing it verbatim is the point — a
+     * summarised tool result is how an agent ends up confidently reporting
+     * something the phone never said.
+     */
+    data class ToolStep(
+        val toolName: String,
+        val args: String,
+        val observation: String?,
+        val durationMs: Long,
+        val success: Boolean,
+    ) : ChatMessage
 }
 
 /** The user's answer to one `AwaitingConfirmation`, kept for the transcript. */

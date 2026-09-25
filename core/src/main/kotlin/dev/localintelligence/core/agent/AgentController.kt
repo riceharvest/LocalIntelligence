@@ -322,7 +322,11 @@ class AgentController(
         val tool = when (outcome) {
             is ValidationOutcome.Rejected -> {
                 val detail = "rejected ${action.name}: ${outcome.observation}"
-                trace += StepTrace(step, StepTrace.Kind.TOOL_CALL, detail, success = false)
+                trace += StepTrace(
+                    step, StepTrace.Kind.TOOL_CALL, detail,
+                    success = false,
+                    toolName = action.name,
+                )
                 metrics?.recordToolCall(action.name, action.arguments, executed = false)
                 sessions.observe(outcome.observation)
                 return null
@@ -444,6 +448,7 @@ class AgentController(
             step, StepTrace.Kind.TOOL_CALL,
             "refused $name: ${decision.rule} — ${decision.justification}",
             success = false,
+            toolName = name,
         )
         sessions.observe("$name did not run. ${decision.justification} Do something else, or answer without it.")
         return null
@@ -488,6 +493,8 @@ class AgentController(
         trace += StepTrace(
             call.step, StepTrace.Kind.TOOL_CALL, call.name + compactArgs(call.args),
             durationMs, result.success,
+            toolName = call.name,
+            toolArgs = compactArgs(call.args),
         )
         trace += StepTrace(call.step, StepTrace.Kind.OBSERVATION, observation, success = result.success)
         metrics?.endPhase(StepTrace.Kind.TOOL_CALL, result.success)

@@ -157,6 +157,7 @@ fun ChatScreen(
                     is ChatMessage.User -> UserBubble(message.text)
                     is ChatMessage.Assistant -> AssistantBubble(message.text)
                     is ChatMessage.Notice -> NoticeLine(message.text)
+                    is ChatMessage.ToolStep -> ToolStepRow(message)
                 }
             }
             if (progress != null) {
@@ -280,6 +281,50 @@ private fun StreamingBubble(text: String) {
             )
             CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
         }
+    }
+}
+
+/**
+ * One tool call and the phone's answer to it.
+ *
+ * WHY IT IS NOT A CHAT BUBBLE: a bubble is something the user said or the model
+ * said. This is the app reporting on its own work, and dressing it as dialogue
+ * would put a fabricated "assistant" turn in the transcript. It is deliberately
+ * quiet: monospace, smaller, and it shows the raw observation because a
+ * paraphrase here would let the app claim the phone said something it did not.
+ */
+@Composable
+private fun ToolStepRow(step: ChatMessage.ToolStep) {
+    val pending = step.observation == null
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = "\u25B8 ${step.toolName}${if (step.args.isNotBlank()) " ${step.args}" else ""}",
+            style = MaterialTheme.typography.labelMedium,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            text = when {
+                pending -> "running\u2026"
+                step.success -> step.observation.orEmpty()
+                else -> "failed: ${step.observation.orEmpty()}"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            color = if (pending) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else if (step.success) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+            modifier = Modifier.padding(start = 14.dp),
+        )
     }
 }
 
