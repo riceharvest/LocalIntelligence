@@ -28,9 +28,14 @@ FAIL=0
 reset_tree() {
   rm -rf "$SCRATCH"
   mkdir -p "$SCRATCH"
+  # --exclude for build outputs AND for anything .gitignore covers. Copying
+  # ignored files is how a previous run of this script leaked a 3 MB test
+  # artifact from the real checkout into every scratch tree, where it made a
+  # negative-control case fail for entirely the wrong reason.
   (cd "$REPO" && tar -cf - \
       --exclude=build --exclude=.gradle --exclude=.kotlin --exclude=.cxx \
-      --exclude=.git --exclude=local.properties .) | tar -xf - -C "$SCRATCH"
+      --exclude=.git --exclude=local.properties --exclude=models \
+      --exclude-vcs .) | tar -xf - -C "$SCRATCH"
   (cd "$SCRATCH" && git init -q && git add -A \
      && git -c user.email=t@t -c user.name=t commit -qm base)
   cd "$SCRATCH" || exit 1
@@ -56,9 +61,12 @@ expect() {
 section() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 # Credential-shaped fixtures are assembled from fragments so that THIS file does
-# not itself trip the secret scanner. The scanner deliberately has no exceptions
-# list — a "skip this path" escape hatch is how a real key ends up committed.
-PEM_A="-----BEGIN RSA "; PEM_B="PRIVATE KEY-----"
+# not itself trip the secret scanner in check-repo-hygiene.sh (which is
+# line-based and has no exceptions list, on purpose). The two halves are joined
+# at RUNTIME so the written file is a real single-line PEM header — splitting
+# the fixture itself would just produce a file the scanner correctly ignores.
+PEM_A='-----BEGIN RSA'
+PEM_B='PRIVATE KEY-----'
 PW_KEY="pass"; PW_WORD="word"
 
 # ---------------------------------------------------------------------------
@@ -127,7 +135,7 @@ mkdir -p core/src/test/resources/gguf && head -c 2048 /dev/urandom > core/src/te
 expect PASS check-repo-hygiene.sh "NEGATIVE CONTROL: 2 KB gguf test fixture"
 reset_tree
 mkdir -p keys
-printf -- '%s\n%s\n%s\n' "$PEM_A" "MIIEowIBAAKCAQEA" "$PEM_B" > keys/id_rsa
+printf -- '%s %s\n%s\n%s\n' "$PEM_A" "$PEM_B" "MIIEowIBAAKCAQEA" "ignored body" > keys/id_rsa
 (cd "$SCRATCH" && git add -A -f >/dev/null 2>&1)
 expect FAIL check-repo-hygiene.sh "private key committed"
 reset_tree

@@ -134,12 +134,22 @@ the whole design: make lowering it visible, and nobody lowers it to go green.
 
 ### 7. Repo hygiene
 
-Banned extensions, a 2 MiB per-file ceiling (which catches the weights with
-unusual names), high-confidence secret patterns, and `local.properties`.
+Banned extensions, a 2 MiB per-file ceiling, high-confidence secret patterns,
+and `local.properties`.
 
-High-confidence patterns only, and no exceptions list. A scanner that fires on
-the word "tokenize" in a tokenizer, or that needs a "skip this path" escape
-hatch, gets deleted — and then it protects nobody.
+The binary rule is size-aware rather than extension-blind. `main` arrived with
+synthetic GGUF fixtures in `core/src/test/resources/gguf/` (24 bytes to 41 KB)
+that are what make the GGUF header parser testable without a real model — a real
+GGUF is 100 MB and up. So a banned extension is allowed only under
+`*/src/test/resources/*` **and** under 64 KiB. The threshold is what separates a
+fixture from a weight, and it has its own red case: a 3 MB `.gguf` parked in test
+resources still fails.
+
+High-confidence secret patterns only, and no exceptions list. A scanner that
+fires on the word "tokenize" in a tokenizer, or that needs a "skip this path"
+escape hatch, gets deleted — and then it protects nobody. The self-test's own
+credential fixtures are assembled from fragments at runtime so this repo does not
+trip its own scanner.
 
 ### 8. Formatting
 
