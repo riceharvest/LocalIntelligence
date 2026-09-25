@@ -14,6 +14,9 @@ import dev.localintelligence.core.agent.MemoryStore
 import dev.localintelligence.core.agent.Session
 import dev.localintelligence.core.agent.ToolCallValidatorGate
 import dev.localintelligence.android.inference.RamEstimate
+import dev.localintelligence.app.ui.DownloadedModelRegistrar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import dev.localintelligence.core.context.ContextBuilder
 import dev.localintelligence.core.context.DefaultContextBuilder
 import dev.localintelligence.core.metrics.RunRecorder
@@ -343,10 +346,43 @@ class AppContainer(private val context: Context) {
      * The hub ViewModel. One per screen instance, not a singleton: a screen
      * that is popped must not leave a download running behind it.
      */
-    fun newHubViewModel(): HubViewModel = HubViewModel(
+    /**
+     * The Hub screen's view model, wired to the app's own model list.
+     *
+     * WHY THE REGISTRAR IS SUPPLIED HERE AND NOT LEFT AT ITS DEFAULT: the
+     * default is DownloadedModelRegistrar.NONE, so a finished download updated
+     * the screen's state and stopped. The 668 MB file sat in files/models and
+     * nothing knew it existed - the user had paid for it and the app could not
+     * load it. Registering here means a download ends up in the same list, and
+     * under the same RAM gate, as a model picked from Files.
+     *
+     * The registrar returns null on failure rather than throwing, and that null
+     * is surfaced in the UI, so "the bytes are on disk but the header will not
+     * parse" never renders as a successful download.
+     */
+    fun newHubViewModel(
+        registrar: DownloadedModelRegistrar = DownloadedModelRegistrar.NONE,
+    ): HubViewModel = HubViewModel(
         client = hubClient,
         downloader = hubDownloader,
         budget = hubBudget,
         tokenSource = hubTokenSource,
+        registrar = registrar,
     )
+
+    /**
+     * Adopts a freshly downloaded file into the app's model list.
+     *
+     * This is the composition root's job because all three steps need the
+     * container: read the header, add the model, and select it. Returning null
+     * is a real outcome, not an error to swallow - it is how "the bytes landed
+     * but the header will not parse" reaches the user instead of a download
+     * that claims success and cannot be loaded.
+     */
+    suspend fun adoptDownloaded(file: java.io.File): String? = withContext(Dispatchers.IO) {
+        val uri = android.net.Uri.fromFile(file)
+        val model = runCatching { importer.inspect(uri) }.getOrNull() ?: return@withContext null
+        loadModel(model)
+        model.displayName
+    }
 }

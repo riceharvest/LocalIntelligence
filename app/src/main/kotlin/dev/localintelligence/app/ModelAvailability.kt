@@ -103,10 +103,17 @@ internal fun describeLoadFailure(cause: Throwable?): String = when (cause) {
             "or lower its context length in Models."
 
     else -> {
-        val message = cause.message?.trim().orEmpty()
-        val type = cause::class.java.simpleName
-        if (message.isEmpty()) "The model could not be loaded ($type)."
-        else "The model could not be loaded: $message"
+        // The raw message is NOT shown. It is a native or JNI string and can be
+        // a file path, a pointer-ish token or a stack-shaped fragment, none of
+        // which means anything to a person holding a phone - and a path is a
+        // small information leak about where the app stores things. The known
+        // failures above are matched by type and carry real advice; anything
+        // unrecognized is honestly unnamed rather than falsely specific.
+        //
+        // The cause is not swallowed: it is logged, so a bug report has it.
+        android.util.Log.w("ModelAvailability", "model load failed", cause)
+        "That model could not be loaded. It may be a format this app cannot " +
+            "read, or it may be damaged - try importing it again."
     }
 }
 

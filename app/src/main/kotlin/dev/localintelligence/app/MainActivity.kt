@@ -42,6 +42,7 @@ import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.HubScreen
 import dev.localintelligence.app.ui.HubViewModel
+import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import dev.localintelligence.app.ui.ModelManagerScreen
 import dev.localintelligence.app.ui.TraceScreen
 import kotlinx.coroutines.Dispatchers
@@ -154,12 +155,27 @@ class MainActivity : ComponentActivity() {
                                         models.removeAll { it.uri == model.uri }
                                         models.add(model)
                                         // The newly imported model is the one the
-                                        // agent will run. Selecting it here is what
-                                        // makes the chat composer become usable;
-                                        // loading itself is deferred to the
-                                        // service, which must not touch 2 GB on
-                                        // the main thread for a row tap.
+                                        // agent will run.
                                         container.selectedModel = model
+                                        // ...and it has to be LOADED here, not just
+                                        // selected. ModelAvailability is
+                                        // None|Ready|Failed and the chat composer
+                                        // reads that holder, not selectedModel, so
+                                        // setting the field alone left the chat
+                                        // still saying "import a model" with a
+                                        // perfectly good model on disk. The scan
+                                        // path below already did this; import did
+                                        // not, which is why picking a file from
+                                        // Files did nothing visible.
+                                        //
+                                        // loadModel is suspend and does the native
+                                        // load plus the RAM gate, so it is awaited
+                                        // off the main thread here rather than
+                                        // deferred to the service - and a model too
+                                        // big for this device comes back as Failed
+                                        // with the reason, which the screen shows,
+                                        // instead of failing later as an OOM kill.
+                                        container.loadModel(model)
                                     }
                             },
                             onScanLocal = {
@@ -207,7 +223,20 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable(ROUTE_HUB) {
-                        val vm = remember { container.newHubViewModel() }
+                        // The registrar is what makes a download usable: the
+                        // default adopts nothing, so the finished file would sit
+                        // in files/models while the app still said "import a
+                        // model". adoptDownloaded reads the header, loads it
+                        // through the RAM gate, and returns a note the Hub screen
+                        // shows - or null, which the screen surfaces as a
+                        // failure rather than a success.
+                        val vm = remember {
+                            container.newHubViewModel(
+                                DownloadedModelRegistrar { file ->
+                                    container.adoptDownloaded(file)
+                                },
+                            )
+                        }
                         hub = vm
                         HubScreen(viewModel = vm, onBack = { nav.popBackStack() })
                     }
