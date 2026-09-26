@@ -458,8 +458,38 @@ data class RamEstimate(
          * `:core`: it asks what this device can give, not what this file needs.
          * It reads `/proc/meminfo`, which is a Linux interface and therefore not
          * something a pure-JVM module may touch.
+         *
+         * IT IS A DERIVED BUDGET, NOT A MEASUREMENT, and [usableDeviceBasis]
+         * exists so a screen can say which of its two branches produced the
+         * figure. Both branches are arithmetic; only one of them starts from
+         * this phone's RAM. See that function for the two derivations.
          */
-        fun usableDeviceBytes(): Long {
+        fun usableDeviceBytes(): Long = usableDeviceBasis().bytes
+
+        /**
+         * The same figure, with the branch that produced it attached.
+         *
+         * ## WHY THIS EXISTS RATHER THAN A COMMENT
+         *
+         * Because the two branches are *different claims* and the previous
+         * signature could only return one number:
+         *
+         *  - [DeviceBudgetBasis.Source.PHYSICAL_FRACTION] — 55% of
+         *    `/proc/meminfo` `MemTotal`, capped at 6x the JVM heap ceiling. A
+         *    fraction of this phone's RAM.
+         *  - [DeviceBudgetBasis.Source.JVM_HEAP_ONLY] — the meminfo read failed
+         *    or returned nothing, so the figure is **6x the JVM heap ceiling
+         *    alone**. That is derived from the app's own heap size, which on a
+         *    typical phone is a few hundred MB, and has nothing to do with how
+         *    much RAM the device has. On a 12 GB phone this branch reports a
+         *    number that is wrong by more than an order of magnitude.
+         *
+         * A screen showing the old return value could not tell them apart, and
+         * the KDoc described only the first. `SystemClock`-style honesty: the
+         * caller that renders the number is the only place the distinction can
+         * be made, so the distinction is handed to it.
+         */
+        fun usableDeviceBasis(): DeviceBudgetBasis {
             val runtime = Runtime.getRuntime()
             val systemMax = runtime.maxMemory()          // the JVM heap ceiling
             val systemTotal = systemTotalBytes()          // the device's RAM
@@ -467,7 +497,24 @@ data class RamEstimate(
             // the estimate does not go absurd on a 16 GB tablet.
             val physical = (systemTotal * 0.55).toLong()
             val heapCeiling = systemMax * 6
-            return if (physical > 0 && physical < heapCeiling) physical else heapCeiling
+            return if (physical > 0 && physical < heapCeiling) {
+                DeviceBudgetBasis(
+                    bytes = physical,
+                    source = DeviceBudgetBasis.Source.PHYSICAL_FRACTION,
+                    physicalTotalBytes = systemTotal,
+                )
+            } else {
+                // Includes the `physical > 0 && physical >= heapCeiling` case,
+                // which IS physical-derived; the source is reported as the
+                // heap ceiling because that is the term that bound the result,
+                // and `physicalTotalBytes` is carried alongside so a screen can
+                // see the RAM it actually came from.
+                DeviceBudgetBasis(
+                    bytes = heapCeiling,
+                    source = DeviceBudgetBasis.Source.JVM_HEAP_ONLY,
+                    physicalTotalBytes = systemTotal,
+                )
+            }
         }
 
         private fun systemTotalBytes(): Long = try {
@@ -496,5 +543,49 @@ data class RamEstimate(
          */
         fun from(header: GgufHeader, contextLength: Int = ModelImporter.DEFAULT_CONTEXT_LENGTH): RamEstimate =
             RamEstimate(header)
+    }
+}
+
+/**
+ * A usable-memory figure, with the branch that produced it kept attached.
+ *
+ * ## WHY THE BRANCH IS PART OF THE VALUE
+ *
+ * [RamEstimate.usableDeviceBytes] has two branches. One is 55% of this phone's
+ * physical RAM — a fraction of a real reading. The other is 6x the JVM heap
+ * ceiling, which is a fact about the *app's own heap* and says nothing about
+ * the device; it fires when `/proc/meminfo` is unreadable, and on a large phone
+ * it is wrong by more than an order of magnitude.
+ *
+ * Returning a bare `Long` from both made the second indistinguishable from the
+ * first, so any screen rendering it was asserting something it could not know.
+ * The number is unchanged — this only makes its provenance inspectable by the
+ * one place that can honestly describe it. The `android` layer is allowed this
+ * type because it is the layer that performs the read; the *wording* stays in
+ * `:app`, where UI strings belong.
+ */
+data class DeviceBudgetBasis(
+    /** The figure, in bytes. Identical to what `usableDeviceBytes()` returned. */
+    val bytes: Long,
+    /** Which of the two branches produced [bytes]. */
+    val source: Source,
+    /**
+     * The physical RAM reading, in bytes, or 0 when `/proc/meminfo` gave
+     * nothing. Carried so a screen can distinguish "this phone really is
+     * capped by its heap ceiling" from "this phone has more RAM than we could
+     * read", which are the same [Source] and very different claims.
+     */
+    val physicalTotalBytes: Long,
+) {
+    enum class Source {
+        /** 55% of `/proc/meminfo` `MemTotal`, under the heap-ceiling cap. */
+        PHYSICAL_FRACTION,
+
+        /**
+         * 6x the JVM heap ceiling. Derived from the app's own heap, not the
+         * device's RAM. If [physicalTotalBytes] is 0, the physical read failed
+         * and this is a guess.
+         */
+        JVM_HEAP_ONLY,
     }
 }

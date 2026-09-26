@@ -446,7 +446,15 @@ class ModelDownloader(
          * defect `PreDownloadMemoryModel.DEFAULT_CONTEXT_LENGTH` had, in the
          * direction that looks like generosity. Both now read
          * [ContextCeiling.ALLOCATED_CONTEXT_TOKENS].
+         *
+         * `docs/memory-model.md` §5.3 measured the size of that error over the
+         * nine measured architectures: worst case **-19.8%**
+         * (Phi-3-mini-4k-instruct), eight of nine under-statements. That is
+         * larger than the 15% `FitGate.DECISION_FACTOR` provides, and
+         * under-statement is the direction that gets a phone OOM-killed after
+         * the user has spent the download.
          */
         const val PreDownloadContextLength = ContextCeiling.ALLOCATED_CONTEXT_TOKENS
+
     }
 }

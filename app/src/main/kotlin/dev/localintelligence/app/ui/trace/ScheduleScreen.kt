@@ -58,6 +58,7 @@ import dev.localintelligence.app.data.TaskBlocker
 import dev.localintelligence.app.data.TaskCadence
 import dev.localintelligence.app.execution.ScheduledRunReporter.FAILED_PREFIX
 import dev.localintelligence.app.execution.ScheduledRunReporter.REFUSED_PREFIX
+import dev.localintelligence.app.execution.ScheduledRunReporter.SCHEDULE_WARNING_PREFIX
 
 /**
  * Create, see and delete a scheduled task.
@@ -150,6 +151,12 @@ fun ScheduleScreen(
             // list of existing tasks.
             ScheduleForm(
                 canCreate = state.canCreate,
+                // The blockers list below covers the readiness term of
+                // `canCreate`; this covers the other two. Without it a full
+                // task list disables the button with no explanation anywhere
+                // on screen, and the explanation the app does have can only be
+                // produced by pressing it.
+                disabledReason = state.disabledReason,
                 onCreate = viewModel::create,
             )
 
@@ -208,6 +215,7 @@ fun ScheduleScreen(
 @Composable
 private fun ScheduleForm(
     canCreate: Boolean,
+    disabledReason: String?,
     onCreate: (String, TaskCadence) -> Unit,
 ) {
     var prompt by remember { mutableStateOf("") }
@@ -246,6 +254,17 @@ private fun ScheduleForm(
                     label = { Text(choice.label) },
                 )
             }
+        }
+
+        // The reason sits directly above the control it explains, not only in
+        // the blockers list further down, because the two cover different
+        // reasons and the user is looking at the button.
+        disabledReason?.let { reason ->
+            Text(
+                text = reason,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         Button(
@@ -334,9 +353,25 @@ private fun TaskRow(
             // The next-run line is stated differently when there is no next run,
             // because "next: <time>" on a paused or finished one-shot is a
             // promise the app is not keeping.
+            //
+            // WHY THE SCHEDULE-FAULT CASE IS HERE TOO: the paused and finished
+            // cases below are driven by `task.enabled`, so they were already
+            // honest. A task that is still enabled but whose re-arm *failed* is
+            // not covered by either of them, and it is the one that reads worst:
+            // the row showed "Next: <time>" directly above a result line saying
+            // "Next run not scheduled: <reason>". Two adjacent lines, one
+            // promising a run and one denying it, both true, and the user has
+            // to guess which one the app means. The stored `nextRunAtMillis` is
+            // still set in that state, so the time is not stale data — the
+            // *alarm* is absent, and that is what the line has to say.
+            val scheduleFaulted = task.lastResult
+                ?.startsWith(SCHEDULE_WARNING_PREFIX) == true
             Text(
                 text = when {
                     isRunning -> "Running now."
+                    scheduleFaulted ->
+                        "No next run scheduled. ${task.timeLabel()} is when it was " +
+                            "due to run, not a promise."
                     !task.enabled && task.cadence == TaskCadence.Once ->
                         "Already ran. Not scheduled any more."
                     !task.enabled -> "Paused. Not scheduled."

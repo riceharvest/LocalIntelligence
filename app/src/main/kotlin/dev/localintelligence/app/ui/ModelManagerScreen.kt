@@ -48,6 +48,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.android.inference.DeviceBudgetBasis
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.inference.RamEstimate
@@ -242,9 +243,22 @@ fun ModelManagerScreen(
                                     runCatching { scan() }
                                         .onFailure { importError = describeLoadFailure(it) }
                                         .onSuccess {
-                                            scanNotice = "Scanned this app's own storage for " +
-                                                "GGUF files. Anything found is now in the " +
-                                                "list."
+                                            // "Anything found is now in the list"
+                                            // is a claim about the whole directory,
+                                            // and it was only ever true on a
+                                            // directory the scan completed. Say
+                                            // what was read instead: the count
+                                            // the user can check against their
+                                            // own file manager, and the
+                                            // extension, so a non-GGUF file they
+                                            // were expecting to see does not read
+                                            // as the scan having missed it.
+                                            scanNotice = "Scanned this app's own " +
+                                                "storage and added the .gguf files " +
+                                                "found there. Other file types are " +
+                                                "not read, and a .gguf that could " +
+                                                "not be parsed would have stopped " +
+                                                "the scan with an error above."
                                         }
                                     busy = false
                                 }
@@ -521,12 +535,42 @@ private fun ModelRow(model: ImportedModel, onDelete: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Column(Modifier.padding(12.dp)) {
+                        // WHY THE DEVICE FIGURE CARRIES ITS BRANCH HERE TOO:
+                        // `usableDeviceBytes()` returns 55% of physical RAM, or —
+                        // when /proc/meminfo is unreadable — 6x the JVM heap
+                        // ceiling, which is a number about this app's heap and
+                        // nothing to do with the phone. The row above already
+                        // says the *model* figure is calculated rather than
+                        // measured; the *device* figure was still asserted in the
+                        // same voice as though it had been read off the hardware,
+                        // so the two numbers in one sentence had different
+                        // provenances and identical presentation.
+                        val basis = RamEstimate.usableDeviceBasis()
                         Text(
-                            text = "This model will not load on this phone. It needs " +
-                                "about ${formatBytes(totalBytes)} and this device has " +
-                                "${formatBytes(RamEstimate.usableDeviceBytes())} usable " +
-                                "for the app. The load gate refuses it rather than " +
-                                "letting the system kill the app part-way through a task.",
+                            text = "This model will not load on this phone. It is " +
+                                "estimated to need about ${formatBytes(totalBytes)} " +
+                                "and this device's budget is " +
+                                "${formatBytes(basis.bytes)} usable for the app. " +
+                                when (basis.source) {
+                                    DeviceBudgetBasis.Source.PHYSICAL_FRACTION ->
+                                        "The budget is 55% of this phone's RAM, " +
+                                            "capped at 6x the app's heap ceiling. " +
+                                            "It is a fraction of this device's RAM, " +
+                                            "not a measurement of free memory."
+                                    DeviceBudgetBasis.Source.JVM_HEAP_ONLY ->
+                                        if (basis.physicalTotalBytes <= 0L) {
+                                            "That budget is a GUESS: this phone's RAM " +
+                                                "could not be read, so it is 6x the " +
+                                                "app's own heap ceiling and says " +
+                                                "nothing about the device."
+                                        } else {
+                                            "That budget is capped at 6x the app's " +
+                                                "heap ceiling, which is what binds " +
+                                                "here rather than this phone's RAM."
+                                        }
+                                } +
+                                " The load gate refuses it rather than letting the " +
+                                "system kill the app part-way through a task.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         // The previous version told the user to "Lower the
