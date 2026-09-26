@@ -311,13 +311,94 @@ follow the first instruction it sees over the last one.
 Lexical only in v0. No LLM, no embeddings, no vector database.
 
 Score each tool on token overlap across `name`, `description`, `tags`, `category`,
-plus an exact-substring hit on the full tool name. Return **3-6** tools.
+plus an exact-substring hit on the full tool name.
 
-Hard maximum **8** unless explicitly requested.
+Return **up to 10** tools — `AgentConfig.maxVisibleTools`, which ships at 10.
 
-This is the single biggest context saving in the entire system, and therefore the
-highest-value thing to benchmark. If you can improve the score function with a
-deterministic change, do it and show the eval delta.
+**History of the "3-6 tools, hard maximum 8" line this replaced, and an honest
+verdict on it.** The doc was stale in one specific way and defensible in
+another, and the two were conflated:
+
+- *Stale*: it described a number the code had already moved past, and it
+  framed selection as the "single biggest context saving in the entire
+  system". That framing is wrong outright. The selected set is what
+  `GrammarBuilder` turns into the `toolcall` alternation, so a tool that is
+  not selected is not under-used — it is unspeakable, and the task is not
+  performable at all. Selection accuracy is an upper bound on task success.
+  Discarding a task to save tokens is not a saving.
+- *Defensible, and removed without evidence that covers it*: a hard ceiling
+  is a statement about how reliably a 1-3B model picks the right tool from a
+  wider menu. The measurement that justified dropping it — context cost and
+  retrieval recall — does not test that at all, and the original author was
+  flagging a real, unmeasured risk rather than a stale number.
+
+So the ceiling is now a **product judgement that is under-evidenced in both
+directions**, and it is recorded here as such rather than presented as a
+settled result. The recall table below also says the ceiling matters much
+less than it did: after the tag-list fix, k=3 already reaches 93.2% and the
+curve is nearly flat by k=6. Width is no longer where the wins are.
+
+Measured over the 176-case dataset in `core/tool/eval/SelectorDataset.kt`,
+against the 25 tools `:android` ships:
+
+| visible tools | tasks made possible | mean system-prompt tokens |
+|---------------|---------------------:|-------------------------:|
+| 3             |            164/176  |  331                     |
+| 6             |            171/176  |  411                     |
+| **10 (ships)**|    **176/176**      |  **516**                 |
+| 12            |            176/176  |  566                     |
+| all 25        |            176/176  |  894                     |
+
+Reproduce with:
+
+```
+./gradlew :core:compileKotlin
+./core/src/main/kotlin/dev/localintelligence/core/tool/eval/run-recall-harness.sh
+```
+
+**The 176/176 is not evidence that the selector is solved, and should not be
+quoted as if it were.** The 13 cases that previously scored exactly zero were
+fixed by adding the missing words to the `:android` tag lists, and those
+words were chosen while reading the 176 utterances. 100% on the set you tuned
+against is what an overfit looks like. The number that means something is the
+independent one: a 25-case held-out probe written *after* the tags were
+frozen, in deliberately different wording and including Dutch, goes from
+20/25 to 22/25 (`core/tool/holdout/`). That is a real but modest gain, and it
+is the figure to quote.
+
+What the ceiling is still worth, and is NOT measured: whether a 1-3B model
+chooses reliably from a 10-item grammar. The harness has no model in it, so it
+proves the ceiling went up and cannot prove the model exploits it. Raising
+recall raised the ceiling on an unmeasured risk — picking the wrong one of ten
+rather than the wrong one of six is a worse answer, not an impossible task,
+but "not impossible" is an assumption and not a result.
+
+Context cost was checked rather than assumed and is not the binding
+constraint: at k=10 the worst case over the whole dataset is 581 tokens of
+system prompt plus task against a 5744-token ceiling. The grammar itself
+costs **no** context tokens — it is a sampler constraint passed to the
+backend, never prefilled — so its growth (1042 -> 1339 chars) is parse
+overhead, not budget.
+
+### Tokenisation is Unicode-aware, and what that does not fix
+
+The scorer used to split on `[^a-z0-9]+`. For ASCII that is indistinguishable
+from correct; for anything else it fails silently, in two distinct ways:
+`"öffne die App"` became `[ffne, die, app]` (a corrupted token, not a missing
+one), and `"検索して"` became `[]` — no tokens at all, every tool scoring zero,
+so the visible set was decided by the alphabetical tie-break. The selector now
+uses a Unicode word-character class plus NFC normalisation, with the `> 2`
+character floor exempted for scripts that do not separate words with spaces.
+The ASCII path is unchanged, token for token.
+
+This is necessary and **not sufficient**, which is worth stating plainly
+because the product is Dutch: the catalogue is written in English. `bel
+Annabel` now tokenises honestly to `[annabel]` and still shares no word with
+`contacts.search`. Correct tokenisation turns a silent zero into an honest low
+score; it does not cross a language boundary. Fixing that needs Dutch (and
+other) vocabulary in the tags the selector reads, or a model that reads the
+user's language — neither is done here, and the held-out probe's two Dutch
+misses are that gap showing up in a number.
 
 ---
 

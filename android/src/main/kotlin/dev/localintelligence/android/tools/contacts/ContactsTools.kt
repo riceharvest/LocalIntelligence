@@ -645,7 +645,6 @@ private fun Cursor.longOrZero(column: String): Long {
     return if (index < 0 || isNull(index)) 0L else getLong(index)
 }
 
-
 // =====================================================================================
 // The tool set
 // =====================================================================================

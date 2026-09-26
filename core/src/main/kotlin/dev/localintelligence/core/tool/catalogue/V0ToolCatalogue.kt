@@ -13,13 +13,13 @@ import kotlinx.serialization.json.putJsonObject
  *
  * ## Why 25 tools and not 145
  *
- * The number is not the point; the *filter* is. v0 shows 3-6 tools per step,
- * chosen lexically, so a 25-tool catalogue never puts 25 definitions in a 4K
- * context. What actually costs the model is a tool it cannot tell apart from its
- * neighbour, and that risk grows with every tool sharing a name fragment, a tag,
- * or a phrasing with another. A 145-tool catalogue is not "more capable", it is
- * 145 ways for the right tool to lose the retrieval race against an
- * almost-identical sibling.
+ * The number is not the point; the *filter* is. v0 shows up to 10 tools per
+ * step, chosen lexically, so a 25-tool catalogue never puts 25 definitions in
+ * a 4K context. What actually costs the model is a tool it cannot tell apart
+ * from its neighbour, and that risk grows with every tool sharing a name
+ * fragment, a tag, or a phrasing with another. A 145-tool catalogue is not
+ * "more capable", it is 145 ways for the right tool to lose the retrieval race
+ * against an almost-identical sibling.
  *
  * The set covers the seven target tasks in `docs/architecture.md` section 1 and
  * nothing those tasks do not need:

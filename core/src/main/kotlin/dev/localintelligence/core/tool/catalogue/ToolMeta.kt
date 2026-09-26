@@ -209,8 +209,8 @@ object ToolMeta {
             "first, with name, type, size and date.",
         category = "files",
         tags = setOf(
-            "browse", "documents", "downloads", "files", "my files", "storage",
-            "what files do i have",
+            "browse", "documents", "downloads", "files", "folder", "list my files", "my files",
+            "storage", "what files do i have",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -221,8 +221,9 @@ object ToolMeta {
             "modification date, returning a capped list of matches.",
         category = "files",
         tags = setOf(
-            "extension", "filename", "find", "look for", "mime type", "modified",
-            "recent files", "search",
+            "anywhere", "downloaded", "extension", "filename", "find", "is there a", "look for",
+            "mime type", "modified", "my note", "pdf", "recent files", "report", "search",
+            "what did i download", "where is",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -233,8 +234,8 @@ object ToolMeta {
             "content:// URI, returning at most 8 KB of its text.",
         category = "files",
         tags = setOf(
-            "contents", "file content", "open", "preview", "read", "text",
-            "what does the file say",
+            "contents", "file content", "open", "open file", "preview", "read", "show me the file",
+            "summarize this file", "text", "what does it say", "what does the file say",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -245,7 +246,8 @@ object ToolMeta {
             "create a new file in Downloads on Android 10 and newer.",
         category = "files",
         tags = setOf(
-            "create file", "export", "new note", "overwrite", "save", "store text", "write",
+            "create file", "export", "jot down", "new note", "note", "notes", "overwrite", "save",
+            "store text", "write",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -256,7 +258,8 @@ object ToolMeta {
             "a name that matches exactly one file.",
         category = "files",
         tags = setOf(
-            "delete", "erase", "get rid of", "remove", "trash", "unlink",
+            "bin", "delete", "delete a file", "discard", "document", "draft", "erase", "get rid of",
+            "invoice", "pdf", "remove", "remove a file", "throw away", "trash", "unlink",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -269,8 +272,9 @@ object ToolMeta {
             "and package names, optionally filtered by a query.",
         category = "apps",
         tags = setOf(
-            "applications", "apps", "home screen", "installed", "launcher", "packages",
-            "what apps do i have",
+            "app", "applications", "apps", "do i have an app", "find an app", "home screen",
+            "installed", "is there an app for", "launcher", "package name", "packages",
+            "search apps", "what apps do i have",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -281,7 +285,9 @@ object ToolMeta {
             "matches exactly one installed app.",
         category = "apps",
         tags = setOf(
-            "go to app", "launch", "open", "run", "show me the app", "start", "switch to",
+            "go to app", "launch", "listen to", "maps", "open", "open a media app", "play",
+            "play a game", "play music", "put on", "run", "show me the app", "start", "switch to",
+            "whatsapp",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -292,8 +298,8 @@ object ToolMeta {
             "Android share sheet, with the user's confirmation.",
         category = "apps",
         tags = setOf(
-            "attach", "forward", "pass to another app", "send", "share", "share file",
-            "share text",
+            "attach", "email it", "forward", "pass to another app", "send", "send it to", "share",
+            "share file", "share text", "whatsapp it",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -318,8 +324,8 @@ object ToolMeta {
             "characters were copied.",
         category = "clipboard",
         tags = setOf(
-            "clipboard", "copy", "copy text", "copy to clipboard", "cut", "paste",
-            "put on clipboard", "share text",
+            "clipboard", "copy", "copy text", "copy this", "copy to clipboard", "cut", "paste",
+            "put on clipboard", "save to clipboard", "share text",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -332,8 +338,10 @@ object ToolMeta {
             "charging, and the estimated time until the battery is empty or full.",
         category = "device",
         tags = setOf(
-            "battery", "battery level", "charge", "charging", "drain",
-            "how long until charged", "how much battery", "power",
+            "battery", "battery level", "charge", "charging", "die", "dies", "drain", "empty",
+            "how long until charged", "how long until it dies", "how long will it last",
+            "how much battery", "make it home", "power", "run out", "run out of battery",
+            "running out", "survive",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -344,8 +352,8 @@ object ToolMeta {
             "RAM, and free storage.",
         category = "device",
         tags = setOf(
-            "android version", "device info", "free space", "how much ram",
-            "phone model", "screen size", "specs", "storage",
+            "android version", "device info", "free space", "how much ram", "how much storage",
+            "phone model", "screen size", "specs", "storage", "what phone", "which phone",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -356,8 +364,8 @@ object ToolMeta {
             "screen that was opened.",
         category = "device",
         tags = setOf(
-            "battery saver", "display settings", "open settings", "settings",
-            "sound settings", "system settings", "turn on bluetooth", "wifi settings",
+            "battery saver", "display settings", "open settings", "settings", "sound settings",
+            "system settings", "turn on bluetooth", "wifi settings",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -381,8 +389,9 @@ object ToolMeta {
             "the id it was given.",
         category = "alarm",
         tags = setOf(
-            "alarm", "remind me at", "ring at", "set a reminder", "set an alarm", "timer",
-            "wake me up", "wake up call",
+            "alarm", "before work", "get me up", "get up", "need to be up", "remind me at",
+            "ring at", "set a reminder", "set a timer", "set an alarm", "timer", "timer for",
+            "up at", "wake me up", "wake up call",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -393,8 +402,9 @@ object ToolMeta {
             "alarms from the system Clock app are not visible.",
         category = "alarm",
         tags = setOf(
-            "alarm list", "do i have an alarm", "list alarms", "my alarms",
-            "upcoming alarms", "what alarms do i have", "what did i set",
+            "alarm list", "do i have an alarm", "list alarms", "my alarm", "my alarms",
+            "show my alarm", "upcoming alarm", "upcoming alarms", "what alarm do i have",
+            "what alarms do i have", "what did i set",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -405,8 +415,9 @@ object ToolMeta {
             "id or by its hour, minute and label.",
         category = "alarm",
         tags = setOf(
-            "cancel alarm", "cancel my alarm", "delete alarm", "remove alarm",
-            "remove the wake up", "stop the alarm", "turn off alarm",
+            "cancel alarm", "cancel my alarm", "delete alarm", "get rid of my alarm",
+            "kill the alarm", "remove alarm", "remove the wake up", "stop the alarm",
+            "turn off alarm",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -419,8 +430,9 @@ object ToolMeta {
             "filtered by title or location text.",
         category = "calendar",
         tags = setOf(
-            "agenda", "appointment", "busy", "calendar", "events", "meeting",
-            "schedule", "what's on",
+            "agenda", "am i free", "anything today", "appointment", "busy", "calendar", "event",
+            "events", "free", "meeting", "meetings", "next", "schedule", "this afternoon", "today",
+            "tomorrow", "what do i have on", "what's on",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -431,7 +443,9 @@ object ToolMeta {
             "the new event's id and start time.",
         category = "calendar",
         tags = setOf(
-            "add event", "appointment", "book", "calendar", "meeting", "reminder", "schedule",
+            "add event", "appointment", "block out", "block time", "book", "calendar", "hold time",
+            "meeting", "new meeting", "put in my calendar", "reminder", "reserve", "schedule",
+            "this afternoon", "work meeting",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -444,8 +458,9 @@ object ToolMeta {
             "query, one line per person.",
         category = "contacts",
         tags = setOf(
-            "address book", "call", "contact", "contacts", "lookup", "number",
-            "phone book", "who is",
+            "address book", "call", "contact", "contacts", "find someone", "get in touch",
+            "how do i contact", "how to reach", "look someone up", "look up", "lookup", "number",
+            "phone book", "phone number", "reach", "ring", "who is",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -456,8 +471,9 @@ object ToolMeta {
             "for one contact id.",
         category = "contacts",
         tags = setOf(
-            "address book", "contact", "contact details", "email address", "lookup",
-            "phone number", "who is",
+            "address book", "contact", "contact card", "contact details", "email address",
+            "everything about", "full contact", "lookup", "phone number", "their address",
+            "their email", "who is",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -470,8 +486,9 @@ object ToolMeta {
             "newest first.",
         category = "notifications",
         tags = setOf(
-            "alerts", "banner", "inbox", "list", "messages", "notifications", "ping",
-            "what came in",
+            "alerts", "anything new", "banner", "come in", "did anything come in", "inbox", "list",
+            "messages", "miss", "notifications", "ping", "what came in", "what did i miss",
+            "whatsapp", "who messaged",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -482,7 +499,8 @@ object ToolMeta {
             "a reply box.",
         category = "notifications",
         tags = setOf(
-            "answer", "chat", "message back", "notification", "reply", "respond", "send",
+            "answer", "chat", "let them know", "message back", "notification", "quick reply",
+            "reply", "reply to", "respond", "send", "send a message", "tell them", "text back",
             "text message",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
@@ -493,7 +511,8 @@ object ToolMeta {
         description = "Dismisses (cancels) one notification from the shade by its key.",
         category = "notifications",
         tags = setOf(
-            "banner", "clear", "dismiss", "notification", "remove", "silence", "swipe away",
+            "banner", "clear", "clear notification", "dismiss", "get rid of notification",
+            "mark as read", "no more alerts", "notification", "remove", "silence", "swipe away",
         ),
         observationOrigin = ObservationOrigin.LOCAL,
     )
@@ -507,7 +526,9 @@ object ToolMeta {
             "argument: the result is always plain text.",
         category = "web",
         tags = setOf(
-            "fetch", "http", "internet", "page", "read online", "url", "web", "website",
+            "check what the site says", "fetch", "forecast", "http", "internet", "link", "link url",
+            "look up", "online", "open a link", "page", "page link", "read online", "right now",
+            "this link", "url", "weather", "web", "website", "website says",
         ),
         observationOrigin = ObservationOrigin.NETWORK,
     )
