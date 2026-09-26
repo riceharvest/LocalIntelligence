@@ -108,6 +108,51 @@ fun interface ToolSelector {
  *    shared word with any description or tag. The scorer has no opinion, and no
  *    re-weighting of an opinion it does not have can help.
  *
+ * ## The alphabetical tie-break was measured, and it is the best available one
+ *
+ * `thenBy { name }` looks like the defect, so it was measured against six
+ * alternatives over the 170-turn held-out corpus: raw name-substring, raw
+ * description-word, risk tier, required-arg count, character-trigram
+ * similarity, and normalised trigram similarity. **None is significant at the
+ * shipped k=6.** The best, normalised trigram, is +3 turns on 19 discordant
+ * ones (McNemar exact p=0.65) — inside the noise of a random-tie null the
+ * shipped order already sits at the 72nd percentile of.
+ *
+ * The reason is structural rather than a matter of not having found the right
+ * signal yet. Of the 53 turns where the correct tool is *tied but below the
+ * cut*, **37 have all 25 tools scoring zero** — there is nothing in the request
+ * for any ordering to key on. Of the 16 that do have a scorer signal, a raw
+ * name-substring fires on the correct tool in **0**. A tie-break reorders tools
+ * the scorer could already tell apart; where the scorer is silent, every order
+ * is equally uninformed and the question is a coin, not a ranking.
+ *
+ * Two of the six are actively worse and are worth naming. Ordering by **risk
+ * tier** costs 8 turns at k=10: read-only-first helps the read tools and
+ * buries the write ones. A **category-diverse** window fixes the visible
+ * pathology — the shipped k=6 window covers at most two categories on 60/170
+ * turns, a diverse one covers more than two on all 170 — and still loses three
+ * turns, because only 10 of the 53 recoverable ties put the correct tool
+ * against a same-category rival, and spreading is usually right and
+ * occasionally splits the *correct pair*, `contacts.get` from
+ * `contacts.search`. A tidier window is not a more capable agent.
+ *
+ * So the tie rate stays at 84%, and the honest statement is that on a lexical
+ * selector over natural language it is close to irreducible without a model.
+ * Re-run it with `./core/src/main/kotlin/dev/localintelligence/core/tool/eval/
+ * run-heldout-harness.sh tiebreak`, which prints the mechanism proof, all
+ * seven variants, the null, and the paired tests. Nothing here quotes a number
+ * that tool cannot re-derive.
+ *
+ * ### What a tie-break might be worth that this corpus cannot see
+ *
+ * Selectability is not the only thing an ordering does. It also decides the
+ * order the model reads, and a 1-3B model's choice is not uniform over six
+ * names. A window ordered *toward the more likely tool* may therefore be worth
+ * more than a window that merely *contains* it — and the corpus, which has no
+ * model in it, cannot measure that at all. That is the strongest argument for
+ * revisiting this, and it is not an argument this file gets to make on the
+ * evidence available.
+ *
  * Four inline variants were measured and all are recorded here rather than
  * shipped, because three are neutral-or-worse and the fourth is a tag-list
  * defect wearing a selector's clothes:

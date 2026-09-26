@@ -71,5 +71,14 @@ JARS
 # retrieval against, so it must run with the repository root as its working
 # directory. The check reports SKIPPED rather than passing if it cannot find
 # them, which is a visible difference rather than a silent one.
-exec "$JAVA_HOME/bin/java" -cp "$CP" \
-  dev.localintelligence.core.tool.eval.HeldOutReportKt "$@"
+#
+# `tiebreak` selects the tie-break report, which shares this classpath and
+# this corpus. Both are main() on :core; the selector is chosen here rather
+# than by a second script so there is one place that resolves the classpath.
+case "${1:-heldout}" in
+  tiebreak) MAIN_CLASS="dev.localintelligence.core.tool.eval.TieBreakReportKt"; shift ;;
+  heldout)  MAIN_CLASS="dev.localintelligence.core.tool.eval.HeldOutReportKt" ;;
+  *) echo "usage: $0 [heldout|tiebreak]" >&2; exit 2 ;;
+esac
+
+exec "$JAVA_HOME/bin/java" -cp "$CP" "$MAIN_CLASS" "$@"
