@@ -2,6 +2,7 @@ package dev.localintelligence.core.context
 
 import dev.localintelligence.core.agent.Memory
 import dev.localintelligence.core.model.ChatMessage
+import dev.localintelligence.core.model.token.ContextCeiling
 import dev.localintelligence.core.tool.ToolDefinition
 
 /**
@@ -41,15 +42,25 @@ import dev.localintelligence.core.tool.ToolDefinition
  * JSON tool observation is worse than no observation at all: it teaches the
  * model that JSON is allowed to be malformed.
  *
+ * ## The ceiling, and why it is not a constructor argument you can set freely
+ *
+ * This is the component that decides how much text reaches the model, so it is
+ * where the 6000-vs-4096 defect lived: it was handed `workingLimit = 6000` and
+ * assembled a 4259-token prompt against a 4096-token KV cache, which is a
+ * prefill llama.cpp silently clamps. The limit is now [ContextCeiling]'s to
+ * decide, from the window the loaded model reports, and this class only
+ * *reads* it — see [modelContextTokens].
+ *
  * ## RAM (docs/architecture.md section 16)
  *
- * Every buffer here has a stated worst case, for a 6000-token working limit:
+ * Every buffer here has a stated worst case, for a [ContextCeiling] working
+ * limit:
  *
  *  - the output list: 4 fixed + at most [MAX_HISTORY_SCAN] turns = 68 refs
  *  - the history window: a [java.util.List.subList] VIEW, zero copy
  *  - the newest-first accumulation buffer: at most 64 refs
  *  - generated strings: system prompt (bounded by the caller's tool set, which
- *    architecture section 11 hard-caps at 8 tools), memories <= ~1 KB
+ *    architecture section 11 caps the set at 10 tools), memories <= ~1 KB
  *
  * Worst case builder-owned heap: **~12 KB**. The builder holds no state between
  * calls, so it is garbage the moment `build` returns. There is no cache here and
@@ -57,7 +68,34 @@ import dev.localintelligence.core.tool.ToolDefinition
  */
 class DefaultContextBuilder(
     private val systemPrompt: (List<ToolDefinition>) -> String = SystemPrompts::forTools,
-    private val workingLimit: Int = 6000,
+    /**
+     * The loaded model's real context window, read at BUILD time rather than
+     * captured at construction.
+     *
+     * A lambda, not an Int, and that is the entire fix. The model is loaded
+     * after the container exists, and it can be swapped or unloaded, so a
+     * limit captured in a constructor is a limit priced against whatever
+     * happened to be loaded when the object was built. Reading it per call is
+     * what makes "if the model reports a different context length at load, the
+     * budget follows THAT" true rather than aspirational.
+     *
+     * Defaults to the fallback window, so a builder constructed without a model
+     * still refuses to exceed the smallest cache the app can create.
+     */
+    private val modelContextTokens: () -> Int = { ContextCeiling.FALLBACK_WINDOW_TOKENS },
+    /**
+     * An EXPLICIT working limit, overriding the derived one.
+     *
+     * Escape hatch, not a tuning knob: it exists for a caller that has measured
+     * a real window and wants to state it directly (the eval harness does).
+     *
+     * WHY IT IS NOT THE DEFAULT ANY MORE: this parameter is how a 6000-token
+     * prompt got assembled against a 4096-token KV cache. The number is now
+     * [ContextCeiling]'s to derive from the model, and anything that reaches
+     * for this is asserting a fact about hardware it should be reading from
+     * [modelContextTokens] instead.
+     */
+    private val workingLimit: Int? = null,
 ) : ContextBuilder {
 
     override fun build(
@@ -66,7 +104,8 @@ class DefaultContextBuilder(
         memories: List<Memory>,
         tools: List<ToolDefinition>,
     ): List<ChatMessage> {
-        val limit = workingLimit.coerceAtLeast(0)
+        val limit = (workingLimit ?: ContextCeiling.workingLimit(modelContextTokens()))
+            .coerceAtLeast(0)
 
         val summary = summaryOf(history)
         val turns = turnWindow(history, summary != null, task)

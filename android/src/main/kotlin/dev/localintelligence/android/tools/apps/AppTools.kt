@@ -9,15 +9,17 @@ import android.content.pm.ResolveInfo
 import android.net.Uri
 import dev.localintelligence.android.tools.files.OBSERVATION_BUDGET
 import dev.localintelligence.android.tools.files.ToolSafety
-import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
-import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolMeta
+import dev.localintelligence.core.tool.catalogue.ToolArgumentBounds
+import dev.localintelligence.core.tool.catalogue.ToolSchemas
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
@@ -31,7 +33,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
-import java.util.Locale
 
 // =====================================================================================
 // APPS: package names, fuzzy labels, and the share URI problem
@@ -192,10 +193,14 @@ object AppMatcher {
 /** Defensive coercion for the app tools, mirroring the file tools. */
 object AppArgs {
 
-    const val DEFAULT_LIMIT = 30
-    const val MAX_LIMIT = 100
-    const val MAX_QUERY_CHARS = AppMatcher.MAX_QUERY_CHARS
-    const val MAX_TEXT_CHARS = 2000
+    // Aliased from :core's ToolArgumentBounds: these numbers appear in this
+    // tool's JSON Schema, which :core owns, and in its `execute()`, below.
+    // Aliasing rather than repeating is what stops the advertised bound and
+    // the enforced bound from drifting apart.
+    const val DEFAULT_LIMIT = ToolArgumentBounds.APPS_DEFAULT_LIMIT
+    const val MAX_LIMIT = ToolArgumentBounds.APPS_MAX_LIMIT
+    const val MAX_QUERY_CHARS = ToolArgumentBounds.APPS_MAX_QUERY_CHARS
+    const val MAX_TEXT_CHARS = ToolArgumentBounds.APPS_MAX_TEXT_CHARS
 
     /** Clamped to `[1, MAX_LIMIT]`. A non-positive value means "the model did not mean it". */
     fun limit(raw: JsonElement?): Int {
@@ -452,34 +457,9 @@ private fun fail(observation: String, error: ToolError) =
 /** List launchable apps. */
 class AppsListTool(private val appContext: Context) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "apps.list",
-        description = "List launchable apps on this device with their labels and package names, optionally filtered by a query.",
-        category = "apps",
-        schema = buildJsonObject {
-            put("type", "object")
-            put(
-                "properties",
-                buildJsonObject {
-                    put("query", buildJsonObject {
-                        put("type", "string")
-                        put("maxLength", AppArgs.MAX_QUERY_CHARS)
-                        put("description", "Filter by app label or package name.")
-                    })
-                    put("limit", buildJsonObject {
-                        put("type", "integer")
-                        put("minimum", 1)
-                        put("maximum", AppArgs.MAX_LIMIT)
-                        put("description", "How many apps to return. Default ${AppArgs.DEFAULT_LIMIT}.")
-                    })
-                },
-            )
-            putJsonArray("required") { }
-            put("additionalProperties", false)
-        },
+    override val definition = ToolMeta.APPS_LIST.define(
+        schema = ToolSchemas.appsList,
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("apps", "applications", "installed", "launcher", "home screen", "what apps do i have", "packages"),
         // No permission, and the field now says so. It used to hold the
         // sentence "QUERY_ALL_PACKAGES is NOT used; package visibility rules
         // apply on API 30+", which is documentation masquerading as a permission
@@ -517,36 +497,9 @@ class AppsListTool(private val appContext: Context) : AgentTool {
 /** Launch an app by package or by label. */
 class AppsOpenTool(private val appContext: Context) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "apps.open",
-        description = "Open an app by its exact package name, or by a label that matches exactly one installed app.",
-        category = "apps",
-        schema = buildJsonObject {
-            put("type", "object")
-            put(
-                "properties",
-                buildJsonObject {
-                    put("package", buildJsonObject {
-                        put("type", "string")
-                        put("description", "Exact package name, e.g. com.android.chrome. Preferred.")
-                    })
-                    put("name", buildJsonObject {
-                        put("type", "string")
-                        put("maxLength", AppArgs.MAX_QUERY_CHARS)
-                        put("description", "App label to fuzzy-match, e.g. \"Maps\". Ambiguous names are refused.")
-                    })
-                },
-            )
-            putJsonArray("required") { }
-            // Truthful: `required: []` alone told the model an empty call was
-            // fine, and the tool then rejected it. One of the two arguments is
-            // genuinely required, just not expressible as a named `required`
-            // entry, so the standard constraint for that is minProperties.
-            put("minProperties", 1)
-            put("additionalProperties", false)
-        },
+    override val definition = ToolMeta.APPS_OPEN.define(
+        schema = ToolSchemas.appsOpen,
         risk = ToolRisk.REVERSIBLE,
-        tags = setOf("open", "launch", "start", "run", "switch to", "go to app", "show me the app"),
         requiredPermission = null,
     )
 
@@ -629,44 +582,9 @@ class AppsOpenTool(private val appContext: Context) : AgentTool {
 /** Share a document or a piece of text. */
 class AppsShareTool(private val appContext: Context) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "apps.share",
-        description = "Share a content:// document or a text snippet through the Android share sheet, with the user's confirmation.",
-        category = "apps",
-        schema = buildJsonObject {
-            put("type", "object")
-            put(
-                "properties",
-                buildJsonObject {
-                    put("uri", buildJsonObject {
-                        put("type", "string")
-                        put("description", "content:// document URI from files.list or files.search.")
-                    })
-                    put("text", buildJsonObject {
-                        put("type", "string")
-                        put("maxLength", AppArgs.MAX_TEXT_CHARS)
-                        put("description", "Plain text to share, with no attachment.")
-                    })
-                    put("name", buildJsonObject {
-                        put("type", "string")
-                        put("description", "Display name of the attachment, used for the MIME type and the share title.")
-                    })
-                    put("title", buildJsonObject {
-                        put("type", "string")
-                        put("maxLength", 200)
-                        put("description", "Title for the share sheet.")
-                    })
-                },
-            )
-            putJsonArray("required") { }
-            // One of 'uri' or 'text' is genuinely required; the tool rejects a
-            // call with neither. Declared so the model is not invited to make
-            // the call the tool will refuse.
-            put("minProperties", 1)
-            put("additionalProperties", false)
-        },
+    override val definition = ToolMeta.APPS_SHARE.define(
+        schema = ToolSchemas.appsShare,
         risk = ToolRisk.EXTERNAL_COMMUNICATION,
-        tags = setOf("share", "send", "attach", "share file", "share text", "pass to another app", "forward"),
         requiredPermission = null,
     )
 

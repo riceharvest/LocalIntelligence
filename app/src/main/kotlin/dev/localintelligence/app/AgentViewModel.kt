@@ -342,7 +342,20 @@ sealed interface RunState {
     val progressLabel: String?
         get() = when (this) {
             Idle, is Finished -> null
-            LoadingModel -> "Loading the model into memory. This can take a minute."
+            // WHY THERE IS NO DURATION HERE: this used to read "This can take a
+            // minute." Nothing supports that. The only load-time figure in this
+            // project is ~600-720 ms, and it was taken on an emulator before
+            // emulator testing was abandoned — an order of magnitude *below* a
+            // minute, from hardware that is not a phone. So the sentence was
+            // not a rough guide; it was a number with no measurement behind it,
+            // in the one phase where a user is deciding whether to wait or to
+            // force-quit. `ChatScreen`'s progress row states the rule this
+            // screen was breaking: with no measured load or decode figure on
+            // any phone, any duration here would be invented. The elapsed clock
+            // beside it is the honest version of the same help.
+            LoadingModel -> "Loading the model into memory. There is no measured " +
+                "load time for a phone, so the clock beside this is the only " +
+                "guide there is."
             Running -> null
             is AwaitingApproval -> "Waiting for your approval."
         }

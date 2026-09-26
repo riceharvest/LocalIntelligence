@@ -6,18 +6,24 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
-import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolMeta
+import dev.localintelligence.core.tool.catalogue.ToolArgumentBounds
+import dev.localintelligence.core.tool.catalogue.ToolSchemas
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
+import java.io.InputStream
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
@@ -31,11 +37,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
-import java.io.InputStream
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import kotlinx.coroutines.CancellationException
 
 // =====================================================================================
 // WHY SAF AND NOT java.io
@@ -165,25 +166,29 @@ internal object ToolSafety {
 object FileArgs {
 
     /** A browse tool that answers "what do I have?" with 20 rows is useless at 3. */
-    const val DEFAULT_LIMIT = 20
+    // Aliased from :core's ToolArgumentBounds: these numbers appear in this
+    // tool's JSON Schema, which :core owns, and in its `execute()`, below.
+    // Aliasing rather than repeating is what stops the advertised bound and
+    // the enforced bound from drifting apart.
+    const val DEFAULT_LIMIT = ToolArgumentBounds.FILES_DEFAULT_LIMIT
 
     /** Hard ceiling. 100 rows of file metadata is already ~4 KB of observation. */
-    const val MAX_LIMIT = 100
+    const val MAX_LIMIT = ToolArgumentBounds.FILES_MAX_LIMIT
 
     /** A query longer than this is a confused model, not a user with a long filename. */
-    const val MAX_QUERY_CHARS = 200
+    const val MAX_QUERY_CHARS = ToolArgumentBounds.FILES_MAX_QUERY_CHARS
 
     /** MIME types come from the provider and from the model; both can be silly. */
-    const val MAX_MIME_CHARS = 100
+    const val MAX_MIME_CHARS = ToolArgumentBounds.FILES_MAX_MIME_CHARS
 
     /** Filenames are bounded so one hostile provider row cannot eat the heap. */
     const val MAX_NAME_CHARS = 160
 
     /** Cap on a filename accepted as a write target. */
-    const val MAX_WRITE_NAME_CHARS = 120
+    const val MAX_WRITE_NAME_CHARS = ToolArgumentBounds.FILES_MAX_WRITE_NAME_CHARS
 
     /** Largest text payload accepted by files.write_text, in characters. */
-    const val MAX_WRITE_CHARS = 8192
+    const val MAX_WRITE_CHARS = ToolArgumentBounds.FILES_MAX_WRITE_CHARS
 
     /**
      * Coerces a limit argument: number, numeric string, or default. Clamped to
@@ -1016,29 +1021,9 @@ class FilesListTool(
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "files.list",
-        description = "List documents and downloads this app can see, newest first, with name, type, size and date.",
-        category = "files",
-        schema = buildJsonObject {
-            put("type", "object")
-            put(
-                "properties",
-                buildJsonObject {
-                    put("limit", buildJsonObject {
-                        put("type", "integer")
-                        put("minimum", 1)
-                        put("maximum", FileArgs.MAX_LIMIT)
-                        put("description", "How many documents to list. Default ${FileArgs.DEFAULT_LIMIT}.")
-                    })
-                },
-            )
-            putJsonArray("required") { }
-            put("additionalProperties", false)
-        },
+    override val definition = ToolMeta.FILES_LIST.define(
+        schema = ToolSchemas.filesList,
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("files", "documents", "downloads", "storage", "browse", "my files", "what files do i have"),
         requiredPermission = null,
     )
 
@@ -1073,47 +1058,9 @@ class FilesSearchTool(
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "files.search",
-        description = "Find documents by name substring, MIME type and modification date, returning a capped list of matches.",
-        category = "files",
-        schema = buildJsonObject {
-            put("type", "object")
-            put(
-                "properties",
-                buildJsonObject {
-                    put("query", buildJsonObject {
-                        put("type", "string")
-                        put("maxLength", FileArgs.MAX_QUERY_CHARS)
-                        put("description", "Case-insensitive substring of the file name.")
-                    })
-                    put("mime", buildJsonObject {
-                        put("type", "string")
-                        put("maxLength", FileArgs.MAX_MIME_CHARS)
-                        put("description", "Exact MIME type, e.g. application/pdf.")
-                    })
-                    put("modified_after", buildJsonObject {
-                        put("type", "integer")
-                        put("description", "Only files modified at or after this epoch-milliseconds value.")
-                    })
-                    put("modified_before", buildJsonObject {
-                        put("type", "integer")
-                        put("description", "Only files modified before this epoch-milliseconds value.")
-                    })
-                    put("limit", buildJsonObject {
-                        put("type", "integer")
-                        put("minimum", 1)
-                        put("maximum", FileArgs.MAX_LIMIT)
-                        put("description", "How many matches to return. Default ${FileArgs.DEFAULT_LIMIT}.")
-                    })
-                },
-            )
-            putJsonArray("required") { }
-            put("additionalProperties", false)
-        },
+    override val definition = ToolMeta.FILES_SEARCH.define(
+        schema = ToolSchemas.filesSearch,
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("search", "find", "look for", "filename", "extension", "mime type", "recent files", "modified"),
         requiredPermission = null,
     )
 
@@ -1172,27 +1119,9 @@ class FilesReadTextTool(
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "files.read_text",
-        description = "Read the beginning of a text document given its content:// URI, returning at most 8 KB of its text.",
-        category = "files",
-        schema = buildJsonObject {
-            put("type", "object")
-            put(
-                "properties",
-                buildJsonObject {
-                    put("uri", buildJsonObject {
-                        put("type", "string")
-                        put("description", "content:// URI from files.list or files.search.")
-                    })
-                },
-            )
-            putJsonArray("required") { add("uri") }
-            put("additionalProperties", false)
-        },
+    override val definition = ToolMeta.FILES_READ_TEXT.define(
+        schema = ToolSchemas.filesReadText,
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("read", "open", "text", "contents", "preview", "file content", "what does the file say"),
         requiredPermission = null,
     )
 
@@ -1265,33 +1194,8 @@ class FilesWriteTextTool(
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "files.write_text",
-        description = "Write text into an existing content:// document, or create a new file in Downloads on Android 10 and newer.",
-        category = "files",
-        schema = buildJsonObject {
-            put("type", "object")
-            put(
-                "properties",
-                buildJsonObject {
-                    put("uri", buildJsonObject {
-                        put("type", "string")
-                        put("description", "content:// URI of the document to overwrite. Omit to create a new file.")
-                    })
-                    put("name", buildJsonObject {
-                        put("type", "string")
-                        put("maxLength", FileArgs.MAX_WRITE_NAME_CHARS)
-                        put("description", "Filename for a new document, e.g. notes.txt.")
-                    })
-                    put("content", buildJsonObject {
-                        put("type", "string")
-                        put("description", "The text to write. At most ${FileArgs.MAX_WRITE_CHARS} characters.")
-                    })
-                },
-            )
-            putJsonArray("required") { add("content") }
-            put("additionalProperties", false)
-        },
+    override val definition = ToolMeta.FILES_WRITE_TEXT.define(
+        schema = ToolSchemas.filesWriteText,
         // DESTRUCTIVE, escalated from REVERSIBLE, and the catalogue agrees.
         //
         // The `name` branch (create a new file in Downloads) is genuinely
@@ -1306,7 +1210,6 @@ class FilesWriteTextTool(
         // Supplying `uri` alongside it is the destructive act, and the runtime
         // gates on the tool tier, so the confirmation covers both.
         risk = ToolRisk.DESTRUCTIVE,
-        tags = setOf("write", "save", "create file", "new note", "store text", "overwrite", "export"),
         requiredPermission = null,
     )
 
@@ -1362,30 +1265,9 @@ class FilesDeleteTool(
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "files.delete",
-        description = "Delete one identified document by content:// URI, or by a name that matches exactly one file.",
-        category = "files",
-        schema = buildJsonObject {
-            put("type", "object")
-            put(
-                "properties",
-                buildJsonObject {
-                    put("uri", buildJsonObject {
-                        put("type", "string")
-                        put("description", "content:// URI of the single document to delete.")
-                    })
-                    put("name", buildJsonObject {
-                        put("type", "string")
-                        put("description", "Exact file name. Refused if it matches more than one document.")
-                    })
-                },
-            )
-            putJsonArray("required") { }
-            put("additionalProperties", false)
-        },
+    override val definition = ToolMeta.FILES_DELETE.define(
+        schema = ToolSchemas.filesDelete,
         risk = ToolRisk.DESTRUCTIVE,
-        tags = setOf("delete", "remove", "erase", "trash", "get rid of", "unlink"),
         requiredPermission = null,
     )
 

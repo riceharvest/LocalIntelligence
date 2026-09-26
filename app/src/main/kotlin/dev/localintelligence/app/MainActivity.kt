@@ -46,6 +46,7 @@ import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import dev.localintelligence.app.ui.ModelManagerScreen
 import dev.localintelligence.app.ui.TraceScreen
 import dev.localintelligence.app.ui.components.ChatModelIdentity
+import dev.localintelligence.app.ui.trace.DecisionTraceScreen
 import dev.localintelligence.app.ui.trace.RedactionScreen
 import dev.localintelligence.app.ui.trace.ScheduleScreen
 import dev.localintelligence.app.ui.trace.ScheduleViewModel
@@ -159,7 +160,20 @@ class MainActivity : ComponentActivity() {
                             trace = chat.trace.value(),
                             runState = traceState,
                             onBack = { nav.popBackStack() },
+                            // One tap from the display trace to the structured
+                            // one. The display list answers "what happened"; this
+                            // answers "what was available, what was priced, and
+                            // what the model actually emitted".
+                            onOpenDecisions = { nav.navigate(ROUTE_DECISIONS) },
                         )
+                    }
+
+                    composable(ROUTE_DECISIONS) {
+                        // Not exported, not gated, reachable only from the trace
+                        // screen. It is a debug surface: it shows what the agent
+                        // decided, and a user who found it has already decided
+                        // they want to see it.
+                        DecisionTraceScreen(onBack = { nav.popBackStack() })
                     }
 
                     composable(ROUTE_REDACTION) {
@@ -240,13 +254,27 @@ class MainActivity : ComponentActivity() {
                                 // over adb, or restored from a backup, and none of
                                 // those need the SAF picker — the app already owns
                                 // the bytes, so it can just read the header.
+                                //
+                                // WHY `.litertlm` IS NOT IN THIS FILTER, even though
+                                // `inspect()` cannot parse one: it used to be, and
+                                // `inspect()` throws `GgufParseException` on a
+                                // FlatBuffer. A single `.litertlm` sitting in
+                                // modelsDir therefore aborted the entire `forEach`
+                                // below, so every GGUF *after* it in directory order
+                                // was silently skipped — and the screen's own notice,
+                                // "Anything found is now in the list", was never
+                                // reached because the failure path took over. The
+                                // filter matched a format the scan provably cannot
+                                // read, in a loop with no per-file error handling,
+                                // so the visible claim was false in the only case it
+                                // was most likely to be tested in. The importer has
+                                // no LiteRT-LM path at all, and `ModelManagerScreen`
+                                // already tells the user so.
                                 withContext(Dispatchers.IO) {
                                     container.modelsDir.listFiles()
                                         ?.filter { file ->
-                                            file.isFile && (
-                                                file.name.endsWith(".gguf", ignoreCase = true) ||
-                                                    file.name.endsWith(".litertlm", ignoreCase = true)
-                                                )
+                                            file.isFile &&
+                                                file.name.endsWith(".gguf", ignoreCase = true)
                                         }
                                         ?.forEach { file ->
                                             val uri = android.net.Uri.fromFile(file)
@@ -379,6 +407,14 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_HUB = "hub"
         const val ROUTE_SCHEDULE = "schedule"
         const val ROUTE_REDACTION = "redaction"
+
+        /**
+         * The structured decision trace.
+         *
+         * A separate destination rather than a tab on [ROUTE_TRACE] because the
+         * two show different artifacts — see `TraceScreen`'s `onOpenDecisions`.
+         */
+        const val ROUTE_DECISIONS = "decisions"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
         const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"

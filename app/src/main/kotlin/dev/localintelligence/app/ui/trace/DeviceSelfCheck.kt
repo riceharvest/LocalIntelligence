@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import dev.localintelligence.android.inference.DeviceBudgetBasis
 import dev.localintelligence.android.inference.LlamaBridge
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.inference.RamEstimate
@@ -20,7 +21,9 @@ import dev.localintelligence.core.metrics.DiagnosticAction
 import dev.localintelligence.core.metrics.DiagnosticCheck
 import dev.localintelligence.core.metrics.DiagnosticReport
 import dev.localintelligence.core.metrics.Finding
+import dev.localintelligence.core.metrics.ProcessMemoryCheck
 import dev.localintelligence.core.metrics.RamGateCrossCheck
+import dev.localintelligence.core.metrics.RunMemoryJournal
 import dev.localintelligence.core.metrics.RunMetricsCheck
 import dev.localintelligence.core.metrics.RunMetricsJournal
 import dev.localintelligence.core.metrics.RunPerformanceCheck
@@ -77,6 +80,10 @@ class DeviceSelfCheck(
             permissionCheck(),
             deviceMemoryCheck(),
             toolRegistryCheck(),
+            // The measured half of what RunPerformanceCheck says is unknown.
+            // Both read the same journals; this one is the one that will start
+            // returning numbers the first time a task runs on a real phone.
+            ProcessMemoryCheck.run(RunMemoryJournal.recent()),
             RunMetricsCheck.run(RunMetricsJournal.latest()),
             RunPerformanceCheck.unknown(),
         ),
@@ -670,13 +677,53 @@ class DeviceSelfCheck(
                 "ActivityManager.getMemoryInfo().lowMemory, read now"))
             add(Finding.computed("What the download gate allows",
                 MemoryEstimate.formatBytes(hubAvailable),
-                "AndroidDeviceBudget: " +
-                    "${(dev.localintelligence.android.hub.AndroidDeviceBudget.USABLE_FRACTION * 100).toInt()}% " +
-                    "of ActivityManager totalMem"))
+                // WHY THE FALLBACK IS NAMED RATHER THAN ASSUMED AWAY: when
+                // every route to the real figure failed,
+                // `AndroidDeviceBudget` returns a hardcoded 4 GiB. The
+                // derivation used to say "55% of ActivityManager totalMem"
+                // unconditionally, so on exactly the device where nothing
+                // could be read the screen asserted a platform reading it
+                // never got. `totalRamBytes() <= 0` is the condition the
+                // fallback fires on.
+                if (budget.totalRamBytes() > 0L) {
+                    "AndroidDeviceBudget: " +
+                        "${(dev.localintelligence.android.hub.AndroidDeviceBudget.USABLE_FRACTION * 100).toInt()}% " +
+                        "of ActivityManager totalMem — a fraction of a platform " +
+                        "reading, not a measurement of free memory"
+                } else {
+                    "HARDCODED FALLBACK: AndroidDeviceBudget could not read this " +
+                        "device's RAM, so it used its built-in 4 GiB constant. " +
+                        "This is a guess, not a fact about this phone."
+                }))
+            // WHY THIS ONE CARRIES THE BRANCH AND NOT A FIXED FORMULA: the
+            // derivation the other finding shares is only true when the
+            // /proc/meminfo read succeeds. When it fails,
+            // `usableDeviceBasis()` returns 6x the JVM heap ceiling alone —
+            // a figure derived from the app's own heap that says nothing
+            // about the device, and is wrong by more than an order of
+            // magnitude on a large phone. Claiming 55% of MemTotal there
+            // asserts a reading that was never taken.
+            val loaderBasis = RamEstimate.usableDeviceBasis()
             add(Finding.computed("What the loader allows",
                 MemoryEstimate.formatBytes(loaderAvailable),
-                "RamEstimate.usableDeviceBytes(): 55% of /proc/meminfo MemTotal, " +
-                    "capped at 6x the JVM heap ceiling"))
+                when (loaderBasis.source) {
+                    DeviceBudgetBasis.Source.PHYSICAL_FRACTION ->
+                        "RamEstimate.usableDeviceBytes(): 55% of /proc/meminfo " +
+                            "MemTotal read on this device, capped at 6x the JVM " +
+                            "heap ceiling — a derived budget, not a measurement " +
+                            "of free memory"
+                    DeviceBudgetBasis.Source.JVM_HEAP_ONLY ->
+                        if (loaderBasis.physicalTotalBytes <= 0L) {
+                            "GUESS: /proc/meminfo could not be read, so this is " +
+                                "6x the JVM heap ceiling alone — a number about " +
+                                "this app's heap, not this phone's RAM."
+                        } else {
+                            "RamEstimate.usableDeviceBytes(): 55% of " +
+                                "/proc/meminfo MemTotal came to more than 6x the " +
+                                "JVM heap ceiling, so the heap ceiling is the " +
+                                "binding term and is what is reported."
+                        }
+                }))
             if (total > 0L) {
                 add(Finding.computed("Free fraction of physical",
                     "%.1f%%".format(info.availMem * 100.0 / total),

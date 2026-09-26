@@ -400,19 +400,47 @@ object RamGateCrossCheck {
                     "weights from $basisText",
                 ),
             )
+            // WHY THESE TWO ARE `computed` AND NOT `measured`:
+            //
+            // Neither function reads a figure off the device. Both take a
+            // platform reading (ActivityManager.totalMem, /proc/meminfo
+            // MemTotal) and multiply it by 0.55, and `RamEstimate` then caps
+            // the result at 6x the JVM heap ceiling. A number produced by
+            // arithmetic is not a measurement, and the chip on this screen is
+            // the user's only cue about which numbers can be trusted. These
+            // were `measured`, which put a derived budget in exactly the
+            // styling a real platform reading gets.
+            //
+            // WHY THE GATE'S FIGURE NAMES ITS FALLBACK: when every route to
+            // the real number failed, `AndroidDeviceBudget` returns a hardcoded
+            // 4 GiB, and the derivation used to claim 55% of totalMem on this
+            // device regardless. That is a hardcoded constant described as a
+            // platform reading. `totalRamBytes() <= 0` is exactly the condition
+            // the fallback fires on, so the derivation can state the truth in
+            // either case instead of always asserting the flattering one.
             add(
-                Finding.measured(
+                Finding.computed(
                     "Available to the gate",
                     MemoryEstimate.formatBytes(gate.availableBytes),
-                    "AndroidDeviceBudget: 55% of ActivityManager.totalMem on this device",
+                    if (budget.totalRamBytes() > 0L) {
+                        "AndroidDeviceBudget: 55% of ActivityManager.totalMem " +
+                            "read on this device — a fraction of a platform " +
+                            "reading, not a measurement of free memory"
+                    } else {
+                        "HARDCODED FALLBACK: AndroidDeviceBudget could not read " +
+                            "this device's RAM at all, so it used its built-in " +
+                            "4 GiB constant. This number is a guess, not a fact " +
+                            "about this phone."
+                    },
                 ),
             )
             add(
-                Finding.measured(
+                Finding.computed(
                     "Available to the loader",
                     MemoryEstimate.formatBytes(loaderAvailableBytes),
-                    "RamEstimate.usableDeviceBytes(): 55% of /proc/meminfo MemTotal, " +
-                        "capped at 6x the JVM heap ceiling",
+                    "RamEstimate.usableDeviceBytes(): 55% of /proc/meminfo " +
+                        "MemTotal, capped at 6x the JVM heap ceiling — a " +
+                        "derived budget, not a measurement of free memory",
                 ),
             )
             if (disagreement != null) {
@@ -459,10 +487,14 @@ object RamGateCrossCheck {
             cannotTell = "Whether the model will actually load. That is a native call " +
                 "worth tens of seconds and gigabytes of RAM, and this check runs on " +
                 "every screen open, so it does not attempt it. Nor can it tell you the " +
-                "process's real resident cost: no `dumpsys meminfo` number has ever been " +
-                "taken on a phone in this project, because the emulator on the " +
-                "development host SIGSEGVs at boot. `docs/measure/measure_ram.sh` is the " +
-                "procedure, and it prints '?' rather than inventing a value.",
+                "process's real resident cost, because it runs BEFORE anything is " +
+                "loaded — both figures here are pre-flight estimates made from a file " +
+                "header, and an estimate made before allocation is not a measurement " +
+                "of what allocation cost. The measured figure is on the " +
+                "process-memory card, taken after a real load by `Debug.getMemoryInfo`. " +
+                "`docs/measure/measure_ram.sh` remains the procedure for the " +
+                "out-of-process cross-check, and it prints '?' rather than inventing " +
+                "a value.",
             findings = findings,
             nextAction = when {
                 disagreement != null || needsSmallerModel -> DiagnosticAction.OpenModels
@@ -480,16 +512,39 @@ object RamGateCrossCheck {
  * ## Why the performance figures are UNKNOWN and not zero
  *
  * This project contains no measured RAM, latency or token-rate figure for a
- * phone. The only decode number that exists anywhere in it is ~0.66 tok/s, and
- * that was taken on an **x86_64 Android emulator** whose CPU is emulated. It is
- * not a phone number and presenting it as one would be the single worst thing
- * this screen could do.
+ * phone. The decode numbers that exist in it (~0.67 tok/s on an **x86_64
+ * Android emulator** with an emulated CPU, 37.4 tok/s on a desktop CPU-only
+ * llama.cpp control run) are both about hardware that is not a phone, and
+ * presenting either as a phone number would be the single worst thing this
+ * screen could do. This text used to assert that the emulator figure was "the
+ * only decode number anywhere in this repository", which stopped being true
+ * the moment the desktop control run was recorded in `docs/measurements.md` —
+ * an absolute claim about the repository, made from inside the repository, is
+ * the same staleness problem as a remembered value, just spelled differently.
  *
  * So a diagnostics screen that renders performance figures has exactly two
  * honest options: show nothing, or show the absence. This shows the absence, at
  * [Provenance.UNKNOWN], with the procedure next to it — which is what makes the
  * gap visible instead of implied. A screen with a "0.0 tok/s" row is a screen
  * claiming it measured zero.
+ *
+ * ## AND WHAT HAS CHANGED SINCE — READ THIS BEFORE QUOTING THE FINDING BELOW
+ *
+ * **Resident cost is no longer in the "never measured" column.** It was, when
+ * this text was written, and it was the project's single largest honesty gap:
+ * the product's primary metric had no measured value anywhere. It now has an
+ * instrument — [RunMemoryJournal], written by the agent loop during a real run
+ * and after a real model load, read off the device by `Debug.getMemoryInfo` —
+ * and [ProcessMemoryCheck] renders it at [Provenance.MEASURED] on the same
+ * screen.
+ *
+ * What that does NOT change is throughput. **Decode rate is still unmeasured on
+ * a phone**, and the statement below is still true of it. This check therefore
+ * keeps CANNOT_TELL, and its `finding` says so precisely rather than sweeping
+ * RAM in with the numbers that are now knowable. The distinction matters: a
+ * reader who needs a RAM number has one card to look at, and a reader who needs
+ * a decode rate is told plainly that there is none. Collapsing the two would
+ * hand back the false-clean this project keeps producing.
  */
 object RunPerformanceCheck {
 
@@ -510,27 +565,27 @@ object RunPerformanceCheck {
             "rate, a first-token latency, or a `dumpsys meminfo` resident cost taken on " +
             "physical hardware.",
         finding = "There are none. Zero measured performance figures exist for a real " +
-            "device. The only decode number anywhere in this repository is about 0.66 " +
-            "tok/s, and it was measured on an x86_64 Android emulator with an emulated " +
-            "CPU. It is not a phone number and it is not shown as one.",
+            "device. The two decode numbers in this project are both about " +
+            "hardware that is not a phone: about 0.67 tok/s from an x86_64 " +
+            "Android emulator with an emulated CPU, and 37.4 tok/s from a desktop " +
+            "CPU-only llama.cpp control run. Neither is a phone number and " +
+            "neither is shown as one. Note that this card is about SPEED only: " +
+            "the process's actual memory use is measured on this device and is " +
+            "reported on its own card.",
         cannotTell = "Everything about this phone's speed. Decode rate, time to first " +
             "token, peak resident memory during a run — all unknown, and no amount of " +
             "reading this app will produce them. What this screen can show you instead " +
             "is what a *run* on this phone actually did: the token counts and per-phase " +
             "durations the loop measured during that one run, which is a real " +
             "measurement of that run and not a specification of the hardware.",
+
         findings = listOf(
             Finding.unknown(
                 "Decode throughput",
-                "Never measured on a phone. The ~0.66 tok/s figure in this repository " +
-                    "is an x86_64 emulator artefact and must not be quoted as a device " +
-                    "number.",
-            ),
-            Finding.unknown(
-                "Resident cost of a loaded model",
-                "Never measured on a phone. `docs/measure/measure_ram.sh` takes it: " +
-                    "dumpsys meminfo plus smaps_rollup, idle and loaded, and it prints " +
-                    "'?' for anything the device would not report.",
+                "Never measured on a phone. The two decode figures in this " +
+                    "project (~0.67 tok/s on an x86_64 emulator, 37.4 tok/s on a " +
+                    "desktop CPU) are both about hardware this is not, and neither " +
+                    "may be quoted as a device number.",
             ),
             Finding.unknown(
                 "Time to first token",
@@ -540,6 +595,209 @@ object RunPerformanceCheck {
             ),
         ),
     )
+}
+
+/**
+ * What this process is actually costing, measured on this phone.
+ *
+ * ## WHY THIS EXISTS NEXT TO [RunPerformanceCheck]
+ *
+ * `RunPerformanceCheck` reports, correctly, that no RAM or throughput figure
+ * for a real device has ever been taken in this project. That statement was
+ * true and it was also the reason the gap was invisible: a permanent
+ * CANNOT_TELL cannot move, so it teaches every reader that the number is
+ * unobtainable rather than merely untaken.
+ *
+ * This check is the thing that makes it obtainable. [RunMemoryJournal] is
+ * written by the agent loop at labelled points during a real run and after a
+ * real model load, so a phone that has run a task can now report PSS, the
+ * dalvik/native split, the native heap, and the agent's own retained window —
+ * all read off the device by `Debug.getMemoryInfo`, all at
+ * [Provenance.MEASURED].
+ *
+ * ## WHY IT RENDERS "not measured" UNTIL A RUN HAS HAPPENED, AND WHY THAT IS CORRECT
+ *
+ * The journal is empty on a fresh install, and an empty journal reported as
+ * "0 bytes" is a false-clean reading in the exact direction this project keeps
+ * failing in: a number that looks like a measurement and is not one. So the
+ * empty case is [CheckOutcome.CANNOT_TELL] with the procedure attached, which
+ * is the same shape [RunMetricsCheck] uses for its empty journal.
+ *
+ * ## WHY IT IS NOT A PASS/FAIL
+ *
+ * A RAM reading has no threshold in this repository to pass or fail against —
+ * inventing one would be inventing the specification. What it DOES check is
+ * the bound the code actually claims, and that is a real invariant worth
+ * surfacing: at a `run.end` reading the session must hold at most
+ * [dev.localintelligence.core.compaction.RetainedHistory.MAX_RETAINED_MESSAGES]
+ * messages. If it ever reads higher, the bound is broken and the check says so.
+ * Everything else is presented as a measurement and nothing more.
+ */
+object ProcessMemoryCheck {
+
+    const val ID = "process-memory"
+
+    /** Labels rendered as findings, in the order a reader wants them. */
+    private val LABELS = listOf(
+        "model.loaded" to "With a model resident",
+        "run.end" to "After the last run",
+    )
+
+    /**
+     * @param journal the readings taken in this process. Empty means no run has
+     *   happened yet, which is a real state and not an error.
+     */
+    fun run(journal: List<MemorySample>): DiagnosticCheck {
+        if (journal.isEmpty()) {
+            return DiagnosticCheck(
+                id = ID,
+                title = "How much memory is this actually using?",
+                outcome = CheckOutcome.CANNOT_TELL,
+                verified = "Asked RunMemoryJournal for this process's memory readings. " +
+                    "The journal is written by the agent loop at each run's start, at " +
+                    "the end of every step, and at the end of the run, plus once " +
+                    "immediately after a model loads.",
+                finding = "There are none yet, because no task has been run in this " +
+                    "process. The instrumentation is installed and will populate on the " +
+                    "first run — no build flag, no setting, nothing to switch on.",
+                cannotTell = "This process's real resident cost, and what the agent's own " +
+                    "code retains. Both are measured on the device by " +
+                    "`Debug.getMemoryInfo` — PSS, the dalvik/native split and the native " +
+                    "heap — and both are only available once a run has actually " +
+                    "happened. Send a task, come back, and this card fills in.",
+                nextAction = DiagnosticAction.NONE,
+            )
+        }
+
+        val findings = buildList {
+            for ((label, title) in LABELS) {
+                val sample = journal.firstOrNull { it.label == label } ?: continue
+                add(
+                    Finding.measured(
+                        title,
+                        renderSize(sample.pssBytes),
+                        "Proportional set size, read from this process by " +
+                            "`Debug.getMemoryInfo()` at the moment of the $label event. " +
+                            "PSS is the figure the kernel charges for a process: a share " +
+                            "of every page it shares with anyone else, summed. " +
+                            describeBreakdown(sample),
+                    ),
+                )
+            }
+
+            val lastRun = journal.firstOrNull { it.label == "run.end" }
+                ?: journal.first()
+            add(
+                Finding.measured(
+                    "Agent's own retained window",
+                    "${lastRun.retainedMessages} messages, " +
+                        "${lastRun.retainedChars} characters",
+                    "Counted by :core walking the live session list — a count, not an " +
+                        "estimate. The character figure is the model-visible text only. " +
+                        "The message cap it is measured against is " +
+                        "${dev.localintelligence.core.compaction.RetainedHistory.MAX_RETAINED_MESSAGES}.",
+                ),
+            )
+
+            val steps = journal.filter { it.label.startsWith("step.") }
+            if (steps.isNotEmpty()) {
+                val peak = steps.maxByOrNull { it.retainedChars }
+                if (peak != null) {
+                    add(
+                        Finding.measured(
+                            "Peak window during steps",
+                            "${peak.retainedChars} characters at ${peak.label}",
+                            "The largest retained-window reading across the ${steps.size} " +
+                                "per-step samples in this process. This is the figure that " +
+                                "grows with a long conversation, so it is the one a release " +
+                                "gate should watch.",
+                        ),
+                    )
+                }
+            }
+        }
+
+        val last = journal.first()
+        val overCap = last.label == "run.end" &&
+            last.retainedMessages > dev.localintelligence.core.compaction.RetainedHistory.MAX_RETAINED_MESSAGES
+
+        return DiagnosticCheck(
+            id = ID,
+            title = "How much memory is this actually using?",
+            // The bound is the only thing here that can fail, and it is a real
+            // invariant rather than a performance target. Everything else is a
+            // measurement with no threshold to judge it against.
+            outcome = if (overCap) CheckOutcome.FAIL else CheckOutcome.PASS,
+            verified = "Read ${findings.size} labelled readings from RunMemoryJournal, " +
+                "the newest of which is '${last.label}'. Platform figures come from " +
+                "`Debug.getMemoryInfo()` on this device; the window figures are counted " +
+                "in :core from the live session list.",
+            finding = buildString {
+                append("This process is using ")
+                append(renderSize(last.pssBytes))
+                append(" (PSS) as of the last reading")
+                if (last.retainedMessages > 0) {
+                    append(", and the agent is holding ")
+                    append(last.retainedMessages)
+                    append(" message(s) / ")
+                    append(last.retainedChars)
+                    append(" characters of conversation")
+                }
+                append('.')
+                if (overCap) {
+                    append(" That is ABOVE the ")
+                    append(
+                        dev.localintelligence.core.compaction.RetainedHistory
+                            .MAX_RETAINED_MESSAGES,
+                    )
+                    append("-message cap the session is supposed to be trimmed to after " +
+                        "every run, so the bound is not holding.")
+                }
+            },
+            cannotTell = "Whether this is a good number. There is no target in this " +
+                "repository for what a run SHOULD cost, so these are readings and not a " +
+                "verdict — a release gate needs a threshold agreed before the number " +
+                "means anything. Also not comparable across devices or models: the same " +
+                "code costs a different amount on a different phone, and a Q4 model and " +
+                "a Q8 model are not the same product. What this cannot show is the " +
+                "process's cost at its PEAK during a decode — readings are taken at run " +
+                "and step boundaries, and `dumpsys meminfo` sampled from a host is still " +
+                "the way to catch a spike between them.",
+            findings = findings,
+        )
+    }
+
+    /**
+     * The dalvik/native split, when both halves are known.
+     *
+     * The split is the whole question for an on-device agent — a model lives in
+     * the native heap and the agent's own retention lives in the dalvik one — so
+     * a single PSS total is a number that cannot answer anything anyone would
+     * ask of it. Absent when either half is unknown, rather than shown as zero.
+     */
+    private fun describeBreakdown(sample: MemorySample): String {
+        if (sample.dalvikPssBytes < 0 || sample.nativePssBytes < 0) return ""
+        return " The managed/native split at that moment was " +
+            "${renderSize(sample.dalvikPssBytes)} dalvik and " +
+            "${renderSize(sample.nativePssBytes)} native."
+    }
+
+    /**
+     * Bytes as a short human string, or the explicit "not measured" when the
+     * platform did not report.
+     *
+     * WHY NOT `MemoryEstimate.formatBytes`: that formatter is the one the
+     * pre-flight estimates use, and routing a measured reading through it would
+     * invite a reader to treat the two as the same kind of number. They are not,
+     * and the difference is the entire reason this check exists.
+     */
+    private fun renderSize(bytes: Long): String = when {
+        bytes == MemorySample.UNKNOWN_BYTES -> "not reported by this device"
+        bytes < 0 -> "not measured"
+        bytes >= 1024L * 1024L -> "%.1f MiB".format(bytes / (1024.0 * 1024.0))
+        bytes >= 1024L -> "%d KiB".format(bytes / 1024L)
+        else -> "$bytes B"
+    }
 }
 
 /**

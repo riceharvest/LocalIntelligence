@@ -90,8 +90,15 @@ fun RedactionScreen(
         ) {
             AlwaysOnBanner()
 
-            Section(title = "What it does") {
+            Section(title = "What it does when a tool reads something") {
                 Text(RedactionPolicy.SUMMARY, style = MaterialTheme.typography.bodyMedium)
+            }
+
+            Section(title = "What it does with what you type") {
+                Text(
+                    RedactionPolicy.TRANSCRIPT_SUMMARY,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
             }
 
             Section(title = "What it looks for") {
@@ -111,9 +118,16 @@ fun RedactionScreen(
                 }
             }
 
-            Section(title = "What it does not do") {
+            Section(title = "What it does not do to what a tool reads") {
                 Text(
                     HONEST_LIMITS,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            Section(title = "What it does not do to what you type") {
+                Text(
+                    RedactionPolicy.TRANSCRIPT_LIMITS,
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -204,16 +218,20 @@ private fun Section(title: String, content: @Composable () -> Unit) {
  * Written to be read by someone who is about to paste something they cannot
  * get back. Every clause names a case that gets through, because the failure
  * this guards against is a user who believes the filter is complete.
+ *
+ * ## WHY THE FIRST CLAUSE IS GONE
+ *
+ * This used to open with "Text you type or paste into the chat box... this
+ * filter does not run on it." That was true of the tool filter and false of
+ * the product, and it was the most reassuring sentence on a screen whose whole
+ * job is not to reassure. The chat is now filtered too, at the point the turn
+ * is saved, and the user is told about it in the transcript at the moment they
+ * send. The tool filter's own exclusions are the ones that remain below.
  */
 private val HONEST_LIMITS = """
 This is a best-effort filter, not a guarantee.
 
-It does not cover:
-
-• Text you type or paste into the chat box. If you paste a password into a
-  message, the model sees it and this filter does not run on it. This is
-  deliberate — it is your own text, and you can see and delete it — but it is
-  the most likely way a secret gets into a conversation.
+For text a tool reads, it does not cover:
 
 • A secret with no recognisable shape. A password written out as ordinary
   words, a photo of a password, a secret in a script this filter does not
@@ -226,15 +244,11 @@ It does not cover:
   ask the assistant to read it, and it will not be filtered.
 
 • What the model writes back. If the model repeats a secret in its answer,
-  that answer is shown as the model produced it.
+  that answer is shown — and saved — as the model produced it.
 
 • What the model works out on its own. Removing strings from what it reads
   does not remove meaning from what it reads. Given a table of partly masked
   account numbers, it can still reason about the rest.
-
-• Anything already saved. Conversations and memories recorded by an earlier
-  version of the app are not rewritten. There is no cleanup pass over your
-  history.
 
 This filter runs when a tool reads something — the clipboard, a file you hand
 it, a page it fetches. It cannot protect a secret you never handed to the app

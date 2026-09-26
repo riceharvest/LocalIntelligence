@@ -9,6 +9,7 @@ import dev.localintelligence.core.model.ModelSpec
 import dev.localintelligence.core.model.SamplingParams
 import dev.localintelligence.core.model.StopReason
 import dev.localintelligence.core.model.StreamingModelBackend
+import dev.localintelligence.core.model.token.ContextCeiling
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -339,7 +340,16 @@ class LlamaCppBackend(
     }
 
     companion object {
-        const val DEFAULT_CONTEXT_LENGTH = 4096
+        /**
+         * The context allocated when the GGUF header is silent.
+         *
+         * [ContextCeiling.ALLOCATED_CONTEXT_TOKENS] rather than a literal:
+         * this number is what becomes `cparams.n_ctx` in `llama_jni.cpp`, and
+         * the prompt budget derives from the same constant, so the two cannot
+         * drift. They did once — 4096 here against a 6000-token prompt ceiling
+         * in `:core` — and the symptom was a prefill llama.cpp silently clamps.
+         */
+        const val DEFAULT_CONTEXT_LENGTH = ContextCeiling.ALLOCATED_CONTEXT_TOKENS
 
         /**
          * Smallest context worth creating: below this a prompt plus an answer

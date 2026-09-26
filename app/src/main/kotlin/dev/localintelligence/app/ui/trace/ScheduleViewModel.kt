@@ -42,6 +42,28 @@ data class ScheduleUiState(
 
     /** True when pressing Create would actually produce a schedule. */
     val canCreate: Boolean get() = readiness?.canRun == true && !isFull && notice == null
+
+    /**
+     * Why Create is disabled, for the cases the blockers list does NOT cover.
+     *
+     * WHY THIS IS NOT JUST THE BLOCKERS LIST: `canCreate` has three terms and
+     * the blockers list only explains the first. A user with 16 saved tasks has
+     * no blockers at all, so the button was greyed out with nothing on screen
+     * saying why — and the "There are already N tasks" notice is only ever
+     * written *by a create attempt*, which the disabled button makes impossible.
+     * A refusal the user can never trigger is not a refusal, it is a dead end.
+     *
+     * The `notice != null` term deliberately returns null: that case is already
+     * explained by the notice itself, which is on screen, so saying it twice
+     * would be noise rather than honesty.
+     */
+    val disabledReason: String?
+        get() = when {
+            readiness?.canRun != true -> null      // the blockers list says this
+            isFull -> "There are already ${ScheduledTaskController.MAX_TASKS} " +
+                "scheduled tasks. Delete one to add another."
+            else -> null
+        }
 }
 
 /**

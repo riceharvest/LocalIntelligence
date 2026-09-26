@@ -174,6 +174,34 @@ object SecretRedactor {
     fun redactToText(text: String): String = redact(text).text
 
     /**
+     * Whether [text] already carries a marker this redactor emits.
+     *
+     * ## WHY THIS EXISTS, AND WHY IT IS NOT `redact(text).count == 0`
+     *
+     * `count == 0` answers "did THIS call remove anything". It cannot answer
+     * "was there ever anything here", and the two come apart the moment a
+     * record has already been through the filter: a tool observation that
+     * [RedactingToolRegistry] redacted on the way out of a tool is re-filtered
+     * correctly to zero, and so is a row written by a build that had the rule.
+     *
+     * So a caller that treats zero as "clean" is wrong about precisely the
+     * records it most wants to be right about. This asks the second question
+     * the count cannot: does the text already LOOK like something was removed
+     * from it.
+     *
+     * Matched against the literal marker list in [MARKER_ALTERNATION] rather
+     * than a looser shape like `\[\w+ redacted\]`, for the same reason that
+     * list exists: a loose shape eventually matches a value a user actually
+     * chose, and then this reports a clean record as already-redacted, which
+     * is the false-alarm direction of the same bug.
+     */
+    fun hasMarker(text: String): Boolean =
+        text.isNotEmpty() && MARKER.containsMatchIn(if (text.length > MAX_SCAN_CHARS) text.take(MAX_SCAN_CHARS) else text)
+
+    /** Precompiled once; [MARKER_ALTERNATION] is a compile-time constant. */
+    private val MARKER: Regex = Regex(MARKER_ALTERNATION)
+
+    /**
      * The categories this build actually detects.
      *
      * Read by the UI rather than hardcoded there, so a pattern added here
@@ -234,6 +262,39 @@ object SecretRedactor {
         "\\[redacted\\]|\\[jwt redacted\\]|\\[private key redacted\\]|" +
             "\\[api key redacted\\]|\\[bearer token redacted\\]|" +
             "\\[basic token redacted\\]|\\[one-time code redacted\\]"
+
+    /**
+     * The credential words, shared by rules 5 and 7.
+     *
+     * One list rather than two copies, and that is not tidiness: the two rules
+     * fire on different CONNECTIVES but describe the same category, and a
+     * keyword added to one and not the other is a credential that is redacted
+     * in `password: x` and stored verbatim in `password is x`. That is exactly
+     * the drift this file's fixed-point work was done to prevent, reintroduced
+     * through the back door.
+     *
+     * ## WHY THE SEPARATOR CLASS INCLUDES A SPACE
+     *
+     * `[ _-]?` rather than `[_-]?`, and this was measured rather than assumed.
+     * With `[_-]?` the multi-word keywords only ever matched when written solid
+     * or hyphenated, so `api_key` and `apikey` were caught and `api key` - the
+     * way a person actually writes it, with a space - was not:
+     *
+     *     "set the api key: hunter2hunter2 in the config"  ->  count = 0
+     *
+     * A user pasting a config line and a user typing the same thing in a chat
+     * differ by exactly one character, and the character was the gap. A space
+     * cannot create a false positive here that the solid form does not already
+     * have: the keyword still has to be followed by a separator and a value of
+     * [MIN_VALUE_CHARS] characters or more, so "access key" on its own is
+     * still not a match.
+     */
+    private const val CREDENTIAL_KEYWORD =
+        "password|passwd|passphrase|pwd|" +
+            "secret|client[ _-]?secret|api[ _-]?key|apikey|access[ _-]?key|" +
+            "auth[ _-]?token|access[ _-]?token|refresh[ _-]?token|bearer[ _-]?token|" +
+            "private[ _-]?token|session[ _-]?key|credential|" +
+            "otp|2fa|two[ _-]?factor|verification[ _-]?code|auth[ _-]?code|pin"
 
     private class Rule(
         val category: SecretCategory,
@@ -328,13 +389,8 @@ object SecretRedactor {
         Rule(
             category = SecretCategory.CREDENTIAL_ASSIGNMENT,
             pattern = Regex(
-                "(?i)\\b(" +
-                    "password|passwd|passphrase|pwd|" +
-                    "secret|client_secret|api[_-]?key|apikey|access[_-]?key|" +
-                    "auth[_-]?token|access[_-]?token|refresh[_-]?token|bearer[_-]?token|" +
-                    "private[_-]?token|session[_-]?key|credential|" +
-                    "otp|2fa|two[_-]?factor|verification[_-]?code|auth[_-]?code|pin" +
-                ")\\b[\"']?\\s*[:=]\\s*(?!$MARKER_ALTERNATION)(?:" +
+                "(?i)\\b(" + CREDENTIAL_KEYWORD +
+                    ")\\b[\"']?\\s*[:=]\\s*(?!$MARKER_ALTERNATION)(?:" +
                     "\"([^\"\\s]{$MIN_VALUE_CHARS,})\"|" +
                     "'([^'\\s]{$MIN_VALUE_CHARS,})'|" +
                     "([^\\s,;\"']{$MIN_VALUE_CHARS,})" +
@@ -379,7 +435,95 @@ object SecretRedactor {
             // trying to blacklist the marker text.
             marker = { "[one-time code redacted]" },
         ),
+
+        // ---- 7. keyword + COPULA + value ------------------------------
+        //
+        // THIS RULE EXISTS BECAUSE A REAL RUN MEASURED THE GAP, and the
+        // measurement is the whole argument for it.
+        //
+        // Before this rule, on a user turn reading "the password is
+        // s3cr3t-router-password-9f2a":
+        //
+        //     SecretRedactor.redact() count -> 0  categories=[]
+        //     SecretRedactor.redactToText() -> <the text, unchanged>
+        //
+        // Zero. Rule 5 needs `:` or `=`, and this sentence has `is`. Rule 6
+        // needs 4-8 bare DIGITS next to a cue, and this value is alphanumeric.
+        // So the single most ordinary way a human hands over a password -
+        // a sentence, with a copula - was the one shape the redactor could
+        // not see. Every rule above it was tuned against a pasted config file
+        // or a pasted token, where `=` is the natural connective; nobody had
+        // tested it against chat.
+        //
+        // ## THE SHAPE REQUIREMENT, AND WHY IT IS A LOOKAHEAD
+        //
+        // The value must contain at least one character that is not a letter -
+        // a digit or a symbol. That is what separates "the password is
+        // stored in the router admin page" from "the password is
+        // s3cr3t-router-password-9f2a", and getting it wrong in EITHER
+        // direction is unacceptable:
+        //
+        //  - No shape requirement, and the filter eats the rest of any
+        //    sentence that follows a credential word. Measured, not
+        //    hypothesised: an earlier draft of this rule turned
+        //    "the password is stored in the router admin page" into
+        //    "the  is [redacted] is stored in the router admin page" - the
+        //    model then reasons about a hole the user never made, which is
+        //    the exact failure the false-positive policy at the top of this
+        //    file calls worse than showing a secret.
+        //  - Requiring an UPPERCASE letter instead looks stricter and is not:
+        //    the pattern carries `(?i)`, which makes `[A-Z]` match lowercase,
+        //    so it degenerates to "any 8-character word" and eats prose. The
+        //    same flag also made the draft match the word "password" in that
+        //    same sentence and replace it with an empty keyword, which is how
+        //    "the password is stored" became "the  is [redacted] is stored".
+        //
+        // A NEGATED LETTER CLASS is used rather than `[A-Z]` precisely because
+        // `(?i)` cannot corrupt it. `[^A-Za-z]` excludes both cases whatever
+        // the flag says.
+        //
+        // ## THE STATED MISS
+        //
+        // An all-lowercase, all-alphabetic passphrase - "correcthorsebattery" -
+        // is NOT caught. That is the same trade this file already makes for a
+        // bare six-digit OTP, for the same reason: the alternative catches
+        // ordinary English, and ordinary English in a transcript is a far more
+        // common event than a lowercase passphrase. It is stated on the
+        // screen rather than papered over.
+        //
+        // ## WHY THE MARKER LOOKAHEAD IS INSIDE THE PATTERN
+        //
+        // Without it this rule is not a fixed point. Its own marker is
+        // "password is [redacted]", which is still `keyword <copula> value`,
+        // so the next pass eats its own output - measured, twice over, growing
+        // the text a little more each time. The lookahead for the exact marker
+        // list is what stops that, exactly as it does for rule 5.
+        //
+        // The keyword is KEPT, exactly as in rule 5, so a model reading the
+        // history still knows a password was given and can say so. That is
+        // what lets [dev.localintelligence.core.transcript.TranscriptRedaction]
+        // tell the user their value was withheld rather than lost.
+        Rule(
+            category = SecretCategory.CREDENTIAL_ASSIGNMENT,
+            pattern = Regex(
+                "(?i)\\b(" + CREDENTIAL_KEYWORD +
+                    ")\\b\\s+(?:is|are|was|were)\\s+(?!$MARKER_ALTERNATION)" +
+                    // The value must hold a non-letter somewhere in it.
+                    "(?=[^\\s,;\"']*[^A-Za-z\\s])" +
+                    "([^\\s,;\"']{$MIN_PROSE_VALUE_CHARS,})",
+            ),
+            marker = { m -> "${m.groupValues[1]} is [redacted]" },
+        ),
     )
+
+    /**
+     * Minimum length of a value for rule 7 to fire.
+     *
+     * Eight, the same as [MIN_VALUE_CHARS], and for the same reason: below it
+     * the thing after "is" is a word ("the pin is 1234" is four digits and is
+     * caught by rule 6 instead, which is the rule that owns digit runs).
+     */
+    private const val MIN_PROSE_VALUE_CHARS = 8
 
     /**
      * Minimum length of a value for rule 5 to fire.
@@ -465,9 +609,14 @@ enum class SecretCategory(
     CREDENTIAL_ASSIGNMENT(
         explanation = "A credential keyword next to a value of eight characters " +
             "or more. Both halves are required, so a bare long string that is " +
-            "really a hash or a git short SHA is left alone.",
+            "really a hash or a git short SHA is left alone. The keyword and " +
+            "the value can be joined by a separator (\"api_key: x\") or by a " +
+            "word (\"the password is x\"). In the second form the value must " +
+            "also contain a digit or a symbol, so ordinary prose after a " +
+            "credential word is not swallowed - but a value that is entirely " +
+            "letters and digits passes straight through.",
         title = "Passwords and secrets in text",
-        shape = "A credential word, then a separator, then a long value.",
+        shape = "A credential word, then a separator or a word, then a long value.",
         structural = false,
     ),
 

@@ -20,6 +20,15 @@ import java.util.IdentityHashMap
  *  - `currentKeywords` is capped at [KEYWORD_LIMIT] terms
  *  - every folded summary line is capped at [LINE_CHARS], and the rendered
  *    summary at [SUMMARY_BUDGET_CHARS]
+ *
+ * ## AND THE IDENTITY MAPS, WHICH WERE NOT
+ *
+ * The list above used to end there, and the omission mattered: the private
+ * `ids` map and [writtenIds] were both unbounded, because an `IdentityHashMap`
+ * keyed on a message object pins that object and no code path ever released
+ * one. [releaseUnreachableIdentities] is called by the loop at the end of every
+ * run and makes the claim true. See its KDoc for why pruning cannot lose a
+ * durable write and why message ids are still never reused.
  */
 class Session(
     val id: Long = 0L,
@@ -55,14 +64,100 @@ class Session(
     val writtenIds: MutableSet<Long> = HashSet()
 
     /**
-     * A stable id for [this], assigned in construction order and never reused.
+     * A stable id for [message], assigned on first ask and never reused.
      *
      * Identity cannot be content-derived: a user legitimately repeating a
      * message, or a tool returning the same observation twice, would collide
      * and silently drop the second one.
+     *
+     * ## THIS MAP IS A STRONG-REFERENCE PIN ON EVERY MESSAGE THE PROCESS HAS EVER SEEN
+     *
+     * `IdentityHashMap` holds its KEY by reference, so an entry here is not a
+     * bare number — it is a number *plus a live reference to the whole
+     * ChatMessage*, including its observation text, which
+     * [dev.localintelligence.core.tool.ObservationTruncator] caps at 2048
+     * characters. Nothing in this class ever removed an entry, so between
+     * [RetainedHistory.bound] trimming the window to 32 and this map emptying
+     * itself, the window was the smaller of the two by a factor that grows all
+     * day: `messages` is bounded at 32, this is bounded at every message the
+     * process has ever created.
+     *
+     * That made the KDoc on [writtenIds] wrong in the direction that matters
+     * most. It said "bounded by the number of messages in the conversation,
+     * which is already bounded". The second half was true and the first half
+     * was not, so the sentence read as a proof of a bound that did not exist.
+     * [releaseUnreachableIdentities] is what makes the sentence true; without
+     * it both this map and [writtenIds] grow without limit on a device whose
+     * primary metric is RAM — one unreachable observation retained per step,
+     * for the life of the process, in a process already holding a
+     * multi-gigabyte model.
      */
     private val ids = java.util.IdentityHashMap<ChatMessage, Long>()
     private var nextIdentity: Long = 1L
+
+    /**
+     * Forgets the identity of every message that is no longer in [messages].
+     *
+     * ## WHY THIS LOSES NOTHING
+     *
+     * A message's identity is read in exactly one place: the durable writer
+     * iterates `session.messages` and asks for each one's id
+     * (`AppContainer.persistConversation`). A message that has left the window
+     * is therefore unreachable by the only consumer, and the entry pinning it
+     * is unreachable by definition. There is no second reader to break:
+     * [markAllWritten] also walks `messages`.
+     *
+     * ## WHY IT IS SAFE AGAINST A TRIM THAT RACES A WRITE
+     *
+     * The window is trimmed mid-run and the checkpoint fires *before* each
+     * trim, on a separate coroutine, so a write for a message that is about to
+     * leave the window can genuinely still be in flight. Pruning does not make
+     * that worse, because the writer selects its work from `messages` at the
+     * moment it runs: a message already trimmed is already invisible to it,
+     * with or without this method. Pruning removes only what that writer could
+     * not have reached anyway. A message that is STILL in the window keeps its
+     * entry — that is the whole invariant — so no live message can be handed a
+     * second id and written twice.
+     *
+     * ## WHY [nextIdentity] IS NOT RESET
+     *
+     * Ids must never be reused, or a row already in the durable store could
+     * collide with a new message. [nextIdentity] only ever increases, so a
+     * pruned id is never handed out again even though its entry is gone. That
+     * is the one property a prune must not break, and it is why this removes
+     * entries rather than rebuilding the map.
+     */
+    fun releaseUnreachableIdentities() {
+        if (ids.isEmpty()) return
+        // Read-only lookup, NOT `idOf`. `idOf` INSERTS, so building the live set
+        // through it would hand an id to every message currently in the window
+        // and grow the very map this method exists to shrink. A message in the
+        // window with no entry yet has no `writtenIds` mark either, so it
+        // contributes nothing that `retainAll` below could wrongly drop, and the
+        // writer will assign it an id the first time it selects it.
+        val live = java.util.IdentityHashMap<ChatMessage, Long>(messages.size.coerceAtLeast(1))
+        messages.forEach { live[it] = ids[it] }
+
+        val it = ids.entries.iterator()
+        while (it.hasNext()) {
+            if (!live.containsKey(it.next().key)) it.remove()
+        }
+        // Only the reachable subset, and only when the gap is wide enough to be
+        // worth the rebuild. `writtenIds` holds boxed Longs rather than message
+        // references, so an entry there is orders of magnitude cheaper than one
+        // in `ids` was — for this set the trim is hygiene, not the fix.
+        //
+        // SAFE AGAINST A DOUBLE WRITE, and this is the one thing worth stating
+        // precisely: the writer marks a row by selecting it FROM `messages`
+        // (`session.messages.filter { session.writtenIds.add(...) }`). A message
+        // absent from `messages` is therefore already invisible to the writer,
+        // so dropping its mark changes nothing it could act on. A message still
+        // in the window is in `live` and keeps its mark, which is what stops the
+        // next checkpoint from writing it a second time.
+        if (writtenIds.size > live.size) {
+            writtenIds.retainAll(live.values.filterNotNull())
+        }
+    }
 
     /**
      * A stable id for [message], assigned on first ask and never reused.
@@ -174,8 +269,12 @@ class Session(
         record(ChatMessage.ToolObservation(tool.definition.name, observation, success))
 
     /**
-     * Retrieval keywords for tool selection: the task plus the two most recent
-     * observations. `docs/architecture.md` §11 — lexical only, no embeddings.
+     * Retrieval keywords for tool selection, from the latest user turn only.
+     * `docs/architecture.md` §11 — lexical only, no embeddings.
+     *
+     * NOT "the task plus the two most recent observations" — that summary
+     * outlived the fix below and described behaviour this method deliberately
+     * no longer has. See the comment on the observations for why.
      */
     fun currentKeywords(): List<String> {
         // ONLY the user's own words feed tool selection.
@@ -197,25 +296,190 @@ class Session(
         // Latest user turn, not first: the session is shared and multi-run, so
         // `firstOrNull` returned the FIRST-EVER request, which stops describing
         // the current turn after the first run.
-        val source = buildString {
-            messages.filterIsInstance<ChatMessage.User>().lastOrNull()?.let { append(it.text) }
+        //
+        // ## WHY THE SEARCH IS BACKWARDS AND THE BUILDERS ARE GONE
+        //
+        // The loop calls this once per STEP, and the previous shape allocated
+        // three times over to reach one string: `filterIsInstance` built a List
+        // of every user turn in the window to take the last one, `buildString`
+        // then wrapped that single append in a StringBuilder, and
+        // `String.lowercase()` copied the whole turn again. On a shared session
+        // that window holds up to 32 messages, so a step paid for a full
+        // materialisation of the conversation's user turns to read one of them.
+        //
+        // Scanning backwards for the last `User` and returning its text
+        // unchanged produces byte-identical output: `buildString { append(t) }`
+        // IS `t`, so the StringBuilder was pure overhead, and `.lastOrNull()`
+        // after a filter is the same element a reverse scan stops on. The
+        // `lowercase()` and `split` below are unavoidable — they are the
+        // transformation — but they now run over one turn instead of a
+        // materialised list of them.
+        var index = messages.lastIndex
+        while (index >= 0) {
+            val message = messages[index]
+            if (message is ChatMessage.User) {
+                return keywordsOf(message.text)
+            }
+            index--
         }
-        return source.lowercase()
-            .split(Regex("[^a-z0-9]+"))
-            .filter { it.length > 2 }
-            .distinct()
-            .take(KEYWORD_LIMIT)
+        return emptyList()
     }
 
     /**
-     * Active token estimate for the compaction trigger. Best effort: one
-     * allocation per call, no cache (a cache would be unbounded state on a phone).
+     * Lowercase, split on non-alphanumerics, drop 3-or-fewer-character tokens,
+     * dedupe, cap.
+     *
+     * Extracted so [currentKeywords] has one copy of the rule and the loop's
+     * own callers cannot drift from it. The split uses a PRE-COMPILED pattern:
+     * the inline `Regex("...")` this replaced was constructed on every step,
+     * and `Regex` compilation is not free — it is the kind of per-step cost
+     * that hides inside a call everybody assumes is a string operation.
+     */
+    private fun keywordsOf(text: String): List<String> =
+        text.lowercase()
+            .split(KEYWORD_SPLIT)
+            .filter { it.length > 2 }
+            .distinct()
+            .take(KEYWORD_LIMIT)
+
+    /**
+     * Active token estimate for the compaction trigger.
+     *
+     * Unchanged in what it RETURNS, and that is the constraint this method is
+     * written under. It still hands the fully rendered window to
+     * [ModelBackend.countTokens], because with a model resident that call is a
+     * real BPE tokenisation through `llama_tokenize` and NOT a function of the
+     * text's length. Deriving the number arithmetically would be cheaper and
+     * would be a behaviour change: compaction would fire on a different step,
+     * and the model would be shown a different context. The trigger's firing
+     * point is behaviour, so it stays.
+     *
+     * What changed is that [cannotReachTokenLimit] runs first, so the string is
+     * built only on the steps where the answer can actually be "yes". See that
+     * method for why skipping is exactly equivalent rather than approximately
+     * equivalent.
      */
     fun tokens(model: ModelBackend): Int {
         val buffer = StringBuilder()
         messages.forEach { buffer.append(render(it)).append('\n') }
         workingSummary?.let { buffer.append(it.render()) }
         return model.countTokens(buffer.toString())
+    }
+
+    /**
+     * True when the window provably CANNOT reach [limit] tokens, so the caller
+     * can skip building the string [tokens] would have counted.
+     *
+     * ## THE ARGUMENT, PRECISELY
+     *
+     * [tokens] builds `buffer` and calls `model.countTokens(buffer.toString())`.
+     * This method skips that when the same call provably could not have exceeded
+     * [limit]. Two facts make the skip exact:
+     *
+     * 1. **A BPE tokenizer never emits more tokens than the text has
+     *    characters.** Every token consumes at least one character. So
+     *    `countTokens(t) <= t.length + SPECIAL_TOKENS`, where the slack is for
+     *    the special tokens the native path adds — `tokenize()` in
+     *    `llama_bridge.cpp` calls `llama_tokenize` with `add_special=true`,
+     *    which prepends BOS and can append EOS. The approximation used when no
+     *    model is resident is `length / 4` plus one per newline, which is also
+     *    far below the character count.
+     * 2. **This count is not below [limit].**
+     *
+     * Together those give the bound the caller needs: if the buffer's length is
+     * under the limit, the token count is under it, [tokens] would have returned
+     * at or under the limit, and the caller would have returned without
+     * compacting. No threshold, no fudge factor, no case where the two answers
+     * differ.
+     *
+     * ## WHY IT BAILS OUT WHEN A WORKING SUMMARY EXISTS
+     *
+     * A compacted window carries a [CompactedState] whose [CompactedState.render]
+     * walks five arbitrarily long lists and builds a `String` — which is the
+     * allocation this method exists to avoid. There is no cheap way to bound it:
+     * `oneLine` collapses newlines but does not truncate, so entry count alone
+     * does not bound length. So rather than guess a ceiling, this returns `false`
+     * and lets the exact path run. That costs the optimisation on the steps
+     * where a summary is present, which is the minority — a summary appears only
+     * after a compaction — and it is the correct trade against a wrong bound on
+     * a compaction trigger.
+     *
+     * ## WHY THE `": "` SEPARATOR IS COUNTED
+     *
+     * [render] formats an observation as `"${toolName}: ${observation}"`. Two
+     * characters of separator per observation, omitted, would make the bound
+     * optimistic by twice the observation count — and an optimistic bound on a
+     * compaction trigger is exactly the almost-right that produces a bug nobody
+     * can reproduce.
+     *
+     * ## WHAT IT COSTS WHEN IT ANSWERS FALSE, OR WHEN IT BAILS
+     *
+     * One pass over the window reading `String.length`, which is a field read
+     * per message and allocates nothing.
+     */
+    fun cannotReachTokenLimit(limit: Int): Boolean {
+        if (limit <= 0) return false
+        // See above. Exactness is the whole contract of this method, so the
+        // summary path opts out rather than approximating.
+        if (workingSummary != null) return false
+        // One per message: `tokens` appends '\n' after every one.
+        var chars = messages.size
+        for (message in messages) {
+            chars += when (message) {
+                is ChatMessage.System -> message.text.length
+                is ChatMessage.User -> message.text.length
+                is ChatMessage.Assistant -> message.text.length
+                is ChatMessage.ToolObservation ->
+                    message.toolName.length + OBSERVATION_SEPARATOR.length +
+                        message.observation.length
+            }
+        }
+        return chars + SPECIAL_TOKENS < limit
+    }
+
+    /**
+     * Characters of conversation text the session is RETAINING, counted exactly.
+     *
+     * ## THIS IS NOT THE SAME NUMBER AS THE ONE [cannotReachTokenLimit] COUNTS,
+     * AND THE DIFFERENCE IS DELIBERATE
+     *
+     * That method counts the RENDERED form, which includes the `": "` between a
+     * tool's name and its observation, because that is what gets tokenised. This
+     * one counts the strings the session HOLDS, which does not include it,
+     * because the separator is not allocated — it is a format artifact
+     * conjured by [render] each time and thrown away.
+     *
+     * The distinction is the whole point of each: one answers "is the model
+     * about to overflow", the other answers "how much is the agent's own code
+     * holding in RAM", and a RAM figure that included characters that are not
+     * allocated would be over-reporting the thing it is supposed to measure.
+     * Conflating them was a real mistake during this work, so the comment above
+     * is here to stop the next reader from "fixing" one to match the other.
+     *
+     * The tool name IS counted, because it IS a retained `String` on the
+     * message — not a rendering artifact.
+     *
+     * O(n) in the window with no allocation — [String.length] is a field read —
+     * and it is a count, not an estimate, which is what lets a memory probe
+     * report it. Public for that reason: the figure a diagnostics screen shows
+     * has to be derivable, and the only honest way to derive it is to walk the
+     * list the number describes.
+     */
+    fun exactRetainedChars(): Int {
+        var total = 0
+        for (message in messages) {
+            total += when (message) {
+                is ChatMessage.System -> message.text.length
+                is ChatMessage.User -> message.text.length
+                is ChatMessage.Assistant -> message.text.length
+                // The tool name is a retained String on the message. The ": "
+                // is NOT — see the KDoc on why this differs from the count in
+                // `cannotReachTokenLimit`.
+                is ChatMessage.ToolObservation ->
+                    message.toolName.length + message.observation.length
+            }
+        }
+        return total
     }
 
     /**
@@ -347,12 +611,50 @@ class Session(
         is ChatMessage.System -> message.text
         is ChatMessage.User -> message.text
         is ChatMessage.Assistant -> message.text
-        is ChatMessage.ToolObservation -> "${message.toolName}: ${message.observation}"
+        // The separator is the SAME constant `cannotReachTokenLimit` counts, so
+        // the two cannot drift apart. A bound computed against a different
+        // format than the one `tokens` counts is a bound that is wrong by
+        // exactly the difference, silently.
+        is ChatMessage.ToolObservation ->
+            message.toolName + OBSERVATION_SEPARATOR + message.observation
     }
 
     private companion object {
         const val SUMMARY_BUDGET_CHARS = 1200
         const val LINE_CHARS = 120
         const val KEYWORD_LIMIT = 12
+
+        /**
+         * Between an observation's tool name and its text, in [render].
+         *
+         * Shared with [cannotReachTokenLimit] so the rendered format and the
+         * bound computed against it cannot drift. See the KDoc on
+         * [cannotReachTokenLimit] for why an optimistic bound there matters.
+         */
+        const val OBSERVATION_SEPARATOR = ": "
+
+        /**
+         * Slack for the special tokens the native tokenizer adds.
+         *
+         * `llama_bridge.cpp` tokenizes with `add_special=true`, so a text of N
+         * characters can come back as N+2 tokens — a leading BOS and a trailing
+         * EOS. Without this the bound would be tight to the character and could
+         * exceed the limit by two tokens on the exact step that decides whether
+         * to compact. Two is the whole number: one per end, and a vocabulary
+         * that adds more than one at an end is not a thing BPE vocabularies do.
+         */
+        const val SPECIAL_TOKENS = 2
+
+        /**
+         * The token split for [currentKeywords], compiled once.
+         *
+         * WHY A CONSTANT: the pattern used to be written inline as
+         * `Regex("[^a-z0-9]+")` inside the method, so the agent loop recompiled
+         * it on every step of every run. `MemoryQueries` in `:android` has
+         * always held its identical pattern as a `private val` for this reason,
+         * so this is the codebase's own convention catching a file that had not
+         * caught up yet.
+         */
+        val KEYWORD_SPLIT = Regex("[^a-z0-9]+")
     }
 }

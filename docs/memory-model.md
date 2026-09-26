@@ -389,8 +389,11 @@ not an estimate disagreeing with reality — it is the model pricing half a
 cache. Now 4096.
 
 `ModelDownloader.PreDownloadContextLength` (in `:android`, not owned by the
-change that fixed this) is **still 2048** and is the one remaining instance.
-The exact edit is in the PR description.
+change that fixed this) was **still 2048** and was the one remaining instance.
+It is now 4096 as well. The value prices the KV cache on the transfer-time
+re-check, and at 2048 it was pricing half the cache the loader actually
+allocates — an under-statement in the direction that costs the user a
+completed download and then an OOM kill.
 
 ### 5.4 Two unmeasured quant entries no longer feed a safety verdict
 
@@ -512,8 +515,10 @@ An x86_64 AVD is not a phone, and the differences are not small:
   are a file mapping in both cases, so the *file-backed share* of the delta is
   the part of the measurement that generalises.
 - **Decode speed does not transfer at all.** On this AVD, CPU-bound decode has
-  been measured at about **0.66 tok/s**, which reads as a hang and is an
-  artefact of emulated CPU. No performance conclusion may be drawn from it.
+  been measured at about **0.67 tok/s** (the figure of record is
+  `docs/measurements.md`; earlier revisions of this file said 0.66, which was
+  never a separate measurement — just a stale digit), which reads as a hang and
+  is an artefact of emulated CPU. No performance conclusion may be drawn from it.
 - **What a device would still need.** One run each at context 2048 and 4096,
   one model at least three times larger, and `dumpsys meminfo` taken *after*
   `llama_memory` has actually allocated its context, not merely after the file

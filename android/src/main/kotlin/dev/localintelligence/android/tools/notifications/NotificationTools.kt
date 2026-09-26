@@ -12,7 +12,6 @@ import android.os.Build
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.CancellationSignal
@@ -22,6 +21,9 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolMeta
+import dev.localintelligence.core.tool.catalogue.ToolArgumentBounds
+import dev.localintelligence.core.tool.catalogue.ToolSchemas
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
@@ -54,7 +56,11 @@ import kotlinx.serialization.json.buildJsonObject
 // ===========================================================================
 
 /** Cap on how many notifications one observation will describe. */
-internal const val DEFAULT_LIST_LIMIT: Int = 10
+// Aliased from :core's ToolArgumentBounds: these numbers appear in this
+// tool's JSON Schema, which :core owns, and in its `execute()`, below.
+// Aliasing rather than repeating is what stops the advertised bound and
+// the enforced bound from drifting apart.
+internal const val DEFAULT_LIST_LIMIT: Int = ToolArgumentBounds.NOTIFICATIONS_DEFAULT_LIST_LIMIT
 internal const val MAX_LIST_LIMIT: Int = 30
 
 /** The settings screen the user has to open, named exactly. */
@@ -596,55 +602,9 @@ class NotificationListTool(
     private val grant: PlatformGrant = PlatformGrant.GRANT_ALL,
 ) : AgentTool {
 
-    override val definition: ToolDefinition = ToolDefinition(
-        name = "notifications.list",
-        description = "Lists the notifications currently showing on the phone, newest first.",
-        category = "notifications",
-        schema = buildJsonObject {
-            put("type", JsonPrimitive("object"))
-            put(
-                "properties",
-                buildJsonObject {
-                    put(
-                        "limit",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("integer"))
-                            put(
-                                "description",
-                                JsonPrimitive("How many to return, $DEFAULT_LIST_LIMIT by default."),
-                            )
-                        },
-                    )
-                    put(
-                        "query",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put(
-                                "description",
-                                JsonPrimitive("Optional text to match against app name, title or body."),
-                            )
-                        },
-                    )
-                    put(
-                        "onlyReplyable",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("boolean"))
-                            put(
-                                "description",
-                                JsonPrimitive("Only notifications that accept a quick reply."),
-                            )
-                        },
-                    )
-                },
-            )
-            put("required", buildJsonArray { })
-        },
+    override val definition: ToolDefinition = ToolMeta.NOTIFICATIONS_LIST.define(
+        schema = ToolSchemas.notificationsList,
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf(
-            "notifications", "alerts", "messages", "list", "banner",
-            "inbox", "what came in", "ping",
-        ),
         requiredPermission = null,
     )
 
@@ -791,47 +751,9 @@ class NotificationReplyTool(
     private val grant: PlatformGrant = PlatformGrant.GRANT_ALL,
 ) : AgentTool {
 
-    override val definition: ToolDefinition = ToolDefinition(
-        name = "notifications.reply",
-        description = "Sends a quick reply to a messaging notification that offers a reply box.",
-        category = "notifications",
-        schema = buildJsonObject {
-            put("type", JsonPrimitive("object"))
-            put(
-                "properties",
-                buildJsonObject {
-                    put(
-                        "key",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put(
-                                "description",
-                                JsonPrimitive("Notification key from notifications.list, e.g. com.whatsapp#2."),
-                            )
-                        },
-                    )
-                    put(
-                        "text",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("The message body to send."))
-                        },
-                    )
-                },
-            )
-            put(
-                "required",
-                buildJsonArray {
-                    add(JsonPrimitive("key"))
-                    add(JsonPrimitive("text"))
-                },
-            )
-        },
+    override val definition: ToolDefinition = ToolMeta.NOTIFICATIONS_REPLY.define(
+        schema = ToolSchemas.notificationsReply,
         risk = ToolRisk.EXTERNAL_COMMUNICATION,
-        tags = setOf(
-            "reply", "respond", "answer", "message back", "notification", "chat",
-            "text message", "send",
-        ),
         requiredPermission = null,
     )
 
@@ -998,34 +920,9 @@ class NotificationDismissTool(
     private val grant: PlatformGrant = PlatformGrant.GRANT_ALL,
 ) : AgentTool {
 
-    override val definition: ToolDefinition = ToolDefinition(
-        name = "notifications.dismiss",
-        description = "Dismisses (cancels) one notification from the shade by its key.",
-        category = "notifications",
-        schema = buildJsonObject {
-            put("type", JsonPrimitive("object"))
-            put(
-                "properties",
-                buildJsonObject {
-                    put(
-                        "key",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put(
-                                "description",
-                                JsonPrimitive("Notification key from notifications.list."),
-                            )
-                        },
-                    )
-                },
-            )
-            put("required", buildJsonArray { add(JsonPrimitive("key")) })
-        },
+    override val definition: ToolDefinition = ToolMeta.NOTIFICATIONS_DISMISS.define(
+        schema = ToolSchemas.notificationsDismiss,
         risk = ToolRisk.REVERSIBLE,
-        tags = setOf(
-            "dismiss", "clear", "notification", "remove", "silence", "swipe away",
-            "banner",
-        ),
         requiredPermission = null,
     )
 
@@ -1206,7 +1103,6 @@ internal object LABELS {
         return label
     }
 }
-
 
 // =====================================================================================
 // The tool set

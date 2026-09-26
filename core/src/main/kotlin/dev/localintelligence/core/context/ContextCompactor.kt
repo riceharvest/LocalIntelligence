@@ -3,7 +3,7 @@ package dev.localintelligence.core.context
 import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.UntrustedContent
 import dev.localintelligence.core.model.ModelBackend
-import kotlin.math.min
+import dev.localintelligence.core.model.token.ContextCeiling
 
 /**
  * The seam a future model-based summariser would slot into.
@@ -90,27 +90,44 @@ object DeterministicSummaryWriter : SummaryWriter {
  */
 class ContextCompactor(
     private val summarizer: SummaryWriter = DeterministicSummaryWriter,
-    private val workingLimit: Int = 6000,
-    private val triggerFraction: Double = 0.65,
+    /**
+     * The prefill COST cap, architecture §9's "never a 20K prefill".
+     *
+     * The second term of `min(modelContext * triggerFraction, workingLimit)`,
+     * not the answer — the model's own window is the first term, and on this
+     * app's 4096 allocation it is the one that binds. Renamed from a bare
+     * `6000` default so it cannot be read as the ceiling it is not; the
+     * arithmetic is [ContextCeiling]'s.
+     */
+    private val workingLimit: Int = ContextCeiling.PREFILL_COST_CAP,
+    private val triggerFraction: Double = ContextCeiling.TRIGGER_FRACTION,
 ) {
 
     /**
      * True when the active context is too big to keep growing.
      *
      * `min(modelContext * triggerFraction, workingLimit)` — the model context
-     * stops us overflowing the KV cache, and workingLimit stops us paying for a
+     * stops us overflowing the KV cache, and the cost cap stops us paying for a
      * prefill the architecture says we should never pay (section 9). On a 4K
      * model the first term binds; on a 32K model the second does.
      *
-     * Note: `ModelCapabilities.UNKNOWN.contextLength` is 0, and a naive
-     * `min(0 * 0.65, 6000)` is 0, so an unknown context would compact on every
-     * step. The architecture fixes the formula, so this does not silently change
-     * it — but callers holding a real model should pass the real context length.
-     * A zero context degrades to compacting constantly, which is slow and
-     * wasteful rather than wrong. Flagged for the integration agent in the PR.
+     * `ModelCapabilities.UNKNOWN.contextLength` is 0, and this used to compute
+     * `min(0 * 0.65, 6000) = 0` and compact on every step, while
+     * `AgentController.workingLimit` — the same formula, copied — returned
+     * 6000 for the same input. Two copies, two answers, and neither was the
+     * size of the cache the loader actually created. Both now read
+     * [ContextCeiling], which resolves an unknown window to
+     * [ContextCeiling.FALLBACK_WINDOW_TOKENS] rather than to either extreme.
      */
     fun shouldCompact(activeTokens: Int, modelContext: Int): Boolean =
-        activeTokens > min(modelContext * triggerFraction, workingLimit.toDouble())
+        activeTokens > triggerCeiling(modelContext)
+
+    /**
+     * The threshold [shouldCompact] actually uses, so a caller can log the
+     * number it is enforcing instead of re-deriving a second copy of it.
+     */
+    fun triggerCeiling(modelContext: Int): Int =
+        ContextCeiling.workingLimit(modelContext, workingLimit)
 
     /**
      * The contract signature from docs/wave1-contract.md, minus `Session`.

@@ -405,9 +405,9 @@ private fun Footer() {
             )
             Text(
                 "It is not a benchmark and its output must not be quoted as one. The " +
-                    "only decode figure anywhere in this repository, about 0.66 tok/s, " +
-                    "was taken on an x86_64 emulator with an emulated CPU. It is not a " +
-                    "phone number.",
+                    "two decode figures in this project, about 0.67 tok/s and 37.4 " +
+                    "tok/s, were taken on an x86_64 emulator and a desktop CPU. Neither " +
+                    "is a phone number.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(

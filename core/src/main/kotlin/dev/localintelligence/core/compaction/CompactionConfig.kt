@@ -1,5 +1,7 @@
 package dev.localintelligence.core.compaction
 
+import dev.localintelligence.core.model.token.ContextCeiling
+
 /**
  * Eviction priority that no real section can occupy, so the task can never be
  * sorted into the drop order. File-level rather than in [SummarySection]'s
@@ -140,13 +142,18 @@ enum class DropReason {
  */
 data class CompactionConfig(
     /**
-     * The architecture's compaction trigger ceiling
-     * (`docs/agent-loop.md`: `min(model.context * 0.65, workingLimit)`).
+     * The prefill COST cap: the architecture's "never pay a 20K prefill" rule
+     * (`docs/agent-loop.md`: `min(model.context * 0.65, costCap)`).
+     *
+     * This is the SECOND term of that minimum, not the answer. The first term
+     * is the loaded model's own window, and it is the one that binds on this
+     * app's 4096 allocation — [ContextCeiling] holds the arithmetic so the
+     * builder, the step gate and this trigger cannot disagree about it again.
      */
-    val workingTokenLimit: Int = 6_000,
+    val prefillCostCapTokens: Int = ContextCeiling.PREFILL_COST_CAP,
 
-    /** The 0.65 from `docs/architecture.md` §12. */
-    val triggerFraction: Double = 0.65,
+    /** The 0.65 from `docs/architecture.md` §12. [ContextCeiling.TRIGGER_FRACTION]. */
+    val triggerFraction: Double = ContextCeiling.TRIGGER_FRACTION,
 
     /**
      * Hard ceiling on the rendered summary, in characters. Default 1600 is

@@ -45,6 +45,26 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.LocalIntelligence">
 
+        <!-- Lets the debug trace screen hand a .jsonl file to another app.
+             Not exported and grantUriPermissions-only: the user picks the
+             receiving app in the share sheet, and the grant is per-URI, so this
+             is the narrowest mechanism Android offers for "let the user send
+             this one file somewhere".
+
+             Without this declaration, `FileProvider.getUriForFile` throws
+             IllegalArgumentException at runtime and the share button is dead -
+             the same class of bug as an intent filter that goes nowhere, and
+             the reason the declaration is here rather than left to a follow-up. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/trace_paths" />
+        </provider>
+
         <!-- LiteRT-LM GPU acceleration. LiteRT's GPU accelerator reaches the GPU
              through OpenCL, and Android's linker namespaces (API 24+) will not
              hand a vendor driver to an app that has not declared it. Without these

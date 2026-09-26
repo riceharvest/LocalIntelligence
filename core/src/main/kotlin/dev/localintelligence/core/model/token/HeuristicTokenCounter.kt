@@ -234,7 +234,7 @@ class HeuristicTokenCounter(
      * Token cost of one tool definition as the model sees it.
      *
      * Tool definitions are the biggest hidden cost in the system and the
-     * easiest to forget: architecture section 11 caps the set at 8 tools, but
+     * easiest to forget: architecture section 11 caps the set at 10 tools, but
      * nothing stopped a tool author writing a 400-word description plus a deep
      * JSON schema. Measuring the whole rendered definition is what lets the
      * runtime name the expensive tool and drop that one, instead of guessing.
