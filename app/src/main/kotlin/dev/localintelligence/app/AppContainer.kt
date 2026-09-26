@@ -41,6 +41,9 @@ import dev.localintelligence.android.hub.UrlConnectionTransport
 import dev.localintelligence.app.ui.HubViewModel
 import java.io.File
 import dev.localintelligence.core.tool.redaction.RedactingToolRegistry
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * The DI system. `docs/architecture.md` §3: *"If you need a dependency injected,
@@ -282,8 +285,6 @@ class AppContainer(private val context: Context) {
      * This counts the store's rows, not the window's, so it keeps working
      * after [RetainedHistory.bound] trims the in-memory list.
      */
-    @Volatile
-    private var durableWriteCount: Int = 0
 
     /**
      * Rehydrates [session] from the store, once per process, before the first
@@ -323,8 +324,10 @@ class AppContainer(private val context: Context) {
         if (history.isEmpty()) return
         val adopted = session.restore(history)
         // Everything restored is already on disk, so the writer must not
-        // re-append it or the next run would double the history.
-        durableWriteCount = session.appendedCount
+        // re-append it. With identity-based writing the equivalent is marking
+        // those exact message objects as already written, rather than setting a
+        // count that the next trim could invalidate.
+        session.markAllWritten()
         if (adopted > 0) {
             android.util.Log.i(
                 TAG,
@@ -397,31 +400,46 @@ class AppContainer(private val context: Context) {
      */
     suspend fun persistConversation() {
         val store = sessionStore ?: return
-        val produced = session.appendedCount
-        val newMessages = produced - durableWriteCount
-        if (newMessages <= 0) return
+
+        // Write every message in the window that has not been written, by
+        // IDENTITY rather than by count.
+        //
+        // The count arithmetic this replaces was `takeLast(appendedCount -
+        // durableWriteCount)`, which is unsound for two separate reasons: the
+        // trims are middle trims (so the window is shorter than the count
+        // implies and `takeLast` silently returns the wrong slice, duplicating
+        // a row and dropping others), and writing the dropped messages first
+        // does not fix it either — `durableWriteCount` then advances past a
+        // window that was never written. Simulated both ways: 3 messages lost
+        // and 11 duplicated, every time.
+        //
+        // `Session.writtenIds` is the set of message identities already handed
+        // to the store, so a trim, a fold, or a repeated call are all naturally
+        // idempotent and nothing is inferred from positions.
+        val pending = session.messages.filter { session.writtenIds.add(session.idOf(it)) }
+        if (pending.isEmpty()) return
         val id = try {
             durableSessionId(store)
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
             android.util.Log.w(TAG, "Could not open a durable session; skipping write.", t)
+            // Nothing was written, so nothing may stay marked as written.
+            pending.forEach { session.writtenIds.remove(session.idOf(it)) }
             return
         }
-        // A trim only ever removes from the front, so the newest `newMessages`
-        // entries of the window are exactly the ones not yet written.
-        val pending = session.messages.takeLast(newMessages)
         try {
             withContext(Dispatchers.IO) {
                 for (message in pending) store.appendMessage(id, message)
             }
-            durableWriteCount = produced
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
             // Losing a write is survivable in a way failing the run is not: the
-            // answer has already been produced and shown. Leave the count
-            // alone so the next run retries these rows.
+            // answer has already been produced and shown. Un-mark these rows so
+            // the next run genuinely retries them, rather than leaving them
+            // marked as written and silently dropping them.
+            pending.forEach { session.writtenIds.remove(session.idOf(it)) }
             android.util.Log.w(TAG, "Could not persist the conversation; will retry next run.", t)
         }
     }
@@ -704,12 +722,32 @@ class AppContainer(private val context: Context) {
      * `newController`, which returns long before a run starts. The claim belongs
      * at the two `ExecutionService.startRun` call sites; see [runGate].
      */
+    /**
+     * Scope for work that must outlive a single run.
+     *
+     * A [SupervisorJob] so one failed write cannot cancel unrelated work, and
+     * [Dispatchers.IO] because every use is a database write. Deliberately
+     * process-scoped rather than tied to a run: durable persistence is exactly
+     * the work that has to finish even if the run that triggered it is
+     * cancelled.
+     */
+    private val appScope: CoroutineScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     fun newController(
         model: ModelBackend = residentBackend(),
         metrics: RunRecorder? = null,
         onToken: ((String) -> Unit)? = null,
     ): AgentController = AgentController(
         onToken = onToken,
+        // Persist whenever the loop trims the window, not only at run
+        // boundaries: a message removed by a mid-run fold is unrecoverable
+        // afterwards. See AgentController.onWindowChanged.
+        // Launched on the app scope rather than awaited inline: the loop is
+        // mid-generation and a database write must not stall token production.
+        // The write is ordered by identity (Session.writtenIds), so a
+        // checkpoint racing the final run-boundary persist cannot double-write.
+        onWindowChanged = { appScope.launch { persistConversation() } },
         model = model,
         parser = dev.localintelligence.core.agent.ActionParserImpl,
         tools = tools,

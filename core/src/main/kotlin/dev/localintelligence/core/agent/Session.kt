@@ -6,6 +6,7 @@ import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.ModelBackend
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
+import java.util.IdentityHashMap
 
 /**
  * Mutable state for one in-flight run. Not a persistence type — the durable
@@ -26,6 +27,61 @@ class Session(
     val keepRecent: Int = 4,
 ) {
     val messages: MutableList<ChatMessage> = mutableListOf()
+
+    /**
+     * Identity of every message already handed to the durable store.
+     *
+     * WHY THIS EXISTS, AND WHY A BUFFER WAS NOT ENOUGH: the store is written at
+     * run boundaries, but a trim (`foldWindow`, `dropOldest*`) is destructive
+     * and happens MID-run, so a message can be gone from [messages] before any
+     * persist call sees it. The container used to infer what was unwritten with
+     * `takeLast(appendedCount - durableWriteCount)`, assuming "a trim only ever
+     * removes from the front" — false, since `foldWindow` clears and re-adds
+     * `head + tail`.
+     *
+     * Two attempts, both simulated, both wrong:
+     *  - count only: a 6-message run whose window folded to 4 wrote 1 row twice
+     *    and lost 3 permanently (`durableWriteCount` advanced past the gap, so
+     *    no later run retried it).
+     *  - count + a drain of removed messages: no message was lost from the
+     *    removed set, but `durableWriteCount` still advanced past a window that
+     *    was never written — 3 still lost and 11 duplicated.
+     *
+     * A set of identities makes this exact and order-independent. A message is
+     * written once no matter how many times it appears, survives being removed
+     * and re-added, and needs no positional reasoning at all. It is bounded by
+     * the number of messages in the conversation, which is already bounded.
+     */
+    val writtenIds: MutableSet<Long> = HashSet()
+
+    /**
+     * A stable id for [this], assigned in construction order and never reused.
+     *
+     * Identity cannot be content-derived: a user legitimately repeating a
+     * message, or a tool returning the same observation twice, would collide
+     * and silently drop the second one.
+     */
+    private val ids = java.util.IdentityHashMap<ChatMessage, Long>()
+    private var nextIdentity: Long = 1L
+
+    /**
+     * A stable id for [message], assigned on first ask and never reused.
+     *
+     * Public because the durable writer in `:app` is the other half of this
+     * mechanism and cannot be `internal` to this module.
+     */
+    fun idOf(message: ChatMessage): Long = ids.getOrPut(message) { nextIdentity++ }
+
+    /**
+     * Marks everything currently in [messages] as already written.
+     *
+     * Used after a restore, where the rows came FROM the store and must not be
+     * written back. Marking the live objects is exact: a message not in the
+     * window is not marked, so nothing is silently skipped.
+     */
+    fun markAllWritten() {
+        messages.forEach { writtenIds.add(idOf(it)) }
+    }
 
     /**
      * How many messages have ever been appended to [messages] in this process,

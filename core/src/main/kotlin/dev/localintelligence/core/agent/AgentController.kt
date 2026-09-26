@@ -95,6 +95,35 @@ class AgentController(
     private val sessions: Session,
     private val config: AgentConfig = AgentConfig(),
     /**
+     * Invoked after any step that changed the message window.
+     *
+     * WHY THIS EXISTS: a durable store cannot be written only at run boundaries
+     * and still be correct. `foldWindow` and `dropOldest*` remove messages MID
+     * -run, and once removed they are unrecoverable — no count and no identity
+     * can reconstruct a message that no longer exists. With persistence at the
+     * end of a run only, a long run that compacted would permanently lose every
+     * message the fold dropped, silently.
+     *
+     * Invoked BEFORE each trim, while the window is still intact. This ordering
+     * is the entire mechanism and is not interchangeable: a checkpoint after
+     * the trim finds the dropped messages already gone, and simulation showed
+     * it losing 3 of 18 while the pre-trim version stored all 18 cleanly.
+     *
+     * Every trim site calls this first — `foldWindow` and both
+     * `dropOldest*` — because a message that has left the window cannot be
+     * recovered by any later write.
+     *
+     * NOT suspend on purpose. Making it suspend cascades through
+     * applyAdjustments -> dropOldest* -> foldWindow, because the budget
+     * adjustment path is not itself suspend, and a persistence callback should
+     * not dictate the shape of the whole loop. The caller owns its own scope,
+     * so the write happens off the loop's critical path and a slow database
+     * cannot stall generation.
+     *
+     * `null` (the default) costs one null check per step.
+     */
+    private val onWindowChanged: (() -> Unit)? = null,
+    /**
      * WHY this is a defaulted tenth parameter and not a seventh collaborator:
      * every existing caller — the eval harness, the pre-wiring
      * [AppContainer], the loop's own unit tests — must keep constructing a
@@ -982,6 +1011,8 @@ class AgentController(
         if (state.observations.isEmpty()) return false
         val index = sessions.messages.indexOfFirst { it is ChatMessage.ToolObservation }
         if (index < 0) return false
+        // Checkpoint BEFORE the removal, for the same reason as foldWindow.
+        onWindowChanged?.invoke()
         sessions.messages.removeAt(index)
         return true
     }
@@ -993,6 +1024,8 @@ class AgentController(
             val message = sessions.messages[i]
             message !is ChatMessage.ToolObservation && message !is ChatMessage.User
         } ?: return false
+        // Checkpoint BEFORE the removal, for the same reason as foldWindow.
+        onWindowChanged?.invoke()
         sessions.messages.removeAt(index)
         return true
     }
@@ -1238,6 +1271,16 @@ class AgentController(
         val messages = sessions.messages
         val head = messages.first()
         val tail = messages.subList(messages.size - keep, messages.size).toList()
+        // A MIDDLE trim, not a front trim: everything between the head and the
+        // kept tail is removed, which is why durable persistence keys on message
+        // identity (Session.writtenIds) rather than on a count of what is new.
+        //
+        // Checkpoint BEFORE the clear, not after. This ordering is the whole
+        // fix and was verified by simulation: firing after the fold left 3 of 18
+        // messages permanently unwritten, because they were already gone from
+        // the window by the time anything looked. Firing first stores all 18
+        // with no duplicates. See onWindowChanged.
+        onWindowChanged?.invoke()
         messages.clear()
         messages += head
         messages += tail
