@@ -78,7 +78,7 @@ deleted suite.
 [x] Context compaction
 [x] Loop detection wired into the loop
 [x] Permission policy + confirmation UX
-[x] 22 Android tools (see below)
+[x] 25 Android tools (see below)
 [x] Model manager (import GGUF, RAM fit estimate, context size)
 [x] Debug trace view
 [ ] Lexical tool selection tuned against a real eval
@@ -90,15 +90,21 @@ deleted suite.
 22, verified by the `name = "..."` fields in `:android`:
 
 ```
+alarm.cancel  alarm.create  alarm.list
 apps.list  apps.open  apps.share
 calendar.create  calendar.search
 clipboard.read  clipboard.write
 contacts.get  contacts.search
-device.battery  device.info  device.vibrate
-files.delete  files.list  files.search
+device.battery  device.info  device.open_settings  device.vibrate
+files.delete  files.list  files.read_text  files.search  files.write_text
 notifications.dismiss  notifications.list  notifications.reply
-alarm.cancel  alarm.create  alarm.list
 web.fetch
+
+Counted from V0ToolCatalogue, which `requireCatalogueAgreement` now checks in
+BOTH directions at composition time: every shipped tool must be catalogued, and
+every catalogued tool must be shipped. That check is what makes this list
+trustworthy - the previous version of it said 22 and listed 21, and the three
+tools it had never heard of were the ones most likely to be used.
 ```
 
 The v0 freeze criteria ask for 15+; that threshold is met by count. Whether

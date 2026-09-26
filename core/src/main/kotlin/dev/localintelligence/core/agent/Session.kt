@@ -12,7 +12,9 @@ import dev.localintelligence.core.tool.ObservationTruncator
  * bounded window kept here.
  *
  * Everything in this class is bounded on purpose (a phone, not a server):
- *  - `messages` is trimmed by [compact] to 1 task + 1 summary + [keepRecent] turns
+ *  - `messages` is trimmed by `RetainedHistory.bound` to at most 32 entries
+ *    after a run ends, keeping the opening task, the newest turns, and every
+ *    user turn that fits
  *  - `currentKeywords` is capped at [KEYWORD_LIMIT] terms
  *  - every folded summary line is capped at [LINE_CHARS], and the rendered
  *    summary at [SUMMARY_BUDGET_CHARS]
@@ -37,8 +39,11 @@ class Session(
      * the app would look broken in a way nothing could explain. Every turn is
      * now appended.
      *
-     * The list is bounded by the session's own compaction ([keepRecent] and
-     * [compact]), so this cannot grow without limit.
+     * The list is bounded after each run by `RetainedHistory.bound`, which caps
+     * it at MAX_RETAINED_MESSAGES and preserves the opening task, the newest
+     * turns, and user turns. Note that [compact] does NOT run per run - the
+     * loop calls it mid-run when the token budget is exceeded - so it is not
+     * what stops the list growing across a day of scheduled runs.
      */
     fun start(task: String) {
         messages += ChatMessage.User(task)
