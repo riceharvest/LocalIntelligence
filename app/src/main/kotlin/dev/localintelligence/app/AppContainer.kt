@@ -67,7 +67,22 @@ class AppContainer(private val context: Context) {
     /** Log tag for this container, matching the class name used elsewhere. */
     private val TAG = "AppContainer"
 
+    /**
+     * logcat tag for every memory reading this container's probe publishes.
+     *
+     * Its OWN tag, not [TAG]'s, because the readings have to be retrievable with
+     * a single filter — `adb logcat -s PidroidMemory` — and filtering a shared
+     * tag would drag every unrelated line the container logs in with them. It is
+     * also the name to put in a bug report about a number, so it says what the
+     * numbers are.
+     *
+     * A `const` in the COMPANION rather than a `val` beside [TAG]:
+     * [LoggingMemoryProbe] is a `static` nested class and cannot reach instance
+     * members, and making it an `inner` class to reach a string would retain
+     * this container — which holds the model — for the life of the probe.
+     */
     private companion object {
+        const val MEMORY_TAG = "PidroidMemory"
         /**
          * Preferences file holding the pinned conversation id.
          *
@@ -699,6 +714,21 @@ class AppContainer(private val context: Context) {
             ),
         )
         selectedModel = model
+        // The single most important reading in this project, and the one that
+        // could never be taken before: what the process costs with a model
+        // ACTUALLY RESIDENT, on a real phone.
+        //
+        // Every other RAM number in the repository is a pre-flight estimate made
+        // before a byte of the model was allocated, and `RunPerformanceCheck`
+        // reports the absence of a measured figure as a permanent CANNOT_TELL.
+        // This is the line that produces a measured one, and it is taken here
+        // because `backend.load` has just returned and the weights are mapped.
+        //
+        // The session figures are zero because the load path has not appended
+        // anything to the window yet — that is the correct reading for this
+        // point, not a missing one, and a `run.start` reading taken later
+        // carries the non-zero values.
+        memoryProbe.record("model.loaded", 0, 0, 0)
         // The name is the model's OWN `general.name` when the GGUF header has
         // one, falling back to a name derived from the file. For many real GGUFs
         // that fallback is all there is, and the field is documented as such
@@ -750,6 +780,80 @@ class AppContainer(private val context: Context) {
         val model = selectedModel ?: return ModelAvailability.None
             .also { modelAvailability.set(it) }
         return loadModel(model)
+    }
+
+    /**
+     * Where every run's memory readings go.
+     *
+     * ## WHY THIS IS A SINGLE PROCESS-WONCE OBJECT
+     *
+     * The readings are about the PROCESS, not about a run: PSS, the dalvik/native
+     * split, the native heap. Two runs in the same process see the same native
+     * heap, so a per-run probe would be reporting the same number under a
+     * different name. One probe, shared by every controller this container
+     * builds, is what makes a sequence of readings comparable — and comparability
+     * is the entire reason to record more than one.
+     *
+     * ## WHY IT IS NOT LAZY-BEHIND-A-FLAG
+     *
+     * There is no "enable instrumentation" switch, and that is deliberate. The
+     * probe costs one `Debug.getMemoryInfo` per labelled point — run start, per
+     * step, run end — which is a few microseconds against a decode measured in
+     * tens of seconds. A flag would be one more thing to forget to turn on, and
+     * the failure mode of forgetting is a diagnostics screen that says "not
+     * measured" on a phone that could have told us. The project already has
+     * several screens in exactly that state.
+     *
+     * WHY THE READER IS THE PLATFORM ONE AND NOT A STUB: `:core` cannot name
+     * `android.os.Debug`, and `:android` can. See
+     * [dev.localintelligence.android.inference.AndroidMemoryReader].
+     */
+    val memoryProbe: dev.localintelligence.core.metrics.MemoryProbe by lazy {
+        LoggingMemoryProbe(
+            dev.localintelligence.core.metrics.RunMemoryJournal.probe(
+                dev.localintelligence.android.inference.AndroidMemoryReader,
+            ),
+        )
+    }
+
+    /**
+     * Mirrors every reading to logcat as well as into the journal.
+     *
+     * WHY BOTH PLACES: the journal is what the Self-check screen reads, and it
+     * holds 32 readings — enough for one run, not enough to watch a run across
+     * several app launches, which is the shape of the problem a release gate is
+     * trying to characterise. logcat is the only place in the app where a
+     * sequence of readings survives the process, and `adb logcat -s PidroidMemory`
+     * is how a measured number gets off a phone and into a report.
+     *
+     * WHY A DECORATOR AND NOT A FLAG ON THE READER: the reader is about getting
+     * the number, this is about where it goes. The platform reader has no
+     * opinion about logging and the logger has no opinion about Android.
+     */
+    private class LoggingMemoryProbe(
+        private val inner: dev.localintelligence.core.metrics.MemoryProbe,
+    ) : dev.localintelligence.core.metrics.MemoryProbe {
+        override fun record(
+            label: String,
+            retainedMessages: Int,
+            retainedChars: Int,
+            promptChars: Int,
+        ) {
+            inner.record(label, retainedMessages, retainedChars, promptChars)
+            try {
+                val s = dev.localintelligence.core.metrics.RunMemoryJournal.latestAt(label)
+                    ?: return
+                android.util.Log.i(
+                    MEMORY_TAG,
+                    "$label pss=${s.pssBytes}B dalvik=${s.dalvikPssBytes}B " +
+                        "native=${s.nativePssBytes}B nativeHeap=${s.nativeHeapAllocatedBytes}B " +
+                        "window=${retainedMessages}msg/${retainedChars}chars " +
+                        "prompt=${promptChars}chars",
+                )
+            } catch (_: Throwable) {
+                // A logging failure is still not a run failure.
+            }
+        }
     }
 
     /**
@@ -811,8 +915,14 @@ class AppContainer(private val context: Context) {
         model: ModelBackend = residentBackend(),
         metrics: RunRecorder? = null,
         onToken: ((String) -> Unit)? = null,
+        // Named the same as [memoryProbe] and defaulting to it, like every other
+        // collaborator here; the `this.` is what makes the default resolve to
+        // the property rather than to the parameter being declared.
+        memoryProbe: dev.localintelligence.core.metrics.MemoryProbe? =
+            this.memoryProbe,
     ): AgentController = AgentController(
         onToken = onToken,
+        memoryProbe = memoryProbe,
         // Persist whenever the loop trims the window, not only at run
         // boundaries: a message removed by a mid-run fold is unrecoverable
         // afterwards. See AgentController.onWindowChanged.

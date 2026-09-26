@@ -329,8 +329,30 @@ class LexicalToolSelector : ToolSelector {
 
     private fun tokenize(text: String): List<String> =
         text.lowercase()
-            .split(Regex("[^a-z0-9]+"))
+            .split(TOKEN_SPLIT)
             .filter { it.length > 2 }
+
+    private companion object {
+        /**
+         * The token split, compiled once.
+         *
+         * WHY IT IS A CONSTANT AND NOT INLINE: `select` calls [tokenize] three
+         * times per tool — name, description, tags — for every tool in the
+         * registry, on every step of every run, because tool selection is
+         * deliberately re-evaluated per step. With 25 tools that is 75+ regex
+         * COMPILATIONS per step, and `Regex(pattern)` is a constructor: it
+         * parses the pattern into a node tree every time, not a lookup. The
+         * compiled form is a field read.
+         *
+         * Same pattern as `Session.KEYWORD_SPLIT` and `RoomMemoryStore` — the
+         * same split, written the same way, in three places. It is not shared
+         * through a single constant across modules because `:core` and `:app`
+         * are separate artifacts and a shared constant would mean `:app`
+         * depending on a `:core` internal; three local constants of an
+         * identical literal is the cheaper of the two costs.
+         */
+        private val TOKEN_SPLIT = Regex("[^a-z0-9]+")
+    }
 }
 
 /**

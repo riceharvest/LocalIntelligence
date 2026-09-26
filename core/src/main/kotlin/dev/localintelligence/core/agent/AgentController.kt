@@ -12,9 +12,11 @@ import dev.localintelligence.core.agent.AgentResult.Stop
 import dev.localintelligence.core.model.GenerationRequest
 import dev.localintelligence.core.model.ModelBackend
 import dev.localintelligence.core.model.StopReason
+import dev.localintelligence.core.metrics.MemoryProbe
 import dev.localintelligence.core.metrics.RunMetrics
 import dev.localintelligence.core.metrics.RunRecorder
 import dev.localintelligence.core.model.ToolArgs
+import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.model.token.BudgetAction
 import dev.localintelligence.core.model.token.ContextBudget
 import dev.localintelligence.core.model.token.ContextCeiling
@@ -262,6 +264,26 @@ class AgentController(
      * text it has no business keeping.
      */
     private val decisions: DecisionTraceSink = NullDecisionTrace,
+    /**
+     * Optional memory instrumentation. WHY NULLABLE AND NOT A DEFAULT NO-OP:
+     * [dev.localintelligence.core.metrics.NoMemoryProbe] would also be
+     * zero-cost, but a nullable field lets the loop short-circuit at the call
+     * site — one reference comparison — instead of a virtual dispatch into a
+     * method that does nothing. On a path that runs once per step, on a phone,
+     * the difference between "not called" and "called and returned Unit" is
+     * worth having, and the default keeps every existing construction site
+     * compiling unchanged.
+     *
+     * WHY THE LOOP OWNS IT RATHER THAN A GLOBAL: the readings are properties of
+     * one run, and a process-scoped singleton would be the wrong lifetime for
+     * them — the same reason [onToken] is a parameter and not a field on a
+     * companion.
+     *
+     * A probe can never fail a run. Every call goes through [sampleMemory],
+     * which swallows everything: instrumentation that can take down the run it
+     * is measuring is instrumentation nobody will enable.
+     */
+    private val memoryProbe: MemoryProbe? = null,
 ) {
     /**
      * How much of any single string this run's trace keeps.
@@ -317,6 +339,53 @@ class AgentController(
 
     /** Sticky: a cancelled controller stays cancelled. Reuse means a new controller. */
     private var cancelled: Boolean = false
+
+    /**
+     * Publishes one memory reading, if a probe is attached.
+     *
+     * ## WHY EVERY FAILURE IS SWALLOWED
+     *
+     * This runs inside the agent loop. A probe that throws — an OOM while
+     * building a sample, a platform API that faults on an unusual device — would
+     * otherwise surface as a failed run, and the correct response to "the
+     * memory reporter crashed" is not "your task failed". Every other optional
+     * collaborator in this loop follows the same rule for the same reason
+     * (`onWindowChanged`, `turnRecorder`, `metrics`), and this one is the most
+     * dangerous of them to let throw because it is the most likely to be
+     * forgotten about.
+     *
+     * ## WHY THE ARGS ARE COMPUTED INSIDE THE GUARD
+     *
+     * `sessions.exactRetainedChars()` walks the window. Computing it before
+     * the null check would mean paying for it on every step of every run
+     * forever, with no probe attached, to produce numbers nobody reads. Inside
+     * the guard, an absent probe costs one reference comparison.
+     */
+    private fun sampleMemory(label: String) {
+        val probe = memoryProbe ?: return
+        try {
+            probe.record(
+                label,
+                sessions.messages.size,
+                sessions.exactRetainedChars(),
+                // The prompt the model was last handed, not a re-render of it.
+                // `lastPrompt` holds references to the session's own messages, so
+                // this is a sum of lengths over that list — no copy, and no
+                // second opinion about what the builder would have emitted.
+                lastPrompt.sumOf { message ->
+                    when (message) {
+                        is ChatMessage.System -> message.text.length
+                        is ChatMessage.User -> message.text.length
+                        is ChatMessage.Assistant -> message.text.length
+                        is ChatMessage.ToolObservation ->
+                            message.toolName.length + message.observation.length
+                    }
+                },
+            )
+        } catch (_: Throwable) {
+            // See the KDoc. Measuring a run must never be able to end it.
+        }
+    }
 
     private data class PendingCall(
         val name: String,
@@ -402,6 +471,9 @@ class AgentController(
             // Per-run state that genuinely must reset lives above: trace, step,
             // malformedStreak, pending, lastPrompt, loopDetector.
             lastPrompt = emptyList()
+            // The task changed, so the previous run's memory rows are for a
+            // different question. See [memoriesForRun].
+            memoisedMemories = null
             loopDetector.reset()
             // Blast radius is per TASK, not per process. Without this reset the
             // 200-action and 20-destructive-action caps would carry over between
@@ -410,6 +482,7 @@ class AgentController(
             riskPolicy.resetTask()
             metrics?.beginStep(0)
             sessions.start(task)
+            sampleMemory("run.start")
             val outcome = loop()
             // The session is long-lived now - one instance per app, shared by chat
             // and scheduled runs - so it has to be bounded here rather than left to
@@ -425,6 +498,16 @@ class AgentController(
             // a finally block here would trim a session whose run is still being
             // unwound and whose messages are still being read by the trace.
             RetainedHistory.bound(sessions.messages)
+            // The identity maps are pruned HERE and not inside `bound`, because
+            // they are `Session`'s private state and `bound` is a `:core` function
+            // that is handed a bare list. Between this line and the next run's, the
+            // session holds nothing it cannot name.
+            sessions.releaseUnreachableIdentities()
+            // Sampled after the bound and the prune, so the figure describes the
+            // steady state a long-lived process settles into rather than the peak
+            // of a run that has just finished. A release gate wants the steady
+            // state; `run.end` is it.
+            sampleMemory("run.end")
             outcome
         }
     }
@@ -536,10 +619,25 @@ class AgentController(
             // Selection happens every step, not once: after the first tool result
             // the useful tools usually change.
             val visible = selectTools()
+            // Every projection of `visible` this step needs, derived ONCE here.
+            //
+            // WHY: the previous version called `visible.map { it.definition }`
+            // twice inside `buildRequest` and `visible.map { it.definition.name }`
+            // twice more — once for `allowedToolNames` and once more inside
+            // `parse` on the same list — so every step allocated four
+            // short-lived collections to describe the same handful of tools. At
+            // `maxVisibleTools` = 6 those are tiny, which is exactly why this
+            // survived review; but they are per-STEP, so an 8-step run churns 32
+            // of them, upstream of a registry that has already allocated a fresh
+            // redacting wrapper per tool. One derivation, shared by the builder,
+            // the grammar, the allow-list and the parser.
+            val names = visible.map { it.definition.name }
+            val definitions = visible.map { it.definition }
+            val nameSet = names.toHashSet()
             // Stream only when somebody is listening. generate() is the same
             // code path with a null sink, so this is not a second implementation
             // to keep in sync - it is the same call with the callback attached.
-            val request = buildRequest(visible)
+            val request = buildRequest(definitions, names)
             // StreamingModelBackend is a separate, OPTIONAL interface, so the
             // loop asks whether this backend has it rather than assuming. A
             // backend that cannot stream still works, it just returns one blob:
@@ -591,7 +689,7 @@ class AgentController(
                 else -> Unit
             }
 
-            when (val parsed = parse(generation.text, visible)) {
+            when (val parsed = parse(generation.text, nameSet)) {
                 is ActionParseResult.Malformed -> {
                     malformedStreak += 1
                     // The parse verdict sits beside the raw bytes, not inside
@@ -649,6 +747,11 @@ class AgentController(
             }
 
             compactIfNeeded()
+            // Sampled at the BOTTOM of the step, after every message this step
+            // appended is in the window. Sampling at the top would report the
+            // window as it was before the step's own tool result — which is the
+            // number that makes a growing conversation look flat.
+            sampleMemory("step.$step")
         }
         return AgentResult.StepLimitReached
     }
@@ -940,11 +1043,19 @@ class AgentController(
         // stops a model from starving itself by attempting what it may not do.
         // A confirmed call is charged by `recordConfirmed` at approval time.
         if (!call.userConfirmed) riskPolicy.recordExecuted(call.tool.definition.risk)
+        // Built once and used for both the detail and the `toolArgs` field.
+        //
+        // WHY: these were two calls to the same pure function on the same
+        // argument, one line apart, producing two identical strings — the first
+        // interpolated into the detail, the second passed as `toolArgs`. It is a
+        // per-tool-call allocation of a string capped at six arguments of forty
+        // characters each, and it doubled for no reason.
+        val args = compactArgs(call.args)
         trace += StepTrace(
-            call.step, StepTrace.Kind.TOOL_CALL, call.name + compactArgs(call.args),
+            call.step, StepTrace.Kind.TOOL_CALL, call.name + args,
             durationMs, result.success,
             toolName = call.name,
-            toolArgs = compactArgs(call.args),
+            toolArgs = args,
         )
         trace += StepTrace(call.step, StepTrace.Kind.OBSERVATION, observation, success = result.success)
         metrics?.endPhase(StepTrace.Kind.TOOL_CALL, result.success)
@@ -1570,12 +1681,71 @@ class AgentController(
         return chosen
     }
 
-    private suspend fun buildRequest(visible: List<AgentTool>): GenerationRequest {
-        val memories = try {
+    /**
+     * The memory rows for [task], fetched at most once per run.
+     *
+     * ## WHAT WAS WRONG, AND WHY IT IS NOT A CACHE
+     *
+     * `buildRequest` used to call `memory.search(task, config.memoryResults)`
+     * on every step. Two problems, one of them much larger than the other.
+     *
+     * The large one is what `search` does with the result. The wired store is
+     * `LexicalMemoryStore`, whose `search` deliberately ignores the delegate's
+     * indexed query and calls `delegate.all(500)` instead — a full table scan,
+     * documented at length as the price of retrieval that does not depend on a
+     * second tokeniser staying in sync. So one step cost one SQLite scan of up
+     * to 500 rows plus a `MemoryIndex.rank` over all of them, and a run of up
+     * to [AgentConfig.maxSteps] steps paid it that many times to retrieve a
+     * result keyed on a string that does not change for the whole run.
+     *
+     * The small one is that the same call was made from two places, so the
+     * scan happened even on the step where the builder threw.
+     *
+     * Caching it for the run's lifetime is not an approximation, and this is
+     * the part worth being careful about. The query is `task`, [task] is
+     * assigned once in [run] and never reassigned, and the only writer of the
+     * memory table during a run is [rememberTurn] — which runs on the
+     * `AgentAction.Respond` branch, the branch that RETURNS from the loop
+     * immediately afterwards. So between the first step and the last, the
+     * table a search reads cannot change, and the result of step 1 is the
+     * result of step N. A run that never reaches `Respond` never writes at
+     * all, so the "invalidate on write" case does not exist to handle.
+     *
+     * ## WHY IT IS RESET IN [run] AND NOT ONLY CLEARED
+     *
+     * A controller is single-use, but "single-use" is a convention rather than
+     * a type, and a reused controller serving a second task would otherwise
+     * hand the model the FIRST task's memories. [run] assigns the memo, so a
+     * second run with a different task cannot read the first one's.
+     *
+     * ## WHY A FAILED SEARCH IS ALSO MEMOISED
+     *
+     * The catch returns `emptyList()` and that is memoised too, deliberately.
+     * A store that throws on step 1 and would have succeeded on step 5 is not a
+     * case worth retrying eight times inside one run: if the database is not
+     * readable now it will not be readable in the time it takes to decode
+     * another token, and retrying turns a transient failure into eight
+     * database round-trips on the critical path.
+     */
+    private suspend fun memoriesForRun(): List<Memory> {
+        memoisedMemories?.let { return it }
+        val fetched = try {
             memory.search(task, config.memoryResults)
         } catch (t: Throwable) {
             emptyList()
         }
+        memoisedMemories = fetched
+        return fetched
+    }
+
+    /** Set by [memoriesForRun], cleared by [run]. Null means "not fetched yet". */
+    private var memoisedMemories: List<Memory>? = null
+
+    private suspend fun buildRequest(
+        definitions: List<ToolDefinition>,
+        names: List<String>,
+    ): GenerationRequest {
+        val memories = memoriesForRun()
         // The working state goes in BEFORE the builder, because
         // [DefaultContextBuilder] recognises a summary by position and prefix
         // and reserves slot 2 for it. That is a contract the builder's own KDoc
@@ -1583,8 +1753,12 @@ class AgentController(
         // without it the compacted state is built, stored, counted by the
         // trigger — and never shown to the model.
         val history = withWorkingSummary(sessions.messages)
+        // `definitions` and `names` are derived ONCE by the caller, per step,
+        // and threaded down rather than recomputed here. See the note in the
+        // loop: the previous shape projected the same tool list four times per
+        // step and this is the same value with a quarter of the allocations.
         val prompt = try {
-            contextBuilder.build(task, history, memories, visible.map { it.definition })
+            contextBuilder.build(task, history, memories, definitions)
         } catch (t: Throwable) {
             // The fallback keeps the summary, because losing the working state
             // to a builder that threw is the one thing worse than an untrimmed
@@ -1608,8 +1782,8 @@ class AgentController(
             // JNI sampler chain treats an empty grammar string as "no constraint"
             // rather than a sampler that accepts nothing. A plain question with
             // nothing selected therefore still answers in prose.
-            grammar = GrammarBuilder.forActions(visible.map { it.definition }),
-            allowedToolNames = visible.map { it.definition.name },
+            grammar = GrammarBuilder.forActions(definitions),
+            allowedToolNames = names,
         )
         // The prompt as it was actually handed over, captured AFTER the builder
         // has had its say and BEFORE generation. Capturing it here rather than
@@ -1664,8 +1838,18 @@ class AgentController(
         text = TracedText.capture(bodyOf(message), bodyChars),
     )
 
-    private fun parse(raw: String, visible: List<AgentTool>): ActionParseResult = try {
-        parser.parse(raw, visible.map { it.definition.name }.toSet())
+    /**
+     * @param visibleNames the names the model was allowed to call, derived once
+     *   per step in the loop. Passing the name SET rather than re-deriving it
+     *   from the tool list is the point: the old shape called
+     *   `visible.map { it.definition.name }.toSet()` inside here, on a list the
+     *   caller had already walked twice.
+     */
+    private fun parse(
+        raw: String,
+        visibleNames: Set<String>,
+    ): ActionParseResult = try {
+        parser.parse(raw, visibleNames)
     } catch (t: Throwable) {
         // The parser contract says it is total. A throw is malformed output.
         ActionParseResult.Malformed("parser failed: ${t::class.java.simpleName}", raw)
@@ -1715,9 +1899,25 @@ class AgentController(
      * when it is most needed.
      */
     private suspend fun compactIfNeeded() {
-        val active = sessions.tokens(model)
         val window = model.capabilities.contextLength
         val limit = workingLimit(window)
+        // The cheap bound first. `sessions.tokens` concatenates the entire
+        // window into a fresh StringBuilder and hands it to the backend's
+        // counter — with a model resident that is a real `llama_tokenize` over
+        // every character in the conversation — and the loop asks this question
+        // once per step, on every step, whether or not the window is anywhere
+        // near the limit.
+        //
+        // The bound is a hard one (see `Session.cannotReachTokenLimit`): a BPE
+        // tokenizer never emits more tokens than there are characters, so a
+        // window whose character count is below the limit cannot have reached
+        // it in tokens either. When that holds, the exact count would have come
+        // back at or under the limit and this function would have returned
+        // without doing anything — so returning here is the same answer, not an
+        // approximation of it. On the steps where compaction is genuinely near,
+        // the bound says no and the exact count runs exactly as before.
+        if (sessions.cannotReachTokenLimit(limit)) return
+        val active = sessions.tokens(model)
         if (active <= limit) return
 
         // Nothing to fold, nothing to compact. A window that trips the trigger
