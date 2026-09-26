@@ -37,6 +37,7 @@ import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolSelector
 import kotlinx.coroutines.CancellationException
 import kotlin.math.min
+import dev.localintelligence.core.compaction.RetainedHistory
 
 /**
  * The agent loop. One `while` loop, under 300 meaningful lines, no graph and no
@@ -288,7 +289,22 @@ class AgentController(
         riskPolicy.resetTask()
         metrics?.beginStep(0)
         sessions.start(task)
-        loop()
+        val outcome = loop()
+        // The session is long-lived now - one instance per app, shared by chat
+        // and scheduled runs - so it has to be bounded here rather than left to
+        // compaction, which only fires while a loop is running and only inspects
+        // the list once per step. A day of scheduled runs with the app open
+        // would otherwise grow the conversation without limit on a device whose
+        // primary metric is RAM.
+        //
+        // Trimmed after the run, not during it: mid-run the messages being
+        // written are the run's own, and dropping any of them would corrupt the
+        // context the loop is still working from. Runs that end by throwing
+        // leave the list untrimmed until the next one, which is deliberate -
+        // a finally block here would trim a session whose run is still being
+        // unwound and whose messages are still being read by the trace.
+        RetainedHistory.bound(sessions.messages)
+        outcome
     }
 
     /**

@@ -193,7 +193,12 @@ class MainActivity : ComponentActivity() {
                                 // the bytes, so it can just read the header.
                                 withContext(Dispatchers.IO) {
                                     container.modelsDir.listFiles()
-                                        ?.filter { it.isFile && it.name.endsWith(".gguf") }
+                                        ?.filter { file ->
+                                            file.isFile && (
+                                                file.name.endsWith(".gguf", ignoreCase = true) ||
+                                                    file.name.endsWith(".litertlm", ignoreCase = true)
+                                                )
+                                        }
                                         ?.forEach { file ->
                                             val uri = android.net.Uri.fromFile(file)
                                             val model = container.importer.inspect(uri)

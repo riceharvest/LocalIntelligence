@@ -37,6 +37,7 @@ import dev.localintelligence.android.hub.ModelDownloader
 import dev.localintelligence.android.hub.UrlConnectionTransport
 import dev.localintelligence.app.ui.HubViewModel
 import java.io.File
+import dev.localintelligence.core.execution.RunGate
 
 /**
  * The DI system. `docs/architecture.md` §3: *"If you need a dependency injected,
@@ -148,6 +149,18 @@ class AppContainer(private val context: Context) {
      * lock - noted here so the invariant is not lost.
      */
     val session: Session by lazy { Session() }
+
+    /**
+     * One run at a time, shared by the chat path and the scheduled path.
+     *
+     * WHY IT LIVES HERE AND NOT IN THE SERVICE: ExecutionService is created and
+     * destroyed per run, so a gate held there would be a different object on
+     * every run and would exclude nothing. The two entry points that can race -
+     * a chat message and a scheduled alarm, both delivered as a start command to
+     * the same live service - have to contend for the same instance, and the
+     * container is what both of them already share.
+     */
+    val runGate: RunGate by lazy { RunGate() }
 
     val agentConfig: AgentConfig by lazy { AgentConfig() }
 

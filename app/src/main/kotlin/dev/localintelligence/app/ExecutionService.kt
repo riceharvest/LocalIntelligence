@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import dev.localintelligence.core.execution.RunGate
+import dev.localintelligence.core.execution.RUN_ALREADY_ACTIVE_REASON
 
 /**
  * A foreground service that exists only while a task is running.
@@ -99,6 +101,17 @@ class ExecutionService : Service() {
      */
     @Volatile
     private var scheduledTaskIdInFlight: String? = null
+
+    /**
+     * The run-claim taken at the start of a run, released in
+     * `stopForegroundAndSelf`.
+     *
+     * It lives here rather than on the container because the claim is a
+     * PROPERTY OF A RUN, while the gate is a property of the app: a service
+     * instance is created and destroyed per run, so a gate stored here would be
+     * a fresh gate every time and would never actually exclude anything.
+     */
+    private var activeClaim: RunGate.Claim? = null
 
     /**
      * What [dev.localintelligence.app.AppContainer.ensureModelReady] returned
@@ -244,6 +257,26 @@ class ExecutionService : Service() {
     // ----------------------------------------------------------------- internals
 
     private fun startRun(task: String, scheduledTaskId: String?) {
+        // One run at a time, across BOTH entry points.
+        //
+        // serviceScope is a pool scope, not a mutex, and this service receives a
+        // second onStartCommand on the same instance when a scheduled alarm
+        // fires while a chat run is live. Without this claim the second run
+        // would write its turn into the shared session while the first is still
+        // decoding, so the first run's next prompt would carry the second run's
+        // task and none of its own history.
+        //
+        // A claim rather than a Mutex on purpose: a Mutex suspends the loser,
+        // which turns "someone is already busy" into a silent queue. The user
+        // is told instead.
+        val claim = container.runGate.tryClaim()
+        if (claim == null) {
+            sinks.state.value = RunState.Finished(RunOutcome.Failed(RUN_ALREADY_ACTIVE_REASON))
+            stopForegroundAndSelf()
+            return
+        }
+        activeClaim = claim
+
         // A controller is single-use (cancel is sticky; a pending confirmation
         // must be resumed on the same instance), so every task gets a new one.
         //
@@ -409,6 +442,13 @@ class ExecutionService : Service() {
         // running) has nowhere to hide. Idempotent, so the double call that
         // `onDestroy` after `stopSelf` produces is harmless.
         ScheduledRunRegistry.end()
+        // Same argument, same single release point: a run claim that outlived
+        // its run would make the next run - possibly minutes later, from a
+        // scheduled alarm - be refused as "already active" with nothing running.
+        // close() is idempotent, which matters because onDestroy after stopSelf
+        // calls this a second time.
+        activeClaim?.close()
+        activeClaim = null
     }
 
     private fun mainActivityIntent(): PendingIntent = PendingIntent.getActivity(

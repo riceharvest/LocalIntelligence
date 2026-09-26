@@ -209,10 +209,21 @@ class ModelBackendRouter(
 
     companion object {
         /**
-         * FlatBuffer identifiers are 4 bytes, and a GGUF declares `GGUF` in the
-         * same position. Reading 8 covers both without a second open.
+         * How much of the file is read to identify it.
+         *
+         * 8, not 4, and this number is load-bearing. `LITERTLM_MAGIC` below is
+         * EIGHT bytes - it is not a 4-byte FlatBuffer identifier, which is what
+         * the old comment here claimed. A FlatBuffer is a 4-byte root offset
+         * optionally followed by a 4-byte identifier, so `LITERTLM` starts at
+         * offset 0 (no root offset) or offset 4 (with one). An 8-byte window
+         * read at offset 0 and matched with `contains` can therefore only ever
+         * match when the identifier is at offset 0; the offset-4 case needs 12
+         * bytes. Every genuine .litertlm whose bundle carries a root offset -
+         * which is most of them - threw BackendRoutingException here and could
+         * not be routed at all. The comment said this matched "anywhere in the
+         * first 8 bytes", which was never true.
          */
-        private const val MAGIC_LEN = 8
+        private const val MAGIC_LEN = 16
 
         private val GGUF_MAGIC = "GGUF".toByteArray(Charsets.US_ASCII)
 
