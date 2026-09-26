@@ -92,10 +92,9 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                 )
-
                 // Survives rotation. The model list is a UI concern: `:android`
                 // has no model table, and adding one is a schema change that
-                // belongs to the Room workstream, not to this screen.
+                // belongs with the database, not with this screen.
                 val models = remember { mutableStateListOf<ImportedModel>() }
                 val scope = rememberCoroutineScope()
 
@@ -135,8 +134,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         // The consent banner lives here rather than inside
-                        // ChatScreen because the chat screen belongs to the UI
-                        // workstream, and because the banner is a property of the
+                        // ChatScreen because the banner is a property of the
                         // *app* — it is about a background capability the whole
                         // assistant depends on, not about this one transcript.
                         Column(modifier = Modifier.fillMaxSize()) {

@@ -80,10 +80,8 @@ fun ChatScreen(
     /**
      * Opens the "what is filtered" screen.
      *
-     * Defaulted to a no-op, not required, because this screen is shared with
-     * another change-set that also edits this file. A defaulted parameter
-     * means an addition here cannot break a caller that has not been updated
-     * yet, which is the failure mode when two changes touch one signature.
+     * Defaulted to a no-op rather than required, so adding a callback to this
+     * screen cannot break a caller that has not been updated yet.
      */
     onOpenRedaction: () -> Unit = {},
     modifier: Modifier = Modifier,

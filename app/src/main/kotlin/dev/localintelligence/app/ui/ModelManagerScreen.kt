@@ -604,7 +604,7 @@ internal fun formatBytes(bytes: Long): String {
  *    at offset 0, before the version field. That is why `GgufParser` in
  *    `:core` checks the same position.
  *  - **LiteRT-LM** — a FlatBuffer whose identifier is `LITERTLM`. It is matched
- *    anywhere in the first 8 bytes rather than at a hard-coded offset, because
+ *    anywhere in the probe window rather than at a hard-coded offset, because
  *    a FlatBuffer header is a 4-byte root offset followed by an optional 4-byte
  *    file identifier, and `liblitertlm_jni.so` reports its own failure as
  *    `Invalid magic number. Expected 'LITERTLM', got '`. Reading a window
@@ -613,10 +613,8 @@ internal fun formatBytes(bytes: Long): String {
  *
  * ## Why this duplicates `ModelBackendRouter.sniff`
  *
- * It does not duplicate it *deliberately* — it has to, because the router's
- * `sniff` is `private` in `:android` and this is `:app`. The alternative was to
- * widen the router's visibility, which is a file another agent owns. If that
- * file is ever changed, these two must change together; the constants below are
+ * It has to: the router's `sniff` is `private` in `:android` and this is `:app`.
+ * If either file changes, both must change together; the constants below are
  * the same ones `ModelBackendRouter` and `LiteRtLmModelSource` use, read from
  * the shipped 0.13.1 `liblitertlm_jni.so` and from the GGUF spec.
  *
@@ -639,13 +637,9 @@ internal enum class ModelContainer { GGUF, LITERTLM, UNKNOWN }
  * bytes cannot see all 8 of it in the second case. An 8-byte window searched for
  * an 8-byte needle only ever matches at offset 0.
  *
- * This is not hypothetical. `ModelBackendRouter.sniff` in `:android` reads
- * exactly 8 (`MAGIC_LEN = 8`) and searches for the same 8-byte `LITERTLM`, so on
- * a real `.litertlm` — whose root offset precedes the identifier — it returns
- * `Container.LITERTLM` never, and `route()` raises `BackendRoutingException`
- * for a genuine LiteRT-LM model. That file belongs to another agent; the fix is
- * in this branch's PR description. 16 bytes covers both offsets and leaves room
- * for the 4-byte alignment padding some FlatBuffer writers emit.
+ * 16 bytes covers both offsets and leaves room for the 4-byte alignment padding
+ * some FlatBuffer writers emit. `ModelBackendRouter.sniff` in `:android` uses the
+ * same 16, so the two agree.
  */
 private const val MAGIC_PROBE_BYTES = 16
 

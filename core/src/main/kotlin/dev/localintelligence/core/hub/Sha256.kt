@@ -73,9 +73,9 @@ object Sha256 {
     /**
      * Lowercase hex of a digest.
      *
-     * WHY this is public: the test suites in both :core and :android need to
-     * compute an expected digest from a synthetic payload, and duplicating the
-     * hex conversion in a test would let the two implementations drift.
+     * WHY this is public: a caller checking a digest needs to compute the
+     * expected value from a synthetic payload, and duplicating the hex
+     * conversion per call site is how two implementations drift apart.
      */
     fun toHex(bytes: ByteArray): String {
         val out = StringBuilder(bytes.size * 2)

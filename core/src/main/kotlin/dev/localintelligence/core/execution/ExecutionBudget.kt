@@ -4,9 +4,10 @@ package dev.localintelligence.core.execution
  * A monotonic time source, injected rather than read from [System].
  *
  * WHY inject it: every timing rule in this package is a *policy* decision
- * (30s for a socket, 3 stalled steps), and a policy that can only be tested by
- * waiting is a policy nobody tests. With this seam the test suite drives a fake
- * clock forward instantly and the real device keeps real deadlines.
+ * (30s for a socket, 3 stalled steps), and a policy that can only be exercised
+ * by waiting is a policy nobody can exercise. This seam is what lets a caller
+ * drive a fake clock forward instantly while the real device keeps real
+ * deadlines.
  *
  * Implementations must be monotonic: a deadline computed as `start + budget` is
  * only meaningful if the clock never goes backwards. `System.currentTimeMillis`

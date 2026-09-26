@@ -143,21 +143,18 @@ fun interface ToolSelector {
  * 6. That is a product call with a measurement on both sides, not a heuristic
  * somebody should quietly pick.
  *
- * Reproducing these numbers needs the held-out utterance lists, which live on
- * the unmerged `feat/selector-stemming` branch and in the deleted test suite.
- * There is no harness in this repository by the owner's standing instruction,
- * so these are stated as a measurement with its inputs named, not as a claim
- * anybody can re-run from `main`. `docs/evals.md` records that gap.
+ * Reproducing these numbers needs the held-out utterance lists, which are not
+ * in this repository. There is no harness here, so these are stated as a
+ * measurement with its inputs named, not as a claim anybody can re-run from
+ * `main`. `docs/evals.md` records that gap.
  *
- * ## The one thing worth knowing about the historical 48% and 60% figures
+ * ## Do not quote a retrieval number without the tool set it was measured on
  *
- * Both were measured against `AndroidToolStubs`, a mirror of the tool set, and
- * that mirror has since drifted completely out of date: all 25 descriptions and
- * all 25 tag sets now differ from the `:android` originals. The legacy scorer
- * scores 12/25 = 48.0% on the stubs and 16/25 = 64.0% on the real definitions
- * for the same 25 utterances. A retrieval number is a statement about a
- * selector AND a tool set, and quoting one without the other is how a 48%
- * started being described as this selector's accuracy.
+ * A retrieval number is a statement about a selector AND a tool set. This one
+ * was measured against the 25 definitions `:android` actually ships, which is
+ * why the prompt and the scorer both read the registry rather than
+ * [dev.localintelligence.core.tool.catalogue.V0ToolCatalogue]. A number
+ * measured against a different tool set does not transfer.
  */
 class LexicalToolSelector : ToolSelector {
 

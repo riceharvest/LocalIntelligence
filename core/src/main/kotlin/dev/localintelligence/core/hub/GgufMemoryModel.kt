@@ -25,30 +25,28 @@ import dev.localintelligence.core.model.gguf.ModelMemoryEstimator
  * pre-download model with it, and this adapter is what lets the app refine its
  * answer once the file is on disk.
  *
- * ## The intended flow
+ * ## Where the refinement happens
  *
  * ```
  * plan(file, budget)                 -> PreDownloadMemoryModel, conservative
- * download(file, plan)               -> bytes on disk
- * refine(estimate, budget, header)   -> ModelMemoryEstimator, from the file
+ * probeHeader(file)                  -> ranged 8 MiB fetch
+ * plan(file, budget, header)         -> GgufMemoryModel.rangedFrom, from the file
  * ```
  *
- * The refinement is what lets the app say, after the fact, "this one turned
- * out to need more than we thought" instead of discovering it as an OOM at
- * load time. It is not wired into [ModelDownloader] on this branch because the
- * downloader does not parse the GGUF header it just wrote, and adding that
- * would mean this branch owning the header-parsing call that
- * `ModelImporter.describe` already makes. The seam is the deliverable; the
- * caller is one line wherever the header is already being parsed.
+ * [HuggingFaceClient.plan] selects [rangedFrom] when `probeHeader` returned a
+ * header and falls back to the caller's pre-download model when it did not, so
+ * the refinement is applied exactly when a header exists. It is what lets the
+ * app say, after the fact, "this one turned out to need more than we thought"
+ * instead of discovering it as an OOM at load time.
  *
  * ## "EXACT" IS A SHORTER WORD THAN IT LOOKS
  *
- * Neither estimator produces a *measured* number, and this object used to
- * imply that it did. `ModelMemoryEstimator` computes the weights and the KV
- * cache from the file's own metadata, which is exact — but its third term,
- * `overheadBytes`, is `RUNTIME_BUFFER_FLOOR` (64 MiB) or 2% of the weights,
- * both argued from first principles and never measured on a device. On a
- * 400 MB model that floor is 16% of the total and is pure argument.
+ * Neither estimator produces a *measured* number. `ModelMemoryEstimator`
+ * computes the weights and the KV cache from the file's own metadata, which is
+ * exact — but its third term, `overheadBytes`, is `RUNTIME_BUFFER_FLOOR` (64
+ * MiB) or 2% of the weights, both argued from first principles and never
+ * measured on a device. On a 400 MB model that floor is 16% of the total and
+ * is pure argument.
  *
  * So the range reported here is exactly the size of the unmeasured term and
  * nothing more. It is not a claim that the whole figure is uncertain, and it

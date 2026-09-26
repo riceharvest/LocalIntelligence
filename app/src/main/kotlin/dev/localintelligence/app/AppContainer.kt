@@ -84,15 +84,14 @@ class AppContainer(private val context: Context) {
     /**
      * The one tool registry for the process.
      *
-     * This used to be `SimpleToolRegistry(emptyList())` with a comment saying
-     * the tool workstreams had not landed. They had — all nine families ship in
-     * `:android` — so the agent was handed an empty registry and could not
-     * read a battery level, open a file, or look up a contact. Every end-to-end
-     * task was unreachable no matter what the model produced.
+     * Wraps the shipped Android tools in [RedactingToolRegistry], so every tool
+     * result is redacted on the way back to the loop. Keep this the single
+     * place the registry is assembled: a path that builds one another way
+     * bypasses redaction.
      *
      * WHY the assembly lives in `:android` and not here: the tools are that
      * module's, and `:app` is Compose and nothing else
-     * (`docs/architecture.md` §4). Listing nine families here would mean a
+     * (`docs/architecture.md` §4). Listing the families here would mean a
      * `:app` edit every time a tool lands.
      *
      * WHY it is safe to build eagerly-in-a-lazy: `androidTools` only
@@ -222,21 +221,19 @@ class AppContainer(private val context: Context) {
     val runGate: RunGate by lazy { RunGate() }
 
     /**
-     * The conversation, kept across runs and - since this change - across
-     * process death.
+     * The conversation, kept across runs and across process death.
      *
-     * WHY THIS IS NOT `Session()` PER RUN: a controller is single-use by design -
-     * it owns per-run mutable state and is thrown away afterwards. But the
-     * conversation is not per-run. It used to be constructed inline as
-     * `sessions = Session()` on every `newController()` call, which meant a
-     * second message carried nothing at all: the model had no idea what had
-     * already been said. The app then looked like it had no memory while
-     * claiming to be an agent that remembers. `RoomSessionStore` has been fully
-     * implemented this whole time and had zero callers.
+     * WHY THIS IS NOT `Session()` PER RUN: a controller is single-use by design
+     * — it owns per-run mutable state and is thrown away afterwards. But the
+     * conversation is not per-run, and a per-run `Session()` means a second
+     * message carries nothing at all: the model has no idea what has already
+     * been said, and the app looks like it has no memory while claiming to be an
+     * agent that remembers.
      *
-     * One instance per container, so both entry points - a chat turn and a
-     * scheduled task - share the same thread of conversation, which is what a
-     * user means by "the conversation".
+     * One instance per container, so both entry points — a chat turn and a
+     * scheduled task — share the same thread of conversation, which is what a
+     * user means by "the conversation". [sessionStore] mirrors it to disk, so it
+     * also survives process death.
      *
      * WHY NOT GUARDED: the container is constructed once and lives for the
      * process, and `ExecutionService` serialises runs on a single serviceScope,

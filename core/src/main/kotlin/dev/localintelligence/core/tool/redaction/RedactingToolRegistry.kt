@@ -13,15 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 /**
  * A [ToolRegistry] that redacts what its tools hand back.
  *
- * ## WHERE THIS IS WIRED, AND WHY IT IS NOT WIRED YET
- *
- * The composition root is `AppContainer.tools`, one lazy property:
- *
- * ```
- * val tools: ToolRegistry by lazy { SimpleToolRegistry(androidTools(context)) }
- * ```
- *
- * and it must become
+ * INSTALLED AT `AppContainer.tools`:
  *
  * ```
  * val tools: ToolRegistry by lazy {
@@ -29,12 +21,9 @@ import kotlinx.serialization.json.JsonPrimitive
  * }
  * ```
  *
- * That one line is NOT in this change-set, because `AppContainer.kt` is owned
- * by a different workstream and editing it here would collide with it. It is
- * written out in full rather than left in a comment somewhere, and it is
- * repeated in the pull request body, because a security filter that is written,
- * tested and never installed is worse than no filter at all: it reads as
- * protection in the code review and provides none in the running app.
+ * That line is the whole integration. A security filter that is written and
+ * never installed is worse than no filter at all: it reads as protection in
+ * the code review and provides none in the running app.
  *
  * WHY THE REGISTRY PROPERTY AND NOT A WRAPPER AROUND THE CONTROLLER: the
  * controller is built per run by `AppContainer.newController`, and wrapping
@@ -56,7 +45,7 @@ import kotlinx.serialization.json.JsonPrimitive
  *
  *  1. **It does not scale.** A tool added next month ships unredacted by
  *     omission, which is the same failure mode [ToolRegistry]
- * already had to solve once for the catalogue: a check that lives in each
+ *     already has to solve for the catalogue: a check that lives in each
  *     implementation is a check the next implementation quietly drops.
  *  2. **It puts a security decision inside a tool that has a different job.**
  *     `ClipboardReadTool` is already carrying the focus rule, MIME

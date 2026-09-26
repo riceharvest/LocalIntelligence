@@ -351,10 +351,12 @@ anywhere. Therefore:
   the app can reach at all.
 - **The emulator cannot settle any of this.** An x86_64 emulator has no vendor
   OpenCL driver and no NPU delegate of any vendor, and llama.cpp on an emulated
-  x86 core was observed at roughly 0.66 tok/s. **That figure describes emulated
+  x86 core was observed at roughly 0.67 tok/s. **That figure describes emulated
   CPU and nothing else** — it is not a device number, not a baseline, and not
   evidence that a phone would be slow. Every NPU claim made here is therefore
   unverifiable on the available hardware *by construction*, not merely untested.
+  `docs/measurements.md` is the authoritative list of what has and has not been
+  measured.
 
 To close the gap: obtain a pre-converted `.litertlm` model, install it on a real
 arm64 phone, run the eval harness once per preference, and record

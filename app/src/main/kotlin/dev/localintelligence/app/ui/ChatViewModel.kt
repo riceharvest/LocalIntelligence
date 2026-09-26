@@ -39,9 +39,8 @@ import kotlinx.coroutines.launch
  * lose the fact that `sms.send` is waiting for a human, and there is still only
  * one source of truth for *which* call is pending.
  *
- * There are no tests in this repository. This class is compile-only, like every
- * other class in `:app`; the previous version of this comment claimed a JVM
- * test suite drove it, which stopped being true when the suite was deleted.
+ * `:app` is compile-only: it has no JVM unit-test source set, so nothing in
+ * this class is asserted by a test today.
  */
 class ChatViewModel(
     private val gateway: AgentGateway,

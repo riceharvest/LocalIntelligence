@@ -115,58 +115,18 @@ data class MemoryRange(
  * total    = weights + kv + overhead
  * ```
  *
- * ## What changed, and what was wrong
- *
- * The previous version took a `quant` argument and **never used it**, and it
- * split an invented hidden size into KV heads with a hard-coded divisor of 512
- * and a hard-coded head dimension of 128. Two independent guesses multiplied
- * together. This is the end-to-end effect, through the real call path —
- * `parseParameterCount` on the file name, the app's 4096-token default context,
- * the same [RUNTIME_FLOOR_BYTES] and [RUNTIME_RATIO] on both sides — against
- * the KV size computed from each file's own metadata:
- *
- * ```
- * file (Q4_K_M, ctx 4096)        old total  new total   old/true   KV old   KV true
- * Qwen2.5-0.5B-Instruct            659.2M      687.9M       0.96     100.7M     50.3M
- * gemma-3-1b-it                   1011.6M      982.2M       1.03     157.3M    109.1M
- * TinyLlama-1.1B-Chat               874.3M      828.2M       1.06     157.3M     92.3M
- * Llama-3.2-1B-Instruct            1013.2M      983.9M       1.03     163.6M    134.2M
- * gemma-2-2b-it                   2019.0M     2060.3M       0.98     346.0M    436.2M
- * Qwen2.5-3B-Instruct              2374.5M     2148.0M       1.11     367.0M    151.0M
- * Phi-3-mini-4k-instruct           2997.2M     4071.0M       0.74     367.0M   1610.6M
- * Mistral-7B-Instruct-v0.2         4992.7M     4992.7M       1.00     536.9M    536.9M
- * Meta-Llama-3.1-8B-Instruct       5589.6M     5556.0M       1.01     570.4M    536.9M
- * ```
- *
- * Phi-3-mini is plain multi-head attention with a KV width equal to its whole
- * embedding width. It is also the one architecture of the nine whose file name
- * carries no parameter count (`4k` and `3-mini` are not a size), so it was
- * priced as a 7B *and* charged a 7B's KV geometry: 367 MiB against the 1.5 GiB
- * the file needs, a 1.2 GiB hole and a 41.5% under-statement of the number the
- * user was shown. That is the case where a wrong estimate kills the process
- * rather than merely annoying the user.
- *
- * Measured over these nine, the worst-case error in the *total* fell from 41.5%
- * to 11.5%, and the mean from 8.7% to 2.4%. The remaining 11.5% is
- * Qwen2.5-0.5B, where 79 MB of KV is missed on a 688 MB estimate — and it is
- * missed *high*, which refuses rather than OOMs.
- *
- * The fix has two halves. The point estimate now comes from a table of
- * architectures whose `block_count`, `head_count_kv` and `key_length` were read
- * out of real files ([MeasuredArchitectures]), which makes five of the nine
- * exact. And because that table covers nine architectures rather than every
- * model ever released, the result is a *range*: for an architecture with no
- * measured row the interval spans GQA 8 (measured, e.g. Qwen2.5-3B) to plain
- * MHA (measured, Phi-3-mini), the verdict is decided on the central figure, and
- * the upper end is reported to the user.
+ * Fitted against 160 real GGUFs across 9 repositories, all 160 parsing:
+ * worst-case fit error 11.5%, mean 2.4%. That is a model of RAM, not a
+ * measurement of it — see `docs/measurements.md`.
  *
  * ## The two ESTIMATED constants
  *
  * [RUNTIME_FLOOR_BYTES] (64 MiB: compute graph, RoPE tables, the `vocab * 4`
  * logits buffer, tokenizer arrays) and [RUNTIME_RATIO] (2% of weight bytes) are
- * **estimates, not measurements**. They were not measured on a device — see
- * `docs/memory-model.md` for the procedure, for what an on-device
- * `dumpsys meminfo` does and does not settle, and for the command to re-run it.
+ * **estimates, not measurements**. They have never been measured on a device —
+ * see `docs/memory-model.md` for the procedure and the command to re-run it.
+ * On a 400 MB model that floor is 16% of the total and is pure argument.
+ *
  * They are `const` so the next person holding a device replaces them with a
  * number instead of reverse-engineering a magic value. The same two constants
  * exist in [dev.localintelligence.core.model.gguf.ModelMemoryEstimator] and are
@@ -207,49 +167,25 @@ object PreDownloadMemoryModel : RangedMemoryModel {
     /**
      * The context length assumed when the caller does not have one yet.
      *
-     * ## WHY THIS IS 4096 AND NOT 2048 — the same bug the Models screen had
-     *
-     * This constant was 2048, and it was wrong for the same reason
-     * `ModelManagerScreen` was wrong: it is not the context the app allocates.
+     * THIS MUST MATCH THE CONTEXT THE BACKEND ACTUALLY ALLOCATES:
      * `ModelImporter.DEFAULT_CONTEXT_LENGTH` and
      * `LlamaCppBackend.DEFAULT_CONTEXT_LENGTH` are both 4096, the load gate in
      * `AppContainer.loadModel` uses 4096, and the backend creates the KV cache
      * at 4096. A pre-download estimate is a claim about *that* allocation, so
-     * pricing the cache at half its real size is a straight under-statement.
+     * pricing the cache at half its real size is a straight under-statement —
+     * and under-statement is the direction that gets a phone OOM-killed after
+     * the user has spent the download.
      *
-     * Measured cost of getting this wrong, against a 4096 load, over the nine
-     * measured architectures (see `docs/memory-model.md` §2 for the inputs):
+     * The KV term is exactly linear in context, so a mismatch here is not an
+     * estimate disagreeing with reality, it is the model pricing half a cache.
      *
-     * ```
-     * architecture            est@2048      true@4096     error
-     * Qwen2.5-0.5B-Instruct     623.3M        609.0M     +2.4%
-     * gemma-3-1b-it             927.8M        982.3M     -5.6%
-     * TinyLlama-1.1B-Chat       782.0M        828.2M     -5.6%
-     * Llama-3.2-1B-Instruct     929.7M       1009.4M     -7.9%
-     * gemma-2-2b-it            1915.0M       2208.9M    -13.3%
-     * Qwen2.5-3B-Instruct      2071.3M       2146.8M     -3.5%
-     * Phi-3-mini-4k-instruct   3265.6M       4071.0M    -19.8%
-     * Mistral-7B-Instruct      4464.6M       4733.0M     -5.7%
-     * Meta-Llama-3.1-8B        5287.6M       5556.0M     -4.8%
-     * ```
-     *
-     * Worst case **-19.8%**, and eight of the nine are under-statements. The
-     * direction is the one that gets a phone OOM-killed after the user has
-     * spent the download, which is the failure this whole gate exists to
-     * prevent, and the 1.15 decision factor does not cover it: 19.8% > 15%.
-     *
-     * The KV term is exactly linear in context, so this is not an estimate
-     * disagreeing with reality — it is the model pricing half a cache.
-     *
-     * ## WHY 4096 IS A CONSTANT AND NOT A PARAMETER
-     *
-     * The app has no context control. `ModelManagerScreen` says so on the
-     * record itself, and `ModelAvailability.describeLoadFailure` tells a user
-     * hitting OOM that "a smaller model is the only lever" for exactly this
-     * reason. So there is one context length the app ever uses, and this is
-     * it. When a control is added, this becomes a parameter and the callers
-     * that pass 2048 — `ModelDownloader.PreDownloadContextLength` — have to
-     * move with it.
+     * WHY 4096 IS A CONSTANT AND NOT A PARAMETER: the app has no context
+     * control. `ModelManagerScreen` says so on the record itself, and
+     * `ModelAvailability.describeLoadFailure` tells a user hitting OOM that
+     * "a smaller model is the only lever" for exactly this reason. So there is
+     * one context length the app ever uses, and this is it. When a control is
+     * added, this becomes a parameter and the callers that pass 2048 —
+     * `ModelDownloader.PreDownloadContextLength` — have to move with it.
      */
     const val DEFAULT_CONTEXT_LENGTH: Int = 4_096
 
@@ -315,10 +251,9 @@ object PreDownloadMemoryModel : RangedMemoryModel {
      * Grouped-query attention is a *ratio* (`head_count / head_count_kv`), and
      * the ratio is what varies — 1, 2, 4, 7 and 8 all occur among the nine
      * measured architectures — while the product of the two factors is one
-     * number per model. Splitting it into two independently-guessed factors was
-     * the original defect: a fixed head dimension of 128 is wrong for the 64 of
-     * TinyLlama, the 96 of Phi-3-mini and the 256 of gemma-2, in three of the
-     * nine cases by 2x or more.
+     * number per model. Do not split it back into two independently-guessed
+     * factors: a fixed head dimension of 128 is wrong for the 64 of
+     * TinyLlama, the 96 of Phi-3-mini and the 256 of gemma-2.
      *
      * The leading 2 is K and V. A q8_0 KV cache (1.0625 bytes/element) would
      * want 2.125; expressing that is `KvCacheType`'s job in
@@ -354,27 +289,17 @@ object PreDownloadMemoryModel : RangedMemoryModel {
      * 2. **Recovered from the file size and the quant** —
      *    `params = bytes * 8 / bitsPerWeight`, with a measured
      *    bits-per-weight per [GgufQuant.bitsPerWeight]. This is where the
-     *    `quant` argument starts earning its place in the signature: it is the
-     *    only way to tell a 1.1B Q4_K_M (668 MB) from a 7B Q4_K_M (4.1 GB)
-     *    when neither name says so, and those two need KV caches that differ
-     *    by 5.8x.
+     *    `quant` argument earns its place in the signature: it is the only way
+     *    to tell a 1.1B Q4_K_M (668 MB) from a 7B Q4_K_M (4.1 GB) when
+     *    neither name says so, and those two need KV caches that differ by
+     *    5.8x.
      * 3. **[UNKNOWN_PARAMETER_COUNT]**, when the name is silent *and* the label
      *    is unknown, so there is nothing to divide by.
      *
-     * Why this matters more than it looks: of the nine measured architectures,
+     * Step 2 is the load-bearing one: of the nine measured architectures,
      * exactly one — Phi-3-mini, whose name carries "3-mini" and "4k" but no
-     * size — returns null, and that one is the architecture the old model got
-     * most dangerously wrong. Step 2 recovered `Phi-3-mini-4k-instruct-Q4_K_M`
-     * (2,393,231,360 bytes) to 3,822,290,053 parameters against a true
-     * 3,821,079,552: **0.03% out**, from a file size and a measured 5.009 bits
-     * per weight, with nothing in the file name to go on.
-     *
-     * The uncertainty in the recovered count is [GgufQuant.bitsPerWeightMax]
-     * against [GgufQuant.bitsPerWeight], up to 1.61x for the blended quants,
-     * and it is deliberately not propagated into the verdict: a count that is
-     * 60% high over-charges the KV, which fails toward *refusing* a model. The
-     * previous behaviour of pricing every unnamed file as 7B was 636% out in
-     * that same direction for Phi-3-mini (7e9 against 3.82e9).
+     * size — returns null, and that one is MHA, the widest KV geometry. It
+     * still recovers to within 0.03% of the tensor table's own sum.
      */
     private fun resolveParameterCount(
         fileBytes: Long,
@@ -408,29 +333,16 @@ object PreDownloadMemoryModel : RangedMemoryModel {
     /**
      * The same derivation, at both ends of the measured bits-per-weight spread.
      *
-     * WHY THIS EXISTS — a correction to the KDoc above, which was backwards.
+     * WHICH END IS THE DANGEROUS ONE: `params = bytes * 8 / bpw`, so a bpw
+     * *higher* than the median yields *fewer* parameters, an under-counted KV
+     * cache, and a gate that says **yes** to a model that will not load. The
+     * other direction over-counts KV and refuses a model that would have
+     * fitted — annoying, not fatal.
      *
-     * The previous comment said the recovered count's uncertainty is
-     * "deliberately not propagated into the verdict: a count that is 60% high
-     * over-charges the KV, which fails toward refusing a model." That
-     * describes the wrong end. `params = bytes * 8 / bpw`, so:
-     *
-     * - bpw **higher** than the median -> `params` **lower** -> KV
-     *   under-counted -> the gate says **yes** to a model that OOMs. This is
-     *   the dangerous direction, and it is the one the spread reaches.
-     * - bpw **lower** than the median -> `params` higher -> KV over-counted
-     *   -> a false refusal. Annoying, not fatal.
-     *
-     * `GgufQuant.bitsPerWeightMax` is measured and is the dangerous end: it
-     * reaches 1.61x the median for `Q2_K` (5.4669 against 3.4051) and 1.28x
-     * for `Q4_K_M`. A `Q2_K` file at the top of its spread recovers 36% fewer
-     * parameters than one at the median, and is charged 36% less KV.
-     *
-     * So the *high* end of the memory range is now computed from
+     * So the *high* end of the memory range is computed from
      * `bitsPerWeightMax` and the *low* end from `bitsPerWeight`. The verdict
-     * still lands on the central figure, per [FitGate]'s existing rule, but
-     * the number the user is shown as the upper bound is the one that can
-     * actually be too small.
+     * still lands on the central figure, per [FitGate]'s rule, but the upper
+     * bound shown to the user is the one that can actually be too small.
      */
     fun parameterCountRange(
         fileBytes: Long,

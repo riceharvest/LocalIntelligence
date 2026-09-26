@@ -243,8 +243,8 @@ metadata.
 | Meta-Llama-3.1-8B-Instruct | 5589.6M | 5556.0M | 1.01 | 570.4M | 536.9M | 536.9M |
 
 - Five of nine are now **exact** (the measured anchor matched).
-- Worst-case error in the total the user is shown: **41.5% -> 11.5%**.
-- Mean error: **8.7% -> 2.4%**.
+- Worst-case error in the total the user is shown: **11.5%**.
+- Mean error: **2.4%**.
 - The one case that understated the requirement by 1.2 GiB is now exact.
 
 The remaining 11.5% is Qwen2.5-0.5B, where 79 MB of KV is missed on a 688 MB
@@ -270,9 +270,8 @@ tableParams      1100048384
   central        828171648
 ```
 
-**828,171,648 against 826,462,208: 0.21% apart.** The old model returned
-893,183,360 for the same input, 8.07% high. The range collapses to a point here
-because the file's parameter count lands on a measured anchor.
+**828,171,648 against 826,462,208: 0.21% apart.** The range collapses to a point
+here because the file's parameter count lands on a measured anchor.
 
 ---
 

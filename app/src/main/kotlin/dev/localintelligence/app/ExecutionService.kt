@@ -621,10 +621,8 @@ class ExecutionService : Service() {
         private const val NOTIFICATION_ID = 41
 
         /**
-         * Hardcoded rather than a string resource: the manifest, the service and
-         * this file were the only ones this change was allowed to touch, and a
-         * res/values edit would have been a collision with another workstream. A
-         * real string lands with the localisation pass.
+         * Hardcoded rather than a string resource. A real string lands with the
+         * localisation pass; this constant is the notification body only.
          */
         private const val NOTIFICATION_TEXT = "Working on your request…"
     }

@@ -42,7 +42,7 @@ everything for that assumption:
 
 - **Constrained output.** Grammar-constrained generation means the model physically
   cannot emit a malformed action or hallucinate a tool it was not offered.
-- **Small tool surface.** 3-6 tools visible per turn out of a registry of 22, chosen
+- **Small tool surface.** 3-6 tools visible per turn out of a registry of 25, chosen
   by lexical scoring. Not a second LLM call.
 - **Deterministic reliability.** Loop detection, argument validation, risk gating and
   context budgeting are plain Kotlin. The model is used only where language
@@ -69,9 +69,10 @@ See [docs/build.md](docs/build.md). Beyond that:
 - **RAM is unmeasured.** The fit model is derived from real GGUF headers and
   measured quant tables, but no `dumpsys meminfo` figure has been taken on any
   device. The procedure is written down; the number is not.
-- **Performance is unmeasured.** The only tok/s figure ever observed is
-  ~0.66 on an x86_64 *emulator*, which says nothing about a phone and is not a
-  device number.
+- **Performance is unmeasured.** The only generation rate ever observed is
+  ~0.67 on an x86_64 *emulator*, which says nothing about a phone and is not a
+  device number. [docs/measurements.md](docs/measurements.md) is the
+  authoritative list of what has and has not been measured.
 - **NPU acceleration is unreachable** with the pinned LiteRT-LM 0.13.1. The GPU
   path is OpenCL. See [docs/acceleration.md](docs/acceleration.md).
 

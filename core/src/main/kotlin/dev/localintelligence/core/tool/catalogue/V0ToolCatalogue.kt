@@ -101,11 +101,10 @@ import kotlinx.serialization.json.putJsonObject
  * `length / 4` heuristic, which `HeuristicTokenCounter` documents as ~35% low
  * on text like this. It has been replaced rather than left beside the truth.
  *
- * **Nothing enforces either budget.** The test that asserted them,
- * `V0ToolCatalogueConsistencyTest`, was deleted with the rest of the suite, and
- * the project's standing instruction is not to add one back. The constants are
- * kept as review targets and are honest about being unenforced — which is a
- * different thing from a number that looks enforced and is not.
+ * **Nothing enforces either budget.** No build step and no test asserts them.
+ * The constants are kept as review targets and are honest about being
+ * unenforced — which is a different thing from a number that looks enforced and
+ * is not.
  *
  * That is also why the catalogue/registry agreement is now *structural* rather
  * than a test: [CatalogueAgreement] runs in `SimpleToolRegistry`'s constructor,

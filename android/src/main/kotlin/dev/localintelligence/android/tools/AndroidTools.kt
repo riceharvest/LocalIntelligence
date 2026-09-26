@@ -17,20 +17,15 @@ import dev.localintelligence.core.tool.catalogue.V0ToolCatalogue
  * The complete shipped Android tool set, in catalogue order, checked against the
  * catalogue before it is handed to the loop.
  *
- * ## Why this function exists
- *
- * `AppContainer.androidTools()` returned `emptyList()` on the branch this landed
- * on, with a comment saying the tool workstreams had not landed. They had: all
- * nine families were implemented, exported, and reviewed. The consequence was
- * that the agent loop was handed an empty [dev.localintelligence.core.tool.ToolRegistry]
- * and could not read a battery level, open a file, or look up a contact — the
- * repo was green and the app could not perform one task end to end.
- *
- * This is the one place that knows the shipped set. It lives in `:android`
+ * THIS IS THE ONE PLACE THAT KNOWS THE SHIPPED SET. It lives in `:android`
  * rather than in `AppContainer` because the tools are `:android`'s and `:app` is
  * supposed to be Compose and nothing else (`docs/architecture.md` §4): a `:app`
- * that lists nine tool families is a `:app` that has to be edited every time a
+ * that lists the tool families is a `:app` that has to be edited every time a
  * tool lands.
+ *
+ * Adding a tool means editing three places, and `init` fails loudly rather than
+ * letting any two of them drift: the definition in its own file, the entry in
+ * [V0ToolCatalogue], and the list below.
  *
  * ## Why it is cheap to call
  *

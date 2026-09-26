@@ -35,8 +35,8 @@ class NoProgressWatchdog(
     private val noProgressLimit: Int = DEFAULT_NO_PROGRESS_LIMIT,
     /**
      * Also terminate after this long with no change. `null` disables the
-     * time-based rule, which is the right default for a test suite that wants to
-     * assert the counting rule alone.
+     * time-based rule, which is how a caller asserts the counting rule alone
+     * without also having to out-wait a wall-clock deadline.
      */
     private val stallTimeoutMs: Long? = DEFAULT_STALL_TIMEOUT_MS,
     private val clock: ExecutionClock = ExecutionClock.SYSTEM,

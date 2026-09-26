@@ -529,8 +529,7 @@ cancellation            -> returns promptly, and CancellationException is
                            rethrown rather than swallowed
 ```
 
-The "unit tests -> cover all of the above" line was removed with the test suite.
-Every row above is now a manual check on a real device. `CancellationException`
+Every row above is a manual check on a real device. `CancellationException`
 remains a hard invariant: structured-concurrency cancellation is rethrown, never
 converted into a failed `ToolResult`.
 
@@ -557,7 +556,7 @@ Keep model-visible outputs extremely compact.
 "Do not restore the deleted test suite" replaced "All functionality requires
 tests". That rule described a suite that no longer exists, and left in place it
 reads as an instruction to rebuild one. The deletion was deliberate; see
-docs/evals.md.
+docs/evals.md. A pure-JVM `:core` unit-test suite is being restored separately.
 
 If you believe an interface is wrong, open an issue. Do not change it in your PR.
 A swarm that can redesign the contracts is not a swarm, it is 20 authors.

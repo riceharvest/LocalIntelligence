@@ -12,8 +12,8 @@ package dev.localintelligence.core.hub
  * request is made, and the hub works identically when it returns null.
  *
  * Keeping the type in :core (pure) is what lets the whole no-auth path be
- * tested on the JVM: the fake in the test suite returns null and every
- * assertion about unauthenticated behaviour still runs.
+ * exercised without a device: a fake that returns null is all the no-auth
+ * behaviour needs in order to run.
  *
  * ## The contract implementers must honour
  *

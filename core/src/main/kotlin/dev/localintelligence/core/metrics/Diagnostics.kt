@@ -563,13 +563,12 @@ object RunPerformanceCheck {
  *
  * ## Why [latest] may be null
  *
- * [RunMetricsJournal] is populated by [RunRecorder.finish]. On this build
+ * [RunMetricsJournal] is populated by [RunRecorder.finish], and
  * `ExecutionService` builds the agent controller with `metrics = null` — no
- * [RunRecorder] is ever constructed — so the journal is empty and this check
- * reports that. That is a wiring gap in a file this change does not own, and the
- * exact one-line fix is in the PR description. Reporting an empty journal as
- * "0 steps, 0 tokens" would be the false-clean failure mode this project
- * produces most often.
+ * [RunRecorder] is constructed on any production path. The journal is therefore
+ * empty and this check reports that rather than inventing numbers. Reporting an
+ * empty journal as "0 steps, 0 tokens" would be the false-clean failure mode
+ * this project produces most often.
  */
 object RunMetricsCheck {
 
@@ -694,17 +693,15 @@ object RunMetricsCheck {
  *
  * ## Why it is here at all
  *
- * [RunRecorder] already produces exactly the right record. What was missing is
- * anywhere for it to *go* that a screen can read — and the result was the worst
- * kind of dead code: a complete, tested, correct metrics layer that no
- * production path ever constructed. `AgentController` holds
- * `lastRunMetrics`, the controller is created per run inside `ExecutionService`,
- * and the controller is then discarded. Nothing survived it.
+ * [RunRecorder] already produces exactly the right record; this is somewhere for
+ * it to *go* that a screen can read. `AgentController` holds
+ * `lastRunMetrics`, but the controller is created per run inside
+ * `ExecutionService` and then discarded, so nothing survives it.
  *
- * This is that somewhere. [RunRecorder.finish] publishes here, so the one-line
- * change that attaches a recorder to the controller makes the numbers appear
- * here with no further edit. Until then [recent] is empty, and
- * [RunMetricsCheck] says so rather than rendering zeros.
+ * [RunRecorder.finish] publishes here, so attaching a recorder to the controller
+ * is the one change that makes the numbers appear with no further edit. No
+ * production path does that today, so [recent] is empty and [RunMetricsCheck]
+ * says so rather than rendering zeros.
  *
  * ## Bounded on purpose
  *

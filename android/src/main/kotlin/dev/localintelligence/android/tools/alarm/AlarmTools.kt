@@ -36,7 +36,6 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-
 // =====================================================================================
 // AlarmTools — alarm.create, alarm.list, alarm.cancel.
 //
@@ -46,10 +45,10 @@ import java.util.Locale
 //    `AlarmClock.ACTION_GET_ALIST` can only be answered by an Activity that receives
 //    `onActivityResult`. A tool can execute from a Service, a BroadcastReceiver or a
 //    plain coroutine, none of which can receive one, so the system alarm list is
-//    fundamentally unreachable from here without a declared Activity in the manifest —
-//    which this change is not allowed to add. Rather than pretend, `alarm.list` returns
-//    the alarms THIS tool created and states the boundary in every single observation,
-//    so the model can never mistake "the agent's 2 alarms" for "your 5 alarms".
+//    unreachable from here without a declared Activity in the manifest. So
+//    `alarm.list` returns the alarms THIS tool created and states the boundary in
+//    every single observation, so the model can never mistake "the agent's 2 alarms"
+//    for "your 5 alarms".
 //
 // 2. That registry is what makes `alarm.cancel` safe.
 //    Cancelling an alarm the user did not name is data loss. The ambiguity guard in
@@ -57,9 +56,8 @@ import java.util.Locale
 //    and a candidate set only exists if the tool remembers what it created. So the
 //    registry is load-bearing for the dangerous tool, not a convenience cache.
 //
-// Every decision lives in [AlarmTimes], [AlarmCancel] or [AlarmRegistry], all of which
-// are pure Kotlin and unit-tested on the JVM. The android.* code is confined to
-// [AndroidAlarmPlatform] and [AlarmFireReceiver].
+// Every decision lives in [AlarmTimes], [AlarmCancel] or [AlarmRegistry]. The
+// android.* code is confined to [AndroidAlarmPlatform] and [AlarmFireReceiver].
 // =====================================================================================
 
 /** One scheduled agent alarm. Pure data, no android types. */
@@ -339,31 +337,31 @@ object AlarmCancel {
  * Durable record of the alarms this app has scheduled.
  *
  * Bounded at [MAX_TRACKED] entries; the oldest is evicted past that. On a phone the
- * worst case is a few kilobytes — see the RAM note in the PR description — which is
- * the whole reason it is capped rather than allowed to grow.
+ * worst case is a few kilobytes, which is the whole reason it is capped rather
+ * than allowed to grow.
  *
  * ## Why this is persisted
  *
- * It was an in-memory list, and the two facts it was supposed to describe were
- * split across process boundaries:
+ * The two facts this registry describes sit on opposite sides of a process
+ * boundary, and only one of them survives on its own:
  *
  *  - the **PendingIntents** are held by the system and DO survive a restart, so an
  *    alarm created before a restart still fires;
- *  - the **registry** did not, so after a restart `alarm.list` reported "no alarms
- *    are currently set" while the phone was about to ring one.
+ *  - the **registry** does not, so an in-memory registry would let `alarm.list`
+ *    report "no alarms are currently set" while the phone was about to ring one.
  *
  * That is the worst kind of bug in an agent: the tool does not fail, it answers
  * confidently and wrongly, and the model repeats it to the user. Cancelling by
- * explicit id still worked across a restart because [AlarmIds.requestCodeOf] is a
- * pure function of the id — the platform seam, not the registry, is what makes
- * cancel survive — but *listing* and cancelling by time did not.
+ * explicit id works across a restart regardless, because [AlarmIds.requestCodeOf]
+ * is a pure function of the id — the platform seam, not the registry, is what
+ * makes cancel survive.
  *
  * ## Storage
  *
  * A private `SharedPreferences` file, not Room. Reasons, in order:
  *
- *  1. `:android`'s Room schema belongs to the database workstream, and a table
- *     here would collide with it.
+ *  1. `:android`'s Room schema is owned by the database layer, and an alarm
+ *     table added here would sit outside its migrations.
  *  2. `alarm.list` and the boot receiver are both called on a path that cannot
  *     suspend — a `BroadcastReceiver.onReceive` and a tool entry point — so a
  *     suspending DAO would have to be bridged anyway.
@@ -705,15 +703,13 @@ class AlarmCreateTool(
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
-        // The `permissionGranted` gate that used to be here was removed, not
-        // replaced, and the reason is specific: this tool ALREADY has the
-        // correct check further down — platform.canScheduleExactAlarms(), which
-        // asks Android and names the Alarms & reminders screen. The fabricated
-        // gate ran first and shadowed it, so the one honest denial this tool
-        // can produce was unreachable. SCHEDULE_EXACT_ALARM is a special-access
-        // grant, not a runtime permission, so there was never anything for the
-        // removed gate to have been right about.
-
+        // There is deliberately NO `permissionGranted` check here.
+        // SCHEDULE_EXACT_ALARM is a special-access grant, not a runtime
+        // permission, so a ToolContext gate has nothing correct to say about it.
+        // The real check is further down: platform.canScheduleExactAlarms(),
+        // which asks Android and names the Alarms & reminders screen. Do not
+        // add a fabricated gate in front of it — that shadows the one honest
+        // denial this tool can produce.
         val repeat = ArgCoerce.booleanOrNull(args["repeat"])
         if (repeat == true) {
             return ToolResult(

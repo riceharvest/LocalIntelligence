@@ -62,13 +62,15 @@ true.
 **MEASURED** — on a **Pixel-class x86_64 AVD** (Android 36, profile `pixel_7`).
 This is **not real Pixel hardware**; it is an emulator.
 
-- A real **668,788,096-byte** TinyLlama 1.1B Q4_K_M loads in **~600 ms** and
-  generates real text.
-- Decode runs at **~0.66 tok/s** on emulated CPU.
+- A real **668,788,096-byte** TinyLlama 1.1B Q4_K_M loaded in roughly **600–720 ms**
+  and generated real text.
+- Decode ran at **~0.67 tok/s** on emulated CPU.
 
-**The 0.66 tok/s figure is not a performance number for this app.** It describes
-an emulated CPU with no hardware acceleration. It reads as a hang. Never quote
-it as a device figure, and never derive a "slow model" conclusion from it.
+**Neither figure is a performance number for this app.** They describe an
+emulated CPU with no hardware acceleration. The decode rate reads as a hang.
+Never quote either as a device figure, and never derive a "slow model"
+conclusion from them. `docs/measurements.md` is the authoritative list of what
+has and has not been measured.
 
 **UNMEASURED — everything else:**
 

@@ -206,19 +206,15 @@ class AgentController(
      *
      * WHY NULLABLE WHEN [riskPolicy] IS NOT: [riskPolicy]'s default is a real
      * instance because a controller built without it would run UNGATED, and
-     * running ungated is a safety failure. Not recording a turn is the
-     * behaviour this repository has had since the beginning, so a null
-     * recorder is a missing feature rather than a missing safety gate, and
-     * making it non-null would have meant editing every construction site of
-     * every `MemoryStore` in three modules. See [TurnRecorder] for the seam and
-     * `AppContainer.newController` for the one place that passes it.
+     * running ungated is a safety failure. Not recording a turn is a missing
+     * feature rather than a missing safety gate.
      *
      * THE APP MUST PASS THIS. `:core` cannot reach the durable store on its own
      * — the delegate lives in `:android` — so "the app forgot to pass a
-     * recorder" is a real and silent failure mode, and it is exactly the one
-     * that made this feature dead code: the loop could read a memory it had no
-     * way to form. The write itself is bounded by `MemoryWritePolicy`, so a
-     * wired recorder cannot turn every turn into a row.
+     * recorder" is a real and silent failure mode: the loop can read a memory it
+     * has no way to form. The write itself is bounded by `MemoryWritePolicy`, so
+     * a wired recorder cannot turn every turn into a row. See [TurnRecorder] for
+     * the seam and `AppContainer.newController` for the one place that passes it.
      */
     private val turnRecorder: TurnRecorder? = null,
 ) {
@@ -314,22 +310,16 @@ class AgentController(
         step = 0
         malformedStreak = 0
         pending = null
-        lastPrompt = emptyList()
         // The session is NOT cleared here, and this is load-bearing.
         //
-        // It used to be, three lines above sessions.start(task). That was
-        // correct while AppContainer handed every controller a fresh Session():
-        // clearing a throwaway object cost nothing. Once the container passed
-        // ONE long-lived session so a second message could carry the first,
-        // this line became the bug - it emptied the conversation eight lines
-        // before the new turn was appended to it, so every run started from
-        // nothing and the agent could never remember anything. The shared-session
-        // fix and this fix are the same fix; neither works alone.
+        // `sessions` is ONE long-lived conversation shared by every run (see
+        // `AppContainer.session`), so clearing it would empty the conversation
+        // before the new turn is appended, and the model would start from
+        // nothing on every run.
         //
         // Per-run state that genuinely must reset lives above: trace, step,
-        // malformedStreak, pending, lastPrompt. Those are the controller's own
-        // fields, and they are what this method was cleaning up. The
-        // conversation was never per-run, it is per-container.
+        // malformedStreak, pending, lastPrompt, loopDetector.
+        lastPrompt = emptyList()
         loopDetector.reset()
         // Blast radius is per TASK, not per process. Without this reset the
         // 200-action and 20-destructive-action caps would carry over between
@@ -702,10 +692,8 @@ class AgentController(
         val context = ToolContext(
             userConfirmed = call.userConfirmed,
             // Carried from the policy's decision rather than left at its `true`
-            // default. Before this was wired, nothing in the loop could ever set
-            // it false, so every Android tool's permission-denied branch was
-            // dead code reachable only from a unit test that constructed the
-            // context by hand.
+            // default, so a tool can actually see that a human said no and take
+            // its permission-denied path.
             permissionGranted = call.permissionGranted,
             signal = CancellationSignal { cancelled },
         )
@@ -1197,32 +1185,19 @@ class AgentController(
             .joinToString(", ", "{", "}") { (key, value) -> "$key=${value.toString().take(40)}" }
 
     /**
-     * Folds the window when it outgrows the model's context, into labelled
-     * slots rather than a truncated transcript.
+     * Folds the window when it is over the working limit, into a structured
+     * [CompactedState] rather than a transcript summary.
      *
-     * WHY THE TRIGGER IS A FRACTION OF THE REAL WINDOW RATHER THAN THE BUDGET:
-     * the backend knows its own context length, and a hard-coded token ceiling
-     * is wrong for every model that is not the one it was written for.
+     * ## Why this is not a count, and not a summary turn
      *
-     * The test is `ContextCompactor.shouldCompact` with its unknown-window case
-     * resolved: `min(0 * 0.65, limit)` is 0, so a backend that does not know
-     * its window (`ModelCapabilities.UNKNOWN.contextLength`) would compact on
-     * every single step. [workingLimit] falls back to the configured limit
-     * instead, which is what the previous version of this function did and
-     * what a slow, wasteful degradation is worth.
+     * The trigger counts TOKENS, but what it produces is structured state:
+     * derived over the whole history, kept in [Session.workingSummary], and
+     * handed to the builder through [withWorkingSummary] so it lands in the
+     * slot the builder budgets first and keeps last.
      *
-     * ## Why this is not a count
-     *
-     * Compaction used to end at `sessions.compact()`, which folds messages into
-     * a summary and then re-inserts that summary as an ordinary Assistant turn.
-     * [DefaultContextBuilder] only lifts a summary it finds at position 0
-     * carrying [SUMMARY_PREFIX] into the slot it budgets first and keeps last —
-     * so the summary was a turn like any other, and a turn is the first thing
-     * dropped when the prompt is over budget, which is exactly when it is most
-     * needed. The state was produced, stored, counted by this very trigger, and
-     * never shown to the model. Now the state is derived over the whole history
-     * first, kept in [Session.workingSummary], and handed to the builder
-     * through [withWorkingSummary] so it lands in the slot that survives.
+     * Folding into an ordinary summary turn instead would put the summary in
+     * the slot that is dropped first when the prompt is over budget — exactly
+     * when it is most needed.
      */
     private suspend fun compactIfNeeded() {
         val active = sessions.tokens(model)

@@ -87,7 +87,7 @@ deleted suite.
 
 ### Tools that exist
 
-22, verified by the `name = "..."` fields in `:android`:
+25, verified by the `name = "..."` fields in `:android`:
 
 ```
 alarm.cancel  alarm.create  alarm.list
@@ -99,13 +99,12 @@ device.battery  device.info  device.open_settings  device.vibrate
 files.delete  files.list  files.read_text  files.search  files.write_text
 notifications.dismiss  notifications.list  notifications.reply
 web.fetch
-
-Counted from V0ToolCatalogue, which `requireCatalogueAgreement` now checks in
-BOTH directions at composition time: every shipped tool must be catalogued, and
-every catalogued tool must be shipped. That check is what makes this list
-trustworthy - the previous version of it said 22 and listed 21, and the three
-tools it had never heard of were the ones most likely to be used.
 ```
+
+Counted from V0ToolCatalogue, which `requireCatalogueAgreement` checks in BOTH
+directions at composition time: every shipped tool must be catalogued, and every
+catalogued tool must be shipped. That check is what makes this list trustworthy —
+a count that can drift from the list is worse than no count.
 
 The v0 freeze criteria ask for 15+; that threshold is met by count. Whether
 they work correctly on a device is unmeasured — no tool has been run against
