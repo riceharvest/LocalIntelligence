@@ -8,17 +8,20 @@
 # -----------------------------------------------------------------------
 # To build with the native library (required for a real APK):
 #
-#   git submodule update --init --recursive
 #   ./gradlew :android:assembleDebug
 #
-# ...or, without submodules, let CMake fetch it (needs network on the first
-# build; sources are then cached in android/.cxx for subsequent builds):
+# ...which fetches llama.cpp on the first build (needs network once; sources
+# are then cached in android/.cxx for subsequent builds). There is no git
+# submodule in this repository - do not run 'git submodule update'.
 #
-#   PIDROID_LLAMA_FETCH=1 ./gradlew :android:assembleDebug
-#
-# ...or point at a checkout you already have:
+# ...or, to skip the fetch, point at a checkout you already have:
 #
 #   PIDROID_LLAMA_DIR=/path/to/llama.cpp ./gradlew :android:assembleDebug
+#
+# Both routes build the same library. They used to build DIFFERENT ones - the
+# shipped path was quietly producing a stub with no llama.cpp behind it. See
+# the block below "SET BEFORE THE SOURCES ARE ADDED" for the evidence and the
+# reason it happened.
 #
 # These are environment variables rather than Gradle -P properties because AGP
 # does not forward -P values to CMake as -D defines, and the Gradle build file
@@ -85,6 +88,110 @@ if(NOT PIDROID_LLAMA_FETCH AND DEFINED ENV{PIDROID_LLAMA_FETCH})
     set(PIDROID_LLAMA_FETCH ON)
 endif()
 
+# -----------------------------------------------------------------------
+# Build options for llama.cpp -- SET BEFORE THE SOURCES ARE ADDED
+# -----------------------------------------------------------------------
+#
+# WHY THIS BLOCK COMES FIRST, AND WHY THAT IS NOT COSMETIC:
+#
+# Every llama.cpp and ggml setting below is consumed at *configure* time by
+# option()/add_library() inside llama.cpp's own CMakeLists. If any of them is
+# set after the llama.cpp tree has been added, it is a no-op for the build even
+# though the cache variable reads back as the value we asked for. CMake's
+# option() only defines a cache entry when one does not already exist, and
+# add_library() fixes a target's SHARED/STATIC type at the moment it is called.
+# Writing the cache afterwards changes the cache, not the targets.
+#
+# That is not theoretical. With this block placed after the FetchContent call
+# (where it used to be), the two acquisition paths disagreed. Measured on
+# arm64-v8a, llama.cpp b4661, NDK 27.1.12297006:
+#
+#   local checkout -> add_subdirectory() ran AFTER the set()s, so
+#                     BUILD_SHARED_LIBS=OFF reached ggml: one self-contained
+#                     22,341,528-byte JNI library, 5,090 dynamic symbols,
+#                     zero undefined llama_/ggml_ references.
+#
+#   FetchContent    -> FetchContent_MakeAvailable() had already called
+#                     add_subdirectory() while BUILD_SHARED_LIBS was still at
+#                     upstream's default of ON, so ggml, ggml-base, ggml-cpu
+#                     and llama were all built SHARED. The JNI library came out
+#                     439,344 bytes with 161 dynamic symbols - ZERO defined
+#                     ggml_ functions, 35 UNDEFINED llama_ references - and
+#                     four DT_NEEDED entries on sibling .so files the APK had
+#                     to ship and the device linker had to find. GGML_OPENMP=ON
+#                     leaked in the same way, compiling 9 translation units
+#                     with -fopenmp and adding libomp.so to the APK.
+#
+# Both paths now produce a byte-identical library: same size, same 5,090
+# dynamic symbols, same defined-symbol set, differing only in the linker's
+# GNU build-id (a digest of the unstripped output, which embeds the debug
+# paths). Verified by building both and diffing every section.
+#
+# The fix is ordering, not more flags: declare every option before the sources
+# enter the build, so both paths configure ggml identically. BUILD_SHARED_LIBS
+# is set as a normal variable as well as in the cache, because the subdirectory
+# inherits the normal variable first and that is the one add_library() reads.
+#
+# Options chosen for a phone, not for a workstation:
+#   GGML_NATIVE         OFF  - the build machine is not the phone. -march=native
+#                               would produce a binary that faults on most
+#                               phones.
+#   GGML_LTO            OFF  - a multi-minute LTO link per ABI for a ~2% size
+#                               win for a library dwarfed by the model file.
+#   GGML_OPENMP         OFF  - bionic ships no OpenMP runtime to link against;
+#                               llama.cpp uses its own thread pool. Left at
+#                               upstream's default ON this also drags libomp.so
+#                               into the APK.
+#   GGML_CPU_ALL_VARIANTS OFF - that flag builds every micro-arch variant (NEON
+#                               + dotprod + fp16 arithmetic) as separately
+#                               loadable modules. For a 1-4B model the win is a
+#                               few percent of tokens/sec for 3x the build time
+#                               and 3x the binary size. Turn it on if you want
+#                               the last 10%; see the note below.
+#   LLAMA_CURL          OFF  - no network in the inference path.
+#   tests/examples/server OFF - none of them ship inside an APK.
+
+set(LLAMA_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_COMMON   OFF CACHE BOOL "" FORCE)
+set(LLAMA_CURL           OFF CACHE BOOL "" FORCE)
+
+# One .so to ship. Static keeps llama+ggml inside the JNI library, so the
+# device loads one file with no DT_NEEDED dance and no way to half-resolve.
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF)
+
+set(GGML_NATIVE          OFF CACHE BOOL "" FORCE)
+set(GGML_LTO             OFF CACHE BOOL "" FORCE)
+set(GGML_OPENMP          OFF CACHE BOOL "" FORCE)
+set(GGML_CCACHE          OFF CACHE BOOL "" FORCE)
+
+# GGML_BACKEND_DL makes the CPU backend a separately dlopen()ed module instead
+# of code linked into ggml. It is only legal with BUILD_SHARED_LIBS=ON, so
+# leaving it at its default is what keeps a single self-contained JNI library.
+# Pinned explicitly because "whatever upstream defaults to" is not a build
+# decision this project should be inheriting by accident.
+set(GGML_BACKEND_DL      OFF CACHE BOOL "" FORCE)
+
+option(PIDROID_GGML_CPU_ALL_VARIANTS "Build every CPU kernel variant" OFF)
+if(PIDROID_GGML_CPU_ALL_VARIANTS)
+    # Upstream hard-errors on this combination (ggml/src/CMakeLists.txt:
+    # "GGML_CPU_ALL_VARIANTS requires GGML_BACKEND_DL"), and honouring it
+    # means going back to shared backends plus per-variant modules that have to
+    # be packaged and found at runtime. Say so here rather than failing later
+    # with an upstream message that does not mention this project.
+    message(FATAL_ERROR
+        "PIDROID_GGML_CPU_ALL_VARIANTS=ON is not supported: it requires "
+        "GGML_BACKEND_DL=ON, which in turn requires BUILD_SHARED_LIBS=ON, "
+        "which breaks the one-self-contained-.so property this build depends "
+        "on. Leave it OFF, or implement the runtime module packaging first.")
+endif()
+
+# -----------------------------------------------------------------------
+# One resolution path, one option set, one add_subdirectory.
+# -----------------------------------------------------------------------
+
 set(_llama_src_dir "")
 
 if(PIDROID_LLAMA_DIR AND EXISTS "${PIDROID_LLAMA_DIR}/include/llama.h")
@@ -112,11 +219,18 @@ if(NOT _llama_src_dir AND PIDROID_LLAMA_FETCH)
         GIT_TAG ${PIDROID_LLAMA_TAG}
         GIT_SHALLOW TRUE
     )
-    FetchContent_MakeAvailable(llama)
+    # Populate downloads and unpacks; it does NOT call add_subdirectory(). That
+    # is the whole point. FetchContent_MakeAvailable() does both in one step,
+    # which means the llama.cpp tree is configured at a moment this file does
+    # not control - and that is precisely how BUILD_SHARED_LIBS=OFF ended up
+    # being written to the cache after ggml had already read it as ON.
+    # Populate leaves the tree under our control so both acquisition paths
+    # reach the single add_subdirectory() below, with the same options already
+    # in scope. (Deprecated in CMake 3.30 in favour of MakeAvailable, but
+    # MakeAvailable cannot express "download now, configure later", and this
+    # project pins CMake 3.22.1 where it is the supported spelling.)
+    FetchContent_Populate(llama)
     set(_llama_src_dir "${llama_SOURCE_DIR}")
-    # MakeAvailable has already added the subdirectory, so the later
-    # add_subdirectory() must be skipped on this path.
-    set(_llama_src_dir_from_fetchcontent ON)
 endif()
 
 if(NOT _llama_src_dir)
@@ -132,61 +246,64 @@ if(NOT _llama_src_dir)
 endif()
 
 # -----------------------------------------------------------------------
-# Build llama.cpp
+# Make the compiled output independent of where llama.cpp happens to live.
 # -----------------------------------------------------------------------
 #
-# ggml/llama are built as static libraries: shipping them as .so files would
-# mean three native libraries to keep in step, and llama.cpp does not offer a
-# stable C ABI for third-party consumers. Static keeps one .so to ship.
+# __FILE__ expands to the path the compiler was given, and llama.cpp bakes
+# those strings into .rodata (GGML_ABORT and friends) and into the debug info.
+# FetchContent puts the sources in <build>/_deps/llama-src; a local checkout
+# sits wherever the developer put it. That made the two acquisition paths
+# produce binaries that differ in content for no reason other than the
+# directory name - and it leaks the build machine's filesystem layout into a
+# shipped APK.
 #
-# Options chosen for a phone, not for a workstation:
-#   GGML_NATIVE         OFF  - the build machine is not the phone. -march=native
-#                               would produce a binary that faults on most
-#                               phones.
-#   GGML_LTO            OFF  - a multi-minute LTO link per ABI for a ~2% size
-#                               win on a library dwarfed by the model file.
-#   GGML_OPENMP         OFF  - bionic ships no OpenMP runtime to link against;
-#                               llama.cpp uses its own thread pool.
-#   GGML_CPU_ALL_VARIANTS OFF - that flag builds every micro-arch variant (NEON
-#                               + dotprod + fp16 arithmetic). For a 1-4B model
-#                               the win is a few percent of tokens/sec for 3x
-#                               the build time and 3x the binary size. Turn it
-#                               on if you want the last 10%.
-#   LLAMA_CURL          OFF  - no network in the inference path.
-#   tests/examples/server OFF - none of them ship inside an APK.
-
-set(LLAMA_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_COMMON   OFF CACHE BOOL "" FORCE)
-set(LLAMA_CURL           OFF CACHE BOOL "" FORCE)
-set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)
-
-set(GGML_NATIVE          OFF CACHE BOOL "" FORCE)
-set(GGML_LTO             OFF CACHE BOOL "" FORCE)
-set(GGML_OPENMP          OFF CACHE BOOL "" FORCE)
-set(GGML_CCACHE          OFF CACHE BOOL "" FORCE)
-set(GGML_INSTALL         OFF CACHE BOOL "" FORCE)
-
-option(PIDROID_GGML_CPU_ALL_VARIANTS "Build every CPU kernel variant" OFF)
-set(GGML_CPU_ALL_VARIANTS ${PIDROID_GGML_CPU_ALL_VARIANTS} CACHE BOOL "" FORCE)
-option(PIDROID_GGML_CPU_REPACK "Build the repack kernels" OFF)
-set(GGML_CPU_REPACK ${PIDROID_GGML_CPU_REPACK} CACHE BOOL "" FORCE)
-
-# ---------------------------------------------------------------------------
-# Add the llama.cpp tree exactly once.
-#
-# WHY this is conditional: FetchContent_MakeAvailable(llama) has already
-# called add_subdirectory() on _llama_src_dir by the time we get here. Doing it
-# again - unconditionally, as this used to - makes CMake fail with
-# `add_library cannot create target "llama"`, so the PIDROID_LLAMA_FETCH=1 path
-# could never have worked. It stayed invisible because the local build sets
-# PIDROID_LLAMA_DIR, which short-circuits the fetch branch entirely and
-# therefore never exercised it.
-# ---------------------------------------------------------------------------
-if(NOT _llama_src_dir_from_fetchcontent)
-    add_subdirectory("${_llama_src_dir}" llama.cpp EXCLUDE_FROM_ALL)
+# -ffile-prefix-map rewrites the prefix to a fixed token, so both paths compile
+# the same bytes. This is set as a directory property BEFORE the llama.cpp
+# tree is added, because add_subdirectory() inherits it at that moment and not
+# afterwards.
+if(_llama_src_dir)
+    add_compile_options("-ffile-prefix-map=${_llama_src_dir}=llama.cpp")
 endif()
+
+# -----------------------------------------------------------------------
+# Add the llama.cpp tree
+# -----------------------------------------------------------------------
+#
+# The options are set ABOVE, before we get here, on purpose: add_subdirectory()
+# configures llama.cpp immediately, so anything set after this point is
+# decoration. See the block at the top.
+#
+# There is exactly ONE add_subdirectory() in this file, and both acquisition
+# paths reach it: a local checkout arrives via PIDROID_LLAMA_DIR, and the
+# fetch arrives via FetchContent_Populate, which downloads without configuring.
+# They used to diverge - the fetch path relied on MakeAvailable() having added
+# the tree at a moment of its own choosing, and the local path added it here.
+# Two entry points meant two chances to configure ggml differently, which is
+# exactly the bug this file used to have. Now there is one path, so the two
+# acquisition methods cannot disagree about the build.
+# -----------------------------------------------------------------------
+add_subdirectory("${_llama_src_dir}" llama.cpp EXCLUDE_FROM_ALL)
+
+# -----------------------------------------------------------------------
+# Verify the build is the one we asked for.
+# -----------------------------------------------------------------------
+#
+# The failure this guards against is silent and expensive: BUILD_SHARED_LIBS
+# reaching ggml as ON splits llama/ggml out into sibling .so files, the JNI
+# library shrinks to a stub, and the cache still reads BUILD_SHARED_LIBS=OFF,
+# so nothing in the log says anything went wrong. Assert the shape of the
+# actual targets rather than trusting the cache.
+get_target_property(_llama_type llama TYPE)
+get_target_property(_ggml_type ggml TYPE)
+if(NOT _llama_type STREQUAL "STATIC_LIBRARY" OR NOT _ggml_type STREQUAL "STATIC_LIBRARY")
+    message(FATAL_ERROR
+        "llama/ggml were configured as ${_llama_type}/${_ggml_type}, not "
+        "STATIC_LIBRARY. Something set BUILD_SHARED_LIBS after the llama.cpp "
+        "tree was added, or upstream changed its default. The result is a JNI "
+        "library with no llama.cpp behind it. Check the ordering of the "
+        "option block in android/src/main/cpp/CMakeLists.txt.")
+endif()
+message(STATUS "llama.cpp: static llama+ggml, one self-contained JNI library")
 
 # -----------------------------------------------------------------------
 # The JNI layer
