@@ -145,8 +145,64 @@ the loop. So these are unproven:
 
 There is also no model to measure. LiteRT-LM 0.13.1 reads `.litertlm`, there is
 no GGUF-to-`.litertlm` converter in this app or in Google's, and no `.litertlm`
-file has been placed on a device. The backend is reachable only by hand-sideloading
-one into `filesDir/models`. See docs/acceleration.md.
+file has been placed on a device.
+
+## The acquisition gap: what a user can actually do with a `.litertlm`
+
+The backend being reachable and a model being obtainable are two different
+problems, and only the first is solved. As shipped:
+
+- **The Hub cannot fetch one.** `HuggingFaceClient.toGgufFiles` keeps only
+  `.gguf`. A `litert-community/*-litert-lm` repository is public and ungated
+  and hosts a real model — `litert-community/gemma-4-E4B-it-litert-lm` publishes
+  three `.litertlm` bundles (2.77, 2.77 and 3.41 GiB) and a `.task` part — and
+  the Hub now **names and sizes them without pricing them**. A LiteRT-LM
+  FlatBuffer has no GGUF header, so `probeHeader` returns null and the FitGate
+  estimate would fall back to a name-derived guess. Printing that guess on a
+  screen whose whole purpose is a number the user can believe would be worse
+  than printing nothing, so no RAM figure is shown for them at all.
+- **The file picker cannot deliver one.** The picker returns a `content://`
+  document, and `LiteRtLmModelSource.toFile` refuses every `content://` uri —
+  LiteRT-LM opens its model by filesystem path and has no descriptor entry
+  point. `ModelManagerScreen` sniffs the container and refuses a `.litertlm` with
+  that reason named, rather than handing it to `ModelImporter`, which would
+  throw `NOT_A_GGUF_FILE` and surface as "it may be a format this app cannot
+  read, or it may be damaged".
+- **Scan storage does not adopt one.** `MainActivity` filters the scan on
+  `endsWith(".gguf")`. This is the route that *would* work — a real file at a
+  real path is exactly what `LiteRtLmModelSource.resolve` accepts — and it is
+  closed. The one-line fix is in the PR description for this branch; the file
+  belongs to another agent.
+
+So the honest statement of reachability is: **the LiteRT-LM backend is wired,
+reachable and routed to, and there is no in-app path that puts a model in front
+of it.** A user who wants to exercise it today needs `adb push` plus that one
+source change.
+
+### What the failure messages say, and why
+
+A LiteRT-LM failure must name which of the known constraints applies, never
+invent a capability. The three that exist in this build:
+
+1. **No NPU library.** `litertlm-android:0.13.1` ships exactly three `.so`
+   files — `liblitertlm_jni.so`, `libLiteRt.so`,
+   `libLiteRtClGlAccelerator.so` — and none is a vendor delegate.
+   `LiteRtLmCapabilityProbe.npuStatus` reports the NPU unavailable and names
+   the directory it searched, on every phone, including Snapdragons.
+2. **No `GOOGLE_TENSOR`.** The backend type is not in the published artifact;
+   `javap` on `classes.jar` lists only `Backend$CPU`, `Backend$GPU` and
+   `Backend$NPU`. It is not selectable, and wiring it would produce a build
+   that compiles on CI and fails on a Pixel.
+3. **GPU is OpenCL, not Vulkan.** The GPU path `dlopen`s `libOpenCL.so`,
+   `libOpenCL-car.so` or `libOpenCL-pixel.so` plus `libvndksupport.so`. Do not
+   describe it as a Vulkan path.
+
+And the fourth, which is not a capability but a fact about this project's
+history: **no `.litertlm` has ever been initialised here.** There is no device,
+no model file, and no measurement. The user-facing refusals say so, because a
+user deciding whether to spend 3.4 GiB of their data plan deserves to know that
+nobody, including this app's author, has measured the thing they are about to
+run.
 
 The LiteRT-LM Kotlin API was reverse-engineered from the shipped
 `classes.jar` (`javap`) plus the v0.13.1 sources on GitHub, not from a running

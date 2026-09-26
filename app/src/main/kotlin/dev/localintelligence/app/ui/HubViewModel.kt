@@ -8,10 +8,13 @@ import dev.localintelligence.core.hub.DownloadProgress
 import dev.localintelligence.core.hub.HubError
 import dev.localintelligence.core.hub.HubGgufFile
 import dev.localintelligence.core.hub.HubRepoId
+import dev.localintelligence.core.hub.HubRequest
 import dev.localintelligence.core.hub.HubTokenSource
+import dev.localintelligence.core.hub.HubTransport
 import dev.localintelligence.core.hub.HuggingFaceClient
 import dev.localintelligence.core.hub.formatBytes
 import dev.localintelligence.android.hub.ModelDownloader
+import dev.localintelligence.android.hub.UrlConnectionTransport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +23,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
 /**
@@ -79,6 +88,31 @@ data class HubUiState(
     val error: String? = null,
     val files: List<HubGgufFile> = emptyList(),
     val selected: HubGgufFile? = null,
+    /**
+     * Non-GGUF model files the repository also publishes, when it publishes any.
+     *
+     * ## Why this exists next to [files] rather than inside it
+     *
+     * Because `HuggingFaceClient.listGgufFiles` filters on `.gguf` in `:core`,
+     * so a repository that hosts a `.litertlm` reaches this screen as an
+     * **empty list** and the user is told "That repository has no GGUF files
+     * this app can use." That sentence is true and useless: the repository
+     * `litert-community/gemma-4-E4B-it-litert-lm` hosts a 3.7 GB model, the
+     * app has a LiteRT-LM backend, and the two are one bug apart. Read as
+     * written, the user concludes the repo is empty and tries another one.
+     *
+     * The alternative — putting a `.litertlm` into [files] so it appears in the
+     * quant list — is exactly the failure this field exists to avoid. The list
+     * is priced by `FitGate` against the **GGUF** tensor table, and a
+     * LiteRT-LM FlatBuffer has no GGUF header: `probeHeader` returns null, the
+     * estimate falls back to a name-derived guess, and the user is quoted a RAM
+     * figure derived from a format whose layout that arithmetic knows nothing
+     * about. A wrong number on this screen is worse than no row, because the
+     * whole screen exists to be believed.
+     *
+     * So the `.litertlm` is named, sized, and explicitly **not priced**.
+     */
+    val nonGgufFiles: List<NonGgufModelFile> = emptyList(),
     /** Null until the repo resolves. A non-null plan with a reject is a refusal. */
     val plan: DownloadPlan? = null,
     val progress: DownloadProgress? = null,
@@ -131,6 +165,66 @@ data class HubUiState(
 
     /** The download stopped for a reason the user may be able to do something about. */
     val stopped: DownloadProgress.Stopped? get() = progress as? DownloadProgress.Stopped
+
+    /**
+     * Why this repository's `.litertlm` files are listed but not offered.
+     *
+     * Null when the repository publishes none, or when the probe could not
+     * run — the latter matters: a failed probe must not become a claim. This
+     * screen would rather say nothing about `.litertlm` than guess.
+     *
+     * Kept short on purpose. The reasons are numerous and all true — this is
+     * the one place a user is told the acquisition path does not exist, and a
+     * wall of text is a wall nobody reads. The specifics that would otherwise
+     * be lost are in `docs/acceleration.md`, which says the same thing without
+     * a 180-character limit.
+     *
+     * The last sentence is the one that earns its place. "No NPU, GPU is
+     * OpenCL, never initialised" is what stops a user who has a `.litertlm`
+     * and a fast phone from concluding this is the fast path and spending an
+     * evening on it.
+     */
+    val nonGgufNotice: String? get() {
+        val litertlm = nonGgufFiles.filter { it.isLiteRtLm }
+        if (litertlm.isEmpty()) return null
+        return "This app has a LiteRT-LM backend but cannot fetch a .litertlm " +
+            "yet, so these are listed without a price. No size or memory " +
+            "figure is shown for them because this screen works out memory by " +
+            "reading a GGUF header, and a .litertlm is a FlatBuffer of TFLite " +
+            "graphs — a number here would be invented. There is also no " +
+            "GGUF-to-.litertlm converter in existence, so one cannot be made " +
+            "from the GGUFs this app downloads. Worth knowing before you " +
+            "look elsewhere: litertlm-android 0.13.1 ships no NPU library and " +
+            "no GOOGLE_TENSOR backend, and its GPU is OpenCL, not Vulkan. No " +
+            ".litertlm has ever been loaded here, so no speed is claimed for " +
+            "one."
+    }
+}
+
+/**
+ * A model file in a repository that is not a GGUF.
+ *
+ * Deliberately carries only what HF reports truthfully for any file: the name
+ * and the size. There is no RAM estimate, no quant, no context length, because
+ * there is no arithmetic in this app that applies to a LiteRT-LM FlatBuffer —
+ * the tensor table `FitGate` prices does not exist in that format.
+ */
+data class NonGgufModelFile(
+    val fileName: String,
+    val sizeBytes: Long,
+) {
+    /**
+     * True for the LiteRT-LM container this app has a backend for.
+     *
+     * By **name**, and the KDoc says why that is acceptable here: this is a
+     * label for a message, never a gate. Nothing is downloaded, loaded or
+     * priced off the back of it, so a misdetection costs a slightly wrong
+     * sentence rather than a wrong number or a wrong download. The one place a
+     * LiteRT-LM file is *acted* on — the import path in `ModelManagerScreen` —
+     * sniffs the file's bytes instead, because there the difference is a
+     * refusal the user acts on.
+     */
+    val isLiteRtLm: Boolean get() = fileName.endsWith(".litertlm", ignoreCase = true)
 }
 
 /**
@@ -151,6 +245,14 @@ class HubViewModel(
     private val budget: DeviceBudget,
     private val tokenSource: HubTokenSource = HubTokenSource.NONE,
     private val registrar: DownloadedModelRegistrar = DownloadedModelRegistrar.NONE,
+    /**
+     * Used only to look for `.litertlm` siblings that `listGgufFiles` filtered
+     * out. Defaults to the production transport so the screen is truthful with
+     * no wiring at all, which matters because the gap this closes is exactly a
+     * case where the app says "nothing here" and there is in fact a 3.7 GB
+     * model sitting in the repository.
+     */
+    private val siblingTransport: HubTransport = UrlConnectionTransport(),
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HubUiState())
@@ -209,11 +311,30 @@ class HubViewModel(
                             budget = budget,
                         )
                         val planned = best?.let { planFor(it) }
+                        // WHY THE PROBE RUNS EVEN WHEN `loadable` IS NON-EMPTY:
+                        // a repository can publish both, and in that case the
+                        // `.litertlm` is the more interesting half — it is the
+                        // one the user cannot get anywhere else. Probing only on
+                        // an empty result would hide it behind a full list of
+                        // quant rows. It is one extra request on a screen where
+                        // the user has already pressed Find models, and it is
+                        // best-effort: a null result changes nothing.
+                        val nonGguf = listNonGgufSiblings(parsed.repoId)
                         _state.update {
                             it.copy(
                                 loading = false,
-                                error = if (loadable.isEmpty()) "That repository has no GGUF files this app can use." else null,
+                                error = when {
+                                    // A repo that is *only* `.litertlm` is the
+                                    // clearest case there is, and the old
+                                    // message ("no GGUF files this app can
+                                    // use") reads as "this repo is empty".
+                                    loadable.isEmpty() && nonGguf.isNotEmpty() -> null
+                                    loadable.isEmpty() ->
+                                        "That repository has no GGUF files this app can use."
+                                    else -> null
+                                },
                                 files = loadable,
+                                nonGgufFiles = nonGguf,
                                 selected = best,
                                 plan = planned?.first,
                                 exactFit = planned?.second == true,
@@ -226,6 +347,7 @@ class HubViewModel(
                                 loading = false,
                                 error = (e as? HubError)?.message ?: "Could not reach HuggingFace.",
                                 files = emptyList(),
+                                nonGgufFiles = emptyList(),
                                 selected = null,
                                 plan = null,
                             )
@@ -257,6 +379,95 @@ class HubViewModel(
                 )
             }
         }
+    }
+
+    /**
+     * The repository's model files that are **not** GGUF, by name and size only.
+     *
+     * ## Why this re-reads the listing instead of asking the client
+     *
+     * Because `HuggingFaceClient.listGgufFiles` drops non-`.gguf` siblings
+     * inside `toGgufFiles` and returns nothing about them, and that file is in
+     * `:core`, owned by another agent. Rather than block on that edit, the Hub
+     * makes its own small listing request and reads the sibling names. It is
+     * the same `GET /api/models/{id}?blobs=true` the client already made, so it
+     * costs one extra round trip on a screen whose entire purpose is to answer
+     * before the user spends their data.
+     *
+     * The alternative — leaving it to `:core` and shipping nothing — is how the
+     * gap reached this screen in the first place. `litert-community/gemma-4-E4B-it-litert-lm`
+     * is a public, non-gated repository hosting a 3.7 GB LiteRT-LM model, and
+     * this app renders it as "That repository has no GGUF files this app can
+     * use", which is indistinguishable from an empty repository.
+     *
+     * ## Why every failure mode returns an empty list
+     *
+     * Offline, 401, 429, a schema change, a truncated body. All of them mean
+     * "say nothing about `.litertlm`", never "there is none". The notice is
+     * built from this list, so a failure that returned an empty list would
+     * produce a confident false claim. An empty list is the safe direction and
+     * the screen is exactly as it was before this existed.
+     *
+     * ## Why size is trusted but nothing else is
+     *
+     * `lfs.size` is HF's own payload size, the same field
+     * `HubSibling.trueSize` prefers, and it is a *file size* — a fact about
+     * bytes on a server that holds no format-specific assumption. It is not a
+     * memory estimate, and nothing here turns it into one.
+     */
+    private suspend fun listNonGgufSiblings(repo: HubRepoId): List<NonGgufModelFile> =
+        withContext(Dispatchers.IO) {
+            val request = HubRequest(
+                url = "https://huggingface.co/api/models/${repo.id}?blobs=true",
+                authToken = tokenSource.token(),
+            )
+            val response = runCatching { siblingTransport.open(request) }.getOrNull() ?: return@withContext emptyList()
+            try {
+                if (response.status !in 200..299) return@withContext emptyList()
+                val body = response.body ?: return@withContext emptyList()
+                val text = body.use { it.readBytes().decodeToString() }
+                parseNonGgufSiblings(text)
+            } catch (_: Exception) {
+                // Deliberately broad. This is an advisory notice; there is
+                // nothing here worth failing a resolve over, and throwing would
+                // take down a GGUF listing that succeeded.
+                emptyList()
+            }
+        }
+
+    private fun parseNonGgufSiblings(json: String): List<NonGgufModelFile> {
+        val root = runCatching { SIBLING_JSON.parseToJsonElement(json).jsonObject }.getOrNull()
+            ?: return emptyList()
+        val siblings = root["siblings"] as? JsonArray ?: return emptyList()
+        val out = ArrayList<NonGgufModelFile>()
+        for (element in siblings) {
+            val obj = element as? JsonObject ?: continue
+            val name = (obj["rfilename"] as? JsonPrimitive)?.content ?: continue
+            if (name.startsWith(".")) continue
+            if (name.endsWith(".gguf", ignoreCase = true)) continue
+            val lower = name.lowercase()
+            // Only the two model extensions this app has a backend for. A repo
+            // full of `.md` and `.ipynb` is not a model this app declined, and
+            // listing those would turn a useful notice into noise.
+            if (!lower.endsWith(".litertlm") && !lower.endsWith(".task")) continue
+            out += NonGgufModelFile(fileName = name, sizeBytes = siblingSize(obj))
+        }
+        return out.sortedBy { it.sizeBytes }
+    }
+
+    /**
+     * The payload size, preferring LFS exactly as `HubSibling.trueSize` does.
+     *
+     * A git-blob `size` under 1 KiB is a pointer file's own size, not a model's
+     * — reporting 130 bytes for a 3.7 GB model is precisely the failure this
+     * whole field exists to prevent, so a small unbacked size yields 0 and the
+     * caller omits the figure rather than printing it.
+     */
+    private fun siblingSize(sibling: JsonObject): Long {
+        val lfs = sibling["lfs"] as? JsonObject
+        (lfs?.get("size") as? JsonPrimitive)?.content?.toLongOrNull()?.let { return it }
+        val declared = (sibling["size"] as? JsonPrimitive)?.content?.toLongOrNull() ?: return 0L
+        return if (declared < MIN_PLAIN_GIT_BLOB_BYTES) 0L else declared
     }
 
     /**
@@ -441,5 +652,28 @@ class HubViewModel(
          * and the one at load time agree.
          */
         const val DEFAULT_CONTEXT_LENGTH = 4_096
+
+        /**
+         * Mirrors `HubSibling.MAX_PLAIN_GIT_BLOB_BYTES` in `:core`: below this,
+         * a `size` with no `lfs` block is the size of a pointer file, not of a
+         * model. Duplicated rather than imported because that constant is
+         * `internal` to a module this file does not belong to.
+         */
+        private const val MIN_PLAIN_GIT_BLOB_BYTES = 1024L
+
+        /**
+         * Permissive on purpose. HF's model payload is large and grows, and
+         * this parse exists to read two string/number fields out of one
+         * array — a strict schema would turn any unrelated HF change into a
+         * resolve failure. The two values that matter are pulled out
+         * defensively, so a missing or retyped field yields an omitted figure
+         * rather than a wrong one.
+         */
+        private val SIBLING_JSON = Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            coerceInputValues = true
+            explicitNulls = false
+        }
     }
 }

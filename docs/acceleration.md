@@ -27,7 +27,7 @@ implying a conversion is merely unwired.
 |---|---|---|
 | This app's hub download | GGUF | `llamacpp` |
 | Model-manager import (SAF) | GGUF | `llamacpp` |
-| A pre-converted HF repo, e.g. `litert-community/gemma-4-E4B-it-litert-lm` | `.litertlm` | `litertlm` |
+| A pre-converted HF repo, e.g. `litert-community/gemma-4-E4B-it-litert-lm` | `.litertlm` | **nothing — see below** |
 
 That is the whole table. Every model this app can currently *acquire* is a GGUF,
 and a GGUF cannot be run by the LiteRT-LM backend at all. The LiteRT-LM backend
@@ -38,6 +38,29 @@ user sideloads a `.litertlm` into `filesDir/models`.
 This is the real gap, and it is larger than the NPU gap. Closing the NPU gap
 would buy acceleration on a runtime that still cannot open a file the app can
 obtain.
+
+## The acquisition gap, item by item
+
+This is the part that was previously one sentence, and it is the part a user
+actually hits. Stated as a list of what a person with a `.litertlm` on their
+laptop can and cannot do with this app **today**:
+
+| Route | Result | Why |
+|---|---|---|
+| Type the repo into the Hub | Repository resolves, `.litertlm` files are **named and sized, not offered** | `HuggingFaceClient.toGgufFiles` keeps only `.gguf`. The Hub shows them in a separate block with no RAM figure, because there is no GGUF header to read and the FitGate arithmetic does not apply to a FlatBuffer. |
+| Tap Download on a `.litertlm` | Not possible | It is not a row in the quant list. The download button and the RAM gate are both GGUF-only. |
+| Pick it in the model manager's file picker | **Refused, with the reason** | The picker returns a `content://` document. `LiteRtLmModelSource.toFile` refuses every `content://` uri, because LiteRT-LM opens its model by filesystem path and has no descriptor entry point. The screen sniffs the container and says this rather than letting `ModelImporter` throw `NOT_A_GGUF_FILE` and report "it may be a format this app cannot read". |
+| `adb push` it to `filesDir/models`, then Scan storage | **Not adopted** | `MainActivity`'s scan filters on `it.name.endsWith(".gguf")`. This is the one route that would actually work, and it is closed. Fix is in the PR description; the file belongs to another agent. |
+| Convert a GGUF this app downloaded | Impossible | No converter exists, in this app or Google's. A `.litertlm` is built from the original PyTorch/HuggingFace checkpoint by a desktop toolchain (`litert-torch export_hf` → `litert-lm-builder`); a GGUF is downstream of quantising those same weights, so the information the conversion needs is already gone. |
+
+**What the Hub shows for a `.litertlm`, and why it is not a row.** The Hub's
+value is that its numbers can be believed — it reads the real GGUF header over
+a bounded range request before quoting a RAM figure. A LiteRT-LM FlatBuffer has
+no GGUF header, so `probeHeader` returns null and the estimate would fall back
+to a name-derived guess. Printing that guess as this screen's primary metric
+would be worse than printing nothing. So the file is named with its real
+`lfs.size` (a fact about bytes on a server, not a memory estimate) and the
+reason it cannot be fetched is spelled out.
 
 ## Reaching the backend at all
 
@@ -348,7 +371,9 @@ the evidence supports.
 - GGUF models from the hub or the model manager, on **llama.cpp, CPU only**.
   This is the entire shipped experience. No GPU, no NPU.
 - LiteRT-LM is present, complete, correctly probing, and reachable — *if* the
-  user supplies a `.litertlm` file by hand.
+  user gets a `.litertlm` into `filesDir/models` by other means. See the
+  acquisition table above: as shipped, none of the app's own routes gets it
+  there, so "by other means" means `adb push` and a source edit to the scan.
 
 **What does not work:**
 - **The NPU, on this Pixel and every other phone.** The Tensor NPU is not
