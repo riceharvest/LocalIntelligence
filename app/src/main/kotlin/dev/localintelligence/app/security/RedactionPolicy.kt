@@ -3,6 +3,7 @@ package dev.localintelligence.app.security
 import dev.localintelligence.core.tool.redaction.RedactionResult
 import dev.localintelligence.core.tool.redaction.SecretCategory
 import dev.localintelligence.core.tool.redaction.SecretRedactor
+import dev.localintelligence.core.transcript.TranscriptRedaction
 
 /**
  * The one place the app decides what redaction is FOR, and the sentences the
@@ -87,7 +88,31 @@ object RedactionPolicy {
             "clipboard, a file you hand it, a page it fetches — text that looks like a " +
             "secret is replaced with a label first. It does this before the text reaches " +
             "the model, so the original is not in the model's context. It does not run on " +
-            "what you type, and it does not run on what the model writes back."
+            "what the model writes back."
+
+    /**
+     * The chat's own text, which this filter also covers.
+     *
+     * ## WHY THIS IS A SEPARATE CONSTANT RATHER THAN A PARAGRAPH ON [SUMMARY]
+     *
+     * Because it is a different boundary with a different cost, and merging the
+     * two is how the screen came to be wrong in the first place. Reading a
+     * clipboard is something the app does to the user; saving a chat turn is
+     * something the app does FOR the user's own words. The consequences differ
+     * too: a false positive on an observation corrupts what the model reasons
+     * about, whereas a false positive on a saved turn shows the user their own
+     * sentence with a hole in it - annoying, visible, and recoverable by
+     * retyping. So they get their own heading and their own limits, and the
+     * exclusions are stated separately rather than averaged together.
+     *
+     * The wording is read from [TranscriptRedaction] rather than restated, so
+     * this screen cannot describe a policy the runtime does not implement. That
+     * is the same reason the category list is read from the redactor.
+     */
+    val TRANSCRIPT_SUMMARY: String get() = TranscriptRedaction.TRANSCRIPT_SUMMARY
+
+    /** The cases that get through, for the chat-text filter. */
+    val TRANSCRIPT_LIMITS: String get() = TranscriptRedaction.TRANSCRIPT_LIMITS
 
     /**
      * Redacts one tool observation, or returns it unchanged when [ENABLED] is
