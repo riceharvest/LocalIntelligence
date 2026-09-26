@@ -85,8 +85,9 @@ object AndroidToolSnapshot {
             category = "alarm",
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "cancel alarm", "cancel my alarm", "delete alarm", "remove alarm",
-                "remove the wake up", "stop the alarm", "turn off alarm",
+                "cancel alarm", "cancel my alarm", "delete alarm", "get rid of my alarm",
+                "kill the alarm", "remove alarm", "remove the wake up", "stop the alarm",
+                "turn off alarm",
             ),
         ),
         snapshot(
@@ -95,9 +96,8 @@ object AndroidToolSnapshot {
             category = "alarm",
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "alarm", "before work", "get me up", "get up",
-                "need to be up", "remind me at", "ring at", "set a reminder",
-                "set a timer", "set an alarm", "timer", "timer for",
+                "alarm", "before work", "get me up", "get up", "need to be up", "remind me at",
+                "ring at", "set a reminder", "set a timer", "set an alarm", "timer", "timer for",
                 "up at", "wake me up", "wake up call",
             ),
         ),
@@ -107,8 +107,9 @@ object AndroidToolSnapshot {
             category = "alarm",
             risk = ToolRisk.READ_ONLY,
             tags = setOf(
-                "alarm list", "do i have an alarm", "list alarms", "my alarms",
-                "upcoming alarms", "what alarms do i have", "what did i set",
+                "alarm list", "do i have an alarm", "list alarms", "my alarm", "my alarms",
+                "show my alarm", "upcoming alarm", "upcoming alarms", "what alarm do i have",
+                "what alarms do i have", "what did i set",
             ),
         ),
         snapshot(
@@ -117,10 +118,9 @@ object AndroidToolSnapshot {
             category = "apps",
             risk = ToolRisk.READ_ONLY,
             tags = setOf(
-                "app", "applications", "apps", "do i have an app",
-                "find an app", "home screen", "installed", "is there an app for",
-                "launcher", "package name", "packages", "search apps",
-                "what apps do i have",
+                "app", "applications", "apps", "do i have an app", "find an app", "home screen",
+                "installed", "is there an app for", "launcher", "package name", "packages",
+                "search apps", "what apps do i have",
             ),
         ),
         snapshot(
@@ -129,10 +129,9 @@ object AndroidToolSnapshot {
             category = "apps",
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "go to app", "launch", "listen to", "maps",
-                "open", "open a media app", "play", "play a game",
-                "play music", "put on", "run", "show me the app",
-                "start", "switch to", "whatsapp",
+                "go to app", "launch", "listen to", "maps", "open", "open a media app", "play",
+                "play a game", "play music", "put on", "run", "show me the app", "start", "switch to",
+                "whatsapp",
             ),
         ),
         snapshot(
@@ -141,8 +140,8 @@ object AndroidToolSnapshot {
             category = "apps",
             risk = ToolRisk.EXTERNAL_COMMUNICATION,
             tags = setOf(
-                "attach", "forward", "pass to another app", "send",
-                "share", "share file", "share text",
+                "attach", "email it", "forward", "pass to another app", "send", "send it to", "share",
+                "share file", "share text", "whatsapp it",
             ),
         ),
         snapshot(
@@ -151,9 +150,8 @@ object AndroidToolSnapshot {
             category = "calendar",
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "add event", "appointment", "block out", "block time",
-                "book", "calendar", "hold time", "meeting",
-                "put in my calendar", "reminder", "reserve", "schedule",
+                "add event", "appointment", "block out", "block time", "book", "calendar", "hold time",
+                "meeting", "new meeting", "put in my calendar", "reminder", "reserve", "schedule",
                 "this afternoon", "work meeting",
             ),
         ),
@@ -163,10 +161,9 @@ object AndroidToolSnapshot {
             category = "calendar",
             risk = ToolRisk.READ_ONLY,
             tags = setOf(
-                "agenda", "am i free", "anything today", "appointment",
-                "busy", "calendar", "events", "free",
-                "meeting", "meetings", "schedule", "this afternoon",
-                "today", "tomorrow", "what do i have on", "what's on",
+                "agenda", "am i free", "anything today", "appointment", "busy", "calendar", "event",
+                "events", "free", "meeting", "meetings", "next", "schedule", "this afternoon", "today",
+                "tomorrow", "what do i have on", "what's on",
             ),
         ),
         snapshot(
@@ -175,8 +172,8 @@ object AndroidToolSnapshot {
             category = "clipboard",
             risk = ToolRisk.READ_ONLY,
             tags = setOf(
-                "clipboard", "clipboard contents", "copied text", "paste",
-                "read clipboard", "what did i copy", "what is on my clipboard",
+                "clipboard", "clipboard contents", "copied text", "paste", "read clipboard",
+                "what did i copy", "what is on my clipboard",
             ),
         ),
         snapshot(
@@ -185,8 +182,8 @@ object AndroidToolSnapshot {
             category = "clipboard",
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "clipboard", "copy", "copy text", "copy to clipboard",
-                "cut", "paste", "put on clipboard", "share text",
+                "clipboard", "copy", "copy text", "copy this", "copy to clipboard", "cut", "paste",
+                "put on clipboard", "save to clipboard", "share text",
             ),
         ),
         snapshot(
@@ -195,8 +192,9 @@ object AndroidToolSnapshot {
             category = "contacts",
             risk = ToolRisk.READ_ONLY,
             tags = setOf(
-                "address book", "contact", "contact details", "email address",
-                "lookup", "phone number", "who is",
+                "address book", "contact", "contact card", "contact details", "email address",
+                "everything about", "full contact", "lookup", "phone number", "their address",
+                "their email", "who is",
             ),
         ),
         snapshot(
@@ -205,10 +203,9 @@ object AndroidToolSnapshot {
             category = "contacts",
             risk = ToolRisk.READ_ONLY,
             tags = setOf(
-                "address book", "call", "contact", "contacts",
-                "find someone", "get in touch", "how do i contact", "how to reach",
-                "look someone up", "look up", "lookup", "number",
-                "phone book", "reach", "who is",
+                "address book", "call", "contact", "contacts", "find someone", "get in touch",
+                "how do i contact", "how to reach", "look someone up", "look up", "lookup", "number",
+                "phone book", "phone number", "reach", "ring", "who is",
             ),
         ),
         snapshot(
@@ -217,10 +214,9 @@ object AndroidToolSnapshot {
             category = "device",
             risk = ToolRisk.READ_ONLY,
             tags = setOf(
-                "battery", "battery level", "charge", "charging",
-                "die", "dies", "drain", "empty",
-                "how long until charged", "how long until it dies", "how long will it last", "how much battery",
-                "make it home", "power", "run out", "run out of battery",
+                "battery", "battery level", "charge", "charging", "die", "dies", "drain", "empty",
+                "how long until charged", "how long until it dies", "how long will it last",
+                "how much battery", "make it home", "power", "run out", "run out of battery",
                 "running out", "survive",
             ),
         ),
@@ -230,8 +226,8 @@ object AndroidToolSnapshot {
             category = "device",
             risk = ToolRisk.READ_ONLY,
             tags = setOf(
-                "android version", "device info", "free space", "how much ram",
-                "phone model", "screen size", "specs", "storage",
+                "android version", "device info", "free space", "how much ram", "how much storage",
+                "phone model", "screen size", "specs", "storage", "what phone", "which phone",
             ),
         ),
         snapshot(
@@ -240,8 +236,8 @@ object AndroidToolSnapshot {
             category = "device",
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "battery saver", "display settings", "open settings", "settings",
-                "sound settings", "system settings", "turn on bluetooth", "wifi settings",
+                "battery saver", "display settings", "open settings", "settings", "sound settings",
+                "system settings", "turn on bluetooth", "wifi settings",
             ),
         ),
         snapshot(
@@ -250,8 +246,7 @@ object AndroidToolSnapshot {
             category = "device",
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "buzz", "find my phone", "ring", "ringer",
-                "shake", "vibrate", "vibration",
+                "buzz", "find my phone", "ring", "ringer", "shake", "vibrate", "vibration",
             ),
         ),
         snapshot(
@@ -260,10 +255,8 @@ object AndroidToolSnapshot {
             category = "files",
             risk = ToolRisk.DESTRUCTIVE,
             tags = setOf(
-                "bin", "delete", "delete a file", "discard",
-                "document", "draft", "erase", "get rid of",
-                "invoice", "pdf", "remove", "remove a file",
-                "throw away", "trash", "unlink",
+                "bin", "delete", "delete a file", "discard", "document", "draft", "erase", "get rid of",
+                "invoice", "pdf", "remove", "remove a file", "throw away", "trash", "unlink",
             ),
         ),
         snapshot(
@@ -272,8 +265,8 @@ object AndroidToolSnapshot {
             category = "files",
             risk = ToolRisk.READ_ONLY,
             tags = setOf(
-                "browse", "documents", "downloads", "files",
-                "my files", "storage", "what files do i have",
+                "browse", "documents", "downloads", "files", "folder", "list my files", "my files",
+                "storage", "what files do i have",
             ),
         ),
         snapshot(
@@ -282,8 +275,8 @@ object AndroidToolSnapshot {
             category = "files",
             risk = ToolRisk.READ_ONLY,
             tags = setOf(
-                "contents", "file content", "open", "preview",
-                "read", "text", "what does the file say",
+                "contents", "file content", "open", "open file", "preview", "read", "show me the file",
+                "summarize this file", "text", "what does it say", "what does the file say",
             ),
         ),
         snapshot(
@@ -292,10 +285,9 @@ object AndroidToolSnapshot {
             category = "files",
             risk = ToolRisk.READ_ONLY,
             tags = setOf(
-                "anywhere", "extension", "filename", "find",
-                "is there a", "look for", "mime type", "modified",
-                "pdf", "recent files", "search", "what did i download",
-                "where is",
+                "anywhere", "downloaded", "extension", "filename", "find", "is there a", "look for",
+                "mime type", "modified", "my note", "pdf", "recent files", "report", "search",
+                "what did i download", "where is",
             ),
         ),
         snapshot(
@@ -304,8 +296,8 @@ object AndroidToolSnapshot {
             category = "files",
             risk = ToolRisk.DESTRUCTIVE,
             tags = setOf(
-                "create file", "export", "new note", "overwrite",
-                "save", "store text", "write",
+                "create file", "export", "jot down", "new note", "note", "notes", "overwrite", "save",
+                "store text", "write",
             ),
         ),
         snapshot(
@@ -314,8 +306,8 @@ object AndroidToolSnapshot {
             category = "notifications",
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "banner", "clear", "dismiss", "notification",
-                "remove", "silence", "swipe away",
+                "banner", "clear", "clear notification", "dismiss", "get rid of notification",
+                "mark as read", "no more alerts", "notification", "remove", "silence", "swipe away",
             ),
         ),
         snapshot(
@@ -324,10 +316,9 @@ object AndroidToolSnapshot {
             category = "notifications",
             risk = ToolRisk.READ_ONLY,
             tags = setOf(
-                "alerts", "anything new", "banner", "come in",
-                "did anything come in", "inbox", "list", "messages",
-                "miss", "notifications", "ping", "what came in",
-                "what did i miss", "who messaged",
+                "alerts", "anything new", "banner", "come in", "did anything come in", "inbox", "list",
+                "messages", "miss", "notifications", "ping", "what came in", "what did i miss",
+                "whatsapp", "who messaged",
             ),
         ),
         snapshot(
@@ -336,10 +327,9 @@ object AndroidToolSnapshot {
             category = "notifications",
             risk = ToolRisk.EXTERNAL_COMMUNICATION,
             tags = setOf(
-                "answer", "chat", "let them know", "message back",
-                "notification", "quick reply", "reply", "reply to",
-                "respond", "send", "send a message", "tell them",
-                "text back", "text message",
+                "answer", "chat", "let them know", "message back", "notification", "quick reply",
+                "reply", "reply to", "respond", "send", "send a message", "tell them", "text back",
+                "text message",
             ),
         ),
         snapshot(
@@ -348,10 +338,9 @@ object AndroidToolSnapshot {
             category = "web",
             risk = ToolRisk.NETWORK_EGRESS,
             tags = setOf(
-                "check what the site says", "fetch", "http", "internet",
-                "link", "link url", "open a link", "page",
-                "page link", "read online", "this link", "url",
-                "weather", "web", "website", "website says",
+                "check what the site says", "fetch", "forecast", "http", "internet", "link", "link url",
+                "look up", "online", "open a link", "page", "page link", "read online", "right now",
+                "this link", "url", "weather", "web", "website", "website says",
             ),
         ),
     )
@@ -411,6 +400,23 @@ object AndroidToolSnapshot {
             }
             if (definition.risk != reference.risk) {
                 problems += "$name risk: snapshot=${definition.risk} catalogue=${reference.risk}"
+            }
+            // TAGS AND DESCRIPTIONS ARE COMPARED HERE, and the omission of these
+            // two checks was itself a defect: the KDoc above calls this function
+            // the thing that holds the copy honest, while the two fields the
+            // scorer actually tokenises were not among the things it checked. A
+            // snapshot whose tags had drifted from the shipped tools would have
+            // measured a tool set the app does not ship, and reported it as
+            // faithful. Both sides now read the same ToolMeta descriptor, so
+            // these cannot fail for a correctly written entry -- exactly like
+            // CatalogueAgreement's own checks.
+            if (definition.tags != reference.tags) {
+                problems += "$name tags: snapshot=${definition.tags.sorted()} " +
+                    "catalogue=${reference.tags.sorted()}"
+            }
+            if (definition.description != reference.description) {
+                problems += "$name description: snapshot=${definition.description} " +
+                    "catalogue=${reference.description}"
             }
         }
         for (name in theirs.keys) {

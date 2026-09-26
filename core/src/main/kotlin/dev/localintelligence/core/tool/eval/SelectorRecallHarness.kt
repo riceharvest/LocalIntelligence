@@ -251,21 +251,37 @@ class SelectorRecallHarness(
     /**
      * Every tool in RELEVANCE ORDER, for one case.
      *
-     * This used to need a workaround. `LexicalToolSelector.select` opened with
-     * `if (available.size <= maxTools) return available`, so asking for the
-     * whole set returned the registry's own order with no scoring at all, and
-     * the last tool had to be recovered by subtraction. That branch is gone —
-     * see the [ToolSelector] KDoc for why removing it is set-preserving — so
-     * this is now just the selector asked for everything it has.
+     * The selector's API cannot express "rank the whole set": `select` opens
+     * with `if (available.size <= maxTools) return available`, which preserves
+     * the registry order the system prompt and grammar are built from, and the
+     * scoring path returns `ordered.take(maxTools)`. So for maxTools >= 25 the
+     * answer is registry order with nothing scored, and for maxTools < 25 the
+     * answer is scored but truncated. There is no value of maxTools that does
+     * both.
      *
-     * The workaround is kept in git history rather than here, because its
-     * existence was the clearest evidence that the branch was a real trap: a
-     * measurement harness had to carry a special case solely to observe a
-     * ranking the production code was not actually performing.
+     * This function therefore ranks with the MIRROR, and [assertMirrorsSelector]
+     * is what makes that honest: it checks the mirror against the real selector
+     * at a width where the selector genuinely scores, so "the mirror ranked it"
+     * is a checked claim rather than an assumption.
+     *
+     * `assertMirrorsSelector` below is what proves this returns a ranking the
+     * production code actually performed rather than a registry order.
      */
     fun fullRanking(case: EvalCase): List<String> =
-        selector.select(case.utterance, case.sessionKeywords, tools, tools.size)
-            .map { it.definition.name }
+        mirroredRanking(case)
+
+    /**
+     * The whole set, ranked by the mirrored score.
+     *
+     * Ties break by name exactly as the selector's `sortedWith` does, so the
+     * order is comparable to the real thing rather than merely plausible.
+     */
+    fun mirroredRanking(case: EvalCase): List<String> =
+        tools.map { it.definition.name to scoreOf(case, it.definition.name) }
+            .sortedWith(
+                compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first },
+            )
+            .map { it.first }
 
     /**
      * Prove the mirrored score in [scoreOf] still matches the real selector.
@@ -277,16 +293,23 @@ class SelectorRecallHarness(
      */
     fun assertMirrorsSelector(): List<String> {
         val disagreements = ArrayList<String>()
+        // Compared at `probeWidth`, which is ONE BELOW the set size. That is the
+        // largest width at which the selector genuinely scores: its early
+        // return fires when `available.size <= maxTools`, so any width at or
+        // above the set size returns registry order and would "agree" with a
+        // mirror that scored nothing at all. One below, the scoring path runs
+        // and the top `probeWidth` names are the real ranking's.
+        //
+        // The single tool the truncation drops is the lowest-scoring one, which
+        // is by construction the one the ordering claim does not rest on.
+        val probeWidth = (tools.size - 1).coerceAtLeast(1)
         for (case in cases) {
             // Ordering the selector produces is (score desc, name asc), so the
-            // mirrored score must reproduce that exact order. See
-            // [fullRanking] for why this cannot use maxTools = tools.size.
-            //
-            val actual = fullRanking(case)
-            val mirrored = tools
-                .map { it.definition.name to scoreOf(case, it.definition.name) }
-                .sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
-                .map { it.first }
+            // mirrored score must reproduce that exact order.
+            val actual = selector
+                .select(case.utterance, case.sessionKeywords, tools, probeWidth)
+                .map { it.definition.name }
+            val mirrored = mirroredRanking(case).take(probeWidth)
             if (actual != mirrored) {
                 disagreements += "score mirror disagrees for \"${case.utterance}\": " +
                     "selector=${actual.take(5)} mirror=${mirrored.take(5)}"
@@ -532,7 +555,11 @@ fun main() {
     println("=".repeat(78))
 }
 
-private fun pct(fraction: Double): String = "${(fraction * 100).let { "%.1f".format(it) }}%"
+// `internal`, not `private`: MultiTurnReport.kt in this same package formats
+// percentages with the same function, and a second copy would be two
+// implementations of one rounding rule. The selector harness and the
+// multi-turn report must not disagree about what 0.9333 prints as.
+internal fun pct(fraction: Double): String = "${(fraction * 100).let { "%.1f".format(it) }}%"
 
 /**
  * Public accessor for one tool's mirrored score.

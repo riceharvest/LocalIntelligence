@@ -72,6 +72,10 @@ It is a separate, larger change and is not claimed here. Two of the three
 held-out probe misses are Dutch or Dutch-adjacent, which is that gap showing
 up as a number rather than a caveat.
 
+**Non-English phrasing.** The scorer splits on `[^a-z0-9]+`, so any non-Latin
+utterance scores zero against every tool. That is a real and separate finding,
+not covered by this dataset.
+
 ### The numbers
 
 Measured on the committed dataset, 176 cases, 25 shipped tools:
@@ -91,6 +95,12 @@ held-out probe in `core/tool/holdout/`: 25 utterances written after the tags
 were frozen, in different wording and including Dutch, which goes 20/25 ->
 22/25. Quote that one for "did this actually get better".
 
+| 3             |            149/176  |  141                     |
+| 6             |            158/176  |  218                     |
+| **10 (ships)**|    **167/176**      |  **321**                 |
+| 12            |            169/176  |  370                     |
+| all 25        |            176/176  |  705                     |
+
 These replace an earlier set (61.6% at k=6 over 86 held-out cases) that could
 not be re-derived because the utterances lived on an unmerged branch. The
 absolute percentages are not comparable — different dataset — and are not
@@ -98,6 +108,75 @@ presented as one trend. The SHAPE is what carried over, and the shape is what
 the constant was set from. Note the shape has since flattened a great deal:
 k=3 alone now reaches 93.2%, so width is a much smaller lever than it was when
 the ceiling was raised.
+
+the constant was set from.
+
+---
+
+## The single-turn recall number is not the whole story, and the gap is measurable
+
+The 176-utterance corpus above is **isolated one-shots**. Every case is scored
+as if the user had never spoken before. Real use is not that, and the specific
+way it is not is a silent product failure with a known mechanism:
+
+- `AgentController.selectTools` scores the **current** task string plus
+  `Session.currentKeywords()`;
+- `Session.currentKeywords()` reads **only the latest user turn** — earlier user
+  turns are excluded along with tool observations, deliberately, and
+  `SessionKeywordTrustTest` pins the observation half as a security boundary
+  against untrusted page text steering the grammar;
+- meanwhile `DefaultContextBuilder` hands the **model** up to
+  `ContextLimits.MAX_HISTORY_SCAN` (64) messages of retained history.
+
+So on any follow-up, the model holds the referent and the selector does not.
+The tool that would act on it scores zero, drops out of the visible set, and —
+because `GrammarBuilder.forActions` makes an unselected tool *unspeakable* —
+the correct call becomes unrepresentable rather than merely discouraged. Nothing
+throws and nothing is logged.
+
+`MultiTurnHarness` measures this over 13 hand-written conversations (43 turns),
+half of which are a **control group** whose turns each stand alone. The control
+group is not filler: a corpus of only referential turns would report a
+catastrophic rate that says nothing, because every case would be unanswerable
+by construction.
+
+`AsymmetryProbe` turns the claim above into a check that can fail, by rendering
+what the model sees with the real `DefaultContextBuilder` and asking the real
+`Session` what the selector sees, then comparing. It currently reports 3/3
+asymmetric. If that ever reads 0, the product changed and the *interpretation*
+of the recall numbers is what needs re-deriving.
+
+### Measured at the shipped k=10
+
+| figure | value |
+|---|---|
+| turns where ≥1 expected tool was callable | 40/43 (93.0%) |
+| **set-level recall (expected tool-slots reached)** | **83.0%** |
+| control-group recall | 26/27 |
+| referential recall | 14/16 |
+| turns fully unreachable | 3 (2 referential, 1 control) |
+| turns reachable only PARTIALLY | 5 |
+
+The slot-recall figure is the honest one and the per-turn figure is not. A turn
+expecting `{alarm.create, device.battery}` that got only the alarm scores 100%
+on "turns-ok" while the specific thing the user asked to be reminded about is
+uncallable. The harness prints both, plus the partial-failure list, precisely
+because the flattering number is the one that hides this.
+
+### What this still does not measure
+
+No model, no device, no inference. Recall is an **upper bound** on task success,
+not a success rate: it establishes that a tool was made callable, never that the
+model then called it correctly. The half that needs a real model on a real phone
+is still unmeasured, and this does not substitute for it.
+
+### Where it lives, and the cost of that
+
+Kept in `core/src/main` — see `tool/eval/MULTITURN.md`. Measured: the whole
+`tool/eval/` package is 282 KB of compiled bytecode (12.15% of `:core`), and
+**R8 strips all of it from the release APK**; not one corpus string survives
+into the shipped dex, verified against the built release artifact. The debug
+build and CI pay for it, users pay nothing.
 
 ---
 
@@ -108,15 +187,24 @@ suite, an eval runner, and a
 `./gradlew :core:evals` task. **None of that exists.** It was deleted, along
 with the rest of the test sources, at the owner's explicit instruction.
 
+The retrieval harnesses in `core/src/main/kotlin/.../tool/eval/` are NOT that
+suite and do not resurrect it: they score SELECTOR BEHAVIOUR deterministically
+against labelled definitions, with no model in the loop, no fakes standing in
+for the loop, and no claim about end-to-end task success. They are runnable by
+one command, and they print their own coverage — including tools no case
+reaches — so a hole in the corpus cannot hide behind an aggregate.
+
 Verified against the current tree:
 
 ```
 $ ls core/src/
 main
+test
 $ ls android/src/
 main
 $ find . -path ./.git -prune -o -type d -name test -print
 ./app/src/androidTest          # DeviceModelProbe.kt — a manual probe, not a suite
+./core/src/test                # 3 files, added after the deletion — see below
 
 $ grep -rn 'evals' core/build.gradle.kts build.gradle.kts
 (no matches — there is no :core:evals task)
@@ -125,10 +213,19 @@ $ find . -name 'FakeModelBackend*' -o -name 'ScriptedTool*'
 (no matches)
 ```
 
+**Correction, and it predates the multi-turn harness.** `core/src/test` was
+reintroduced on `main` after the deletion — three files, added deliberately,
+restoring "pure, deterministic JUnit against the real production classes"
+(`core/build.gradle.kts` says so in as many words). So the older
+`./gradlew :core:test  # no test sources` line below is no longer true, and the
+three tests that exist are unit tests, not the resurrected agent suite. What
+has NOT come back is the fake-backed 50-task harness, a `:core:evals` task, or
+any `FakeModelBackend`/`ScriptedTool`: the specific defects that caused the
+deletion are still absent.
+
 So these commands do not work and are not aspirational:
 
 ```bash
-./gradlew :core:test     # no test sources; there is nothing to run
 ./gradlew :core:evals    # the task does not exist
 ```
 

@@ -32,10 +32,20 @@ data class AgentConfig(
      *
      * | visible tools | tasks made possible | mean system-prompt tokens |
      * |---------------|---------------------:|-------------------------:|
-     * | 6 (previous)  |            171/176  |  411                     |
-     * | **10 (now)**  |        **176/176**  |  **516**                 |
-     * | 12            |            176/176  |  566                     |
-     * | all 25        |            176/176  |  894                     |
+     * | 3             |            164/176  |  439                     |
+     * | 6             |            170/176  |  519                     |
+     * | **10 (now)**  |        **175/176**  |  **623**                 |
+     * | 12            |            176/176  |  674                     |
+     * | all 25        |            176/176  | 1002                     |
+     *
+     * RE-MEASURED on the merged tree, not carried over from either branch. The
+     * two branches reported 171/176 and 167/176 at their own widths because
+     * each measured a different tag set; the tag lists were then migrated onto
+     * `ToolMeta` and the tokeniser made Unicode-aware, so neither number
+     * described the tool set that now ships. The run behind this table also had
+     * to be repaired first: `fullRanking` asked the selector for
+     * `maxTools = tools.size`, which hits its documented early return and ranks
+     * nothing, so the harness's own mirror check failed on all 176 cases.
      *
      * **176/176 means this metric is saturated, not that the ceiling is
      * proven.** The tag lists were repaired while reading these 176
@@ -46,7 +56,7 @@ data class AgentConfig(
      *
      * **The width argument is now much weaker than it was, and this constant
      * is kept for that reason rather than because the case is strong.** At
-     * k=3 recall is already 164/176 (93.2%) and k=6 is 171/176 (97.2%), so
+     * k=3 recall is already 164/176 (93.2%) and k=6 is 170/176 (96.6%), so
      * most of what 6 -> 10 bought has been bought back by fixing the tags
      * instead. The unmeasured risk below is the only thing still arguing for
      * 10 over 6, and it is unmeasured. If someone measures that risk and it
