@@ -10,14 +10,11 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolArgumentBounds
+import dev.localintelligence.core.tool.catalogue.ToolSchemas
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -25,9 +22,14 @@ import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URISyntaxException
-import java.net.UnknownHostException
 import java.net.URL
+import java.net.UnknownHostException
 import javax.net.ssl.SSLException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 
 // ===========================================================================
 // web.fetch — NETWORK_EGRESS HTTP GET, rendered as plain text.
@@ -87,9 +89,13 @@ import javax.net.ssl.SSLException
 internal const val MAX_BODY_BYTES: Int = 256 * 1024
 
 /** Model-visible character budget for the extracted text. */
-internal const val DEFAULT_MAX_CHARS: Int = 2000
-internal const val MAX_MAX_CHARS: Int = 8000
-internal const val MIN_MAX_CHARS: Int = 100
+// Aliased from :core's ToolArgumentBounds: these numbers appear in this
+// tool's JSON Schema, which :core owns, and in its `execute()`, below.
+// Aliasing rather than repeating is what stops the advertised bound and
+// the enforced bound from drifting apart.
+internal const val DEFAULT_MAX_CHARS: Int = ToolArgumentBounds.WEB_DEFAULT_MAX_CHARS
+internal const val MAX_MAX_CHARS: Int = ToolArgumentBounds.WEB_MAX_MAX_CHARS
+internal const val MIN_MAX_CHARS: Int = ToolArgumentBounds.WEB_MIN_MAX_CHARS
 
 /** A phone on mobile data needs both of these, and neither is generous. */
 internal const val CONNECT_TIMEOUT_MS: Int = 8_000
@@ -1195,50 +1201,7 @@ class WebFetchTool private constructor(
             "with any HTML markup stripped out. There is no format argument: the result is " +
             "always plain text.",
         category = "web",
-        schema = buildJsonObject {
-            put("type", JsonPrimitive("object"))
-            put(
-                "properties",
-                buildJsonObject {
-                    put(
-                        "url",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put(
-                                "description",
-                                JsonPrimitive("Absolute http:// or https:// address of the page."),
-                            )
-                        },
-                    )
-                    put(
-                        "maxChars",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("integer"))
-                            put("minimum", JsonPrimitive(MIN_MAX_CHARS))
-                            put("maximum", JsonPrimitive(MAX_MAX_CHARS))
-                            put(
-                                "description",
-                                JsonPrimitive(
-                                    "Characters of text to return, $DEFAULT_MAX_CHARS by default, " +
-                                        "at most $MAX_MAX_CHARS. The whole response is also capped " +
-                                        "at the observation budget, so a larger value may not " +
-                                        "return more text.",
-                                ),
-                            )
-                        },
-                    )
-                    // Removed rather than documented around. This advertised a
-                    // three-value enum and the tool never read it: `execute`
-                    // pulls only "url" and "maxChars". An argument the model can
-                    // send and that provably does nothing is a schema lying
-                    // about its own arguments, and "html" in particular implies
-                    // raw markup can be returned, which this tool will not do.
-                    // HTML is always stripped to text — that is now stated in
-                    // the tool description instead of being an argument.
-                },
-            )
-            put("required", kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive("url")) })
-        },
+        schema = ToolSchemas.webFetch,
         risk = ToolRisk.NETWORK_EGRESS,
         // Stated rather than inherited: this is the one tool in the system whose
         // observations are written by a party the user did not choose, and the

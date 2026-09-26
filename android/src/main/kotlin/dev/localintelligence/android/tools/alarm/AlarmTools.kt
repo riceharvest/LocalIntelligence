@@ -25,18 +25,20 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolArgumentBounds
+import dev.localintelligence.core.tool.catalogue.ToolSchemas
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 // =====================================================================================
 // AlarmTools — alarm.create, alarm.list, alarm.cancel.
 //
@@ -153,10 +155,14 @@ data class AlarmPlan(
 
 object AlarmTimes {
 
-    const val MIN_HOUR = 0
-    const val MAX_HOUR = 23
-    const val MIN_MINUTE = 0
-    const val MAX_MINUTE = 59
+    // Aliased from :core's ToolArgumentBounds: these numbers appear in this
+    // tool's JSON Schema, which :core owns, and in its `execute()`, below.
+    // Aliasing rather than repeating is what stops the advertised bound and
+    // the enforced bound from drifting apart.
+    const val MIN_HOUR = ToolArgumentBounds.ALARM_MIN_HOUR
+    const val MAX_HOUR = ToolArgumentBounds.ALARM_MAX_HOUR
+    const val MIN_MINUTE = ToolArgumentBounds.ALARM_MIN_MINUTE
+    const val MAX_MINUTE = ToolArgumentBounds.ALARM_MAX_MINUTE
 
     /** java.time is available natively from API 26, which is minSdk, so this needs no
      *  desugaring — and unlike a fixed 86_400_000 ms step it is correct across a DST
@@ -603,83 +609,7 @@ interface AlarmPlatform {
 
 // =====================================================================================
 // Schemas
-// =====================================================================================
-
-private val CREATE_SCHEMA: ToolArgs = buildJsonObject {
-    put("type", "object")
-    putJsonObject("properties") {
-        putJsonObject("hour") {
-            put("type", "integer")
-            put("minimum", AlarmTimes.MIN_HOUR)
-            put("maximum", AlarmTimes.MAX_HOUR)
-            put("description", "Hour in 24-hour time, 0-23.")
-        }
-        putJsonObject("minute") {
-            put("type", "integer")
-            put("minimum", AlarmTimes.MIN_MINUTE)
-            put("maximum", AlarmTimes.MAX_MINUTE)
-            put("description", "Minute, 0-59.")
-        }
-        putJsonObject("label") {
-            put("type", "string")
-            put("description", "Short description, e.g. \"take the bread out\".")
-        }
-        putJsonObject("id") {
-            put("type", "string")
-            put("description", "Stable id used later to cancel this exact alarm. Generated if omitted.")
-        }
-        putJsonObject("day_offset") {
-            put("type", "integer")
-            put("minimum", 0)
-            put("maximum", 7)
-            put(
-                "description",
-                "0 for today, 1 for tomorrow. When omitted, a time that has already passed " +
-                    "today automatically rolls over to tomorrow.",
-            )
-        }
-        putJsonObject("repeat") {
-            put("type", "boolean")
-            put("description", "Repeating alarms are not supported. Leave this false or omit it.")
-        }
-    }
-    putJsonArray("required") { add("hour") }
-}
-
-private val LIST_SCHEMA: ToolArgs = buildJsonObject {
-    put("type", "object")
-    putJsonObject("properties") { }
-    putJsonArray("required") { }
-}
-
-private val CANCEL_SCHEMA: ToolArgs = buildJsonObject {
-    put("type", "object")
-    putJsonObject("properties") {
-        putJsonObject("id") {
-            put("type", "string")
-            put("description", "The id of the ONE alarm to cancel. Takes precedence over hour/minute.")
-        }
-        putJsonObject("hour") {
-            put("type", "integer")
-            put("minimum", AlarmTimes.MIN_HOUR)
-            put("maximum", AlarmTimes.MAX_HOUR)
-            put("description", "Cancel the single alarm at this hour.")
-        }
-        putJsonObject("minute") {
-            put("type", "integer")
-            put("minimum", AlarmTimes.MIN_MINUTE)
-            put("maximum", AlarmTimes.MAX_MINUTE)
-            put("description", "Cancel the single alarm at this minute.")
-        }
-        putJsonObject("label") {
-            put("type", "string")
-            put("description", "Cancel the single alarm whose label contains this text.")
-        }
-    }
-    putJsonArray("required") { }
-}
-
-// =====================================================================================
+// =====================================================================================// =====================================================================================
 // Tools
 // =====================================================================================
 
@@ -693,7 +623,7 @@ class AlarmCreateTool(
         description = "Set a one-time alarm on the phone and return the time and the id it was " +
             "given.",
         category = "alarm",
-        schema = CREATE_SCHEMA,
+        schema = ToolSchemas.alarmCreate,
         risk = ToolRisk.REVERSIBLE,
         tags = setOf(
             "alarm", "set an alarm", "wake me up", "remind me at", "timer", "ring at",
@@ -854,7 +784,7 @@ class AlarmListTool(private val platform: AlarmPlatform) : AgentTool {
         description = "List the alarms this assistant has set, and state that alarms from the " +
             "system Clock app are not visible.",
         category = "alarm",
-        schema = LIST_SCHEMA,
+        schema = ToolSchemas.alarmList,
         risk = ToolRisk.READ_ONLY,
         observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
@@ -909,7 +839,7 @@ class AlarmCancelTool(private val platform: AlarmPlatform) : AgentTool {
         description = "Cancel exactly one previously set alarm, identified by its id or by its " +
             "hour, minute and label.",
         category = "alarm",
-        schema = CANCEL_SCHEMA,
+        schema = ToolSchemas.alarmCancel,
         // REVERSIBLE, not DESTRUCTIVE: the runtime derives confirmation from the risk
         // field, and a user who has to confirm every single-alarm cancel will stop using
         // the feature. What makes this acceptable is not the risk label but the

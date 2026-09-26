@@ -39,21 +39,29 @@ import kotlinx.serialization.json.putJsonObject
  *
  * ## WHAT THIS FILE IS NOT, stated because it was previously misstated
  *
- * **The descriptions and tags below do not reach the model and do not drive
- * retrieval.** This file is read by exactly one consumer: the catalogue
- * agreement check ([CatalogueAgreement]), for names, risk tiers and categories.
- * `AppContainer` builds the registry from `androidTools(context)`, and
- * `AgentController.buildRequest` builds both the system prompt
- * (`SystemPrompts.forTools`) and the grammar (`GrammarBuilder.forActions`) from
- * the *registry's* definitions. So the text the model reads and the tags the
- * lexical selector scores are the `:android` ones — measurably different
- * strings, written separately.
+ * **The descriptions and tags below still do not reach the model and do not
+ * drive retrieval.** This file is read by exactly one consumer: the catalogue
+ * agreement check ([CatalogueAgreement]), for names, risk tiers, categories and
+ * — now — schemas. `AppContainer` builds the registry from
+ * `androidTools(context)`, and `AgentController.buildRequest` builds both the
+ * system prompt and the grammar (`GrammarBuilder.forActions`) from the
+ * *registry's* definitions. So the text the model reads and the tags the
+ * lexical selector scores are the `:android` ones.
  *
- * That is not a rounding error to be tidied here. It is the reason a whole
- * change-set's careful tag and description tuning could not have moved
- * selection accuracy at all, and it is worth stating rather than leaving the
- * next author to tune the wrong file again. Two numbers, both measured with
- * `HeuristicTokenCounter` rather than estimated:
+ * **The schemas are no longer a second copy.** They used to be, and all 25
+ * differed; see [ToolSchemas] for what the drift actually was. Each entry below
+ * now reads `schema = ToolSchemas.<tool>`, the same declaration the shipped
+ * tool reads, so this file can no longer state an argument name, a bound or a
+ * `required` list that the tool does not honour. What remains true of
+ * descriptions and tags is *not* true of schemas, and the difference is
+ * deliberate: unifying the prose would change the text the model reads, while
+ * unifying the schemas changes nothing the model reads at all.
+ *
+ * That is also why the description drift below was left alone. It is real — the
+ * catalogue's descriptions and the tools' are separately written strings — but
+ * collapsing them means choosing which wording reaches the model, and that is a
+ * prompt-quality decision with a measurement attached, not a refactor. Two
+ * numbers, both measured with `HeuristicTokenCounter` rather than estimated:
  *
  * | set                | description tokens | tag tokens |
  * |--------------------|-------------------:|-----------:|
@@ -80,8 +88,8 @@ import kotlinx.serialization.json.putJsonObject
  *
  * A 1-3B model reads *some* description text, just not this one — see the note
  * above. The rules below were written for a text that reaches the prompt, and
- * they are kept because the catalogue is the reference a future migration to a
- * single source of truth would start from:
+ * they are kept as a house style for the descriptions that still live here
+ * rather than with the tools:
  *
  * 1. One clause for what it returns, one clause for when to use it.
  * 2. No parameter names. That is what the JSON Schema is for, and duplicating it is
@@ -144,19 +152,19 @@ object V0ToolCatalogue {
         "contacts", "notifications", "web",
     )
 
-    /**
-     * Enum values for `device.open_settings`'s `screen` argument.
-     *
-     * Declared BEFORE [definitions] on purpose. Object properties initialise in
-     * declaration order, so a definition reading a `val` declared below it sees null
-     * and throws an ExceptionInInitializerError the first time anything touches the
-     * catalogue.
-     */
-    val SETTINGS_SCREENS: List<String> = listOf(
-        "wifi", "bluetooth", "battery", "display", "sound", "apps", "date_time",
-        "location", "airplane_mode", "developer", "home", "notifications",
-        "privacy", "storage", "accessibility", "about",
-    )
+    // `SETTINGS_SCREENS` used to live here: a sixteen-entry list of settings
+    // screens, declared "for `device.open_settings`'s `screen` argument". It is
+    // gone, and it was wrong. The tool resolves model input against
+    // [SettingsScreen], which has five entries, so eleven of the sixteen
+    // (`accessibility`, `date_time`, `developer`, ...) named a screen the tool
+    // would refuse to open. It was invisible because the schema below never
+    // read it — the `objSchema` literal hardcoded its own enum — so the list
+    // was a third declaration of an idea the code already owned twice.
+    //
+    // The order note that used to sit here still applies to anything else added
+    // to this object: properties initialise in declaration order, so a
+    // definition reading a `val` declared below it sees null and throws an
+    // ExceptionInInitializerError the first time anything touches the catalogue.
 
     val definitions: List<ToolDefinition> = listOf(
         // ---------------------------------------------------------------- files
@@ -165,14 +173,7 @@ object V0ToolCatalogue {
             description = "List documents and downloads this app can see, newest " +
                 "first. Use when the user asks what files they have.",
             category = "files",
-            schema = objSchema {
-                putJsonObject("limit") {
-                    put("type", "integer")
-                    put("minimum", 1)
-                    put("maximum", 200)
-                    put("description", "How many documents to return. Default 25.")
-                }
-            },
+            schema = ToolSchemas.filesList,
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
@@ -187,32 +188,7 @@ object V0ToolCatalogue {
             description = "Find documents by name, type, or date. Use when the " +
                 "user names a file or asks what they downloaded recently.",
             category = "files",
-            schema = objSchema {
-                putJsonObject("query") {
-                    put("type", "string")
-                    put("maxLength", 200)
-                    put("description", "Case-insensitive substring of the file name.")
-                }
-                putJsonObject("mime") {
-                    put("type", "string")
-                    put("maxLength", 100)
-                    put("description", "Exact MIME type, e.g. application/pdf.")
-                }
-                putJsonObject("modified_after") {
-                    put("type", "integer")
-                    put("description", "Epoch ms. Only files changed at or after this.")
-                }
-                putJsonObject("modified_before") {
-                    put("type", "integer")
-                    put("description", "Epoch ms. Only files changed before this.")
-                }
-                putJsonObject("limit") {
-                    put("type", "integer")
-                    put("minimum", 1)
-                    put("maximum", 100)
-                    put("description", "How many matches to return. Default 25.")
-                }
-            },
+            schema = ToolSchemas.filesSearch,
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
@@ -227,12 +203,7 @@ object V0ToolCatalogue {
             description = "Read the beginning of a text document. Use when the " +
                 "user wants to see or quote what a file says.",
             category = "files",
-            schema = objSchema(required = listOf("uri")) {
-                putJsonObject("uri") {
-                    put("type", "string")
-                    put("description", "content:// document URI from files.list or files.search.")
-                }
-            },
+            schema = ToolSchemas.filesReadText,
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
@@ -247,22 +218,7 @@ object V0ToolCatalogue {
             description = "Write text into a document, or create a new file in " +
                 "Downloads. Use when the user wants a note or answer saved to a file.",
             category = "files",
-            schema = objSchema(required = listOf("content")) {
-                putJsonObject("uri") {
-                    put("type", "string")
-                    put("description", "content:// URI to overwrite. Omit to create a new file.")
-                }
-                putJsonObject("name") {
-                    put("type", "string")
-                    put("maxLength", 120)
-                    put("description", "File name for a new document, e.g. notes.txt.")
-                }
-                putJsonObject("content") {
-                    put("type", "string")
-                    put("maxLength", 20000)
-                    put("description", "The text to write.")
-                }
-            },
+            schema = ToolSchemas.filesWriteText,
             // ESCALATED from REVERSIBLE, deliberately, and it is the only tier
             // change in this change-set.
             //
@@ -291,20 +247,7 @@ object V0ToolCatalogue {
             description = "Delete one document by URI, or by a name matching " +
                 "exactly one file. Use when the user says delete or remove it.",
             category = "files",
-            schema = objSchema {
-                putJsonObject("uri") {
-                    put("type", "string")
-                    put("description", "content:// URI of the single document to delete.")
-                }
-                putJsonObject("name") {
-                    put("type", "string")
-                    put("maxLength", 120)
-                    put(
-                        "description",
-                        "Exact file name. Refused if it matches more than one document.",
-                    )
-                }
-            },
+            schema = ToolSchemas.filesDelete,
             risk = ToolRisk.DESTRUCTIVE,
             tags = setOf(
                 "delete", "remove", "erase", "trash",
@@ -319,19 +262,7 @@ object V0ToolCatalogue {
             description = "List installed apps with their labels and package " +
                 "names. Use when the user asks what apps are on the phone.",
             category = "apps",
-            schema = objSchema {
-                putJsonObject("query") {
-                    put("type", "string")
-                    put("maxLength", 100)
-                    put("description", "Filter by app label or package name.")
-                }
-                putJsonObject("limit") {
-                    put("type", "integer")
-                    put("minimum", 1)
-                    put("maximum", 200)
-                    put("description", "How many apps to return. Default 30.")
-                }
-            },
+            schema = ToolSchemas.appsList,
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
@@ -346,20 +277,7 @@ object V0ToolCatalogue {
             description = "Open one installed app by package name, or by a name " +
                 "matching exactly one app. Use when the user says open or launch it.",
             category = "apps",
-            schema = objSchema {
-                putJsonObject("package") {
-                    put("type", "string")
-                    put("description", "Exact package name, e.g. com.android.chrome.")
-                }
-                putJsonObject("name") {
-                    put("type", "string")
-                    put("maxLength", 100)
-                    put(
-                        "description",
-                        "App label to match, e.g. Maps. Ambiguous names are refused.",
-                    )
-                }
-            },
+            schema = ToolSchemas.appsOpen,
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
                 "open", "launch", "start", "run",
@@ -373,27 +291,7 @@ object V0ToolCatalogue {
             description = "Share a file or text through the Android share sheet. " +
                 "Use when the user says send, share, or forward something to someone.",
             category = "apps",
-            schema = objSchema {
-                putJsonObject("uri") {
-                    put("type", "string")
-                    put("description", "content:// document URI from files.search.")
-                }
-                putJsonObject("text") {
-                    put("type", "string")
-                    put("maxLength", 4000)
-                    put("description", "Plain text to share with no attachment.")
-                }
-                putJsonObject("name") {
-                    put("type", "string")
-                    put("maxLength", 120)
-                    put("description", "Display name of the attachment, used for its MIME type.")
-                }
-                putJsonObject("title") {
-                    put("type", "string")
-                    put("maxLength", 200)
-                    put("description", "Title shown on the share sheet.")
-                }
-            },
+            schema = ToolSchemas.appsShare,
             risk = ToolRisk.EXTERNAL_COMMUNICATION,
             tags = setOf(
                 "share", "send", "forward", "pass to another app",
@@ -411,13 +309,7 @@ object V0ToolCatalogue {
             description = "Read the text currently on the clipboard. Use when " +
                 "the user asks what they copied or what is on the clipboard.",
             category = "clipboard",
-            schema = objSchema {
-                putJsonObject("format") {
-                    put("type", "string")
-                    putJsonArray("enum") { add("text") }
-                    put("description", "Only \"text\" is supported. Defaults to text.")
-                }
-            },
+            schema = ToolSchemas.clipboardRead,
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
@@ -432,21 +324,7 @@ object V0ToolCatalogue {
             description = "Copy text to the device clipboard. Use when the user " +
                 "says copy, cut, or put this on my clipboard.",
             category = "clipboard",
-            schema = objSchema(required = listOf("text")) {
-                putJsonObject("text") {
-                    put("type", "string")
-                    put("maxLength", 20000)
-                    put("description", "The plain text to place on the clipboard.")
-                }
-                putJsonObject("label") {
-                    put("type", "string")
-                    put("maxLength", 60)
-                    put(
-                        "description",
-                        "Short name for the clip, shown in the system clipboard UI.",
-                    )
-                }
-            },
+            schema = ToolSchemas.clipboardWrite,
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
                 "clipboard", "copy", "copy to clipboard", "put on clipboard",
@@ -461,7 +339,7 @@ object V0ToolCatalogue {
             description = "Return the battery percentage, charging state, and " +
                 "time until full or empty. Use when the user asks about power.",
             category = "device",
-            schema = objSchema(),
+            schema = ToolSchemas.deviceBattery,
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
@@ -476,7 +354,7 @@ object V0ToolCatalogue {
             description = "Return the phone model, Android version, screen " +
                 "size, and free storage. Use when the user asks what phone this is.",
             category = "device",
-            schema = objSchema(),
+            schema = ToolSchemas.deviceInfo,
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
@@ -491,15 +369,7 @@ object V0ToolCatalogue {
             description = "Open a system settings screen such as wifi, " +
                 "bluetooth, or battery. Use when the user says open settings.",
             category = "device",
-            schema = objSchema(required = listOf("screen")) {
-                putJsonObject("screen") {
-                    put("type", "string")
-                    putJsonArray("enum") {
-                        SETTINGS_SCREENS.forEach { add(it) }
-                    }
-                    put("description", "Which settings screen to open.")
-                }
-            },
+            schema = ToolSchemas.deviceOpenSettings,
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
                 "open settings", "settings", "wifi settings", "turn on bluetooth",
@@ -513,14 +383,7 @@ object V0ToolCatalogue {
             description = "Vibrate the phone for a moment. Use when the user " +
                 "says vibrate, buzz, ring, or find my phone.",
             category = "device",
-            schema = objSchema {
-                putJsonObject("duration_ms") {
-                    put("type", "integer")
-                    put("minimum", 50)
-                    put("maximum", 5000)
-                    put("description", "How long to buzz in milliseconds. Default 300.")
-                }
-            },
+            schema = ToolSchemas.deviceVibrate,
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
                 "vibrate", "buzz", "vibration", "shake",
@@ -537,43 +400,7 @@ object V0ToolCatalogue {
             description = "Wake the phone at a given time with a one-time " +
                 "alarm. Use when the user says wake me up, ring me at, or set a reminder.",
             category = "alarm",
-            schema = objSchema(required = listOf("hour")) {
-                putJsonObject("hour") {
-                    put("type", "integer")
-                    put("minimum", 0)
-                    put("maximum", 23)
-                    put("description", "Hour in 24-hour time, 0-23.")
-                }
-                putJsonObject("minute") {
-                    put("type", "integer")
-                    put("minimum", 0)
-                    put("maximum", 59)
-                    put("description", "Minute, 0-59.")
-                }
-                putJsonObject("label") {
-                    put("type", "string")
-                    put("maxLength", 60)
-                    put("description", "Short description, e.g. \"take the bread out\".")
-                }
-                putJsonObject("id") {
-                    put("type", "string")
-                    put("maxLength", 60)
-                    put(
-                        "description",
-                        "Stable id used later to cancel this alarm. Generated if omitted.",
-                    )
-                }
-                putJsonObject("day_offset") {
-                    put("type", "integer")
-                    put("minimum", 0)
-                    put("maximum", 7)
-                    put(
-                        "description",
-                        "0 for today, 1 for tomorrow. Omitted, a time already " +
-                            "past today rolls over.",
-                    )
-                }
-            },
+            schema = ToolSchemas.alarmCreate,
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
                 "alarm", "set an alarm", "wake me up", "remind me at",
@@ -587,7 +414,7 @@ object V0ToolCatalogue {
             description = "List the alarms the assistant has set, with their " +
                 "times and labels. Use when the user asks what alarms they have.",
             category = "alarm",
-            schema = objSchema(),
+            schema = ToolSchemas.alarmList,
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
@@ -602,33 +429,7 @@ object V0ToolCatalogue {
             description = "Cancel one alarm the assistant set, by id or by " +
                 "time. Use when the user says cancel, delete, or turn off an alarm.",
             category = "alarm",
-            schema = objSchema {
-                putJsonObject("id") {
-                    put("type", "string")
-                    put("maxLength", 60)
-                    put(
-                        "description",
-                        "Id of the ONE alarm to cancel. Takes precedence over hour/minute.",
-                    )
-                }
-                putJsonObject("hour") {
-                    put("type", "integer")
-                    put("minimum", 0)
-                    put("maximum", 23)
-                    put("description", "Cancel the single alarm at this hour.")
-                }
-                putJsonObject("minute") {
-                    put("type", "integer")
-                    put("minimum", 0)
-                    put("maximum", 59)
-                    put("description", "Cancel the single alarm at this minute.")
-                }
-                putJsonObject("label") {
-                    put("type", "string")
-                    put("maxLength", 60)
-                    put("description", "Cancel the single alarm whose label contains this text.")
-                }
-            },
+            schema = ToolSchemas.alarmCancel,
             // REVERSIBLE, not DESTRUCTIVE: it can only ever cancel one alarm the
             // assistant itself created, and it refuses rather than guessing. A user
             // asked to confirm every single-alarm cancel stops using the feature.
@@ -647,37 +448,7 @@ object V0ToolCatalogue {
                 "and titles. Use when the user asks what is on the calendar or " +
                 "tomorrow's schedule.",
             category = "calendar",
-            schema = objSchema {
-                putJsonObject("date") {
-                    put("type", "string")
-                    put("maxLength", 10)
-                    put(
-                        "description",
-                        "Single day as YYYY-MM-DD. Omit with from/to for a range.",
-                    )
-                }
-                putJsonObject("from") {
-                    put("type", "string")
-                    put("maxLength", 10)
-                    put("description", "Range start as YYYY-MM-DD.")
-                }
-                putJsonObject("to") {
-                    put("type", "string")
-                    put("maxLength", 10)
-                    put("description", "Range end as YYYY-MM-DD.")
-                }
-                putJsonObject("query") {
-                    put("type", "string")
-                    put("maxLength", 100)
-                    put("description", "Match against the event title.")
-                }
-                putJsonObject("limit") {
-                    put("type", "integer")
-                    put("minimum", 1)
-                    put("maximum", 100)
-                    put("description", "How many events to return. Default 20.")
-                }
-            },
+            schema = ToolSchemas.calendarSearch,
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
@@ -692,39 +463,7 @@ object V0ToolCatalogue {
             description = "Create a calendar event with a title and a start " +
                 "time. Use when the user says schedule, book, or block out time.",
             category = "calendar",
-            schema = objSchema(required = listOf("title", "start")) {
-                putJsonObject("title") {
-                    put("type", "string")
-                    put("maxLength", 200)
-                    put("description", "Event title, e.g. \"Dentist\".")
-                }
-                putJsonObject("start") {
-                    put("type", "string")
-                    put("maxLength", 30)
-                    put(
-                        "description",
-                        "Local start as YYYY-MM-DDTHH:MM, e.g. 2026-10-02T16:00.",
-                    )
-                }
-                putJsonObject("end") {
-                    put("type", "string")
-                    put("maxLength", 30)
-                    put(
-                        "description",
-                        "Local end as YYYY-MM-DDTHH:MM. Defaults to an hour after start.",
-                    )
-                }
-                putJsonObject("location") {
-                    put("type", "string")
-                    put("maxLength", 200)
-                    put("description", "Where the event happens.")
-                }
-                putJsonObject("attendee") {
-                    put("type", "string")
-                    put("maxLength", 100)
-                    put("description", "Phone number or email of one attendee.")
-                }
-            },
+            schema = ToolSchemas.calendarCreate,
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
                 "schedule", "book", "add event", "new meeting",
@@ -767,19 +506,7 @@ object V0ToolCatalogue {
             description = "Find contacts by name and return their phone " +
                 "numbers and emails. Use when the user names a person or wants a number.",
             category = "contacts",
-            schema = objSchema(required = listOf("query")) {
-                putJsonObject("query") {
-                    put("type", "string")
-                    put("maxLength", 100)
-                    put("description", "Name to match, first name or last name or both.")
-                }
-                putJsonObject("limit") {
-                    put("type", "integer")
-                    put("minimum", 1)
-                    put("maximum", 25)
-                    put("description", "How many contacts to return. Default 10.")
-                }
-            },
+            schema = ToolSchemas.contactsSearch,
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
@@ -794,13 +521,7 @@ object V0ToolCatalogue {
             description = "Return every stored field for one contact by id. " +
                 "Use when a search found the person but the detail is incomplete.",
             category = "contacts",
-            schema = objSchema(required = listOf("id")) {
-                putJsonObject("id") {
-                    put("type", "string")
-                    put("maxLength", 120)
-                    put("description", "Contact id from contacts.search.")
-                }
-            },
+            schema = ToolSchemas.contactsGet,
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
@@ -817,23 +538,7 @@ object V0ToolCatalogue {
                 "first. Use when the user names an app like WhatsApp, or asks " +
                 "what alerts they missed.",
             category = "notifications",
-            schema = objSchema {
-                putJsonObject("query") {
-                    put("type", "string")
-                    put("maxLength", 100)
-                    put("description", "Match against app name, notification title or body.")
-                }
-                putJsonObject("only_replyable") {
-                    put("type", "boolean")
-                    put("description", "Only notifications that accept a quick reply.")
-                }
-                putJsonObject("limit") {
-                    put("type", "integer")
-                    put("minimum", 1)
-                    put("maximum", 50)
-                    put("description", "How many to return. Default 20.")
-                }
-            },
+            schema = ToolSchemas.notificationsList,
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
@@ -848,21 +553,7 @@ object V0ToolCatalogue {
             description = "Reply to a messaging notification that offers a " +
                 "reply box. Use when the user says answer, reply, or text back.",
             category = "notifications",
-            schema = objSchema(required = listOf("key", "text")) {
-                putJsonObject("key") {
-                    put("type", "string")
-                    put("maxLength", 200)
-                    put(
-                        "description",
-                        "Notification key from notifications.list, e.g. com.whatsapp#2.",
-                    )
-                }
-                putJsonObject("text") {
-                    put("type", "string")
-                    put("maxLength", 2000)
-                    put("description", "The message body to send.")
-                }
-            },
+            schema = ToolSchemas.notificationsReply,
             risk = ToolRisk.EXTERNAL_COMMUNICATION,
             tags = setOf(
                 "reply", "respond", "answer", "text back",
@@ -876,13 +567,7 @@ object V0ToolCatalogue {
             description = "Dismiss one notification from the shade by its key. " +
                 "Use when the user says clear, dismiss, or get rid of it.",
             category = "notifications",
-            schema = objSchema(required = listOf("key")) {
-                putJsonObject("key") {
-                    put("type", "string")
-                    put("maxLength", 200)
-                    put("description", "Notification key from notifications.list.")
-                }
-            },
+            schema = ToolSchemas.notificationsDismiss,
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
                 "dismiss", "clear notification", "swipe away", "silence",
@@ -898,19 +583,7 @@ object V0ToolCatalogue {
                 "Use for weather, news, prices, scores, and any question the " +
                 "phone cannot answer offline.",
             category = "web",
-            schema = objSchema(required = listOf("url")) {
-                putJsonObject("url") {
-                    put("type", "string")
-                    put("maxLength", 2000)
-                    put("description", "Absolute http:// or https:// address of the page.")
-                }
-                putJsonObject("max_chars") {
-                    put("type", "integer")
-                    put("minimum", 200)
-                    put("maximum", 20000)
-                    put("description", "Characters of text to return. Default 4000.")
-                }
-            },
+            schema = ToolSchemas.webFetch,
             risk = ToolRisk.NETWORK_EGRESS,
             // MUST match `WebFetchTool.definition`. `CatalogueAgreement.require`
             // is a hard `check()` at composition, so a mismatch here crashes
