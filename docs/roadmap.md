@@ -11,10 +11,14 @@ box says so rather than staying green.
 
 The agent loop, the tool registry, the llama.cpp backend, the LiteRT-LM backend,
 Room persistence, the Hugging Face download, and the Compose UI are all written
-and **compile**. The app assembles into an installable debug APK. What does
-**not** exist is any automated verification: there is no test suite, no eval
-harness, and no measured performance or RAM number. See
-[`evals.md`](evals.md) and [`build.md`](build.md).
+and **compile**. The app assembles into an installable debug APK.
+
+Automated verification now exists but is thin: 20 pure-JVM JUnit tests over
+three shipped bugs, wired as a required CI job. That is enough to stop the
+specific regressions they pin, and **not** enough to call the harness verified.
+There is still no eval suite, no measured performance or RAM number, and no
+physical-device observation of any kind. See [`evals.md`](evals.md) and
+[`build.md`](build.md).
 
 ---
 
@@ -152,7 +156,7 @@ observation behind it.
 [?] runs completely offline        by design; unverified on a device
 [?] streams responses              implemented; unverified on a device
 [?] constrained tool calls work    implemented; unverified end to end
-[?] 15+ Android operations         22 exist; none verified on a device
+[?] 15+ Android operations         25 exist; none verified on a device
 [?] runtime selects relevant tools implemented; no eval to show it helps
 [?] confirmation for risky actions implemented; unverified
 [?] session persistence            implemented; unverified
