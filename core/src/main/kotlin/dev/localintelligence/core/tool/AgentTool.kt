@@ -1,6 +1,7 @@
 package dev.localintelligence.core.tool
 
 import kotlinx.serialization.json.JsonObject
+import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 
 /**
@@ -12,11 +13,35 @@ enum class ToolRisk {
     REVERSIBLE,
     DESTRUCTIVE,
     EXTERNAL_COMMUNICATION,
+
+    /**
+     * The call leaves the device, or brings untrusted outside text into it.
+     *
+     * WHY A TIER OF ITS OWN RATHER THAN REUSING EXTERNAL_COMMUNICATION: that
+     * tier means "a person or a service will see what the model composed" — it
+     * is reasoned about by the argument inspector, which looks for recipients,
+     * known contacts, and bare-link bodies. None of that reasoning describes a
+     * GET. Worse, the rules attached to it are phrased for a *decision the user
+     * is asked to make about content*, so a fetch inherited its dialog copy and
+     * its justifications, which are then about sending rather than about
+     * visiting.
+     *
+     * A fetch is the mirror image: nothing is composed, and the exposure is the
+     * *destination* plus the fact that the response is third-party text. Naming
+     * that is what lets the justification name the host.
+     *
+     * It cannot be executed unattended. [PolicyConfig.autoExecuteTiers] cannot
+     * widen it, because `RiskPolicy.tierFloor` pins this tier to
+     * `REQUIRE_CONFIRMATION` below any config value.
+     */
+    NETWORK_EGRESS,
     PRIVILEGED,
     ;
 
     val requiresConfirmation: Boolean
-        get() = this == DESTRUCTIVE || this == EXTERNAL_COMMUNICATION
+        get() = this == DESTRUCTIVE ||
+            this == EXTERNAL_COMMUNICATION ||
+            this == NETWORK_EGRESS
 }
 
 data class ToolDefinition(
@@ -28,6 +53,22 @@ data class ToolDefinition(
     val tags: Set<String> = emptySet(),
     /** Android permission this tool needs, or null if none. Documentation + UI only. */
     val requiredPermission: String? = null,
+    /**
+     * How much the CONTENT of this tool's observations can be believed.
+     *
+     * Declared here, on the definition, rather than passed per call: the tool
+     * definition is the reviewed, catalogue-checked artefact, so this is a
+     * claim a maintainer makes once and a tool cannot assert for itself at
+     * runtime. `CatalogueAgreement` fails the build when the catalogue and the
+     * tool disagree about it.
+     *
+     * Defaults to [ObservationOrigin.NETWORK], the pessimistic reading, so a
+     * newly added network tool is fenced as hostile until someone says
+     * otherwise. The fencing itself is unconditional and does not depend on
+     * this being right — see
+     * [dev.localintelligence.core.model.UntrustedContent.neutralise].
+     */
+    val observationOrigin: ObservationOrigin = ObservationOrigin.NETWORK,
 )
 
 /**

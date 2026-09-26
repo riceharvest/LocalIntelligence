@@ -43,13 +43,45 @@ sealed interface ChatMessage {
     data class Assistant(val text: String) : ChatMessage
     /**
      * A tool result fed back to the model. [observation] is the ONLY part the
-     * model ever sees — it is already truncated and model-facing.
+     * model ever sees — it is already truncated, neutralised and model-facing.
+     *
+     * ## WHY [origin] LIVES ON THE TYPE, AND NOT ON THE RENDERING
+     *
+     * The point of the boundary is that no code path can mistake this for an
+     * instruction *by forgetting to pass a flag*. Two properties do the work:
+     *
+     *  1. Being a distinct variant of [ChatMessage] means a tool result can
+     *     never be confused with a [User] or [System] turn — every `when` over
+     *     the sealed interface has to handle it, and none of those branches
+     *     grants it authority.
+     *  2. [origin] is set once, at construction, by
+     *     [dev.localintelligence.core.agent.Session] from the *tool's* declared
+     *     origin. It is not a rendering decision, so a consumer cannot
+     *     "forget" it and silently drop the fence.
+     *
+     * Defaults to [ObservationOrigin.NETWORK] so that any construction site
+     * added later without thinking about it gets the hostile reading.
      */
     data class ToolObservation(
         val toolName: String,
         val observation: String,
         val success: Boolean,
-    ) : ChatMessage
+        val origin: ObservationOrigin = ObservationOrigin.NETWORK,
+    ) : ChatMessage {
+        /**
+         * What the model is actually shown: [observation] inside the untrusted
+         * fence, with its structural markers neutralised.
+         *
+         * Both backends, the token counters, and the window printer go through
+         * here rather than reading [observation] directly. The reason to be
+         * this strict about a single accessor is that the fence is not
+         * cosmetic: it is the difference between the model reading quoted page
+         * text and the model reading a user turn. A second code path that
+         * renders the raw body is a second, silent hole.
+         */
+        fun modelFacing(): String =
+            UntrustedContent.fence(toolName, observation, success, origin)
+    }
 }
 
 data class SamplingParams(
