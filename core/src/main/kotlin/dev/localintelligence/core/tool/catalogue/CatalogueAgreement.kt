@@ -6,26 +6,15 @@ import dev.localintelligence.core.tool.ToolDefinition
 /**
  * The catalogue/registry agreement check, in BOTH directions, as data.
  *
- * ## Why this exists
+ * `requireCatalogueAgreement` in `:android` (see `AndroidTools.kt`) checks ONE
+ * direction: every shipped tool has a catalogue entry. The direction that
+ * matters more is the other one — **a catalogue entry with no implementation
+ * behind it** — because "in the catalogue" and "exists" are different claims.
  *
- * `requireCatalogueAgreement` in `:android` (see `AndroidTools.kt`) checks one
- * direction: that every shipped tool has a catalogue entry. It caught nothing
- * in this direction for a long time, which is correct, because the shipped set
- * was complete. The direction it does NOT check is the one that produced a real
- * defect: **a catalogue entry with no implementation behind it**.
+ * ## How bad is an unimplemented catalogue entry, honestly
  *
- * `calendar.delete` sat in [V0ToolCatalogue] from the day the catalogue was
- * written until this change, with a full description, a JSON Schema, a risk
- * tier of DESTRUCTIVE, tags written for retrieval, and
- * `requiredPermission = WRITE_CALENDAR` — and no class anywhere implemented it.
- * Nothing failed. The one-directional check passed, because "in the catalogue"
- * and "exists" are different claims and only one of them was being tested.
- *
- * ## How bad is it, honestly
- *
- * Less than it looks at run time, and that is worth being precise about rather
- * than alarming. The grammar and the system prompt are both built from the
- * *registry*, never from the catalogue:
+ * Less than it looks at run time. The grammar and the system prompt are both
+ * built from the *registry*, never from the catalogue:
  *
  * ```
  * AgentController.buildRequest(visible)                         // AgentController.kt
@@ -33,16 +22,16 @@ import dev.localintelligence.core.tool.ToolDefinition
  *   -> contextBuilder.build(..., visible.map { it.definition })
  * ```
  *
- * `visible` is a subset of the registry, so a catalogued-only tool was never
- * offered to the model and could never be called. The blast radius of
- * `calendar.delete` was therefore documentation, a `byName()` that returns a
- * definition for a tool that does not exist, and a catalogue that claimed
- * 26 tools while the app ships 25. The dangerous version of this bug is the one
- * that is one refactor away: any code that builds a prompt, a grammar or a
- * permission screen from [V0ToolCatalogue] would offer a tool that cannot
- * execute, and the model would call it and get a validation failure.
+ * `visible` is a subset of the registry, so a catalogued-only tool is never
+ * offered to the model and can never be called. Its blast radius is
+ * documentation, a `byName()` that returns a definition for a tool that does
+ * not exist, and a catalogue that claims a capability the app lacks.
  *
- * This check closes the class, so that version cannot arrive either.
+ * The dangerous version is the one that is a single refactor away: any code
+ * that builds a prompt, a grammar or a permission screen from
+ * [V0ToolCatalogue] would offer a tool that cannot execute, and the model would
+ * call it and get a validation failure. This check closes the class, so that
+ * version cannot arrive either.
  *
  * ## What is checked, and what is deliberately not
  *
@@ -53,22 +42,8 @@ import dev.localintelligence.core.tool.ToolDefinition
  *    reference to agree with; the second means the catalogue is lying about
  *    what the product can do.
  *  - **Risk tier**, against the catalogue as the reference. Risk is the one
- *    field that must never drift, because [dev.localintelligence.core.policy.RiskPolicy]
- *    reads `definition.risk` to decide whether a call runs unattended, confirms
- *    or is refused. A tool that declared REVERSIBLE while the catalogue said
- *    DESTRUCTIVE would be auto-executed, and no green build would notice.
- *  - **Category.** A tool filed under a category the catalogue does not define
- *    cannot be looked up by anyone reasoning from the catalogue, and a category
- *    that exists in the catalogue but holds nothing is a claim about the product
- *    that is not true.
- *
- * NOT checked: description, tags, and schema properties. Those legitimately
- * differ between the two sides — the `:android` descriptions carry argument
- * documentation and the tag sets were reworked per tool — and the shipped
- * prompt is built from the *Android* side, so forcing the catalogue onto it
- * would delete working text and break `execute()`. That asymmetry is recorded
- * rather than hidden: see [V0ToolCatalogue]'s own note that its description
- * text never reaches a model.
+ *    field that must never drift, because
+ *    [dev.localintelligence.core.policy.RiskPolicy] gates on it.
  */
 data class CatalogueDrift(
     /** Shipped tools with no catalogue entry. */

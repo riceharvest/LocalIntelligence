@@ -12,20 +12,6 @@ import dev.localintelligence.core.agent.StepTrace
 /**
  * Writes what a scheduled run actually did into [dev.localintelligence.app.data.ScheduledTask.lastResult].
  *
- * ## The bug this exists to close
- *
- * A scheduled task fired, the agent ran, the model produced an answer — and
- * the schedule screen said `Started.` forever, because the fire path wrote
- * that string and nothing ever overwrote it. The answer was computed and
- * thrown away. `ScheduledTask.lastResult` existed, was persisted, and had
- * exactly two writers, both of which fired *before* the run did anything:
- *
- *  - `ScheduledTaskFireReceiver.advanceSchedule` wrote `Started.`
- *  - and, for a one-shot, `Ran. This was a one-time task…`
- *
- * Neither of those is a result. Both are a prediction, written by the thing
- * that starts the run about the run it has not seen yet.
- *
  * ## Why this reads `RunState` instead of `AgentResult`
  *
  * `AgentViewModel.publish` has already flattened the sealed `AgentResult` onto
@@ -35,17 +21,16 @@ import dev.localintelligence.core.agent.StepTrace
  *
  * ## Why a refusal is read out of the trace
  *
- * `AgentController.refuse` (`:core`, the file this project does not own)
- * returns `null` for a `PolicyOutcome.BLOCK`. A refused tool call does **not**
- * end the run: the justification is handed to the model as an observation and
- * the loop continues, so the model may still go on to answer. There is
- * therefore no terminal "refused" state to read — [RunOutcome] has no such
- * case, and inventing one would mean editing `:core`.
+ * `AgentController.refuse` returns `null` for a `PolicyOutcome.BLOCK`. A refused
+ * tool call does **not** end the run: the justification is handed to the model
+ * as an observation and the loop continues, so the model may still go on to
+ * answer. There is therefore no terminal "refused" state to read — [RunOutcome]
+ * has no such case.
  *
  * What *is* observable is the trace entry `refuse` writes:
  *
  * ```
- * StepTrace(step, TOOL_CALL, "refused <tool>: <rule> — <justification>", success = false, toolName = <tool>)
+ * StepTrace(step, TOOL_CALL, "refused <tool>: <rule> - <justification>", success = false, toolName = <tool>)
  * ```
  *
  * So a refusal is reported when a run finished **without an answer** and its
@@ -57,26 +42,7 @@ import dev.localintelligence.core.agent.StepTrace
  * ## The five outcomes
  *
  * Distinguished because a user who scheduled a task and cannot tell success
- * from failure has no way to trust the feature:
- *
- * | Outcome  | Terminal signal                          | Field written           |
- * |----------|------------------------------------------|-------------------------|
- * | answer   | `RunOutcome.Answer`                      | `Answered: …`           |
- * | refused  | no answer + a refusal in the trace       | `Refused: …`            |
- * | cancelled| `RunOutcome.Cancelled` / CANCELLED_REASON| `Cancelled: …`          |
- * | failed   | `RunOutcome.Failed` / `StepLimitReached`  | `Failed: …`             |
- * | no run   | readiness recorded and not runnable       | `Did not run: …`        |
- *
- * ## Why the row is re-read instead of cached
- *
- * Deleting or pausing a task while it runs must not be undone by its own
- * result landing. Both operations happen *after* the run captured the task, so
- * writing a captured copy back would resurrect a deleted task and re-enable a
- * paused one. The store is the only current truth, so the row is re-read and
- * only [dev.localintelligence.app.data.ScheduledTask.lastResult] is replaced.
- * A row that is gone is a task the user deleted, and it is left gone: a
- * deleted task is not brought back by the report of the run it was deleted
- * during.
+ * from failure has no way to trust the feature.
  */
 internal object ScheduledRunReporter {
 

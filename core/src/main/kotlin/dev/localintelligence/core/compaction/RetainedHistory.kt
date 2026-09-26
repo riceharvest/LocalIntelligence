@@ -8,17 +8,15 @@ import dev.localintelligence.core.model.ChatMessage
  *
  * ## Why this exists when a compaction trigger already exists
  *
- * A session that dies with its run cannot outgrow anything: the loop's
- * `compactIfNeeded` fires at 0.65 of the model's window and folds the tail into
- * a [dev.localintelligence.core.context.CompactedState]. That trigger bounds
+ * The loop's `compactIfNeeded` fires at 0.65 of the model's window and folds the
+ * tail into a [dev.localintelligence.core.context.CompactedState]. That bounds
  * what the MODEL is asked to prefill. It does not bound what the PROCESS holds.
  *
- * The two are different questions and only one of them had an answer. A run is
- * capped at `AgentConfig.maxSteps` (8) and so contributes at most a task turn, a
- * final answer, and two messages per step - 18 in the worst case. A session that
- * outlives its run therefore grows by up to 18 messages per conversation, and
- * the token trigger only looks at the total once a loop is already running. A
- * long day of activity on a device whose primary metric is RAM is exactly the
+ * A run is capped at `AgentConfig.maxSteps` (8) and so contributes at most a task
+ * turn, a final answer, and two messages per step — 18 in the worst case. A
+ * session outlives its run, so it grows by up to 18 messages per conversation,
+ * and the token trigger only looks at the total once a loop is already running.
+ * A long day of activity on a device whose primary metric is RAM is exactly the
  * case where nothing is looking.
  *
  * ## The bound, and the number
@@ -28,7 +26,7 @@ import dev.localintelligence.core.model.ChatMessage
  *
  *  - it must exceed the worst case of ONE run (18) or a run would evict its own
  *    task before finishing. 32 does, with room for a second run's worth of
- *    history so the model can see what it was already told - which is the entire
+ *    history so the model can see what it was already told — which is the entire
  *    reason the session is shared.
  *  - it must not be large enough for the count to matter as a sum of runs. At
  *    32 the working window is two conversations deep, so the steady state is a
@@ -46,28 +44,6 @@ import dev.localintelligence.core.model.ChatMessage
  * from the code is the shape: at most [MAX_RETAINED_MESSAGES] messages, each
  * carrying at most one truncator-budget of model-visible text. The byte cost of
  * that is unmeasured and is not estimated here.
- *
- * ## What the trim loses, said plainly
- *
- * The dropped messages are gone from the live session. A durable store does
- * exist and is now wired (`AppContainer.sessionStore` reaches
- * `RoomSessionStore` via `durableSessionStore`), so trimmed turns survive
- * process death — but they are not re-injected into the model's context, so the
- * cap is still lossy for anything older than the retained window. That is a
- * real cost of bounding memory on a phone and is preferred to not bounding it.
- * It is also why the cap is set at two conversations rather than one.
- *
- * ## What is never dropped
- *
- * The anchor at index 0. Under a SHARED, MULTI-RUN session this is the
- * FIRST-EVER task, not the current one — an older assumption from when each run
- * got a fresh Session, and it no longer describes what is being anchored.
- * question nobody asked. User turns are then re-admitted ahead of the oldest
- * kept turn, for the same reason the loop's step gate refuses to drop an
- * instruction (`AgentController.dropOldestTurn`): instructions are the last
- * thing this system gives up. When the window is nothing but user turns the cap
- * wins, because something has to give and the newest is the most useful thing to
- * keep.
  */
 object RetainedHistory {
 
