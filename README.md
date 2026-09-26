@@ -13,10 +13,23 @@ install APK
   -> the agent calls Android APIs, remembers what matters, and answers
 ```
 
-**Runs fully on-device. No account, no server, no telemetry.** Nothing the model
-reads or writes leaves the phone. The only network code in this repository is
-the Hugging Face Hub downloader, and it fetches model files — it never uploads
-anything. See [docs/hf-hub-download.md](docs/hf-hub-download.md).
+**Runs fully on-device. No account, no server, no telemetry.** Inference is
+entirely local, and the app has no analytics or crash reporting. Two features do
+use the network, both of them opt-in and neither silent:
+
+- **Model downloads** go to the Hugging Face Hub and only fetch files. Nothing
+  is ever uploaded. See [docs/hf-hub-download.md](docs/hf-hub-download.md).
+- **`web.fetch`** is a tool the model can call, and it can reach any public
+  HTTP(S) address — which means any text it puts in a URL is sent to that host.
+  It refuses loopback, private, and link-local addresses, but a model can still
+  fetch a hostile page, and that page's contents re-enter the conversation as
+  untrusted data. See [docs/threat-model.md](docs/threat-model.md) for what
+  that does and does not protect against.
+
+Nothing else in the app opens a socket, and no conversation content, memory,
+file, contact, or calendar entry is transmitted by the app itself. If you do
+not want the model making outbound requests at all, do not install a model that
+has the `web.fetch` tool available.
 
 ---
 

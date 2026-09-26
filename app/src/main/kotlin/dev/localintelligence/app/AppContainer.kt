@@ -459,6 +459,29 @@ class AppContainer(private val context: Context) {
     val modelBackend: ModelBackend by lazy { LlamaCppBackend(importer) }
 
     /**
+     * The backend that ACTUALLY loaded the resident model, or null when nothing
+     * is loaded.
+     *
+     * WHY THIS IS NOT JUST `backendFor(selectedModel)`: routing happened in
+     * `loadModel`, on a local `val`, and was thrown away when that function
+     * returned. `newController` then fell back to its `modelBackend` default —
+     * hardcoded `LlamaCppBackend` — so a `.litertlm` was correctly LOADED into
+     * the LiteRT backend and then GENERATED through llama.cpp. Every stage of
+     * the pipeline was individually correct and the assembled path was wrong,
+     * which is precisely the failure mode this repository keeps hitting and
+     * which no compiler can catch: both types are `ModelBackend`.
+     *
+     * Set from the same `val` that is handed to `load`, so the runtime that
+     * loads and the runtime that generates cannot disagree by construction.
+     * Cleared when the model is cleared.
+     */
+    @Volatile
+    private var loadedBackend: ModelBackend? = null
+
+    /** The backend holding the loaded model, for the controller that will run. */
+    fun residentBackend(): ModelBackend = loadedBackend ?: modelBackend
+
+    /**
      * Chooses the runtime from the model's own bytes.
      *
      * WHY THIS EXISTS: modelBackend above is hardcoded to llama.cpp, which made
@@ -568,6 +591,10 @@ class AppContainer(private val context: Context) {
         // a GGUF needs llama.cpp, and loadModel is the only place that knows
         // which file it was handed.
         val backend = backendFor(model)
+        // Recorded HERE, at the only place the decision is made, and read by
+        // newController. Previously the decision lived and died in this
+        // function, so generation silently fell back to llama.cpp.
+        loadedBackend = backend
         backend.load(
             ModelSpec(
                 // The backend opens this as a URI; see LlamaCppBackend.load.
@@ -677,7 +704,7 @@ class AppContainer(private val context: Context) {
      * at the two `ExecutionService.startRun` call sites; see [runGate].
      */
     fun newController(
-        model: ModelBackend = modelBackend,
+        model: ModelBackend = residentBackend(),
         metrics: RunRecorder? = null,
         onToken: ((String) -> Unit)? = null,
     ): AgentController = AgentController(

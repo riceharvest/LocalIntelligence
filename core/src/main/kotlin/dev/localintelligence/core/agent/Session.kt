@@ -122,11 +122,27 @@ class Session(
      * observations. `docs/architecture.md` §11 — lexical only, no embeddings.
      */
     fun currentKeywords(): List<String> {
+        // ONLY the user's own words feed tool selection.
+        //
+        // This previously appended the last two ToolObservations as well, which
+        // closed an exfiltration chain: a hostile page fetched by web.fetch
+        // becomes an observation, its text steers retrieval, retrieval decides
+        // which tools the GRAMMAR exposes, and an omitted tool is not merely
+        // discouraged but literally uncallable. A page that read like "documents
+        // files search read contents" could therefore promote files.read_text
+        // into the grammar on the next turn and have the model emit a perfectly
+        // valid call. Untrusted text selecting a tool is the trust boundary
+        // being crossed, not a prompt-injection detail.
+        //
+        // The task itself is passed to the selector separately by
+        // AgentController.selectTools, so dropping observations here loses no
+        // signal about what the user asked for.
+        //
+        // Latest user turn, not first: the session is shared and multi-run, so
+        // `firstOrNull` returned the FIRST-EVER request, which stops describing
+        // the current turn after the first run.
         val source = buildString {
-            messages.filterIsInstance<ChatMessage.User>().firstOrNull()?.let { append(it.text) }
-            messages.filterIsInstance<ChatMessage.ToolObservation>()
-                .takeLast(2)
-                .forEach { append(' ').append(it.observation) }
+            messages.filterIsInstance<ChatMessage.User>().lastOrNull()?.let { append(it.text) }
         }
         return source.lowercase()
             .split(Regex("[^a-z0-9]+"))

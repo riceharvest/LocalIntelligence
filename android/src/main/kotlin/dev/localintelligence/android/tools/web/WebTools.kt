@@ -302,7 +302,90 @@ internal object WebUrls {
                     "$ALLOWED to public addresses only.",
             )
         }
+        // ADDRESSES, not just names. Everything above filters host NAMES, so
+        // every IP literal walked straight through: 127.0.0.1, 10.0.0.1,
+        // 192.168.1.1 and 169.254.169.254 all have dots and no special suffix.
+        // That made web.fetch a model-controlled probe of the device's own
+        // network and the link-local cloud metadata address, reachable from an
+        // unattended READ_ONLY tool.
+        //
+        // `localhost` was also explicitly permitted one branch above, which is
+        // the same reachability with a shorter name. Both are refused here.
+        rejectNonPublicAddress(host)?.let { return it }
         return UrlVerdict.Accepted(url, host.lowercase(), addedScheme)
+    }
+
+    /**
+     * Refuses any host that is a literal non-public IP address.
+     *
+     * Returns null for public addresses and for host names — a name cannot be
+     * classified without resolving it, and resolving here would open its own
+     * TOCTOU window between the check and the connection.
+     *
+     * KNOWN LIMIT, stated rather than hidden: this is address TEXT matching. A
+     * public name that resolves to 127.0.0.1 or 169.254.169.254 still passes,
+     * because nothing here resolves DNS. Closing that properly means pinning
+     * the resolved address and connecting to the pinned IP with a matching Host
+     * header, or re-validating after each redirect hop; both are larger changes
+     * than this one and are not made here. Until they are, web.fetch should be
+     * treated as able to reach hosts the resolver chooses — see the threat
+     * model in docs/threat-model.md.
+     */
+    private fun rejectNonPublicAddress(host: String): UrlVerdict.Rejected? {
+        if (host == "localhost" || host.endsWith(".localhost")) {
+            return UrlVerdict.Rejected(
+                "\"$host\" is this device. $ALLOWED to public addresses only.",
+            )
+        }
+        val literal = host.removeSurrounding("[", "]")
+        // NEVER call InetAddress.getByName here: it performs a real DNS lookup,
+        // so validation would block on the network and a public name would be
+        // resolved (then raced against the actual connection). Only a strict
+        // numeric-IPv4-or-IPv6 LITERAL is parsed, with no resolver involved.
+        val bytes = parseIpv4Literal(literal) ?: return null
+        val b0 = bytes[0].toInt() and 0xff
+        val b1 = bytes[1].toInt() and 0xff
+        when {
+            b0 == 127 -> "loopback"
+            b0 == 10 -> "private (10/8)"
+            b0 == 172 && b1 in 16..31 -> "private (172.16/12)"
+            b0 == 192 && b1 == 168 -> "private (192.168/16)"
+            b0 == 169 && b1 == 254 -> "link-local, which is where cloud instance metadata lives"
+            b0 == 0 -> "unspecified"
+            b0 >= 224 -> "multicast or reserved"
+            else -> return null
+        }.let { kind ->
+            return UrlVerdict.Rejected(
+                "\"$host\" is a $kind address. $ALLOWED to public addresses only.",
+            )
+        }
+    }
+
+    /**
+     * Strict dotted-quad IPv4 parser: four 0-255 decimal octets, nothing else.
+     *
+     * Returns the 4 bytes, or null if [literal] is not exactly a numeric IPv4
+     * address. This is the ONLY place a host string becomes bytes, and it is
+     * resolver-free by construction, so validation stays offline and
+     * side-effect-free.
+     */
+    private fun parseIpv4Literal(literal: String): ByteArray? {
+        val parts = literal.split('.')
+        if (parts.size != 4) return null
+        val bytes = ByteArray(4)
+        for (i in 0 until 4) {
+            val part = parts[i]
+            // Reject empty, over-long, non-digit, and leading-zero forms. A
+            // leading zero is treated as ambiguous (octal-looking) and refused
+            // rather than guessed at.
+            if (part.isEmpty() || part.length > 3) return null
+            if (!part.all { it in '0'..'9' }) return null
+            if (part.length > 1 && part[0] == '0') return null
+            val value = part.toIntOrNull() ?: return null
+            if (value !in 0..255) return null
+            bytes[i] = value.toByte()
+        }
+        return bytes
     }
 
     /** Security level of a scheme. Plaintext is 0, TLS is 1. */

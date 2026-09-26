@@ -166,9 +166,47 @@ class DefaultContextBuilder(
             val first = history[start]
             if (first is ChatMessage.User && first.text == task) start++
         }
-        if (start >= history.size) return emptyList()
-        val from = maxOf(start, history.size - ContextLimits.MAX_HISTORY_SCAN)
-        return history.subList(from, history.size)
+        // The current task is ALSO appended to the shared session, so it is
+        // normally the LAST user turn in history, not the first one. The check
+        // above only ever examined index `start`, which under a shared session
+        // is the first-ever turn — so from run 2 onward the builder emitted:
+        //
+        //     User(task)      <- added explicitly, as the live instruction
+        //     User(task 1) / Assistant(a1) / User(task 2)   <- history
+        //
+        // i.e. the live instruction appeared TWICE, once first and once last.
+        // For a 1-4B model that is not a token-budget nuisance: the duplicated
+        // instruction is the most recent thing in the context and gets the
+        // strongest positional weight, so the model follows the older copy.
+        //
+        // Drop the trailing run of user messages equal to the current task —
+        // `Session.start` appends exactly one, but matching a trailing block
+        // costs nothing and is robust to a future that appends the preamble
+        // before it.
+        val historyEnd = trimTrailingCurrentTask(history, start, task)
+        if (start >= historyEnd) return emptyList()
+        val from = maxOf(start, historyEnd - ContextLimits.MAX_HISTORY_SCAN)
+        return history.subList(from, historyEnd)
+    }
+
+    /**
+     * Index one past the last historical message that is not a repeat of the
+     * current task, scanning back from the end of history.
+     *
+     * Never scans past [floor]: a summary or genuine earlier turn with the same
+     * text is history worth keeping.
+     */
+    private fun trimTrailingCurrentTask(
+        history: List<ChatMessage>,
+        floor: Int,
+        task: String,
+    ): Int {
+        var end = history.size
+        while (end > floor) {
+            val message = history[end - 1]
+            if (message is ChatMessage.User && message.text == task) end-- else break
+        }
+        return end
     }
 
     /**

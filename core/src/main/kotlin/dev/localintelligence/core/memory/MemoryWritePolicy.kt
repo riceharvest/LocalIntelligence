@@ -143,6 +143,22 @@ object MemoryWritePolicy {
         // A turn carrying several lines is a transcript, not a fact.
         if (text.count { it == '\n' } > 2) return null
 
+        // HARD EXCLUSION, checked before any importance scoring below.
+        //
+        // CREDENTIAL is not a "this looks important" signal here — it matches a
+        // turn that literally contains a secret ("my wifi password is X"), which
+        // makes it a precise detector for the one thing that must never be
+        // persisted. Scoring it at IMPORTANCE_CREDENTIAL (0.9, the HIGHEST tier
+        // in the file) meant the policy worked hard to keep the user's plaintext
+        // credentials in durable memory forever, and ranked them above their
+        // own name and address.
+        //
+        // Memory is plain Room SQLite. The HF token goes to the Keystore; this
+        // did not, so the two had opposite security postures for the same
+        // product claim. Deleting the source is the only exclusion that cannot
+        // be bypassed by a later refactor — there is nothing left to restore.
+        if (CREDENTIAL.containsMatchIn(text)) return null
+
         val importance = when {
             CREDENTIAL.containsMatchIn(text) -> IMPORTANCE_CREDENTIAL
             IDENTITY.containsMatchIn(text) -> IMPORTANCE_IDENTITY

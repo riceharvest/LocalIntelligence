@@ -20,6 +20,25 @@ dependencies {
     api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.serialization.json)
 
+    // Pure-JVM unit tests ONLY. This is a `testImplementation` and it never
+    // touches the main classpath, so the pure-JVM boundary of :core is
+    // unaffected.
+    //
+    // Restored deliberately after an earlier blanket deletion, and scoped hard:
+    // every test here is deterministic, in-process, and needs no Android device
+    // and no model — the same class of code the deleted "agent E2E" suite
+    // pretended to cover while never performing a real task. What is tested is
+    // the part that is pure logic: URL validation, context ordering, memory
+    // policy, routing, token budgeting, run-gate arbitration. The bugs that
+    // actually shipped in this project (a task duplicated in the prompt, a
+    // backend that loaded under one runtime and generated under another,
+    // credentials scored as high-priority memory) are all catchable here in
+    // under five lines each. See docs/threat-model.md and the note in AGENTS.md.
+    //
+    // There is no androidTest source set and there should not be one: device
+    // verification is a separate, manual, explicitly-not-automated gate.
+    testImplementation(libs.junit)
+
 }
 
 tasks.withType<Test>().configureEach {
