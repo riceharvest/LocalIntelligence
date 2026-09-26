@@ -172,6 +172,26 @@ class AgentController(
      * eval harness and a device-specific ceiling both need.
      */
     private val stepEnforcer: StepEnforcer? = null,
+    /**
+     * Offers finished user turns to durable memory, or null to record nothing.
+     *
+     * WHY NULLABLE WHEN [riskPolicy] IS NOT: [riskPolicy]'s default is a real
+     * instance because a controller built without it would run UNGATED, and
+     * running ungated is a safety failure. Not recording a turn is the
+     * behaviour this repository has had since the beginning, so a null
+     * recorder is a missing feature rather than a missing safety gate, and
+     * making it non-null would have meant editing every construction site of
+     * every `MemoryStore` in three modules. See [TurnRecorder] for the seam and
+     * `AppContainer.newController` for the one place that passes it.
+     *
+     * THE APP MUST PASS THIS. `:core` cannot reach the durable store on its own
+     * — the delegate lives in `:android` — so "the app forgot to pass a
+     * recorder" is a real and silent failure mode, and it is exactly the one
+     * that made this feature dead code: the loop could read a memory it had no
+     * way to form. The write itself is bounded by `MemoryWritePolicy`, so a
+     * wired recorder cannot turn every turn into a row.
+     */
+    private val turnRecorder: TurnRecorder? = null,
 ) {
     /**
      * Run state. It outlives a single call because
@@ -463,6 +483,10 @@ class AgentController(
                     when (val action = parsed.action) {
                         is AgentAction.Respond -> {
                             sessions.appendAssistant(action.text)
+                            // The one place a turn is offered to durable memory.
+                            // See [rememberTurn] for why it is here and nowhere
+                            // else.
+                            rememberTurn()
                             return AgentResult.Success(action.text, trace.toList())
                         }
 
@@ -1274,6 +1298,92 @@ class AgentController(
         throw e
     } catch (t: Throwable) {
         Stop("internal error: ${t::class.java.simpleName}: ${t.message}", trace.toList())
+    }
+
+    /**
+     * Offers this run's user turn to durable memory. Called from exactly one
+     * place: the `AgentAction.Respond` branch, which is where a run ENDS with
+     * an answer.
+     *
+     * ## WHY HERE, AND NOT ON EVERY TURN
+     *
+     * Three points in this loop could host a write, and only this one is
+     * defensible.
+     *
+     * **Not in [run]**, next to `sessions.start(task)`. That is the first thing
+     * a run does, so it is the most convenient line in the file, and it is
+     * wrong: it fires before the model has seen the turn, before any tool has
+     * run, and — because it is the first line — it fires for runs that then
+     * produce no answer at all. A user who typed "my wifi password is X" into
+     * a run that immediately hit the step limit would have that row written
+     * even though the run never concluded. What makes a statement worth keeping
+     * is that the exchange around it finished, and at `start` it has not.
+     *
+     * **Not in [buildRequest]**, where memory is READ. That is tempting because
+     * the read is right there and one method would then own both halves. It is
+     * wrong in the direction that matters most: `buildRequest` runs once per
+     * STEP, so a capped eight-step run would offer the same turn eight times,
+     * and every one of those offers is a row. This is the "remember every turn"
+     * failure `MemoryWritePolicy` was written to prevent, arriving through the
+     * other door. `buildRequest` reads a *different* turn's memories too — it
+     * queries with `task`, but a multi-step run's later steps query the same
+     * task, so the read side already has the step-multiplicity property the
+     * write side must not have.
+     *
+     * **Here**, on the `Respond` branch. `Respond` ends the task immediately
+     * (invariant 3 above), so this is reached at most ONCE per run however many
+     * steps it took: a one-step run and an eight-step run each produce exactly
+     * one offer. It is reached only when the run produced an answer, so a
+     * cancelled run, a `Stop`, an `AwaitingConfirmation` and a step-limit exit
+     * all record nothing. And it is reached after `sessions.appendAssistant`, so
+     * the session has the whole exchange by the time the decision to remember
+     * is made.
+     *
+     * ## WHY THE USER'S TEXT AND NOT THE ANSWER
+     *
+     * `task` is the user's own words. `action.text` — the model's reply — is
+     * not passed, and [TurnRecorder]'s KDoc says why at length: a model asked
+     * for a password will supply one, and storing that would promote a
+     * hallucination into a fact every later query re-asserts. The user saying
+     * "my wifi password is X" is evidence; the model saying "your wifi password
+     * is X" is a repeat of the question.
+     *
+     * ## WHY IT IS AWAITED RATHER THAN FIRED AND FORGOTTEN
+     *
+     * The write is a suspending database insert on the run's own coroutine, so
+     * it completes before `AgentResult.Success` is returned and before the UI
+     * is told the run finished. That costs one insert on a run that has already
+     * spent seconds decoding, and it buys a guarantee a detached coroutine
+     * cannot: the store is never written by a coroutine whose scope the service
+     * tears down in `onDestroy`, which is the normal ending for a foreground
+     * service. A memory written on a scope that is cancelled microseconds later
+     * is a memory that exists or does not depending on a race the user cannot
+     * see. It is also bounded: `MemoryWritePolicy` rejects a turn that is not a
+     * first-person declarative fact, so the common case is one regex and no
+     * write at all.
+     *
+     * ## WHY A FAILED WRITE IS NOT A FAILED RUN
+     *
+     * Everything but [CancellationException] is swallowed. A memory write is
+     * bookkeeping on a conversation that has already succeeded, and the answer
+     * is in the user's hands — trading it for a failed insert would be
+     * discarding real work for a cosmetic step. `CancellationException` is
+     * rethrown, because that is structured concurrency arriving from outside
+     * and the standing project rule is that it stays cancellation.
+     */
+    private suspend fun rememberTurn() {
+        val recorder = turnRecorder ?: return
+        try {
+            recorder.recordTurn(task)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            // See above: the run has already produced its answer. The delegate
+            // is a ResilientMemoryStore, which degrades to RAM rather than
+            // throwing, so reaching this is not an expected path — but the cost
+            // of being wrong here is a lost memory, and the cost of being wrong
+            // the other way is a user who loses an answer.
+        }
     }
 
     private companion object {
