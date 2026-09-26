@@ -40,6 +40,7 @@ import dev.localintelligence.android.hub.ModelDownloader
 import dev.localintelligence.android.hub.UrlConnectionTransport
 import dev.localintelligence.app.ui.HubViewModel
 import java.io.File
+import dev.localintelligence.core.tool.redaction.RedactingToolRegistry
 
 /**
  * The DI system. `docs/architecture.md` §3: *"If you need a dependency injected,
@@ -96,7 +97,16 @@ class AppContainer(private val context: Context) {
      * resolved, and no model is touched — the RAM budget of §16 is untouched by
      * a few kilobytes of definition objects.
      */
-    val tools: ToolRegistry by lazy { SimpleToolRegistry(androidTools(context)) }
+    val tools: ToolRegistry by lazy {
+        // Wrapped, not replaced: every observation the loop sees is filtered
+        // here, at the moment it is born, BEFORE the model reads it. Filtering
+        // after the answer would leave the model holding a secret the transcript
+        // no longer shows, which is worse than no filter at all - the log would
+        // misdescribe what actually happened, in the direction that looks like
+        // safety. The decorator delegates everything, so catalogue agreement and
+        // risk tiers still run on the real registry underneath.
+        RedactingToolRegistry(SimpleToolRegistry(androidTools(context)))
+    }
 
     /**
      * The risk policy, shared by every controller this container builds.
@@ -570,7 +580,16 @@ class AppContainer(private val context: Context) {
             ),
         )
         selectedModel = model
-        ModelAvailability.Ready.also { modelAvailability.set(it) }
+        // The name is the model's OWN `general.name` when the GGUF header has
+        // one, falling back to a name derived from the file. For many real GGUFs
+        // that fallback is all there is, and the field is documented as such
+        // rather than implying more precision than exists. It is never taken
+        // from the file the user tapped before the load, which is how a failed
+        // load used to end up named after a model that was never opened.
+        ModelAvailability.Ready(
+            displayName = model.displayName,
+            quantType = model.quantType,
+        ).also { modelAvailability.set(it) }
     } catch (e: CancellationException) {
         throw e
         } catch (t: Throwable) {
@@ -604,7 +623,11 @@ class AppContainer(private val context: Context) {
     suspend fun ensureModelReady(): ModelAvailability {
         restoreConversationOnce()
         persistConversation()
-        if (modelAvailability.current.canRun) return ModelAvailability.Ready
+        // Reuse the RESIDENT identity, not a bare Ready: the early return is the
+        // common path (every run after the first) and returning a nameless Ready
+        // here would blank the model name out of the UI precisely when the model
+        // is warm and running.
+        if (modelAvailability.current.canRun) return modelAvailability.current
         val model = selectedModel ?: return ModelAvailability.None
             .also { modelAvailability.set(it) }
         return loadModel(model)

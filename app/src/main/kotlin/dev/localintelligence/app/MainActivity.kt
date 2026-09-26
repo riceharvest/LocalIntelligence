@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -45,6 +45,7 @@ import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import dev.localintelligence.app.ui.ModelManagerScreen
 import dev.localintelligence.app.ui.TraceScreen
+import dev.localintelligence.app.ui.components.ChatModelIdentity
 import dev.localintelligence.app.ui.trace.RedactionScreen
 import dev.localintelligence.app.ui.trace.ScheduleScreen
 import dev.localintelligence.app.ui.trace.ScheduleViewModel
@@ -117,6 +118,22 @@ class MainActivity : ComponentActivity() {
 
                 NavHost(navController = nav, startDestination = ROUTE_CHAT) {
                     composable(ROUTE_CHAT) {
+                        // The same process-wide holder the service writes and the
+                        // screen reads, collected here for one value only: the
+                        // name of the model that is actually resident. Reading
+                        // `container.selectedModel` instead would be a lie on
+                        // a failed load — the model manager sets that field the
+                        // moment a row is tapped, before anything is loaded, so
+                        // it keeps naming the last-tried file rather than the
+                        // one in memory.
+                        val availability by container.modelAvailability.state
+                            .collectAsStateWithLifecycle()
+                        val resident = (availability as? ModelAvailability.Ready)?.let { ready ->
+                            ChatModelIdentity(
+                                displayName = ready.displayName,
+                                quantType = ready.quantType,
+                            )
+                        }
                         // The consent banner lives here rather than inside
                         // ChatScreen because the chat screen belongs to the UI
                         // workstream, and because the banner is a property of the
@@ -130,6 +147,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenModels = { nav.navigate(ROUTE_MODELS) },
                                 onOpenRedaction = { nav.navigate(ROUTE_REDACTION) },
                                 modifier = Modifier.fillMaxSize(),
+                                activeModel = resident,
                             )
                         }
                     }
@@ -179,10 +197,25 @@ class MainActivity : ComponentActivity() {
                                     .also { model ->
                                         models.removeAll { it.uri == model.uri }
                                         models.add(model)
-                                        // The newly imported model is the one the
-                                        // agent will run.
-                                        container.selectedModel = model
-                                        // ...and it has to be LOADED here, not just
+                                        // NOT `selectedModel = model` here. It
+                                        // used to be set on this line, one step
+                                        // before the load, which meant a file
+                                        // that then failed to load left the
+                                        // selection naming a model the backend
+                                        // never opened: the model screen showed
+                                        // B as chosen while the chat was still
+                                        // answering from A. "Would not load" and
+                                        // "loaded something else" are different
+                                        // problems and the two screens were
+                                        // rendering them as one.
+                                        //
+                                        // `loadModel` assigns `selectedModel`
+                                        // itself, after the backend has the
+                                        // file, so dropping the line here makes
+                                        // selection mean "resident" everywhere
+                                        // it is read.
+                                        //
+                                        // It has to be LOADED here, not just
                                         // selected. ModelAvailability is
                                         // None|Ready|Failed and the chat composer
                                         // reads that holder, not selectedModel, so
@@ -222,7 +255,17 @@ class MainActivity : ComponentActivity() {
                                             val model = container.importer.inspect(uri)
                                             models.removeAll { it.uri == model.uri }
                                             models.add(model)
-                                            container.selectedModel = model
+                                            // Same as onImport: no
+                                            // `selectedModel` write before the
+                                            // load. A scan that adopts ten
+                                            // files would otherwise leave the
+                                            // selection on the last one in
+                                            // directory order whether or not
+                                            // it loaded — and with a bad file
+                                            // in that directory, on a model
+                                            // that is not the one resident.
+                                            // `loadModel` sets it on success.
+                                            //
                                             // Load it for real rather than pretending
                                             // a "selected" state exists. ModelAvailability
                                             // only has None/Ready/Failed, and Ready
@@ -356,7 +399,7 @@ class MainActivity : ComponentActivity() {
 private fun <T> StateFlow<T>.value(): T = collectAsStateWithLifecycle().value
 
 /**
- * Asks for notification access, once, and only when it has not been granted.
+ * Asks for notification access, and only when it is actually worth asking.
  *
  * ## Why it is rendered here
  *
@@ -370,38 +413,67 @@ private fun <T> StateFlow<T>.value(): T = collectAsStateWithLifecycle().value
  * did — the tools described the settings path in prose to a model, and the model
  * would have had to relay it to a user who then had to know what to do with it.
  *
- * ## Why it is a banner and not a first-run dialog
+ * ## Why it is gated on BackgroundConsent.shouldAsk, not on the grant
  *
- * The same rule as every other permission in this app: nothing is asked for until
- * the capability is wanted. A notification-access dialog over an empty chat
- * teaches the user that this app asks for everything up front, and the one thing
- * a user does with such a prompt is dismiss it. It is dismissible and small for
- * the same reason.
+ * Its only condition used to be `if (granted) return`, which means every user
+ * with the switch off saw this on every launch for as long as they left it off.
+ * A fresh install is exactly that state, so the first thing the app said to
+ * anyone was a request for a permission whose tools nothing had used yet — from
+ * an app whose entire pitch is that nothing leaves the phone. It also had no
+ * way to be silenced short of granting it.
+ *
+ * `BackgroundConsent.shouldAsk(context, BackgroundCapability.Notifications)`
+ * is the rule the rest of the app already uses (docs/background.md §"About
+ * consent"): offer it only when it is not granted, has not been dismissed, and
+ * the user has recorded interest in background work by an explicit tap. On a
+ * chat screen, with nothing scheduled, that is false — which is the correct
+ * answer, not a lost prompt. The tools still explain the settings path in
+ * prose when a run actually calls them, so the request is not lost, it is
+ * asked at the moment it means something.
+ *
+ * ## Why both buttons dismiss
+ *
+ * Because the same rule applies to a deliberate act as to a refusal: a user who
+ * taps "Turn on", changes their mind in Settings and comes back has already
+ * answered, just in another process. Re-prompting them on the next launch would
+ * read that as "I have never been asked", which is the bug this file is about.
  *
  * ## Why the state is re-read on resume
  *
  * The grant is made in another process. A value captured at composition is stale
  * the moment the user returns, and telling someone who just enabled it that it is
- * still off is the fastest way to make them stop trusting the app.
+ * still off is the fastest way to make them stop trusting the app. The same tick
+ * drives the dismissal read, because a dismissal written by this composable has
+ * to take effect in the same frame or the banner stays up under the finger that
+ * dismissed it.
  */
 @Composable
 private fun NotificationAccessBanner(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    var granted by remember { mutableStateOf(LocalNotificationListenerService.isGranted(context)) }
-
+    // The resume counter, and the cache key for every read below — the same
+    // shape `BackgroundAccessScreen` uses, for the same reason.
+    var tick by remember { mutableStateOf(0) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                granted = LocalNotificationListenerService.isGranted(context)
-            }
+            if (event == Lifecycle.Event.ON_RESUME) tick++
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    if (granted) return
+    val shouldAsk = remember(tick) {
+        BackgroundConsent.shouldAsk(context, BackgroundCapability.Notifications)
+    }
+    if (!shouldAsk) return
+
+    val dismiss: () -> Unit = {
+        BackgroundConsent.dismiss(context, BackgroundCapability.Notifications)
+        // Re-read under the new key, so the banner leaves now rather than at
+        // the next resume.
+        tick++
+    }
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -417,7 +489,18 @@ private fun NotificationAccessBanner(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = { openBackgroundAccess(context) }) {
+            // "Not now" rather than a close icon: the target is a sentence a
+            // user has to read to know what they are refusing, and the refusal
+            // is about one capability, not about the whole app.
+            TextButton(onClick = dismiss) {
+                Text("Not now")
+            }
+            TextButton(
+                onClick = {
+                    dismiss()
+                    openBackgroundAccess(context)
+                },
+            ) {
                 Text("Turn on")
             }
         }

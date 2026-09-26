@@ -127,11 +127,23 @@ class AgentViewModel(
     /**
      * Runs the task with no preparation step.
      *
-     * Kept as the public entry point for tests and for any caller that already
-     * holds a loaded backend, where the extra state transition would be noise.
+     * Kept as the public entry point for any caller that already holds a loaded
+     * backend, where the extra state transition would be noise.
+     *
+     * ## WHY IT TAKES THE RESIDENT MODEL AS A PARAMETER
+     *
+     * It used to pass `ModelAvailability.Ready` — a nameless constant — so a
+     * caller could assert "a model is ready" without ever saying which one.
+     * That is now impossible to write: `Ready` carries the name, and a
+     * readiness claim without a name would be a claim the state cannot back.
+     *
+     * The parameter is the caller's own [ModelAvailability.Ready] — normally
+     * the one already in `ModelAvailabilityHolder` — rather than a freshly
+     * invented one, so this overload publishes no state and does not
+     * contradict the holder it is bypassing.
      */
-    fun prepareThenStart(task: String) {
-        prepareThenStart(task, ensureReady = { ModelAvailability.Ready })
+    fun prepareThenStart(task: String, resident: ModelAvailability.Ready) {
+        prepareThenStart(task, ensureReady = { resident })
     }
 
     /** True when no coroutine of ours is still suspended inside the controller. */

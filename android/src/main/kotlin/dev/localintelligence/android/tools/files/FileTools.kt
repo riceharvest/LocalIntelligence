@@ -34,6 +34,7 @@ import java.io.InputStream
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.CancellationException
 
 // =====================================================================================
 // WHY SAF AND NOT java.io
@@ -131,6 +132,14 @@ internal object ToolSafety {
                     "available right now. Try again later.",
                 error = ToolError.Unavailable("IllegalStateException during $reference"),
             )
+        } catch (t: CancellationException) {
+            // MUST be rethrown. Cancellation is structured concurrency, not a
+            // tool failure: swallowing it here turns a user's Stop into
+            // "files.write_text failed unexpectedly", which is both a lie about
+            // what happened and a scope that never cancels. This is a standing
+            // project rule with no exceptions, and this catch had been the one
+            // place in the tool layer that broke it.
+            throw t
         } catch (t: Throwable) {
             ToolResult(
                 success = false,
@@ -1595,14 +1604,26 @@ private fun overwrite(context: Context, uri: Uri, content: String): Boolean {
  * rather than being left behind as a permanent zero-byte ghost.
  */
 private fun createInDownloads(context: Context, plan: WritePlan.CreateInDownloads, content: String): Boolean {
+    // `MediaStore.Downloads` is API 29. The SDK_INT guard below protected only
+    // the two *fields* inside the ContentValues, while the TYPE REFERENCE and
+    // `EXTERNAL_CONTENT_URI` on the line after it were outside the guard — so on
+    // API 26-28 this method reached a class member that does not exist there.
+    // The surrounding `catch (t: Exception)` cannot save it: a missing static
+    // field raises NoSuchFieldError, which is an Error and not an Exception, so
+    // it escaped and took the run down.
+    //
+    // minSdk is 26, so this is a real crash on 26-28 rather than a theoretical
+    // one. Early-return is the honest fix: this whole strategy needs API 29, and
+    // the caller already has a SAF path for older devices.
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+
     val resolver = context.contentResolver
     val values = ContentValues().apply {
         put(MediaStore.Downloads.DISPLAY_NAME, plan.displayName)
         put(MediaStore.Downloads.MIME_TYPE, plan.mimeType)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-            put(MediaStore.Downloads.IS_PENDING, 1)
-        }
+        // No guard needed any more: the early return above means Q is certain.
+        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+        put(MediaStore.Downloads.IS_PENDING, 1)
     }
     val uri = try {
         resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)

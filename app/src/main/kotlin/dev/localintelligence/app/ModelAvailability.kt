@@ -50,8 +50,44 @@ sealed interface ModelAvailability {
      */
     data class Failed(val reason: String) : ModelAvailability
 
-    /** A model is resident and the backend will answer. */
-    data object Ready : ModelAvailability
+    /**
+     * A model is resident and the backend will answer — and this is which one.
+     *
+     * ## WHY READY CARRIES A NAME
+     *
+     * `Ready` used to be a `data object`, so "a model is loaded" was the only
+     * fact it could express. A user of an on-device agent therefore had no way
+     * to learn which of the models they had imported was answering them, which
+     * is a trust problem and not a cosmetic one: a 1.1B model is wrong often
+     * enough that "which one said this" is the first question a person asks.
+     * There was also nowhere for the name to live. The app has exactly one
+     * place that knows what was actually opened — the loader — and it is not
+     * the composable that renders the answer.
+     *
+     * ## WHAT THE TWO FIELDS ACTUALLY ARE
+     *
+     * Both come from the GGUF header of the file that was handed to the
+     * backend, read by `ModelImporter` before the load. They are not values
+     * the runtime echoed back: `LlamaBridge.nativeLoadModel` returns only an
+     * error string or success, and the JNI layer keeps no reference to
+     * `general.architecture` or `general.name` once the handle is made. So
+     * this identifies *the file that was opened*, which is the strongest claim
+     * available today, and not more than that.
+     *
+     * @param displayName the GGUF `general.name` metadata value when the header
+     *   carries one, and the imported file's name when it does not. Always
+     *   non-blank — `ModelImporter` falls back to a name derived from the URI
+     *   — but it is a *filename* for a large share of real GGUFs, and a
+     *   filename is not proof of what is inside the file.
+     * @param quantType the header's dominant tensor quantisation, falling back
+     *   to the declared file type. Null when the header carries neither.
+     *   Present because two imports can differ only here, and "which model"
+     *   is a question about the quant as much as about the name.
+     */
+    data class Ready(
+        val displayName: String,
+        val quantType: String? = null,
+    ) : ModelAvailability
 
     /** True only when a run can actually produce tokens. */
     val canRun: Boolean get() = this is Ready
@@ -128,7 +164,12 @@ internal fun describeLoadFailure(cause: Throwable?): String = when (cause) {
  * drift apart because they are the same expression.
  */
 internal fun ModelAvailability.blockingReason(): String? = when (this) {
-    ModelAvailability.Ready -> null
+    // `is`, not equality: Ready is a data class, so `ModelAvailability.Ready`
+    // in this position is a classifier and not a value. Every other case is
+    // matched by shape too, which is what makes the exhaustiveness of this
+    // `when` a compile-time property of the sealed type rather than of the
+    // day it was written.
+    is ModelAvailability.Ready -> null
     ModelAvailability.None ->
         "Import a model before sending a message. Nothing is sent anywhere — " +
             "the agent runs entirely on this phone."

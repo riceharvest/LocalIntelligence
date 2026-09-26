@@ -1,2 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      WHY THIS IS DECLARED HERE AND NOT ONLY IN THE APP:
+
+      DeviceTools calls Vibrator.vibrate(), which requires android.permission.VIBRATE.
+      That permission is already declared in the app manifest, so the merged
+      manifest has it and the call works at runtime. But Android Lint analyses
+      each library in isolation, and `:android`'s own manifest was an empty
+      `<manifest/>`, so lint saw a vibrate() call with no permission declared
+      and failed the build with MissingPermission.
+
+      Declaring it here is the real fix rather than a suppression: `:android` is
+      the module that actually makes the call, so this is where the requirement
+      belongs. Manifest merging dedupes, and the app's own declaration stays as
+      the record of what the final APK requests.
+
+      The alternative — @SuppressLint or lintOptions abortOnError=false — would
+      have silenced a genuine class of finding for every future permission used
+      anywhere in this library.
+    -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+</manifest>
