@@ -965,12 +965,40 @@ private fun fail(observation: String, error: ToolError) =
  * of them ended up saying "grant the storage permission" — which on Android 13+
  * names a permission that does not exist for documents, sending the user to a
  * Settings screen where the toggle they need is not.
+ *
+ * ## Why it appends [SAF_IS_PER_DOCUMENT]
+ *
+ * `PermissionDenial.observation` is the shared renderer and it is correct as far
+ * as it goes, but it cannot know that the capability it just refused is granted
+ * **per document** rather than per app. Without that sentence the model is told
+ * "access to your documents is not available to this app" and the natural
+ * completion is "you have no documents", which is a false statement about the
+ * user's own files — the specific failure this family exists to prevent. Naming
+ * the picker is what turns a dead end into something the user can act on.
  */
-private fun denied(tool: String, requirement: dev.localintelligence.core.tool.contracts.PlatformRequirement) =
-    fail(
-        PermissionDenial.observation(tool, requirement),
-        ToolError.PermissionDenied(PermissionDenial.summary(requirement)),
-    )
+private fun denied(
+    tool: String,
+    requirement: dev.localintelligence.core.tool.contracts.PlatformRequirement,
+) = fail(
+    PermissionDenial.observation(tool, requirement) + SAF_IS_PER_DOCUMENT,
+    ToolError.PermissionDenied(PermissionDenial.summary(requirement)),
+)
+
+/**
+ * The one fact about document access that a permission-shaped sentence cannot
+ * carry, because it is not about a permission.
+ *
+ * SAF grants are per-URI: the user hands over one file (or one tree) at a time
+ * through the system picker, and there is no app-wide switch to flip afterwards.
+ * So this app cannot pre-check whether a *particular* document is readable, and
+ * a refusal here means "nothing this app can reach right now", never "you have
+ * no documents".
+ */
+private const val SAF_IS_PER_DOCUMENT: String =
+    " Note: on Android this is granted per document, not per app — the system " +
+        "picker hands over one file or folder at a time and there is no app-wide " +
+        "switch. Do not tell the user they have no documents; they have documents " +
+        "this app was simply not given."
 
 /** Documents visible to this app, newest first. */
 class FilesListTool(
