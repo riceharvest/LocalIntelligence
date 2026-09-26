@@ -167,6 +167,128 @@ set(GGML_LTO             OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP          OFF CACHE BOOL "" FORCE)
 set(GGML_CCACHE          OFF CACHE BOOL "" FORCE)
 
+# -----------------------------------------------------------------------
+# Per-ABI instruction set: why this is NOT GGML_NATIVE, and why it is split
+# by ABI at all.
+# -----------------------------------------------------------------------
+#
+# GGML_NATIVE=OFF above is correct and must stay. GGML_NATIVE=ON is not a
+# way to ask for tuned kernels in a cross-compile; it is a way to get a
+# broken one. Reading ggml/src/ggml-cpu/CMakeLists.txt (b4661) at the
+# GGML_NATIVE branch in the ARM case, it does two things that both assume
+# the build machine is the run machine:
+#
+#   1. execute_process(${CMAKE_C_COMPILER} -mcpu=native -E -v -)
+#   2. check_arm_feature() -> check_cxx_source_runs(), which COMPILES AND
+#      EXECUTES a probe program.
+#
+# Under the NDK neither holds. Measured with NDK 27.1 clang on an x86_64
+# host targeting aarch64:
+#
+#   $ clang --target=aarch64-none-linux-android26 -mcpu=native -E -v -
+#   clang: error: unsupported argument 'native' to option '-mcpu='
+#
+# So step 1 finds no -mcpu= string and falls back to the literal
+# -mcpu=native, which step 1's own compiler has just rejected. And step 2
+# would have to run an aarch64 binary on an x86_64 host, which cannot
+# happen, so every feature probe returns false and upstream appends
+# "+nodotprod", "+nosve", "+noi8mm" to the flag - producing a binary
+# claiming ARMv8 tuning with none of it. Turning GGML_NATIVE on here does
+# not make the library faster; it makes the build lie about the target.
+#
+# The correct knob is per-ABI and explicit, and upstream already has one:
+#
+#   GGML_CPU_ARM_ARCH -> -march=<value>   (ggml/src/ggml-cpu/CMakeLists.txt)
+#   GGML_AVX / GGML_AVX2 / GGML_FMA / GGML_F16C -> -mavx -mavx2 -mfma -mf16c
+#     plus the matching ARCH_DEFINITIONS. Defaults come from INS_ENB
+#     (ggml/CMakeLists.txt), which is OFF whenever GGML_NATIVE is OFF.
+#
+# INS_ENB is an x86 concept and only ever feeds x86 options. It says
+# nothing about ARM, which is worth stating because the earlier reading of
+# this build - "GGML_NATIVE=OFF turns off tuned ARM kernels" - does not
+# survive contact with the ARM branch of that file. ARM's baseline is
+# decided by -march alone.
+#
+# Two facts about the arm64 baseline that the symbol evidence forced, and
+# that neither is visible from the CMake options:
+#
+#   1. NEON IS ALREADY ON. Advanced SIMD is mandatory in ARMv8-A, so
+#      __ARM_NEON is defined with no -march at all:
+#        clang --target=aarch64-none-linux-android26 -dM -E - </dev/null
+#          #define __ARM_NEON 1
+#      The Q4_K/Q6_K/Q5_K NEON branches were therefore already being
+#      compiled. "Generic NEON" was the wrong description of the old build.
+#
+#   2. WHAT WAS ACTUALLY MISSING IS HARDWARE SDOT. With
+#      __ARM_FEATURE_DOTPROD undefined, ggml-cpu-impl.h defines
+#      ggml_vdotq_s32() as a SOFTWARE EMULATOR -
+#      two vmull_s8 plus two vpaddlq_s16 in place of one sdot - and the
+#      Q4_K NEON path calls it four times per 64-element block. The
+#      baseline .so carries it as a real out-of-line function:
+#        0000000000420f9c 0000000000000124 t ggml_vdotq_s32
+#      so the hot Q4_K kernel was paying a function call and four
+#      widening multiplies to emulate one instruction.
+#
+# That is the gap worth closing, and -march=armv8.2-a+dotprod closes it.
+#
+# THE TRADEOFF, STATED PLAINLY: ggml dispatches the K-quant vec_dot
+# kernels at COMPILE TIME. The __ARM_NEON branch of ggml_vec_dot_q4_K_q8_K
+# contains no ggml_cpu_has_*() call, so sdot is emitted unconditionally -
+# there is no runtime hwcaps check standing between this binary and a
+# pre-ARMv8.2 CPU. Contrast the repack path in ggml-cpu-aarch64.cpp, which
+# is guarded twice, once at compile time and once by ggml_cpu_has_dotprod()
+# at run time, and is therefore safe to compile in at any -march.
+#
+# ARMv8.2-A+dotprod is not universal. Cortex-A53 (Snapdragon 625/630/660,
+# Helio A22/M22) is ARMv8.0 and has no SDOT, and those parts are still
+# shipping in budget Android. So the arm64 default below is armv8.0-safe
+# and the dotprod build is opt-in via PIDROID_GGML_ARM_DOTPROD, precisely
+# because a SIGILL on a user's phone is a worse outcome than a few percent
+# of tokens/sec, and because nothing in this repository has been run on a
+# physical ARM device to measure what that trade is actually worth. Flip
+# it once there is a device and a tok/s number to justify it.
+#
+# x86_64 is the opposite case and is on by default: it exists for the
+# emulator, and the emulator runs on the developer's own AVX2 host. There
+# is no armv8.0-analogue risk here. It is also the ABI that was most
+# starved: with -msse4.2 and nothing above it, the built x86_64 library
+# contained no AVX/SSE vector arithmetic at all in the mul_mat kernels.
+option(PIDROID_GGML_ARM_DOTPROD "Compile ARMv8.2-A+dotprod into the arm64 kernels" OFF)
+
+# Same env-var convention as PIDROID_LLAMA_DIR / PIDROID_LLAMA_FETCH above,
+# for the same reason: AGP does not forward Gradle -P properties to CMake as
+# -D defines, and this build belongs to another workstream, so an environment
+# variable is the only switch that does not require editing a Gradle file.
+#   PIDROID_GGML_ARM_DOTPROD=1 ./gradlew :android:assembleRelease
+if(NOT PIDROID_GGML_ARM_DOTPROD AND DEFINED ENV{PIDROID_GGML_ARM_DOTPROD})
+    set(PIDROID_GGML_ARM_DOTPROD ON)
+endif()
+
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    if(PIDROID_GGML_ARM_DOTPROD)
+        # -march only, never -mcpu: -mcpu also retunes for a specific core
+        # layout, and "native" would be the build machine's, not the
+        # phone's. armv8.2-a is the dotprod floor.
+        set(GGML_CPU_ARM_ARCH "armv8.2-a+dotprod" CACHE STRING "" FORCE)
+    else()
+        # "armv8-a", not "armv8.0-a": clang spells the A-profile baseline
+        # without the minor version and rejects the latter outright
+        # ("unsupported argument 'armv8.0-a' to option '-march='"). This is
+        # also the spelling the NDK itself uses as its arm64 default, and
+        # it is the value a cross-compile already gets by passing nothing,
+        # so the else-branch is a no-op restated for the reader rather
+        # than a behaviour change.
+        set(GGML_CPU_ARM_ARCH "armv8-a" CACHE STRING "" FORCE)
+    endif()
+elseif(ANDROID_ABI STREQUAL "x86_64")
+    # Haswell (2013) baseline. These are the only x86 knobs INS_ENB would
+    # have supplied; without them ggml compiles its __SSE2__ path.
+    set(GGML_AVX    ON CACHE BOOL "" FORCE)
+    set(GGML_AVX2   ON CACHE BOOL "" FORCE)
+    set(GGML_FMA    ON CACHE BOOL "" FORCE)
+    set(GGML_F16C   ON CACHE BOOL "" FORCE)
+endif()
+
 # GGML_BACKEND_DL makes the CPU backend a separately dlopen()ed module instead
 # of code linked into ggml. It is only legal with BUILD_SHARED_LIBS=ON, so
 # leaving it at its default is what keeps a single self-contained JNI library.
