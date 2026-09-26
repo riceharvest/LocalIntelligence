@@ -90,8 +90,32 @@ object MemoryWritePolicy {
      */
     private const val WORD = """\w+(?:['’-]\w+)*"""
 
+    /**
+     * A turn that hands over a secret.
+     *
+     * Deliberately over-broad, because the failure modes are not symmetric: a
+     * false positive costs one turn of conversational memory, while a false
+     * negative writes a plaintext credential to a SQLite file forever. This is
+     * an exclusion, so it is tuned to miss nothing that matters.
+     *
+     * Ported to Java and run against the forms below, because reading a regex
+     * does not tell you what it matches. The original pattern caught "my wifi
+     * password is X" and "my pin is 1234" but MISSED "my token is ghp_x",
+     * "my secret is X", and third-person forms like "the passcode is 4411" —
+     * all of which are a user handing over a credential just as plainly.
+     *
+     * [SECRET] and the `token`/`secret` words were added for exactly those.
+     * The `(?:my|our|the|his|her|its)` alternation is there because refusing a
+     * turn the user phrased in third person costs nothing.
+     */
+    private const val SECRET =
+        "(?:password|passcode|passphrase|passcode|pin|key|code|" +
+            "api[_ -]?key|apikey|secret|token|auth[_ -]?token|access[_ -]?key|" +
+            "private[_ -]?key|security[_ -]?code|otp|seed[_ -]?phrase|" +
+            "recovery[_ -]?code|pass[_ -]?phrase)"
+
     private val CREDENTIAL = Regex(
-        """\b(?:my|our)\s+(?:$WORD\s+){0,2}?(?:password|passcode|pin|passphrase|key|code)\b\s*(?:is|are|=|:)""",
+        """\b(?:my|our|the|his|her|its|this)\s+(?:$WORD[\s:=]+){0,2}?$SECRET\b\s*(?:is|are|was|=|:)""",
         RegexOption.IGNORE_CASE,
     )
     private val IDENTITY = Regex(
@@ -159,8 +183,10 @@ object MemoryWritePolicy {
         // be bypassed by a later refactor — there is nothing left to restore.
         if (CREDENTIAL.containsMatchIn(text)) return null
 
+        // No CREDENTIAL branch: the exclusion above has already returned, so a
+        // branch for it here was dead code that still read as if credentials
+        // were scored rather than dropped.
         val importance = when {
-            CREDENTIAL.containsMatchIn(text) -> IMPORTANCE_CREDENTIAL
             IDENTITY.containsMatchIn(text) -> IMPORTANCE_IDENTITY
             PREFERENCE.containsMatchIn(text) -> IMPORTANCE_PREFERENCE
             CONTEXT.containsMatchIn(text) -> IMPORTANCE_CONTEXT
@@ -175,9 +201,17 @@ object MemoryWritePolicy {
      * Exposed so the caller and this object cannot disagree: the pattern
      * decides the score in [extract], and this returns the same value for the
      * same text without re-running the match.
+     *
+     * A credential returns 0f, not [IMPORTANCE_CREDENTIAL]. This is a PUBLIC
+     * function, so it was reachable for text that [extract] would have refused,
+     * and it answered 0.9 — the exact "this is very important, store it" signal
+     * that the exclusion exists to remove. A caller that computes importance
+     * without going through [extract] would have written the secret to a high-
+     * priority memory. The distinction has to live here too, not only at the
+     * gate, because this is the function anything else would call.
      */
     fun importanceOf(text: String): Float = when {
-        CREDENTIAL.containsMatchIn(text) -> IMPORTANCE_CREDENTIAL
+        CREDENTIAL.containsMatchIn(text) -> 0f
         IDENTITY.containsMatchIn(text) -> IMPORTANCE_IDENTITY
         PREFERENCE.containsMatchIn(text) -> IMPORTANCE_PREFERENCE
         CONTEXT.containsMatchIn(text) -> IMPORTANCE_CONTEXT
