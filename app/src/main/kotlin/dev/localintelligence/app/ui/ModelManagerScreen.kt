@@ -168,12 +168,46 @@ fun ModelManagerScreen(
         scanNotice = null
         busy = true
         scope.launch {
-            // `onImport` performs the header read and reports its own failure
-            // through this screen's error state, so a throw here is still
-            // caught: an uncaught exception in this scope would cancel the
-            // whole composition scope and leave `busy` stuck on forever.
-            runCatching { onImport(uri) }
-                .onFailure { importError = describeLoadFailure(it) }
+            // WHY THE CONTAINER IS SNIFFED HERE, BEFORE `onImport`:
+            //
+            // The picker accepts `*/*` (see the FAB below) because SAF does not
+            // reliably tag a `.gguf`, and a too-narrow filter makes a model look
+            // unimportable. The same filter therefore lets a `.litertlm` through
+            // as well — and `onImport` reads a **GGUF** header, so a LiteRT-LM
+            // FlatBuffer cannot be imported by any route this screen has. It
+            // used to be handed straight to `onImport`, which threw
+            // `GgufParseException(NOT_A_GGUF_FILE)`, and
+            // `describeLoadFailure` has no branch for that type, so the user
+            // read: "It may be a format this app cannot read, or it may be
+            // damaged - try importing it again."
+            //
+            // That sentence is the specific failure this closes. It is not
+            // *wrong* — a LiteRT-LM container is not something `onImport` can
+            // read — but it is useless, and it is worse than useless because it
+            // points at a re-download that will fail identically every time.
+            // The app does have a LiteRT-LM backend. What it does not have is
+            // any way to hand this file to it, and the reason is structural:
+            // `LiteRtLmModelSource.toFile` refuses every `content://` uri,
+            // because LiteRT-LM opens its model by filesystem path and has no
+            // descriptor entry point. A document picked from Files is by
+            // definition a descriptor, so this picker can never reach that
+            // backend no matter which filter is used.
+            //
+            // So the file is classified and the specific reason is given. GGUF
+            // and "neither" both fall through to `onImport` unchanged, so the
+            // GGUF path and the genuinely-damaged-file path behave exactly as
+            // before.
+            when (val container = withContext(Dispatchers.IO) { sniffContainer(context, uri) }) {
+                ModelContainer.LITERTLM -> importError = litertlmViaPickerRefusal(context, uri)
+                ModelContainer.GGUF, ModelContainer.UNKNOWN ->
+                    // `onImport` performs the header read and reports its own
+                    // failure through this screen's error state, so a throw here
+                    // is still caught: an uncaught exception in this scope would
+                    // cancel the whole composition scope and leave `busy` stuck
+                    // on forever.
+                    runCatching { onImport(uri) }
+                        .onFailure { importError = describeLoadFailure(it) }
+            }
             busy = false
         }
     }
@@ -235,7 +269,7 @@ fun ModelManagerScreen(
                     picker.launch(arrayOf("application/octet-stream", "*/*"))
                 },
             ) {
-                Icon(Icons.Filled.Add, contentDescription = "Import a GGUF model")
+                Icon(Icons.Filled.Add, contentDescription = "Import a model file")
             }
         },
     ) { padding ->
@@ -274,6 +308,26 @@ fun ModelManagerScreen(
                             "on-device — nothing is sent anywhere.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // A `.litertlm` is the second format this app has a backend
+                    // for, and a user holding one has no way to discover that.
+                    // Named here, with the actual reason rather than a promise:
+                    // the picker cannot reach that backend (LiteRT-LM needs a
+                    // filesystem path, not a document descriptor), and the
+                    // bundle has to be in this app's own storage, where the
+                    // scan below only looks for `.gguf`. That is a gap in the
+                    // app, not something the user's file did wrong, and saying
+                    // so is the difference between a bug report and a dead end.
+                    Text(
+                        text = "Have a .litertlm (LiteRT-LM) model? This app " +
+                            "cannot import one from Files — LiteRT-LM needs a " +
+                            "real file path, not a document picker. It is also " +
+                            "not fetched by Download, which lists GGUFs only. " +
+                            "Nothing is wrong with your file: the app has no " +
+                            "route for it yet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                     // The hand-pushed case, named. A model can reach a phone
                     // over USB, out of a backup, or from the Hub download, and
@@ -534,6 +588,163 @@ internal fun formatBytes(bytes: Long): String {
         unit++
     }
     return if (unit == 0) "${bytes} B" else "%.1f %s".format(value, units[unit])
+}
+
+/**
+ * The two container formats this app runs, decided by the file's first bytes.
+ *
+ * ## Why content, not the extension
+ *
+ * Because the extension is exactly the thing that is unreliable here. SAF does
+ * not register a MIME type for either format, so a picker filter cannot be
+ * written that is both correct and complete, and a file that was renamed or
+ * sideloaded is precisely the case where the name lies. The bytes do not:
+ *
+ *  - **GGUF** — the container declares itself with the four ASCII bytes `GGUF`
+ *    at offset 0, before the version field. That is why `GgufParser` in
+ *    `:core` checks the same position.
+ *  - **LiteRT-LM** — a FlatBuffer whose identifier is `LITERTLM`. It is matched
+ *    anywhere in the first 8 bytes rather than at a hard-coded offset, because
+ *    a FlatBuffer header is a 4-byte root offset followed by an optional 4-byte
+ *    file identifier, and `liblitertlm_jni.so` reports its own failure as
+ *    `Invalid magic number. Expected 'LITERTLM', got '`. Reading a window
+ *    instead of one position costs nothing and does not depend on an alignment
+ *    detail nobody here has verified.
+ *
+ * ## Why this duplicates `ModelBackendRouter.sniff`
+ *
+ * It does not duplicate it *deliberately* — it has to, because the router's
+ * `sniff` is `private` in `:android` and this is `:app`. The alternative was to
+ * widen the router's visibility, which is a file another agent owns. If that
+ * file is ever changed, these two must change together; the constants below are
+ * the same ones `ModelBackendRouter` and `LiteRtLmModelSource` use, read from
+ * the shipped 0.13.1 `liblitertlm_jni.so` and from the GGUF spec.
+ *
+ * A false negative here is safe: [ModelContainer.UNKNOWN] falls through to
+ * `onImport` exactly as before, and the GGUF parser is the authority. A false
+ * *positive* is the one that would hurt, which is why GGUF is tested at offset
+ * 0 exactly and LITERTLM only at the two offsets a FlatBuffer header can put
+ * it.
+ */
+internal enum class ModelContainer { GGUF, LITERTLM, UNKNOWN }
+
+/**
+ * How many leading bytes to read.
+ *
+ * ## Why 16, and not 8
+ *
+ * Because the LiteRT-LM identifier is **eight** ASCII bytes and a FlatBuffer
+ * header is a 4-byte root offset followed by an *optional* 4-byte file
+ * identifier, so the identifier can start at byte 0 or byte 4 — and reading 8
+ * bytes cannot see all 8 of it in the second case. An 8-byte window searched for
+ * an 8-byte needle only ever matches at offset 0.
+ *
+ * This is not hypothetical. `ModelBackendRouter.sniff` in `:android` reads
+ * exactly 8 (`MAGIC_LEN = 8`) and searches for the same 8-byte `LITERTLM`, so on
+ * a real `.litertlm` — whose root offset precedes the identifier — it returns
+ * `Container.LITERTLM` never, and `route()` raises `BackendRoutingException`
+ * for a genuine LiteRT-LM model. That file belongs to another agent; the fix is
+ * in this branch's PR description. 16 bytes covers both offsets and leaves room
+ * for the 4-byte alignment padding some FlatBuffer writers emit.
+ */
+private const val MAGIC_PROBE_BYTES = 16
+
+private val GGUF_MAGIC = "GGUF".toByteArray(Charsets.US_ASCII)
+private val LITERTLM_MAGIC = "LITERTLM".toByteArray(Charsets.US_ASCII)
+
+/** Where a FlatBuffer may carry its 8-byte file identifier. */
+private val LITERTLM_OFFSETS = intArrayOf(0, 4)
+
+/**
+ * Classifies [uri] by its first bytes. Never throws.
+ *
+ * An unreadable or empty document is [ModelContainer.UNKNOWN], which the caller
+ * treats as "hand it to the GGUF importer and let the real parser answer" —
+ * this is a routing hint, not a verdict, and it must not become a second
+ * authority that can refuse a file the real parser would have accepted.
+ */
+internal fun sniffContainer(context: Context, uri: Uri): ModelContainer {
+    val head = runCatching {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            val buffer = ByteArray(MAGIC_PROBE_BYTES)
+            // A short read is normal and not an error: `read` returns what it
+            // got, and a 3-byte file correctly fails the magic comparison below.
+            var read = 0
+            while (read < buffer.size) {
+                val n = input.read(buffer, read, buffer.size - read)
+                if (n <= 0) break
+                read += n
+            }
+            // `copyOf(read)` and not `take(read)`: on a `ByteArray`, `take`
+            // resolves to the stdlib's collection operator and returns a
+            // `List<Byte>`, which has no byte-array comparison. Copying the
+            // prefix is also the honest thing — the array is a private 8-byte
+            // buffer and this is its only escape.
+            buffer.copyOf(read)
+        }
+    }.getOrNull() ?: return ModelContainer.UNKNOWN
+
+    return when {
+        head.size >= GGUF_MAGIC.size && head.startsWithAt0(GGUF_MAGIC) -> ModelContainer.GGUF
+        LITERTLM_OFFSETS.any { head.matchesAt(it, LITERTLM_MAGIC) } -> ModelContainer.LITERTLM
+        else -> ModelContainer.UNKNOWN
+    }
+}
+
+/**
+ * Why a `.litertlm` picked from Files cannot be used, in the order the user
+ * would hit the walls.
+ *
+ * Every clause below is a verified fact about this build, not a forecast:
+ *
+ *  - `LiteRtLmModelSource.toFile` refuses a `content://` uri outright,
+ *    because LiteRT-LM opens its model by filesystem path and has no
+ *    descriptor entry point in its Kotlin API. So the picker — whose whole
+ *    output is a descriptor — cannot reach that backend at all.
+ *  - `litertlm-android:0.13.1` ships exactly three native libraries
+ *    (`liblitertlm_jni.so`, `libLiteRt.so`, `libLiteRtClGlAccelerator.so`).
+ *    **No NPU delegate is among them**, and `Backend$GOOGLE_TENSOR` is not in
+ *    the published artifact, so on a stock APK the NPU is unavailable on every
+ *    phone. The GPU tier is **OpenCL**, not Vulkan.
+ *  - **No `.litertlm` has ever been initialised in this project.** There is no
+ *    device, no model file and no measurement, so nothing here promises what a
+ *    working one would do.
+ *
+ * The last clause is the one a user needs: a re-pick will not help, and
+ * neither will renaming the file. The route that does work today is putting the
+ * bundle in the app's own `filesDir/models`, which is what "Scan storage"
+ * looks for — and `MainActivity`'s scan filters on `.gguf`, so that route is
+ * itself still a gap. Named as one, because a user who has just been told
+ * "no" deserves to know it is the app's gap and not their file's.
+ */
+private fun litertlmViaPickerRefusal(context: Context, uri: Uri): String {
+    val name = displayNameOf(context, uri) ?: uri.lastPathSegment ?: "this file"
+    return "\"$name\" is a LiteRT-LM model (.litertlm), not a GGUF. " +
+        "This app has a LiteRT-LM backend, but it cannot use a file picked " +
+        "this way: LiteRT-LM opens models by filesystem path and has no way to " +
+        "read a document from the Files app. Picking it again, or renaming it, " +
+        "will not change that. " +
+        "It is also worth knowing before you try: litertlm-android 0.13.1 " +
+        "ships no NPU library and no GOOGLE_TENSOR backend, and its GPU is " +
+        "OpenCL, not Vulkan — so on a stock build this would run on CPU. " +
+        "No .litertlm has ever been loaded in this project, so there is no " +
+        "measured speed to expect."
+}
+
+private fun ByteArray.startsWithAt0(prefix: ByteArray): Boolean =
+    matchesAt(0, prefix)
+
+/**
+ * Whether [prefix] begins at [offset].
+ *
+ * Bounds are checked rather than assumed, because the probe deliberately reads
+ * a fixed window and a 6-byte JPEG must fall through to [ModelContainer.UNKNOWN]
+ * instead of throwing on an index.
+ */
+private fun ByteArray.matchesAt(offset: Int, prefix: ByteArray): Boolean {
+    if (offset < 0 || offset + prefix.size > size) return false
+    for (i in prefix.indices) if (this[offset + i] != prefix[i]) return false
+    return true
 }
 
 private fun formatParams(count: Long): String = when {

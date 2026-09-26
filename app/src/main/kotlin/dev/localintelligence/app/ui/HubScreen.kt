@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -225,6 +226,61 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
             }
         }
 
+        // WHY THE `.litertlm` FILES ARE LISTED AND NOT MADE INTO QUANT ROWS:
+        // the list below is priced by FitGate against the GGUF tensor table, and
+        // a LiteRT-LM FlatBuffer has no GGUF header. Offering one as a
+        // selectable row would put a RAM figure on this screen derived from a
+        // format that arithmetic knows nothing about — and this screen's
+        // entire value is that its numbers can be believed. A wrong number here
+        // is worse than no row, so these get their own block: the real file
+        // name, the real byte size (a fact about the server's bytes, not a
+        // memory estimate), and the reason the app cannot fetch it.
+        val nonGguf = state.nonGgufFiles
+        state.nonGgufNotice?.let { notice ->
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = "LiteRT-LM models in this repository " +
+                                "(${nonGguf.size}, not downloadable here)",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        // The size is `lfs.size` — the payload size HF reports
+                        // for the blob. It is a file size and nothing more; it is
+                        // never combined with a context length or a tensor
+                        // count to produce a memory figure, because there is no
+                        // arithmetic in this app for that format.
+                        nonGguf.forEach { file ->
+                            Text(
+                                text = if (file.sizeBytes > 0) {
+                                    "${formatBytes(file.sizeBytes)} — ${file.fileName}"
+                                } else {
+                                    // An unbacked sub-1 KiB `size` is a git
+                                    // pointer, not a model. Printing it would
+                                    // report a 3.4 GB model as 130 bytes.
+                                    "size not reported — ${file.fileName}"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                        Text(
+                            text = notice,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+
         if (state.files.isNotEmpty()) {
             item { Text("Available files", style = MaterialTheme.typography.titleSmall) }
             items(state.files, key = { it.fileName + it.sizeBytes }) { file ->
@@ -323,6 +379,23 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                             "so a private or gated repository will be refused.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // The second format, named before the user goes looking for
+                    // it. A repository such as
+                    // `litert-community/gemma-4-E4B-it-litert-lm` is public and
+                    // ungated and hosts a real model, and before this it
+                    // rendered as "no GGUF files this app can use" — which reads
+                    // as an empty repository rather than as a capability the
+                    // app has and cannot yet feed. Saying it up front costs two
+                    // sentences and saves the user a search.
+                    Text(
+                        text = "LiteRT-LM (.litertlm) models are not listed as " +
+                            "downloadable. The app has a backend for them and no " +
+                            "way to fetch one, so if the repository holds any you " +
+                            "will see them named with their size and an explanation.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                 }
                 else -> {
