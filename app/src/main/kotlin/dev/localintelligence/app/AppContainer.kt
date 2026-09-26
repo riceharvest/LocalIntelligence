@@ -39,7 +39,6 @@ import dev.localintelligence.android.hub.ModelDownloader
 import dev.localintelligence.android.hub.UrlConnectionTransport
 import dev.localintelligence.app.ui.HubViewModel
 import java.io.File
-import dev.localintelligence.core.execution.RunGate
 
 /**
  * The DI system. `docs/architecture.md` §3: *"If you need a dependency injected,
@@ -221,7 +220,7 @@ class AppContainer(private val context: Context) {
      * the same live service - have to contend for the same instance, and the
      * container is what both of them already share.
      */
-    val runGate: RunGate by lazy { RunGate() }
+
 
     val agentConfig: AgentConfig by lazy { AgentConfig() }
 
