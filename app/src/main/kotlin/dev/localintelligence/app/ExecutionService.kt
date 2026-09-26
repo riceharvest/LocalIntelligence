@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import dev.localintelligence.core.execution.RunGate
 import dev.localintelligence.core.execution.RUN_ALREADY_ACTIVE_REASON
+import dev.localintelligence.app.data.ScheduledTaskStore
+import android.util.Log
 
 /**
  * A foreground service that exists only while a task is running.
@@ -155,6 +157,7 @@ class ExecutionService : Service() {
                 startRun(
                     task,
                     intent.getStringExtra(EXTRA_SCHEDULED_TASK_ID),
+                    startId,
                 )
             }
 
@@ -256,7 +259,7 @@ class ExecutionService : Service() {
 
     // ----------------------------------------------------------------- internals
 
-    private fun startRun(task: String, scheduledTaskId: String?) {
+    private fun startRun(task: String, scheduledTaskId: String?, startId: Int) {
         // One run at a time, across BOTH entry points.
         //
         // serviceScope is a pool scope, not a mutex, and this service receives a
@@ -271,8 +274,29 @@ class ExecutionService : Service() {
         // is told instead.
         val claim = container.runGate.tryClaim()
         if (claim == null) {
-            sinks.state.value = RunState.Finished(RunOutcome.Failed(RUN_ALREADY_ACTIVE_REASON))
-            stopForegroundAndSelf()
+            // A REFUSAL IS NOT A TERMINAL EVENT FOR THIS SERVICE.
+            //
+            // `onStartCommand` delivers to the SAME service instance, so
+            // `activeClaim` here belongs to the run that is still decoding.
+            // Calling `stopForegroundAndSelf()` from a path that never claimed
+            // anything did three separate kinds of damage:
+            //
+            //   1. `activeClaim?.close()` released the FIRST run's claim, so a
+            //      third run could then tryClaim() and succeed — two loops
+            //      decoding into the same native context and the same Session,
+            //      which is precisely the overlap RunGate exists to prevent.
+            //   2. `stopSelf()` drove `onDestroy`, which called
+            //      `agent?.cancel()` and `serviceScope.cancel()` — killing the
+            //      first run. A user pressing Send twice lost their answer.
+            //   3. `sinks` is the process-wide `container.runSinks` (onCreate),
+            //      so this overwrote the live run's UI state with a terminal
+            //      failure: the in-flight answer was replaced by "already
+            //      running" while it was still generating.
+            //
+            // There is nothing to release (we hold no claim) and nothing to stop
+            // (this service legitimately belongs to the other run), so the
+            // refusal is reported and the service is left entirely alone.
+            reportRefusal(startId, task, scheduledTaskId)
             return
         }
         activeClaim = claim
@@ -428,6 +452,40 @@ class ExecutionService : Service() {
         } catch (t: Throwable) {
             android.util.Log.w(TAG, "could not record the scheduled run result", t)
         }
+    }
+
+    /**
+     * Reports that a run was refused because one is already active, WITHOUT
+     * touching the live run's state.
+     *
+     * The live run owns `sinks`, so writing a terminal state here would
+     * replace the answer currently being generated with "already running".
+     * Instead the refused start is finished at the service level with
+     * [stopSelfResult], which resolves the *caller's* start without ending the
+     * service — `stopSelfResult(startId)` marks this one start delivered and
+     * leaves the service alive for the run that actually owns it.
+     *
+     * A scheduled run that is refused still has to be recorded: the task row
+     * would otherwise keep saying the earlier result forever, implying this
+     * firing succeeded. `lastResult` is written directly, because
+     * [ScheduledRunReporter.settle] reads its state from `sinks`, which is the
+     * other run's.
+     */
+    private fun reportRefusal(startId: Int, task: String, scheduledTaskId: String?) {
+        if (scheduledTaskId != null) {
+            // Best effort: a failure to record must not crash the receiver path.
+            runCatching {
+                val store = ScheduledTaskStore(applicationContext)
+                val current = store.byId(scheduledTaskId) ?: return@runCatching
+                store.upsert(
+                    current.copy(
+                        lastResult = "Skipped: another task was already running.",
+                    ),
+                )
+            }.onFailure { Log.w(TAG, "could not record refused schedule: ${it.message}") }
+        }
+        Log.i(TAG, "refused start $startId (task \"$task\"): a run is already active")
+        stopSelfResult(startId)
     }
 
     private fun stopForegroundAndSelf() {
