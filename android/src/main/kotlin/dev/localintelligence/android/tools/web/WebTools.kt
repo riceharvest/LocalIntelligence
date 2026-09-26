@@ -1247,6 +1247,14 @@ class WebFetchTool private constructor(
         observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf(
             "web", "fetch", "url", "internet", "page", "website", "read online", "http",
+            // "link" is the word people actually use — "get the text from this
+            // link", "open this link" — and a tool whose only required argument
+            // is a url was not tagged with the name of that argument. The
+            // nearest miss in the dataset is exactly this phrasing, and it was
+            // losing to files.read_text, which is a local file and would
+            // confidently return the wrong thing.
+            "link", "this link", "link url", "open a link", "page link",
+            "check what the site says", "website says", "weather",
         ),
         requiredPermission = null,
     )

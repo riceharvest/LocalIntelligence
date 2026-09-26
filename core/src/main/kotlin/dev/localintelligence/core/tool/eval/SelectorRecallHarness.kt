@@ -177,40 +177,94 @@ class SelectorRecallHarness(
         return overlap + substring
     }
 
-    private fun tokenize(text: String): List<String> =
-        text.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length > 2 }
+    /**
+     * Mirrors [LexicalToolSelector]'s tokenizer: NFC-normalised, Unicode
+     * word-character class, script-dependent `> 2` floor.
+     *
+     * Duplicated on purpose: [assertMirrorsSelector] compares the ordering
+     * this produces against the real selector on every one of the 176 cases,
+     * so a divergence here fails the run loudly instead of quietly making
+     * every "scored zero" claim in the report fiction. The mirror was
+     * updated in lockstep when the selector moved off `Regex("[^a-z0-9]+")`
+     * — the check exists precisely so that this comment is true. A
+     * `BreakIterator` version of this mirror was tried and reverted for the
+     * same reason it was reverted in the selector: it merges `one-time`
+     * into one token and loses 2 cases at k=10.
+     */
+    private fun tokenize(text: String): List<String> {
+        if (text.isEmpty()) return emptyList()
+        val normalized = java.text.Normalizer.normalize(
+            text.lowercase(java.util.Locale.ROOT),
+            java.text.Normalizer.Form.NFC,
+        )
+        val out = ArrayList<String>()
+        val current = StringBuilder()
+        var i = 0
+        while (i < normalized.length) {
+            val cp = normalized.codePointAt(i)
+            val charCount = Character.charCount(cp)
+            if (isWordCharacter(cp)) {
+                current.appendCodePoint(cp)
+            } else if (current.isNotEmpty()) {
+                out += current.toString()
+                current.setLength(0)
+            }
+            i += charCount
+        }
+        if (current.isNotEmpty()) out += current.toString()
+        return out.filter { token ->
+            if (isWordLike(token)) token.length > 2 else true
+        }
+    }
+
+    private fun isWordCharacter(codePoint: Int): Boolean {
+        val type = Character.getType(codePoint)
+        return type == Character.UPPERCASE_LETTER.toInt() ||
+            type == Character.LOWERCASE_LETTER.toInt() ||
+            type == Character.TITLECASE_LETTER.toInt() ||
+            type == Character.MODIFIER_LETTER.toInt() ||
+            type == Character.OTHER_LETTER.toInt() ||
+            type == Character.DECIMAL_DIGIT_NUMBER.toInt() ||
+            type == Character.LETTER_NUMBER.toInt() ||
+            type == Character.OTHER_NUMBER.toInt() ||
+            type == Character.NON_SPACING_MARK.toInt() ||
+            type == Character.COMBINING_SPACING_MARK.toInt()
+    }
+
+    private fun isWordLike(token: String): Boolean =
+        Character.getType(token.codePointAt(0)) != Character.OTHER_LETTER.toInt() ||
+            !isUnspacedScript(token.codePointAt(0))
+
+    private fun isUnspacedScript(codePoint: Int): Boolean =
+        when (codePoint) {
+            in 0x3040..0x30FF -> true
+            in 0x3400..0x4DBF -> true
+            in 0x4E00..0x9FFF -> true
+            in 0xF900..0xFAFF -> true
+            in 0xAC00..0xD7AF -> true
+            in 0x0E00..0x0E7F -> true
+            in 0x20000..0x2FA1F -> true
+            else -> false
+        }
 
     /**
      * Every tool in RELEVANCE ORDER, for one case.
      *
-     * ## Why this cannot just be `select(..., maxTools = tools.size)`
+     * This used to need a workaround. `LexicalToolSelector.select` opened with
+     * `if (available.size <= maxTools) return available`, so asking for the
+     * whole set returned the registry's own order with no scoring at all, and
+     * the last tool had to be recovered by subtraction. That branch is gone —
+     * see the [ToolSelector] KDoc for why removing it is set-preserving — so
+     * this is now just the selector asked for everything it has.
      *
-     * `LexicalToolSelector.select` opens with
-     *
-     * ```
-     * if (available.size <= maxTools) return available
-     * ```
-     *
-     * so asking for the whole set returns the registry's own order with NO
-     * scoring at all. The ranking path is only reachable when
-     * `maxTools < available.size`. The last tool therefore has to be recovered
-     * by subtraction, and this helper is the only place that knows it.
-     *
-     * **This is a finding, not a workaround for the harness's benefit.** A
-     * caller that sets `maxVisibleTools >= tools.size` — which raising the
-     * ceiling makes easier to reach — gets a visible set in REGISTRY order
-     * rather than relevance order, silently. Every tool is still callable, so
-     * nothing fails; the ordering the prompt and grammar see is just arbitrary.
-     * The selection ORDER is not load-bearing for the current loop, which reads
-     * the set, so nothing is broken today. It is reported because the constant
-     * this change-set moves is exactly what would trigger it.
+     * The workaround is kept in git history rather than here, because its
+     * existence was the clearest evidence that the branch was a real trap: a
+     * measurement harness had to carry a special case solely to observe a
+     * ranking the production code was not actually performing.
      */
-    fun fullRanking(case: EvalCase): List<String> {
-        val top = selector.select(case.utterance, case.sessionKeywords, tools, tools.size - 1)
+    fun fullRanking(case: EvalCase): List<String> =
+        selector.select(case.utterance, case.sessionKeywords, tools, tools.size)
             .map { it.definition.name }
-        val remainder = tools.map { it.definition.name }.filterNot { it in top }
-        return top + remainder
-    }
 
     /**
      * Prove the mirrored score in [scoreOf] still matches the real selector.

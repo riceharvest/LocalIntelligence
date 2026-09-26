@@ -1113,7 +1113,14 @@ class FilesSearchTool(
         },
         risk = ToolRisk.READ_ONLY,
         observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("search", "find", "look for", "filename", "extension", "mime type", "recent files", "modified"),
+        tags = setOf(
+            "search", "find", "look for", "filename", "extension", "mime type", "recent files", "modified",
+            // "pdf" and "where is" were on the V0ToolCatalogue side and absent
+            // here. "is there a PDF about the mortgage anywhere" shared no word
+            // with this tool without them and scored exactly zero, so the
+            // document was unfindable at any visible-set width.
+            "pdf", "where is", "is there a", "what did i download", "anywhere",
+        ),
         requiredPermission = null,
     )
 
@@ -1385,7 +1392,16 @@ class FilesDeleteTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.DESTRUCTIVE,
-        tags = setOf("delete", "remove", "erase", "trash", "get rid of", "unlink"),
+        tags = setOf(
+            "delete", "remove", "erase", "trash", "get rid of", "unlink",
+            // "pdf", "document" and "invoice" were on the V0ToolCatalogue side
+            // and absent here; "bin", "throw away" and "draft" are added for
+            // the same reason. "bin the draft I saved this morning" shared no
+            // word with this tool and scored zero, so the one DESTRUCTIVE
+            // action in the files category was unselectable at any width.
+            "pdf", "document", "invoice", "bin", "throw away", "discard",
+            "draft", "delete a file", "remove a file",
+        ),
         requiredPermission = null,
     )
 

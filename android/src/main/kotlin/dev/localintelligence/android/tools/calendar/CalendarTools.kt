@@ -600,7 +600,16 @@ class CalendarSearchTool internal constructor(
         risk = ToolRisk.READ_ONLY,
         observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
-            "calendar", "events", "agenda", "schedule", "appointment", "meeting", "busy", "what's on",
+            // "free", "anything today", "tomorrow", "meetings" and "what do i
+            // have on" were on the V0ToolCatalogue side of this pair and are
+            // absent here. The catalogue's tags are documentation — they never
+            // reach the selector, which reads THIS file. Without them "am I free
+            // at 3pm on Friday" and "any meetings today" shared no word with
+            // this tool at all and scored exactly zero, making the task
+            // unperformable at any width rather than merely mis-ranked.
+            "calendar", "events", "agenda", "schedule", "appointment", "meeting",
+            "busy", "what's on", "free", "am i free", "anything today", "tomorrow",
+            "what do i have on", "meetings", "today", "this afternoon",
         ),
         requiredPermission = "android.permission.READ_CALENDAR",
     )
@@ -800,7 +809,15 @@ class CalendarCreateTool internal constructor(
             put("required", buildJsonArray { add("title"); add("start") })
         },
         risk = ToolRisk.REVERSIBLE,
-        tags = setOf("calendar", "add event", "schedule", "reminder", "book", "appointment", "meeting"),
+        tags = setOf(
+            "calendar", "add event", "schedule", "reminder", "book", "appointment", "meeting",
+            // "block out", "reserve" and "put in my calendar" were on the
+            // V0ToolCatalogue side and absent here. "block out 4 to 5 this
+            // afternoon for work" therefore shared no word with this tool and
+            // scored zero: the intended action was unperformable at any width.
+            "block out", "block time", "reserve", "put in my calendar", "this afternoon",
+            "work meeting", "hold time",
+        ),
         requiredPermission = "android.permission.WRITE_CALENDAR",
     )
 

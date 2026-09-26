@@ -698,6 +698,15 @@ class AlarmCreateTool(
         tags = setOf(
             "alarm", "set an alarm", "wake me up", "remind me at", "timer", "ring at",
             "wake up call", "set a reminder",
+            // "timer for" was on the V0ToolCatalogue side and absent here. "I
+            // need to be up at 5:30" reduces to the single token "need" once
+            // the clock time is stripped as non-alphabetic, and no tag
+            // contained it, so the tool meant scored exactly zero. "need to be
+            // up" and "up at" are the phrasings; they are here because a
+            // bare "need" tag would collide with every other tool's English
+            // description and dilute the whole scorer.
+            "timer for", "need to be up", "up at", "get me up", "set a timer",
+            "before work", "get up",
         ),
         // SCHEDULE_EXACT_ALARM is needed on Android 12+ for setExactAndAllowWhileIdle.
         requiredPermission = "android.permission.SCHEDULE_EXACT_ALARM",

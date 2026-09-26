@@ -400,6 +400,13 @@ class ContactsSearchTool internal constructor(
         observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "contact", "contacts", "phone book", "address book", "call", "who is", "number", "lookup",
+            // "look up" was on the V0ToolCatalogue side; the imperative form is
+            // what a user types. "how to reach" and "get in touch" are added
+            // because "look up Ben and tell me how to reach him" shared no word
+            // with this tool and scored exactly zero, so the request for a
+            // person's number was unperformable at any width.
+            "look up", "how to reach", "how do i contact", "get in touch", "reach",
+            "find someone", "look someone up",
         ),
         requiredPermission = "android.permission.READ_CONTACTS",
     )

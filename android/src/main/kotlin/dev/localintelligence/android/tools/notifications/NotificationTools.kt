@@ -644,6 +644,13 @@ class NotificationListTool(
         tags = setOf(
             "notifications", "alerts", "messages", "list", "banner",
             "inbox", "what came in", "ping",
+            // "anything new", "what did i miss" and "miss" were on the
+            // V0ToolCatalogue side and absent here. "did anything come in"
+            // shared no word with this tool and scored zero — the read-the-shade
+            // action, the whole point of the notifications category, was
+            // unselectable at any width.
+            "anything new", "what did i miss", "miss", "did anything come in",
+            "come in", "who messaged",
         ),
         requiredPermission = null,
     )
@@ -831,6 +838,13 @@ class NotificationReplyTool(
         tags = setOf(
             "reply", "respond", "answer", "message back", "notification", "chat",
             "text message", "send",
+            // "tell them", "text back" and "send a message" were on the
+            // V0ToolCatalogue side and absent here. "tell Sarah I'm running
+            // late" shared no word with this tool and scored exactly zero, so
+            // the one send path v0 has was unselectable at any width — and it
+            // is EXTERNAL_COMMUNICATION, so the miss is also the safe one.
+            "tell them", "text back", "send a message", "reply to",
+            "let them know", "quick reply",
         ),
         requiredPermission = null,
     )

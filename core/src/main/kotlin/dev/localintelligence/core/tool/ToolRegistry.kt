@@ -3,6 +3,8 @@ package dev.localintelligence.core.tool
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.catalogue.CatalogueAgreement
 import dev.localintelligence.core.tool.catalogue.V0ToolCatalogue
+import java.text.Normalizer
+import java.util.Locale
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -73,16 +75,34 @@ class SimpleToolRegistry(
  * making tasks impossible, and [dev.localintelligence.core.agent.AgentConfig.maxVisibleTools]
  * is set from a measured trade between exactly those two.
  *
- * ## `maxTools >= available.size` returns the input order, unscored
+ * ## `maxTools >= available.size` used to return the input order, unscored
  *
- * [LexicalToolSelector] short-circuits with
- * `if (available.size <= maxTools) return available`, so a caller asking for
- * at least the whole registry gets the registry's own order with no scoring
- * applied. Every tool is still callable, so nothing fails — but the order the
- * prompt and grammar see is arbitrary rather than relevance-ordered. Nothing
- * in the current loop depends on that order, so this is not a live bug. It is
- * named because the ceiling is exactly the knob a future change-set would
- * turn, and a caller who turns it far enough silently gets the other branch.
+ * This opened with `if (available.size <= maxTools) return available`, so a
+ * caller asking for at least the whole registry got the registry's own order
+ * with no scoring at all. Every tool was still callable, so nothing FAILED —
+ * but the result's meaning silently depended on the ceiling: the same call
+ * returned a relevance-ordered list at k=9 and an arbitrarily-ordered one at
+ * k=25, with no way for a caller to tell which it had got.
+ *
+ * **Removed**, after checking what it cost and what it was worth:
+ *
+ *  - **Order is not load-bearing today, and that was verified rather than
+ *    assumed.** Every consumer treats the result as a SET:
+ *    `AgentController` maps it to definitions for the prompt and the grammar,
+ *    `.toSet()`s it for the parser's allow-list, and `joinToString`s it into a
+ *    "not available" error. Nothing reads position 0 as "the best match", so
+ *    registry order and relevance order produce the same behaviour.
+ *  - **So this was a latent trap, not a live bug** — and the trap was the
+ *    ceiling itself. `AgentConfig.maxVisibleTools` is exactly the knob a
+ *    future change-set would turn, and a caller who turned it to 25 would
+ *    silently receive the other branch and never know.
+ *  - **Removing it is set-preserving, so it cannot cost recall.** When
+ *    `maxTools >= available.size` the new code returns the same tools in
+ *    relevance order; the membership is identical and only the ordering
+ *    changes. The harness re-runs all 176 cases to prove it.
+ *
+ * It was not a performance guard worth keeping: it saved a tokenisation pass
+ * over at most 25 short strings, which is noise beside one inference.
  */
 fun interface ToolSelector {
     fun select(
@@ -123,6 +143,15 @@ fun interface ToolSelector {
  *    shared word with any description or tag. The scorer has no opinion, and no
  *    re-weighting of an opinion it does not have can help.
  *
+ * **The second bullet has since been fixed, and not in this class.** On the
+ * 176-case dataset, 13 cases (7.4%) still had an expected tool scoring exactly
+ * zero, and all 13 were repaired by adding words to the TAG LISTS on the
+ * `:android` side — `pdf`, `block out`, `tell them`, `anything new`,
+ * `look up`, `link`, and so on. Zero of them were fixed here, because the
+ * scorer had no opinion to change. The zero-score count is now 0/176 on that
+ * dataset and the independent held-out probe (`core/tool/holdout/`) goes
+ * 20/25 -> 22/25.
+ *
  * Four inline variants were measured and all are recorded here rather than
  * shipped, because three are neutral-or-worse and the fourth is a tag-list
  * defect wearing a selector's clothes:
@@ -139,17 +168,53 @@ fun interface ToolSelector {
  * change: the catalogue's own contract says the TAG carries the inflection the
  * user types, and one tag is missing one `s`. Normalising the scorer to paper
  * over a tag list would make the next missing inflection invisible instead of
- * reported.
+ * reported. The tag lists above now carry both `meeting` and `meetings`, so
+ * that particular gap is closed the way this contract says it should be.
+ *
+ * ## Tokenisation, and the one thing it could not fix
+ *
+ * `tokenize` used to split on `Regex("[^a-z0-9]+")`, an ASCII-only class. For
+ * ASCII that is indistinguishable from correct; for anything else it fails
+ * silently in two distinct ways — `"öffne"` tokenised to the *corrupted*
+ * token `ffne` (not a missing letter, a different word), and `"検索して"`
+ * tokenised to `[]`, so every tool scored zero and the visible set was decided
+ * by the alphabetical tie-break. It is now a Unicode word-character class plus
+ * NFC normalisation, with the `> 2` character floor exempted for scripts that
+ * do not separate words with spaces. **The ASCII path is byte-identical**,
+ * which the harness verifies by re-running all 176 cases.
+ *
+ * `java.text.BreakIterator` was tried first and REJECTED on measurement: it
+ * treats `'` and `-` as word-internal, so `one-time` stayed one token while a
+ * user typing "one time" gave two, and k=10 fell 167 -> 165. Linguistic word
+ * boundaries are the wrong granularity for a bag-of-tokens overlap scorer.
+ *
+ * This does not make the selector multilingual. The catalogue is English, so
+ * `bel Annabel` now tokenises honestly and still matches nothing: correct
+ * tokenisation turns a silent zero into an honest low score, it does not
+ * cross a language boundary.
  *
  * The lever that *is* measured, and the one that was taken, is width:
  *
  * | visible tools | tasks made possible | mean system-prompt tokens |
  * |---------------|---------------------:|-------------------------:|
- * | 3             |            149/176  |  141                     |
- * | 6 (was)       |            158/176  |  218                     |
- * | **10 (ships)**|    **167/176**      |  **321**                 |
- * | 12            |            169/176  |  370                     |
- * | all 25        |            176/176  |  705                     |
+ * | 3             |            164/176  |  331                     |
+ * | 6 (was)       |            171/176  |  411                     |
+ * | **10 (ships)**|    **176/176**      |  **516**                 |
+ * | 12            |            176/176  |  566                     |
+ * | all 25        |            176/176  |  894                     |
+ *
+ * The 176/176 is a SATURATED metric, not a solved selector. The row above it
+ * used to read 167/176, and the 13 cases it was missing were missing because
+ * the expected tool shared no word with any description or tag. Those were
+ * fixed in the tag lists, and the words were chosen while reading these 176
+ * utterances — so 100% here is the shape of an overfit, and the honest
+ * generalisation figure is the independent held-out probe in
+ * `core/tool/holdout/`, which goes 20/25 -> 22/25.
+ *
+ * Note what that does to the width argument: k=3 alone is now 93.2% and k=6
+ * is 97.2%, so most of what 6 -> 10 was bought for has been bought back by
+ * fixing the tags instead. The ceiling is kept at 10 on the strength of an
+ * unmeasured small-model-reliability argument, not on this table.
  *
  * Measured on the 176-case dataset committed at
  * `core/tool/eval/SelectorDataset.kt`, against the 25 tools `:android` ships,
@@ -199,7 +264,6 @@ class LexicalToolSelector : ToolSelector {
         maxTools: Int,
     ): List<AgentTool> {
         if (available.isEmpty()) return emptyList()
-        if (available.size <= maxTools) return available
 
         val taskTokens = tokenize(task).toSet()
         val keywordTokens = sessionKeywords.flatMap { tokenize(it) }.toSet()
@@ -227,10 +291,206 @@ class LexicalToolSelector : ToolSelector {
         ).take(maxTools).map { it.first }
     }
 
-    private fun tokenize(text: String): List<String> =
-        text.lowercase()
-            .split(Regex("[^a-z0-9]+"))
-            .filter { it.length > 2 }
+    /**
+     * Splits [text] into comparable word tokens.
+     *
+     * ## Why this is not `split(Regex("[^a-z0-9]+"))`
+     *
+     * That regex was an ASCII-only character class, so every character
+     * outside `[a-z0-9]` acted as a separator. For a Latin-script user
+     * whose text happens to be pure ASCII that is indistinguishable from
+     * correct. For anyone else it fails in two different ways, and BOTH
+     * are silent — no exception, no empty result, just a wrong ranking:
+     *
+     *  - **Corruption, not just omission.** `"öffne die App"` tokenised to
+     *    `[ffne, die, app]`. The `ö` is a separator, so the token is not
+     *    missing a letter, it is a *different word* that now matches
+     *    nothing. A tool tagged `offen` loses the turn.
+     *  - **Total failure.** `"検索して"` tokenised to `[]`. Not one token
+     *    survives, so every tool scores zero, the ranking degenerates to
+     *    the `thenBy { name }` alphabetical tie-break, and which ten tools
+     *    the model can see is decided by the alphabet. This is the live
+     *    bug: the product is Dutch, and a non-Latin or accented request
+     *    silently degrades to an arbitrary tool set rather than a wrong
+     *    one.
+     *
+     * ## Why NOT `java.text.BreakIterator`, which was tried first
+     *
+     * Because it is the right tool for the wrong granularity, and using it
+     * made this WORSE on English: 167/176 fell to 165/176 at k=10.
+     * `BreakIterator` follows linguistic word boundaries, which means `'`
+     * and `-` are treated as word-internal. So the tool description
+     * "one-time alarm" yielded `[one-time, alarm]` while a user typing
+     * "one time alarm" yielded `[one, time, alarm]` — the two no longer
+     * share a token, and the tags are authored against the old splitting.
+     * `"what's on"`, a real `calendar.search` tag, became `[what's, on]`
+     * and stopped matching the far more common "what's on my calendar"
+     * only by accident.
+     *
+     * A bag-of-tokens overlap scorer wants *character-class* segmentation,
+     * not linguistic segmentation: the retrieval unit is "a run of letters
+     * and digits", and punctuation is noise either way. So the change is
+     * deliberately minimal and stays exactly that shape.
+     *
+     * ## The fix, and why not a dependency
+     *
+     * One Unicode-aware character class, built from
+     * [Character.getType], plus [Normalizer] in NFC form. `java.text` is in
+     * `java.base`, so this adds nothing to the dependency graph — which
+     * matters, because `:core` is a pure-JVM module and a Unicode library
+     * would either break that or pull an Android artifact in through the
+     * back door.
+     *
+     * NFC specifically closes a gap that a naive `isLetterOrDigit` check
+     * leaves open: `"café"` typed with a precomposed `é` and typed as
+     * `e` + U+0301 are the same word to a reader and two different token
+     * lists to a byte comparison, so they would fail to match each other.
+     * NFC makes both forms identical. It is the identity function on ASCII,
+     * which is why it cannot disturb the Latin path.
+     *
+     * ## What this does NOT fix, stated so it is not oversold
+     *
+     * Tokenising correctly is necessary and not sufficient. A Dutch request
+     * now produces real tokens, but the catalogue is written in English, so
+     * `"bel Annabel"` tokenises to `[annabel]` and still shares no word with
+     * `contacts.search`. Correct tokenisation turns a silent zero into an
+     * honest low score; it does not cross a language boundary. That needs
+     * either translations in the tags the SELECTOR reads (`:android`, not
+     * the catalogue — see `V0ToolCatalogue`'s note that its own tags never
+     * reach the model) or a model that reads the user's language, and is
+     * NOT attempted here.
+     *
+     * ## Why the `> 2` character floor is kept, and exempted where it lies
+     *
+     * The floor exists to drop `the`, `a`, `is` — function words shared by
+     * every English description, which dilute real overlap. Measured
+     * against the alternative it is worth keeping: stopword REMOVAL made
+     * recall worse (see the variant table above). But applied to every
+     * script it silently deletes a language. Japanese, Chinese and Thai
+     * write whole words in one or two characters, so `> 2` would empty the
+     * token set for exactly the input this fix exists to rescue, and a
+     * CJK run with no spaces arrives here as one long token that matches
+     * nothing. [isWordLike] therefore applies the floor only to
+     * space-delimited scripts.
+     *
+     * CJK is honestly still not *solved* by this: an unbroken run becomes
+     * one token, so it retrieves better than nothing and worse than real
+     * segmentation. Real CJK needs bigram indexing, which is a
+     * different change with its own measurement, and is not smuggled in
+     * here as if it were free.
+     *
+     * ## The Latin path is unchanged, and that is the point
+     *
+     * For ASCII input this returns exactly what the old regex returned,
+     * token for token, because for ASCII "not a letter, digit or mark" and
+     * "not `[a-z0-9]`" are the same set, and NFC is the identity on ASCII.
+     * That is verified rather than asserted: `SelectorRecallHarness`
+     * re-runs all 176 cases and reports whether any k changed. A fix that
+     * improves recall only by disturbing the measurement the improvement is
+     * claimed against is not evidence of anything.
+     */
+    private fun tokenize(text: String): List<String> {
+        if (text.isEmpty()) return emptyList()
+        // Locale.ROOT matters: a Turkish default locale case-folds `I` to a
+        // dotless `ı` and silently breaks every ASCII tag.
+        val normalized = Normalizer.normalize(text.lowercase(Locale.ROOT), Normalizer.Form.NFC)
+
+        val out = ArrayList<String>()
+        val current = StringBuilder()
+        var i = 0
+        while (i < normalized.length) {
+            val cp = normalized.codePointAt(i)
+            val charCount = Character.charCount(cp)
+            if (isWordCharacter(cp)) {
+                current.appendCodePoint(cp)
+            } else if (current.isNotEmpty()) {
+                out += current.toString()
+                current.setLength(0)
+            }
+            i += charCount
+        }
+        if (current.isNotEmpty()) out += current.toString()
+
+        return out.filter { token ->
+            if (isWordLike(token)) token.length > MIN_WORD_LENGTH else true
+        }
+    }
+
+    /**
+     * Whether a code point is part of a word.
+     *
+     * Letters and digits, by Unicode general category — so `é`, `ö`, `ñ`,
+     * `Ж` and `日` are all word characters and the old ASCII-only class
+     * stops eating them. Also [Character.NON_SPACING_MARK] and
+     * [Character.COMBINING_SPACING_MARK]: a combining acute is a diacritic
+     * belonging to the letter before it, and treating it as a separator
+     * would cut `"e" + U+0301` in half. Punctuation and symbols are NOT
+     * word characters, which is what keeps `one-time` splitting into
+     * `one` and `time` exactly as the ASCII path always did.
+     */
+    private fun isWordCharacter(codePoint: Int): Boolean {
+        val type = Character.getType(codePoint)
+        return type == Character.UPPERCASE_LETTER.toInt() ||
+            type == Character.LOWERCASE_LETTER.toInt() ||
+            type == Character.TITLECASE_LETTER.toInt() ||
+            type == Character.MODIFIER_LETTER.toInt() ||
+            type == Character.OTHER_LETTER.toInt() ||
+            type == Character.DECIMAL_DIGIT_NUMBER.toInt() ||
+            type == Character.LETTER_NUMBER.toInt() ||
+            type == Character.OTHER_NUMBER.toInt() ||
+            type == Character.NON_SPACING_MARK.toInt() ||
+            type == Character.COMBINING_SPACING_MARK.toInt()
+    }
+
+    /**
+     * Whether `> 2` characters is a valid minimum-word-length test for this
+     * token.
+     *
+     * True for scripts that separate words with spaces, so character count
+     * approximates word length and the floor usefully drops function words.
+     * False for CJK (Han, kana), Hangul and Thai, where a word is one or two
+     * characters and no inter-word space exists — there the floor would be a
+     * word-count error, not a stopword filter.
+     *
+     * Judged by the token's FIRST character, which is representative for a
+     * single-script token and keeps a Latin-plus-diacritic token (e.g.
+     * `café`) on the Latin branch where the floor applies.
+     */
+    private fun isWordLike(token: String): Boolean =
+        Character.getType(token.codePointAt(0)) != Character.OTHER_LETTER.toInt() ||
+            !isUnspacedScript(token.codePointAt(0))
+
+    /**
+     * True for characters in scripts written without inter-word spaces,
+     * where the `> 2` floor is a word-count error rather than a stopword
+     * filter.
+     *
+     * Covers kana, the CJK ideographic blocks, Hangul syllables and Thai.
+     * A full Unicode script table would be a dependency and a maintenance
+     * burden for a heuristic on a product whose catalogue is English;
+     * anything outside these blocks keeps the Latin behaviour, which is the
+     * right default rather than a silent one.
+     */
+    private fun isUnspacedScript(codePoint: Int): Boolean =
+        when (codePoint) {
+            in 0x3040..0x30FF -> true // Hiragana, Katakana
+            in 0x3400..0x4DBF -> true // CJK Unified Ext A
+            in 0x4E00..0x9FFF -> true // CJK Unified
+            in 0xF900..0xFAFF -> true // CJK Compatibility Ideographs
+            in 0xAC00..0xD7AF -> true // Hangul syllables
+            in 0x0E00..0x0E7F -> true // Thai
+            in 0x20000..0x2FA1F -> true // CJK Unified Ext B-F
+            else -> false
+        }
+
+    private companion object {
+        /**
+         * Minimum token length for space-delimited scripts, i.e. the old
+         * `> 2`. Expressed as "strictly longer than", so three characters
+         * drops `the`, `is`, `a` and `of` without touching real words.
+         */
+        const val MIN_WORD_LENGTH = 2
+    }
 }
 
 /**

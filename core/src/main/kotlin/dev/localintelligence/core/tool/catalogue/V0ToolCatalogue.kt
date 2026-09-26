@@ -60,6 +60,23 @@ import kotlinx.serialization.json.putJsonObject
  * | this catalogue, 25 |                632 |        356 |
  * | `:android`, 25     |                484 |        320 |
  *
+ * **This has since cost real accuracy, not just a wasted change-set.** The
+ * 176-case harness (`core/tool/eval/`) measured 13 of 176 cases (7.4%) where
+ * the intended tool scored EXACTLY ZERO — no shared word with any
+ * description or tag, so no re-weighting and no visible-set width could ever
+ * select it. Every one of those tools was tagged here in this file and NOT on
+ * the `:android` side that the selector actually reads: `pdf` and `where is`
+ * for `files.search`, `block out` for `calendar.create`, `tell them` for
+ * `notifications.reply`, `anything new` for `notifications.list`, `look up`
+ * for `contacts.search`, `package name` for `apps.list`. The vocabulary a
+ * whole change-set had carefully written was sitting in the one file that
+ * cannot affect retrieval.
+ *
+ * The tag lists are now UNIFIED between the two files, so this trap is
+ * closed rather than merely described. Keep them that way: if the two are
+ * allowed to drift, the next tuning pass has a 50% chance of landing in the
+ * file that does not count.
+ *
  * The 219-token system prompt a real turn carries is built from the `:android`
  * side. The budgets below are therefore about the *documentation* staying
  * reviewable, not about prompt cost.
@@ -176,8 +193,9 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
-                "files", "documents", "downloads", "folder",
-                "what files do i have", "list my files",
+                "browse", "documents", "downloads", "files",
+                "folder", "list my files", "my files", "storage",
+                "what files do i have",
             ),
             requiredPermission = null,
         ),
@@ -216,8 +234,10 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
-                "search", "find", "look for", "where is",
-                "pdf", "report", "downloaded", "my note",
+                "anywhere", "downloaded", "extension", "filename",
+                "find", "is there a", "look for", "mime type",
+                "modified", "my note", "pdf", "recent files",
+                "report", "search", "what did i download", "where is",
             ),
             requiredPermission = null,
         ),
@@ -236,8 +256,9 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
-                "read", "open file", "contents", "text",
-                "preview", "what does it say", "summarize this file", "show me the file",
+                "contents", "file content", "open", "open file",
+                "preview", "read", "show me the file", "summarize this file",
+                "text", "what does it say", "what does the file say",
             ),
             requiredPermission = null,
         ),
@@ -280,8 +301,9 @@ object V0ToolCatalogue {
             // right trade against silently overwriting a file.
             risk = ToolRisk.DESTRUCTIVE,
             tags = setOf(
-                "save", "write", "note", "notes",
-                "new note", "create file", "jot down", "export",
+                "create file", "export", "jot down", "new note",
+                "note", "notes", "overwrite", "save",
+                "store text", "write",
             ),
             requiredPermission = null,
         ),
@@ -307,8 +329,10 @@ object V0ToolCatalogue {
             },
             risk = ToolRisk.DESTRUCTIVE,
             tags = setOf(
-                "delete", "remove", "erase", "trash",
-                "get rid of", "pdf", "invoice", "document",
+                "bin", "delete", "delete a file", "discard",
+                "document", "draft", "erase", "get rid of",
+                "invoice", "pdf", "remove", "remove a file",
+                "throw away", "trash", "unlink",
             ),
             requiredPermission = null,
         ),
@@ -335,8 +359,10 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
-                "apps", "applications", "installed", "what apps do i have",
-                "launcher", "home screen", "package name",
+                "app", "applications", "apps", "do i have an app",
+                "find an app", "home screen", "installed", "is there an app for",
+                "launcher", "package name", "packages", "search apps",
+                "what apps do i have",
             ),
             requiredPermission = null,
         ),
@@ -362,8 +388,10 @@ object V0ToolCatalogue {
             },
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "open", "launch", "start", "run",
-                "switch to", "go to app", "maps", "whatsapp",
+                "go to app", "launch", "listen to", "maps",
+                "open", "open a media app", "play", "play a game",
+                "play music", "put on", "run", "show me the app",
+                "start", "switch to", "whatsapp",
             ),
             requiredPermission = null,
         ),
@@ -396,8 +424,9 @@ object V0ToolCatalogue {
             },
             risk = ToolRisk.EXTERNAL_COMMUNICATION,
             tags = setOf(
-                "share", "send", "forward", "pass to another app",
-                "attach", "send it to", "whatsapp it", "email it",
+                "attach", "email it", "forward", "pass to another app",
+                "send", "send it to", "share", "share file",
+                "share text", "whatsapp it",
             ),
             // No Android permission. The system share sheet owns the destination
             // choice, so there is nothing for this app to hold. The runtime still
@@ -449,8 +478,9 @@ object V0ToolCatalogue {
             },
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "clipboard", "copy", "copy to clipboard", "put on clipboard",
-                "cut", "copy text", "copy this", "save to clipboard",
+                "clipboard", "copy", "copy text", "copy this",
+                "copy to clipboard", "cut", "paste", "put on clipboard",
+                "save to clipboard", "share text",
             ),
             requiredPermission = null,
         ),
@@ -465,8 +495,11 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
-                "battery", "charge", "power", "battery level",
-                "how much battery", "charging", "how long until charged", "drain",
+                "battery", "battery level", "charge", "charging",
+                "die", "dies", "drain", "empty",
+                "how long until charged", "how long until it dies", "how long will it last", "how much battery",
+                "make it home", "power", "run out", "run out of battery",
+                "running out", "survive",
             ),
             requiredPermission = null,
         ),
@@ -480,8 +513,9 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
-                "device info", "phone model", "specs", "which phone",
-                "what phone", "how much storage", "free space", "android version",
+                "android version", "device info", "free space", "how much ram",
+                "how much storage", "phone model", "screen size", "specs",
+                "storage", "what phone", "which phone",
             ),
             requiredPermission = null,
         ),
@@ -502,8 +536,8 @@ object V0ToolCatalogue {
             },
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "open settings", "settings", "wifi settings", "turn on bluetooth",
-                "display settings", "battery saver", "sound settings",
+                "battery saver", "display settings", "open settings", "settings",
+                "sound settings", "system settings", "turn on bluetooth", "wifi settings",
             ),
             requiredPermission = null,
         ),
@@ -576,8 +610,10 @@ object V0ToolCatalogue {
             },
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "alarm", "set an alarm", "wake me up", "remind me at",
-                "ring at", "set a reminder", "timer for",
+                "alarm", "before work", "get me up", "get up",
+                "need to be up", "remind me at", "ring at", "set a reminder",
+                "set a timer", "set an alarm", "timer", "timer for",
+                "up at", "wake me up", "wake up call",
             ),
             requiredPermission = "android.permission.SCHEDULE_EXACT_ALARM",
         ),
@@ -591,8 +627,9 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
-                "alarm list", "my alarm", "what alarm do i have", "upcoming alarm",
-                "what did i set", "do i have an alarm", "show my alarm",
+                "alarm list", "do i have an alarm", "list alarms", "my alarm",
+                "my alarms", "show my alarm", "upcoming alarm", "upcoming alarms",
+                "what alarm do i have", "what alarms do i have", "what did i set",
             ),
             requiredPermission = null,
         ),
@@ -634,8 +671,9 @@ object V0ToolCatalogue {
             // asked to confirm every single-alarm cancel stops using the feature.
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "cancel alarm", "delete alarm", "remove alarm", "turn off alarm",
-                "stop the alarm", "get rid of my alarm", "kill the alarm",
+                "cancel alarm", "cancel my alarm", "delete alarm", "get rid of my alarm",
+                "kill the alarm", "remove alarm", "remove the wake up", "stop the alarm",
+                "turn off alarm",
             ),
             requiredPermission = "android.permission.SCHEDULE_EXACT_ALARM",
         ),
@@ -681,8 +719,11 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
-                "calendar", "schedule", "appointment", "meeting",
-                "event", "agenda", "what do i have on", "next",
+                "agenda", "am i free", "anything today", "appointment",
+                "busy", "calendar", "event", "events",
+                "free", "meeting", "meetings", "next",
+                "schedule", "this afternoon", "today", "tomorrow",
+                "what do i have on", "what's on",
             ),
             requiredPermission = "android.permission.READ_CALENDAR",
         ),
@@ -727,8 +768,10 @@ object V0ToolCatalogue {
             },
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "schedule", "book", "add event", "new meeting",
-                "block out", "put in my calendar", "reserve",
+                "add event", "appointment", "block out", "block time",
+                "book", "calendar", "hold time", "meeting",
+                "new meeting", "put in my calendar", "reminder", "reserve",
+                "schedule", "this afternoon", "work meeting",
             ),
             requiredPermission = "android.permission.WRITE_CALENDAR",
         ),
@@ -783,8 +826,11 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
-                "contacts", "contact", "phone number", "who is",
-                "look up", "address book", "call", "ring",
+                "address book", "call", "contact", "contacts",
+                "find someone", "get in touch", "how do i contact", "how to reach",
+                "look someone up", "look up", "lookup", "number",
+                "phone book", "phone number", "reach", "ring",
+                "who is",
             ),
             requiredPermission = "android.permission.READ_CONTACTS",
         ),
@@ -804,8 +850,9 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
-                "contact details", "full contact", "everything about",
-                "contact card", "their email", "their address",
+                "address book", "contact", "contact card", "contact details",
+                "email address", "everything about", "full contact", "lookup",
+                "phone number", "their address", "their email", "who is",
             ),
             requiredPermission = "android.permission.READ_CONTACTS",
         ),
@@ -837,8 +884,10 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
-                "notifications", "alerts", "what came in", "miss",
-                "messages", "whatsapp", "what did i miss", "anything new",
+                "alerts", "anything new", "banner", "come in",
+                "did anything come in", "inbox", "list", "messages",
+                "miss", "notifications", "ping", "what came in",
+                "what did i miss", "whatsapp", "who messaged",
             ),
             requiredPermission = null,
         ),
@@ -865,8 +914,10 @@ object V0ToolCatalogue {
             },
             risk = ToolRisk.EXTERNAL_COMMUNICATION,
             tags = setOf(
-                "reply", "respond", "answer", "text back",
-                "message back", "quick reply", "send a message", "tell them",
+                "answer", "chat", "let them know", "message back",
+                "notification", "quick reply", "reply", "reply to",
+                "respond", "send", "send a message", "tell them",
+                "text back", "text message",
             ),
             requiredPermission = null,
         ),
@@ -885,8 +936,9 @@ object V0ToolCatalogue {
             },
             risk = ToolRisk.REVERSIBLE,
             tags = setOf(
-                "dismiss", "clear notification", "swipe away", "silence",
-                "get rid of notification", "mark as read", "no more alerts",
+                "banner", "clear", "clear notification", "dismiss",
+                "get rid of notification", "mark as read", "no more alerts", "notification",
+                "remove", "silence", "swipe away",
             ),
             requiredPermission = null,
         ),
@@ -919,8 +971,11 @@ object V0ToolCatalogue {
             // beyond the topic word itself, so this tool needs several exact-token
             // hits to clear the stopword noise floor every description carries.
             tags = setOf(
-                "web", "internet", "online", "look up",
-                "website", "weather", "forecast", "right now",
+                "check what the site says", "fetch", "forecast", "http",
+                "internet", "link", "link url", "look up",
+                "online", "open a link", "page", "page link",
+                "read online", "right now", "this link", "url",
+                "weather", "web", "website", "website says",
             ),
             requiredPermission = null,
         ),

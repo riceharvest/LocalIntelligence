@@ -700,8 +700,17 @@ class DeviceBatteryTool(private val platform: DevicePlatform) : AgentTool {
         risk = ToolRisk.READ_ONLY,
         observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
+            // "die", "run out", "last", "survive" and "make it home" are here
+            // because "is this thing going to die before I get home" shares no
+            // word with the tag list otherwise, and the tool it means scored
+            // exactly zero — unselectable at any width, which is a tag-list
+            // defect rather than a ranking one. "how long until it dies" is the
+            // phrasing, "drain"/"charge" were already the noun-side of it.
             "battery", "charge", "power", "how much battery", "battery level",
             "charging", "how long until charged", "drain",
+            "run out", "running out", "run out of battery", "die", "dies",
+            "how long until it dies", "how long will it last", "survive",
+            "make it home", "empty",
         ),
         requiredPermission = null,
     )

@@ -479,7 +479,16 @@ class AppsListTool(private val appContext: Context) : AgentTool {
         },
         risk = ToolRisk.READ_ONLY,
         observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("apps", "applications", "installed", "launcher", "home screen", "what apps do i have", "packages"),
+        tags = setOf(
+            "apps", "applications", "installed", "launcher", "home screen", "what apps do i have", "packages",
+            // "package name" was on the V0ToolCatalogue side; "is there an app
+            // for" and "search apps" are added because "is there an app for
+            // budgeting" shares no word with this list — "app" singular is not
+            // "apps", and the tool that answers "which apps do I have" scored
+            // exactly zero.
+            "package name", "is there an app for", "search apps", "app",
+            "do i have an app", "find an app",
+        ),
         // No permission, and the field now says so. It used to hold the
         // sentence "QUERY_ALL_PACKAGES is NOT used; package visibility rules
         // apply on API 30+", which is documentation masquerading as a permission
@@ -546,7 +555,15 @@ class AppsOpenTool(private val appContext: Context) : AgentTool {
             put("additionalProperties", false)
         },
         risk = ToolRisk.REVERSIBLE,
-        tags = setOf("open", "launch", "start", "run", "switch to", "go to app", "show me the app"),
+        tags = setOf(
+            "open", "launch", "start", "run", "switch to", "go to app", "show me the app",
+            // "maps" and "whatsapp" were on the V0ToolCatalogue side and absent
+            // here. "play some music" shares no word with this list, so the
+            // tool that would open a media app scored exactly zero and the
+            // request was unperformable at any width.
+            "maps", "whatsapp", "play", "play a game", "play music", "listen to",
+            "open a media app", "put on",
+        ),
         requiredPermission = null,
     )
 

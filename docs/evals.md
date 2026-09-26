@@ -56,9 +56,21 @@ harness. Raising `maxVisibleTools` to 10 raises the ceiling; whether a small
 model picks reliably from ten alternatives than from six is the unmeasured half
 of that trade, and it stays unmeasured.
 
-**Non-English phrasing.** The scorer splits on `[^a-z0-9]+`, so any non-Latin
-utterance scores zero against every tool. That is a real and separate finding,
-not covered by this dataset.
+**Non-English phrasing — tokenisation half FIXED, language half still open.**
+The scorer used to split on `[^a-z0-9]+`, so `öffne` became the corrupted
+token `ffne` and a Japanese utterance became `[]` (no tokens, every tool
+scoring zero, the visible set decided by alphabetical order). The scorer is
+now Unicode-aware with NFC normalisation, and the `> 2` character floor is
+exempted for scripts that do not space their words. The ASCII path is
+unchanged.
+
+What that does **not** do is cross a language boundary: the catalogue is in
+English, so `bel Annabel` now tokenises honestly to `[annabel]` and still
+shares no word with `contacts.search`. Fixing that needs Dutch (and other)
+vocabulary in the `:android` tags, or a model that reads the user's language.
+It is a separate, larger change and is not claimed here. Two of the three
+held-out probe misses are Dutch or Dutch-adjacent, which is that gap showing
+up as a number rather than a caveat.
 
 ### The numbers
 
@@ -66,17 +78,26 @@ Measured on the committed dataset, 176 cases, 25 shipped tools:
 
 | visible tools | tasks made possible | mean system-prompt tokens |
 |---------------|---------------------:|-------------------------:|
-| 3             |            149/176  |  141                     |
-| 6             |            158/176  |  218                     |
-| **10 (ships)**|    **167/176**      |  **321**                 |
-| 12            |            169/176  |  370                     |
-| all 25        |            176/176  |  705                     |
+| 3             |            164/176  |  331                     |
+| 6             |            171/176  |  411                     |
+| **10 (ships)**|    **176/176**      |  **516**                 |
+| 12            |            176/176  |  566                     |
+| all 25        |            176/176  |  894                     |
+
+**Read 176/176 as a saturated metric, not a solved selector.** These tags were
+written while reading these 176 utterances, so the row is a ceiling that has
+been met, not a generalisation estimate. The independent number is the
+held-out probe in `core/tool/holdout/`: 25 utterances written after the tags
+were frozen, in different wording and including Dutch, which goes 20/25 ->
+22/25. Quote that one for "did this actually get better".
 
 These replace an earlier set (61.6% at k=6 over 86 held-out cases) that could
 not be re-derived because the utterances lived on an unmerged branch. The
 absolute percentages are not comparable — different dataset — and are not
 presented as one trend. The SHAPE is what carried over, and the shape is what
-the constant was set from.
+the constant was set from. Note the shape has since flattened a great deal:
+k=3 alone now reaches 93.2%, so width is a much smaller lever than it was when
+the ceiling was raised.
 
 ---
 

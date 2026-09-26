@@ -31,15 +31,32 @@ data class AgentConfig(
      *
      * | visible tools | tasks made possible | mean system-prompt tokens |
      * |---------------|---------------------:|-------------------------:|
-     * | 6 (previous)  |            158/176  |  218                     |
-     * | **10 (now)**  |        **167/176**  |  **321**                 |
-     * | 12            |            169/176  |  370                     |
-     * | all 25        |            176/176  |  705                     |
+     * | 6 (previous)  |            171/176  |  411                     |
+     * | **10 (now)**  |        **176/176**  |  **516**                 |
+     * | 12            |            176/176  |  566                     |
+     * | all 25        |            176/176  |  894                     |
+     *
+     * **176/176 means this metric is saturated, not that the ceiling is
+     * proven.** The tag lists were repaired while reading these 176
+     * utterances, so the last row is a ceiling that has been met rather than
+     * a generalisation estimate. The independent check is the held-out probe
+     * in `core/tool/holdout/`, 25 utterances written after the tags were
+     * frozen: it goes 20/25 -> 22/25. That is a real gain and a modest one.
+     *
+     * **The width argument is now much weaker than it was, and this constant
+     * is kept for that reason rather than because the case is strong.** At
+     * k=3 recall is already 164/176 (93.2%) and k=6 is 171/176 (97.2%), so
+     * most of what 6 -> 10 bought has been bought back by fixing the tags
+     * instead. The unmeasured risk below is the only thing still arguing for
+     * 10 over 6, and it is unmeasured. If someone measures that risk and it
+     * does not bite, 6 is the better number.
      *
      * Nine tasks in a hundred and seventy-six stop being performable at all
      * at k=6, for 103 prompt tokens against a 6000-token working limit. A task
      * that is not performable is worth more than 103 tokens of prefill, and the
      * model is spending thousands of tokens on the working context anyway.
+     * (That comparison is from the pre-tag-fix measurement and no longer
+     * decides anything — see the note above on the flattened curve.)
      *
      * **12 buys two more cases for 49 tokens and is deliberately not taken.**
      * The tie rate is the reason: at k=10 the 10th and 11th tools score
@@ -47,7 +64,9 @@ data class AgentConfig(
      * almost entirely `thenBy { name }` deciding between tools the scorer
      * scored zero, so extra width buys recall by accident of the alphabet
      * rather than by ranking. 10 is the knee, and 12 is recorded above as a
-     * measured option rather than left as an unexamined next step.
+     * measured option rather than left as an unexamined next step. Both tie
+     * rates are from the pre-tag-fix run; after the fix 12 buys ZERO further
+     * cases, which is a further reason not to take it.
      *
      * ## Why this cannot overrun the working limit
      *
@@ -55,13 +74,13 @@ data class AgentConfig(
      *
      *  - **The grammar costs zero context tokens.** `GrammarBuilder.forActions`
      *    output is a SAMPLER constraint passed as `GenerationRequest.grammar`,
-     *    never prefilled. It grows 1045 -> 1345 chars from k=6 to k=10, and
+     *    never prefilled. It grows 1042 -> 1339 chars from k=6 to k=10, and
      *    that is parse overhead, not budget.
      *  - **The prompt cost is bounded and small.** Worst case over the whole
-     *    dataset at k=10 is 391 tokens for system prompt plus task, against a
+     *    dataset at k=10 is 581 tokens for system prompt plus task, against a
      *    `ContextBudget.promptTokens` ceiling of 5744 (`workingTokenLimit` 6000
-     *    less the 256-token reply reserve). Even at k=25 the worst case is 745.
-     *    Headroom at k=10 is 5353 tokens.
+     *    less the 256-token reply reserve). Even at k=25 the worst case is 934.
+     *    Headroom at k=10 is 5163 tokens.
      *  - **The builder degrades rather than overflowing.**
      *    `DefaultContextBuilder` budgets the tool-carrying system prompt first
      *    and trims history to whatever is left, so widening the set spends
