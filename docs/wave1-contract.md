@@ -57,7 +57,7 @@ data class AgentConfig(
     val maxSteps: Int = 8,
     val maxVisibleTools: Int = 6,
     val maxMalformedRetries: Int = 3,
-    val workingTokenLimit: Int = 6000,
+    val prefillCostCapTokens: Int = 6000,
     val memoryResults: Int = 5,
     val observationBudgetChars: Int = ObservationTruncator.DEFAULT_BUDGET_CHARS,
 )
@@ -169,7 +169,11 @@ package dev.LocalIntelligence.core.context
 
 class DefaultContextBuilder(
     private val systemPrompt: (List<ToolDefinition>) -> String = SystemPrompts::forTools,
-    private val workingLimit: Int = 6000,
+    // The ceiling is DERIVED from the loaded model's window, not stated here.
+    // See ContextCeiling; a literal 6000 in this position is the 6000-vs-4096
+    // defect that let a prompt be built for a 4096-token KV cache.
+    private val modelContextTokens: () -> Int = { ContextCeiling.FALLBACK_WINDOW_TOKENS },
+    private val workingLimit: Int? = null,
 ) : ContextBuilder {
     override fun build(
         task: String,
@@ -181,8 +185,8 @@ class DefaultContextBuilder(
 
 class ContextCompactor(
     private val summarizer: SummaryWriter,     // interface, below
-    private val workingLimit: Int = 6000,
-    private val triggerFraction: Double = 0.65,
+    private val workingLimit: Int = ContextCeiling.PREFILL_COST_CAP,
+    private val triggerFraction: Double = ContextCeiling.TRIGGER_FRACTION,
 ) {
     fun shouldCompact(activeTokens: Int, modelContext: Int): Boolean
     suspend fun compact(session: Session, model: ModelBackend): CompactedState

@@ -110,7 +110,7 @@ data class AgentConfig(
     val maxSteps: Int = 8,                 // 2-10 reliable actions is the v0 target
     val maxVisibleTools: Int = 6,          // hard ceiling 8
     val maxMalformedRetries: Int = 3,
-    val workingTokenLimit: Int = 6000,     // compaction trigger
+    val prefillCostCapTokens: Int = 6000,  // prefill COST cap, not the ceiling
     val memoryResults: Int = 5,            // hard ceiling 5
     val observationBudgetChars: Int = 2048,
 )

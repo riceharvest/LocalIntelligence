@@ -13,6 +13,7 @@ import dev.localintelligence.core.model.gguf.GgufWarning
 import dev.localintelligence.core.model.gguf.KvCacheType
 import dev.localintelligence.core.model.gguf.MemoryEstimate
 import dev.localintelligence.core.model.gguf.ModelMemoryEstimator
+import dev.localintelligence.core.model.token.ContextCeiling
 import java.io.FileNotFoundException
 
 /**
@@ -200,7 +201,7 @@ class ModelImporter(private val contentResolver: ContentResolver) {
 
     companion object {
         const val BACKEND_LLAMA_CPP = "llamacpp"
-        const val DEFAULT_CONTEXT_LENGTH = 4096
+        const val DEFAULT_CONTEXT_LENGTH = ContextCeiling.ALLOCATED_CONTEXT_TOKENS
     }
 }
 

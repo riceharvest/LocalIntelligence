@@ -1,5 +1,7 @@
 package dev.localintelligence.core.compaction
 
+import dev.localintelligence.core.model.token.ContextCeiling
+
 /**
  * Turns a growing session into six labelled slots, deterministically, with an
  * audit of everything it had to leave behind.
@@ -60,15 +62,18 @@ class ContextCompactor(
      * Whether the active context is too big to keep growing.
      *
      * `docs/architecture.md` §12:
-     * `activeTokens > min(model.context * 0.65, workingLimit)`.
-     * The model context stops us overflowing the KV cache; the working limit
-     * stops us paying a prefill the architecture says we should never pay (§9).
-     * On a 4K model the first term binds; on a 32K model the second does.
+     * `activeTokens > min(modelContext * 0.65, prefillCostCap)`.
+     * The model context stops us overflowing the KV cache; the cost cap stops
+     * us paying a prefill the architecture says we should never pay (§9). On a
+     * 4K model the first term binds; on a 32K model the second does.
      *
      * A non-positive [modelContextTokens] means the backend does not know its
-     * own window (`ModelCapabilities.UNKNOWN.contextLength` is 0). The formula
-     * is applied as written, which degenerates to "always compact" — slow and
-     * wasteful, never wrong. Substituting a guessed window would be a guess.
+     * own window (`ModelCapabilities.UNKNOWN.contextLength` is 0). It used to
+     * fall back to the cost cap, i.e. a backend that reported nothing was
+     * handed the largest budget in the system; [ContextCeiling] resolves it to
+     * [ContextCeiling.FALLBACK_WINDOW_TOKENS] instead, which is what the loader
+     * actually allocates when the GGUF header is silent. Slow and wasteful
+     * rather than wrong, in the safe direction.
      */
     fun needsCompaction(activeTokens: Int, modelContextTokens: Int): Boolean =
         activeTokens > triggerCeiling(modelContextTokens)
@@ -77,15 +82,13 @@ class ContextCompactor(
      * The token count above which [needsCompaction] returns true. Exposed so a
      * caller can log the threshold it is actually using rather than re-deriving
      * a second, possibly different, copy of the formula.
+     *
+     * Delegates to [ContextCeiling], so the compaction trigger, the per-step
+     * gate and `DefaultContextBuilder` are three readers of one number rather
+     * than three implementations of it.
      */
-    fun triggerCeiling(modelContextTokens: Int): Int {
-        val byModel = modelContextTokens * config.triggerFraction
-        return if (byModel.isNaN() || byModel <= 0.0) {
-            config.workingTokenLimit
-        } else {
-            minOf(byModel, config.workingTokenLimit.toDouble()).toInt()
-        }
-    }
+    fun triggerCeiling(modelContextTokens: Int): Int =
+        ContextCeiling.workingLimit(modelContextTokens, config.prefillCostCapTokens)
 
     /**
      * The pure compaction. Same state in, same bytes out, every time.

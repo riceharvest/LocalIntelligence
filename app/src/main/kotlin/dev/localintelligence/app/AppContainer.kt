@@ -462,9 +462,22 @@ class AppContainer(private val context: Context) {
      * Prompt assembly is cheap and stateless, so one shared instance is safe and
      * correct. `DefaultContextBuilder` holds no state between calls by design
      * (see its own KDoc on heap discipline).
+     *
+     * The ceiling is NOT captured here. It is a lambda that reads the RESIDENT
+     * backend's reported window on every build, because the model is loaded
+     * after this object exists and can be swapped or unloaded underneath it.
+     * This used to pass `agentConfig.workingTokenLimit` — a constant 6000,
+     * chosen before any model was loaded — so a 4096-context model was handed a
+     * 6000-token prompt budget, and the builder filled it.
+     *
+     * `residentBackend()` rather than `modelBackend`: the LiteRT-LM path loads
+     * through a different instance (`loadedBackend`), and a budget that reads
+     * the wrong backend reports the wrong window for every `.litertlm` model.
      */
     val contextBuilder: ContextBuilder by lazy {
-        DefaultContextBuilder(workingLimit = agentConfig.workingTokenLimit)
+        DefaultContextBuilder(
+            modelContextTokens = { residentBackend().capabilities.contextLength },
+        )
     }
 
     /**

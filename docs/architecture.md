@@ -253,6 +253,20 @@ whether to ask permission is a model that decides not to.
 
 Optimized explicitly for small models. Normal working target: **3-6K tokens**.
 
+**The 3-6K figure is a cost target, not a ceiling.** The ceiling is
+`ContextCeiling.workingLimit(modelWindow)` = `min(modelWindow * 0.65, 6000)`,
+read from the window the *loaded model reports*. On this app's 4096-token
+allocation that resolves to **2662**, and the builder will not exceed it.
+
+This distinction is not academic. The builder was previously handed a literal
+6000 while the loader created a 4096-token KV cache; measured on the real
+builder with 8 tools, 5 memories and a full turn window, that produced a
+**4259-token prompt, 4771 including the 512-token `maxOutputTokens` default —
+675 tokens past the cache, with nothing thrown and nothing logged.** A single
+source of truth (`ContextCeiling`, in `:core`) now derives both the allocation
+and the budget, so a model that reports a different window at load gets a
+budget derived from *that* window.
+
 | Component       | Budget (tokens) |
 | --------------- | --------------: |
 | System prompt   |         300-600 |

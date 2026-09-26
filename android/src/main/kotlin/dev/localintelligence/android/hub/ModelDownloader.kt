@@ -15,6 +15,7 @@ import dev.localintelligence.core.hub.ResumeDecision
 import dev.localintelligence.core.hub.ResumePolicy
 import dev.localintelligence.core.hub.Sha256
 import dev.localintelligence.core.hub.TransferRate
+import dev.localintelligence.core.model.token.ContextCeiling
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -432,12 +433,20 @@ class ModelDownloader(
         /**
          * The context length used for the on-disk re-check.
          *
-         * WHY it matches the default rather than the user's setting: the disk
-         * re-check exists to catch a full volume, and RAM does not change
+         * WHY it matches the allocation rather than the user's setting: the
+         * disk re-check exists to catch a full volume, and RAM does not change
          * between the pre-flight and the transfer. Re-asking for a context
          * length would mean the download function has a parameter the UI has to
          * keep in sync with the plan it already passed in.
+         *
+         * WHY IT IS NO LONGER 2048: this was the last context literal in the
+         * product that disagreed with what the loader allocates. At 2048 every
+         * pre-download plan priced a KV cache half the real one, so the app
+         * offered downloads on devices that would then OOM at load — the same
+         * defect `PreDownloadMemoryModel.DEFAULT_CONTEXT_LENGTH` had, in the
+         * direction that looks like generosity. Both now read
+         * [ContextCeiling.ALLOCATED_CONTEXT_TOKENS].
          */
-        const val PreDownloadContextLength = 2_048
+        const val PreDownloadContextLength = ContextCeiling.ALLOCATED_CONTEXT_TOKENS
     }
 }

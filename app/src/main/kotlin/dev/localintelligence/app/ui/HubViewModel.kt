@@ -13,6 +13,7 @@ import dev.localintelligence.core.hub.HubTokenSource
 import dev.localintelligence.core.hub.HubTransport
 import dev.localintelligence.core.hub.HuggingFaceClient
 import dev.localintelligence.core.hub.formatBytes
+import dev.localintelligence.core.model.token.ContextCeiling
 import dev.localintelligence.android.hub.ModelDownloader
 import dev.localintelligence.android.hub.UrlConnectionTransport
 import kotlinx.coroutines.Dispatchers
@@ -646,12 +647,14 @@ class HubViewModel(
 
     companion object {
         /**
-         * WHY 4096: the context the app's tool-using agent needs for a system
-         * prompt, a tool result and a reply. It is also the value
-         * `ModelImporter.DEFAULT_CONTEXT_LENGTH` uses, so the fit decision here
-         * and the one at load time agree.
+         * The context a download is planned at.
+         *
+         * [ContextCeiling.ALLOCATED_CONTEXT_TOKENS], so this plan, the fit
+         * decision at load time and the prompt budget the loaded model gets all
+         * read one number. This was a fourth literal copy of 4096, in a module
+         * that could not import the other three.
          */
-        const val DEFAULT_CONTEXT_LENGTH = 4_096
+        const val DEFAULT_CONTEXT_LENGTH = ContextCeiling.ALLOCATED_CONTEXT_TOKENS
 
         /**
          * Mirrors `HubSibling.MAX_PLAIN_GIT_BLOB_BYTES` in `:core`: below this,

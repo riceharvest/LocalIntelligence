@@ -17,6 +17,7 @@ import dev.localintelligence.core.metrics.RunRecorder
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.model.token.BudgetAction
 import dev.localintelligence.core.model.token.ContextBudget
+import dev.localintelligence.core.model.token.ContextCeiling
 import dev.localintelligence.core.model.token.ContextState
 import dev.localintelligence.core.model.token.ProposedStep
 import dev.localintelligence.core.model.token.StepEnforcer
@@ -187,8 +188,8 @@ class AgentController(
      * built ungated by omission is a controller that eventually will be.
      */
     private val compactor: ContextCompactor = ContextCompactor(
-        workingLimit = config.workingTokenLimit,
-        triggerFraction = COMPACT_AT,
+        workingLimit = config.prefillCostCapTokens,
+        triggerFraction = ContextCeiling.TRIGGER_FRACTION,
     ),
     /**
      * Optional per-step budget gate. WHY NULLABLE AND NOT A DEFAULT INSTANCE:
@@ -1312,10 +1313,20 @@ class AgentController(
      *
      * The model's window stops us overflowing the KV cache; the working limit
      * stops us paying for a prefill §9 says we should never pay.
+     *
+     * The formula itself now lives in [ContextCeiling] — the single source of
+     * truth that `DefaultContextBuilder` and `ContextBudget` also read, which
+     * is what stopped the builder assembling a 6000-token prompt against this
+     * gate's 2662. A window of 0 (a backend that has not been asked yet) is
+     * resolved to [ContextCeiling.FALLBACK_WINDOW_TOKENS] rather than treated
+     * as "no limit": the old `else` branch returned `config.workingTokenLimit`
+     * and quietly granted a model that had told us nothing the largest budget
+     * in the system.
      */
-    private fun workingLimit(window: Int): Int =
-        if (window > 0) min((window * COMPACT_AT).toInt(), config.workingTokenLimit)
-        else config.workingTokenLimit
+    private fun workingLimit(window: Int): Int = ContextCeiling.workingLimit(
+        reportedWindowTokens = window,
+        costCap = config.prefillCostCapTokens,
+    )
 
     private fun failed(toolName: String, detail: String): ToolResult = ToolResult(
         success = false,
@@ -1434,7 +1445,6 @@ class AgentController(
     }
 
     private companion object {
-        const val COMPACT_AT = 0.65
         const val TRACE_DETAIL_CHARS = 512
         const val LINE_CHARS = 200
         const val TRUNCATOR_MIN_SAFE_BUDGET = 64
