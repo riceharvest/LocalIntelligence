@@ -1,8 +1,89 @@
 # Evals
 
-## There is no eval suite in this repository
+## What exists here now, and what still does not
 
-This file used to describe a 50-task suite, an eval runner, and a
+This file used to open by saying there was no eval suite in this repository,
+and that was true. It is now true of the AGENT loop and false of TOOL
+SELECTION, and conflating the two would be the same error in the other
+direction.
+
+| Measurement | Status | Where |
+|---|---|---|
+| tool-selection recall (top-k, by width) | **MEASURED, reproducible** | `core/tool/eval/`, see below |
+| agent loop task success on a real model | **unmeasured** | needs real arm64 hardware |
+| argument correctness, step counts, tok/s | **unmeasured** | `core/metrics/RunMetrics`, read by hand |
+
+### The selector harness
+
+```bash
+./gradlew :core:compileKotlin
+./core/src/main/kotlin/dev/localintelligence/core/tool/eval/run-recall-harness.sh
+```
+
+`core/tool/eval/` holds a 176-case dataset of realistic utterances with the
+tool set each should make reachable, a snapshot of the 25 tools `:android`
+ships, and a `main()` harness that reports top-k recall for k in {3, 6, 10, 12,
+all}. It needs no test task, no build change, and no device.
+
+It is NOT the suite that was deleted, and the distinction matters:
+
+- the old suite ran the **agent loop against fakes** and reported 50/50 for a
+  harness that could not fail. This one runs the **real selector** against the
+  **real tool definitions** and can genuinely report a bad number — it does,
+  84.7% at k=3;
+- the old suite claimed to verify the agent. This verifies one function,
+  `LexicalToolSelector`, and says so on every run;
+- there is no JUnit, no `FakeModelBackend`, and no `core/src/test`.
+
+Two honesty properties it holds, both of which the previous numbers lacked:
+
+1. **It is re-derivable.** Every recall figure quoted in `AgentConfig`,
+   `ToolRegistry` and `docs/architecture.md` comes out of this harness. If the
+   selector changes, re-run it and the comments are wrong in a way you can see.
+2. **It checks its own inputs.** The tool snapshot is compared against
+   `V0ToolCatalogue` (names, categories, risk tiers) and the harness's mirrored
+   copy of the scoring formula is compared against the real
+   `LexicalToolSelector` on every case. Both report on every run, pass or fail.
+
+### What the selector harness does NOT measure
+
+**Task success.** Recall is an upper bound on it, not a component of it. A case
+counted as a hit has a *callable* tool; nothing here says the model then emits
+a well-formed call with correct arguments.
+
+**Whether a 1-3B model exploits a wider set.** There is no model in the
+harness. Raising `maxVisibleTools` to 10 raises the ceiling; whether a small
+model picks reliably from ten alternatives than from six is the unmeasured half
+of that trade, and it stays unmeasured.
+
+**Non-English phrasing.** The scorer splits on `[^a-z0-9]+`, so any non-Latin
+utterance scores zero against every tool. That is a real and separate finding,
+not covered by this dataset.
+
+### The numbers
+
+Measured on the committed dataset, 176 cases, 25 shipped tools:
+
+| visible tools | tasks made possible | mean system-prompt tokens |
+|---------------|---------------------:|-------------------------:|
+| 3             |            149/176  |  141                     |
+| 6             |            158/176  |  218                     |
+| **10 (ships)**|    **167/176**      |  **321**                 |
+| 12            |            169/176  |  370                     |
+| all 25        |            176/176  |  705                     |
+
+These replace an earlier set (61.6% at k=6 over 86 held-out cases) that could
+not be re-derived because the utterances lived on an unmerged branch. The
+absolute percentages are not comparable — different dataset — and are not
+presented as one trend. The SHAPE is what carried over, and the shape is what
+the constant was set from.
+
+---
+
+## There is no AGENT-loop eval suite in this repository
+
+That part of this file is unchanged. This file used to describe a 50-task
+suite, an eval runner, and a
 `./gradlew :core:evals` task. **None of that exists.** It was deleted, along
 with the rest of the test sources, at the owner's explicit instruction.
 
@@ -44,8 +125,14 @@ reinstating it.
 
 ## What replaced it
 
-Verification is a **human running a real model on a real device**. There is no
-automated proxy for that, and the project has decided not to pretend otherwise.
+Verification of the **agent loop** is a **human running a real model on a real
+device**. There is no automated proxy for that, and the project has decided not
+to pretend otherwise.
+
+The selector harness added above is not a counterexample to that decision,
+because it never claimed to verify the loop. It measures one pure function over
+committed inputs, and it is the narrowest thing that could honestly be called a
+harness here.
 
 The instrumentation that makes a manual run measurable *does* exist, in
 `core/metrics/`: `RunMetrics`, `RunAggregate`, `RunComparison`, `MetricsJson`.
