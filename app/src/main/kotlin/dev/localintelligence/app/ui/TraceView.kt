@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -279,6 +280,19 @@ fun TraceScreen(
     modifier: Modifier = Modifier,
     /** Forwarded to [TraceView] so the empty state can name the run phase. */
     runState: RunState? = null,
+    /**
+     * Opens the structured decision trace.
+     *
+     * WHY THE EXISTING TRACE SCREENS AN OUTWARD LINK RATHER THAN BECOMING A
+     * TAB: the two show different artifacts. This one renders
+     * [StepTrace] - prose strings built for a screen, capped at 512 characters.
+     * The decision trace renders structured fields the loop recorded alongside
+     * them: the tools the selector CUT, the budget gate's per-bucket arithmetic,
+     * which drop legs freed nothing, and the raw model output next to its parse
+     * verdict. Merging them would mean re-parsing prose to recover fields, which
+     * is how a debug view starts disagreeing with the run it describes.
+     */
+    onOpenDecisions: (() -> Unit)? = null,
 ) {
     Scaffold(
         modifier = modifier,
@@ -288,6 +302,16 @@ fun TraceScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (onOpenDecisions != null) {
+                        IconButton(onClick = onOpenDecisions) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ReceiptLong,
+                                contentDescription = "Show the recorded decisions behind this run",
+                            )
+                        }
                     }
                 },
             )

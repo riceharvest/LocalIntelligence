@@ -3,6 +3,8 @@ package dev.localintelligence.core.tool
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.catalogue.CatalogueAgreement
 import dev.localintelligence.core.tool.catalogue.V0ToolCatalogue
+import dev.localintelligence.core.trace.SelectionReport
+import dev.localintelligence.core.trace.UnselectedTool
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -75,6 +77,48 @@ fun interface ToolSelector {
         available: List<AgentTool>,
         maxTools: Int,
     ): List<AgentTool>
+
+    /**
+     * The same decision, with the reasoning attached.
+     *
+     * ## WHY THIS EXISTS AND WHY IT IS A DEFAULT RATHER THAN AN ABSTRACT MEMBER
+     *
+     * An unselected tool is not "less likely", it is **uncallable**: this
+     * selector's list is what `AgentController.buildRequest` hands to
+     * `GrammarBuilder.forActions`, so a name outside it cannot be produced by a
+     * grammar-constrained decode at all. A trace that records only the chosen
+     * list therefore cannot distinguish "the model chose not to call
+     * `calendar.create`" from "`calendar.create` was never offered", and those
+     * are completely different bugs with completely different fixes.
+     *
+     * It is a default member with a body because [ToolSelector] is a
+     * `fun interface` and every implementation in this repository - including
+     * the one a future eval harness writes - has to keep working unchanged. The
+     * default is HONEST about what it knows: it reports
+     * [UnselectedTool.SCORE_UNREPORTED] and names the strategy `"unreported"`,
+     * rather than inventing a score it did not compute. A trace that claims a
+     * ranking no selector produced is worse than a trace that admits there was
+     * none.
+     */
+    fun explain(
+        task: String,
+        sessionKeywords: List<String>,
+        available: List<AgentTool>,
+        maxTools: Int,
+    ): SelectionReport {
+        val chosen = select(task, sessionKeywords, available, maxTools)
+        val names = chosen.map { it.definition.name }
+        return SelectionReport(
+            strategy = "unreported",
+            maxTools = maxTools,
+            availableCount = available.size,
+            selected = names,
+            unselected = available
+                .map { it.definition.name }
+                .filterNot { it in names }
+                .map { UnselectedTool(name = it, reason = "cut by this selector; score not reported") },
+        )
+    }
 }
 
 /**
@@ -165,9 +209,93 @@ class LexicalToolSelector : ToolSelector {
         sessionKeywords: List<String>,
         available: List<AgentTool>,
         maxTools: Int,
-    ): List<AgentTool> {
-        if (available.isEmpty()) return emptyList()
-        if (available.size <= maxTools) return available
+    ): List<AgentTool> = rank(task, sessionKeywords, available, maxTools).tools
+
+    /**
+     * The scored report, including which of the three paths below ran.
+     *
+     * ## WHY THE STRATEGY IS RECORDED AT ALL
+     *
+     * [select] has three exits and two of them do not score anything:
+     * an empty registry returns empty, and a registry that already fits inside
+     * [maxTools] returns itself untouched. A trace that reported only the
+     * resulting list would render both as "the selector chose these", which is
+     * a claim it did not make - and the second one matters, because "everything
+     * was offered" and "these six beat the other nineteen" are the two facts a
+     * retrieval miss looks like from either side.
+     */
+    override fun explain(
+        task: String,
+        sessionKeywords: List<String>,
+        available: List<AgentTool>,
+        maxTools: Int,
+    ): SelectionReport {
+        if (available.isEmpty()) {
+            return SelectionReport(strategy = "empty-registry", maxTools = maxTools, availableCount = 0)
+        }
+        if (available.size <= maxTools) {
+            // Nothing was scored and nothing was cut. Reported as the pass-through
+            // it is, so a reader can tell this apart from a real ranking.
+            return SelectionReport(
+                strategy = "all-fit",
+                maxTools = maxTools,
+                availableCount = available.size,
+                selected = available.map { it.definition.name },
+                unselected = emptyList(),
+            )
+        }
+        val ranked = rank(task, sessionKeywords, available, maxTools)
+        val cut = ranked.ordered.drop(ranked.tools.size)
+        return SelectionReport(
+            strategy = "lexical",
+            maxTools = maxTools,
+            availableCount = available.size,
+            selected = ranked.tools.map { it.definition.name },
+            unselected = cut.mapIndexed { index, entry ->
+                UnselectedTool(
+                    name = entry.first.definition.name,
+                    score = entry.second,
+                    // +1 so a rank of 1 is the best tool, not the first cut.
+                    rank = ranked.tools.size + index + 1,
+                    reason = reasonFor(entry.second, ranked.tools.size),
+                )
+            },
+        )
+    }
+
+    /**
+     * Why a tool lost its place, in the selector's own terms.
+     *
+     * A zero score is called out because it is the failure this class's own
+     * KDoc measures: "30.2% of turns give the correct tool a score of exactly
+     * zero - no shared word with any description or tag." A cut tool with a
+     * score of zero did not lose a ranking, it was never in one, and a trace
+     * that rendered it as "rank 14" would hide that completely.
+     */
+    private fun reasonFor(score: Int, cutAt: Int): String = when {
+        score <= 0 -> "scored 0: no shared word with any name, description or tag"
+        else -> "scored $score, below the top $cutAt"
+    }
+
+    private fun rank(
+        task: String,
+        sessionKeywords: List<String>,
+        available: List<AgentTool>,
+        maxTools: Int,
+    ): Ranked {
+        // BOTH EARLY EXITS ARE PRESERVED VERBATIM, AND THE SECOND ONE IS A
+        // BEHAVIOURAL CONTRACT RATHER THAN AN OPTIMISATION.
+        //
+        // `available.size <= maxTools` returns the registry's own list, in the
+        // registry's own order. Sorting it instead would be "equivalent" in the
+        // sense that the same tools are shown - and would change the order they
+        // are shown in, which is the order the system prompt lists them and
+        // therefore the order the grammar offers them. A small model reads a
+        // list, and the first tool in a list is not the same as the second. The
+        // shipped behaviour is pass-through, and a tracing change is not the
+        // place to quietly re-rank a prompt.
+        if (available.isEmpty()) return Ranked(emptyList(), emptyList())
+        if (available.size <= maxTools) return Ranked(available, emptyList())
 
         val taskTokens = tokenize(task).toSet()
         val keywordTokens = sessionKeywords.flatMap { tokenize(it) }.toSet()
@@ -190,10 +318,14 @@ class LexicalToolSelector : ToolSelector {
             tool to (overlap + substringHit)
         }
 
-        return scored.sortedWith(
+        val ordered = scored.sortedWith(
             compareByDescending<Pair<AgentTool, Int>> { it.second }.thenBy { it.first.definition.name },
-        ).take(maxTools).map { it.first }
+        )
+        return Ranked(ordered.take(maxTools).map { it.first }, ordered)
     }
+
+    /** The chosen tools, and the full ranking they were taken from. */
+    private class Ranked(val tools: List<AgentTool>, val ordered: List<Pair<AgentTool, Int>>)
 
     private fun tokenize(text: String): List<String> =
         text.lowercase()

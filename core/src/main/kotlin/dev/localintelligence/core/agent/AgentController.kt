@@ -19,10 +19,12 @@ import dev.localintelligence.core.model.token.BudgetAction
 import dev.localintelligence.core.model.token.ContextBudget
 import dev.localintelligence.core.model.token.ContextCeiling
 import dev.localintelligence.core.model.token.ContextState
+import dev.localintelligence.core.model.token.DefaultTokenCounter
 import dev.localintelligence.core.model.token.ProposedStep
 import dev.localintelligence.core.model.token.StepEnforcer
 import dev.localintelligence.core.model.token.StepPlan
 import dev.localintelligence.core.model.token.UsageBucket
+import dev.localintelligence.core.model.token.measure
 import dev.localintelligence.core.policy.ConfirmationOutcome
 import dev.localintelligence.core.policy.ConfirmationSession
 import dev.localintelligence.core.policy.Decision
@@ -36,6 +38,19 @@ import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolRegistry
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolSelector
+import dev.localintelligence.core.trace.BudgetVerdict
+import dev.localintelligence.core.trace.CallCapture
+import dev.localintelligence.core.trace.ContextCapture
+import dev.localintelligence.core.trace.DecisionTraceSink
+import dev.localintelligence.core.trace.DropLeg
+import dev.localintelligence.core.trace.GenerationCapture
+import dev.localintelligence.core.trace.NullDecisionTrace
+import dev.localintelligence.core.trace.ParseCapture
+import dev.localintelligence.core.trace.PromptCapture
+import dev.localintelligence.core.trace.PromptMessage
+import dev.localintelligence.core.trace.RunRecord
+import dev.localintelligence.core.trace.SelectionReport
+import dev.localintelligence.core.trace.TracedText
 import kotlinx.coroutines.CancellationException
 import kotlin.math.min
 import dev.localintelligence.core.compaction.RetainedHistory
@@ -218,7 +233,47 @@ class AgentController(
      * the seam and `AppContainer.newController` for the one place that passes it.
      */
     private val turnRecorder: TurnRecorder? = null,
+    /**
+     * Structured per-step observability. WHY IT IS NON-NULL AND DEFAULTS TO A
+     * NO-OP: a nullable sink puts a null check on every one of the emission
+     * sites below, and a null check is one more thing to forget on the site
+     * added next quarter. [NullDecisionTrace] is a singleton of empty bodies, so
+     * a caller that wants no tracing pays one virtual call per site and
+     * allocates nothing, while a caller that wires a [DecisionTrace] gets every
+     * decision with no further change to this file.
+     *
+     * WHAT IT BUYS, and why each of these is currently unanswerable: the
+     * selector's ranking including the tools it CUT (an unselected tool is
+     * uncallable, so this is the difference between "the model chose not to" and
+     * "the model could not"); the budget gate's per-bucket arithmetic and which
+     * drop legs actually freed space; the prompt as sent; the model's raw output
+     * BEFORE parsing alongside the parsed action; every call's arguments,
+     * observation and outcome; and the context lifecycle.
+     *
+     * It is named `decisions` and not `trace` because the loop already
+     * keeps a display `trace` - a `MutableList<StepTrace>` that feeds the debug
+     * screen. Two things called trace in one class is how a reader ends up
+     * looking at the wrong one, and they are genuinely different artifacts:
+     * one is prose for a screen, the other is values for a diff.
+     *
+     * It is a PARAMETER and not something the loop constructs, for the same
+     * reason [metrics] is: retention policy is a caller's decision, and a loop
+     * that owned its own buffer would be a loop that could be told to keep
+     * text it has no business keeping.
+     */
+    private val decisions: DecisionTraceSink = NullDecisionTrace,
 ) {
+    /**
+     * How much of any single string this run's trace keeps.
+     *
+     * Read ONCE from the sink's policy rather than passed as another
+     * constructor parameter, because the two are the same decision: a caller that
+     * configures a [dev.localintelligence.core.trace.DecisionTrace] has already
+     * stated its retention policy, and a second knob that could disagree with
+     * the first is a knob that will.
+     */
+    private val bodyChars: Int = decisions.stats.maxBodyChars
+
     /**
      * Run state. It outlives a single call because
      * [AgentResult.AwaitingConfirmation] returns from inside the loop and
@@ -303,48 +358,75 @@ class AgentController(
          * tool can never tell it was denied anything.
          */
         val permissionGranted: Boolean = true,
+        /**
+         * The policy verdict that let this call through, as a name.
+         *
+         * WHY IT IS CARRIED AND NOT RE-DERIVED: the decision is made once, in
+         * [handleCall], against the arguments the model supplied. Re-evaluating
+         * it in [execute] to find out what it was would be a second opinion
+         * about a question already answered, and a policy that returned a
+         * different answer the second time would be recorded as though it had
+         * permitted the call. A string recorded at the decision point cannot
+         * drift.
+         *
+         * Defaults to `"unknown"` rather than empty so a construction site that
+         * predates this field produces an obviously-wrong value in a trace
+         * instead of a plausible-looking blank.
+         */
+        val policy: String = "unknown",
     )
 
-    suspend fun run(task: String): AgentResult = measured {
+    suspend fun run(task: String): AgentResult {
+        // Assigned BEFORE `measured`, not inside its body.
+        //
+        // The trace's run header is emitted on the way into `measured`, and it
+        // carries this field. Setting it inside the body meant the header read
+        // the PREVIOUS run's task — or an empty string on the first run, which
+        // is exactly what the probe showed: a start record that could not say
+        // what it was a start record FOR. A trace whose first line lies about
+        // the task is worse than no first line, because everything after it is
+        // read in that context.
         this.task = task
-        trace.clear()
-        step = 0
-        malformedStreak = 0
-        pending = null
-        // The session is NOT cleared here, and this is load-bearing.
-        //
-        // `sessions` is ONE long-lived conversation shared by every run (see
-        // `AppContainer.session`), so clearing it would empty the conversation
-        // before the new turn is appended, and the model would start from
-        // nothing on every run.
-        //
-        // Per-run state that genuinely must reset lives above: trace, step,
-        // malformedStreak, pending, lastPrompt, loopDetector.
-        lastPrompt = emptyList()
-        loopDetector.reset()
-        // Blast radius is per TASK, not per process. Without this reset the
-        // 200-action and 20-destructive-action caps would carry over between
-        // conversations, so a user who legitimately deleted 19 things today
-        // could not delete one more tomorrow without a reinstall.
-        riskPolicy.resetTask()
-        metrics?.beginStep(0)
-        sessions.start(task)
-        val outcome = loop()
-        // The session is long-lived now - one instance per app, shared by chat
-        // and scheduled runs - so it has to be bounded here rather than left to
-        // compaction, which only fires while a loop is running and only inspects
-        // the list once per step. A day of scheduled runs with the app open
-        // would otherwise grow the conversation without limit on a device whose
-        // primary metric is RAM.
-        //
-        // Trimmed after the run, not during it: mid-run the messages being
-        // written are the run's own, and dropping any of them would corrupt the
-        // context the loop is still working from. Runs that end by throwing
-        // leave the list untrimmed until the next one, which is deliberate -
-        // a finally block here would trim a session whose run is still being
-        // unwound and whose messages are still being read by the trace.
-        RetainedHistory.bound(sessions.messages)
-        outcome
+        return measured {
+            trace.clear()
+            step = 0
+            malformedStreak = 0
+            pending = null
+            // The session is NOT cleared here, and this is load-bearing.
+            //
+            // `sessions` is ONE long-lived conversation shared by every run (see
+            // `AppContainer.session`), so clearing it would empty the conversation
+            // before the new turn is appended, and the model would start from
+            // nothing on every run.
+            //
+            // Per-run state that genuinely must reset lives above: trace, step,
+            // malformedStreak, pending, lastPrompt, loopDetector.
+            lastPrompt = emptyList()
+            loopDetector.reset()
+            // Blast radius is per TASK, not per process. Without this reset the
+            // 200-action and 20-destructive-action caps would carry over between
+            // conversations, so a user who legitimately deleted 19 things today
+            // could not delete one more tomorrow without a reinstall.
+            riskPolicy.resetTask()
+            metrics?.beginStep(0)
+            sessions.start(task)
+            val outcome = loop()
+            // The session is long-lived now - one instance per app, shared by chat
+            // and scheduled runs - so it has to be bounded here rather than left to
+            // compaction, which only fires while a loop is running and only inspects
+            // the list once per step. A day of scheduled runs with the app open
+            // would otherwise grow the conversation without limit on a device whose
+            // primary metric is RAM.
+            //
+            // Trimmed after the run, not during it: mid-run the messages being
+            // written are the run's own, and dropping any of them would corrupt the
+            // context the loop is still working from. Runs that end by throwing
+            // leave the list untrimmed until the next one, which is deliberate -
+            // a finally block here would trim a session whose run is still being
+            // unwound and whose messages are still being read by the trace.
+            RetainedHistory.bound(sessions.messages)
+            outcome
+        }
     }
 
     /**
@@ -405,7 +487,9 @@ class AgentController(
                     // destructive quota even though it never went through
                     // `recordExecuted` as an automatic call.
                     riskPolicy.recordConfirmed(call.tool.definition.risk)
-                    execute(call.copy(args = claimed, userConfirmed = true))?.let { return@measured it }
+                    execute(
+                        call.copy(args = claimed, userConfirmed = true, policy = "CONFIRMED"),
+                    )?.let { return@measured it }
                 }
 
                 is ConfirmationOutcome.Denied ->
@@ -474,6 +558,28 @@ class AgentController(
             }
             metrics?.recordGeneration(generation)
             metrics?.endPhase(StepTrace.Kind.GENERATION, generation.stopReason == StopReason.COMPLETED)
+            // The RAW output, before the parser has seen a byte of it.
+            //
+            // WHY THIS IS CAPTURED SEPARATELY FROM THE PARSE RESULT: a parse
+            // failure and a bad model choice produce the same single line in the
+            // display trace, and telling them apart afterwards means reading the
+            // model's actual bytes. The loop's own `detail` is truncated to 512
+            // characters, which is below the length of a legitimate tool call -
+            // so a nearly-correct call and noise were already indistinguishable
+            // there. Capturing the full string under the retention policy, and
+            // the parse verdict next to it, is what makes the difference
+            // visible.
+            decisions.generation(
+                step,
+                GenerationCapture(
+                    raw = TracedText.capture(generation.text, bodyChars),
+                    stopReason = generation.stopReason.name,
+                    promptTokens = generation.promptTokens,
+                    completionTokens = generation.completionTokens,
+                    prefillMs = generation.prefillMs,
+                    decodeMs = generation.decodeMs,
+                ),
+            )
             trace += StepTrace(
                 step, StepTrace.Kind.GENERATION, generation.text.take(TRACE_DETAIL_CHARS),
                 generation.prefillMs + generation.decodeMs, generation.stopReason == StopReason.COMPLETED,
@@ -488,6 +594,19 @@ class AgentController(
             when (val parsed = parse(generation.text, visible)) {
                 is ActionParseResult.Malformed -> {
                     malformedStreak += 1
+                    // The parse verdict sits beside the raw bytes, not inside
+                    // them. A reader needs "the model emitted X and the parser
+                    // said Y" as two fields; folding Y into the captured text
+                    // would make the capture no longer the model's own output,
+                    // which is the one thing it must be.
+                    decisions.parse(
+                        step,
+                        ParseCapture(
+                            ok = false,
+                            action = "MALFORMED",
+                            reason = parsed.reason,
+                        ),
+                    )
                     trace += StepTrace(step, StepTrace.Kind.MALFORMED, parsed.reason, success = false)
                     if (malformedStreak >= config.maxMalformedRetries) {
                         return Stop("no valid action in $malformedStreak attempts", trace.toList())
@@ -502,6 +621,19 @@ class AgentController(
                     malformedStreak = 0
                     when (val action = parsed.action) {
                         is AgentAction.Respond -> {
+                            // The parsed action, recorded as structured fields
+                            // and not as a rendering. A `Respond` that carries a
+                            // hallucinated fact and a `CallTool` that does not
+                            // exist are different failures, and the display trace
+                            // shows neither distinctly.
+                            decisions.parse(
+                                step,
+                                ParseCapture(
+                                    ok = true,
+                                    action = "RESPOND",
+                                    respondText = TracedText.capture(action.text, bodyChars),
+                                ),
+                            )
                             sessions.appendAssistant(action.text)
                             // The one place a turn is offered to durable memory.
                             // See [rememberTurn] for why it is here and nowhere
@@ -541,6 +673,28 @@ class AgentController(
         val tool = when (outcome) {
             is ValidationOutcome.Rejected -> {
                 val detail = "rejected ${action.name}: ${outcome.observation}"
+                // `dispatched = false`, which is the whole point: the display
+                // trace renders this as a red TOOL_CALL row and a reader has to
+                // work out from the prose that nothing ran. Here it is a field.
+                decisions.call(
+                    step,
+                    CallCapture(
+                        name = action.name,
+                        args = TracedText.capture(action.arguments.toString(), bodyChars),
+                        dispatched = false,
+                        success = false,
+                        refusal = "validation: ${outcome.observation}",
+                    ),
+                )
+                decisions.parse(
+                    step,
+                    ParseCapture(
+                        ok = true,
+                        action = "CALL_TOOL",
+                        toolName = action.name,
+                        args = TracedText.capture(action.arguments.toString(), bodyChars),
+                    ),
+                )
                 trace += StepTrace(
                     step, StepTrace.Kind.TOOL_CALL, detail,
                     success = false,
@@ -567,6 +721,19 @@ class AgentController(
         // that were never going to run, and evaluating after the loop detector
         // would let a repeated call burn the user's confirmation dialog.
         val decision = riskPolicy.evaluate(tool.definition, action.arguments)
+        // The policy verdict is recorded against the call rather than inferred
+        // from the trace's row colour. `REQUIRE_PERMISSION` and `EXECUTE` both
+        // end in a red-looking trace row in the UI, and they mean opposite
+        // things about whether the phone did what the model asked.
+        decisions.parse(
+            step,
+            ParseCapture(
+                ok = true,
+                action = "CALL_TOOL",
+                toolName = action.name,
+                args = TracedText.capture(action.arguments.toString(), bodyChars),
+            ),
+        )
         metrics?.recordToolCall(
             action.name,
             action.arguments,
@@ -598,7 +765,14 @@ class AgentController(
                 // would mean `confirmAndResume` could be talked into approving a
                 // call the user was never shown.
                 PolicyOutcome.EXECUTE ->
-                    execute(PendingCall(action.name, tool, action.arguments, step, session = null), reply)
+                    execute(
+                        PendingCall(
+                            action.name, tool, action.arguments, step,
+                            session = null,
+                            policy = decision.outcome.name,
+                        ),
+                        reply,
+                    )
 
                 PolicyOutcome.REQUIRE_CONFIRMATION -> {
                     // `park` returns null for a decision that is not a gate. That
@@ -647,6 +821,7 @@ class AgentController(
                             action.name, tool, action.arguments, step,
                             session = null,
                             permissionGranted = false,
+                            policy = decision.outcome.name,
                         ),
                         reply,
                     )
@@ -664,6 +839,19 @@ class AgentController(
      * different next moves, and a model told the wrong one retries.
      */
     private fun refuse(name: String, decision: Decision): AgentResult? {
+        // A refusal that never reaches `execute`, so without this the trace
+        // would show a blocked tool as though it had run and failed. `BLOCK` and
+        // a tool that returned an error are opposite outcomes for the phone.
+        decisions.call(
+            step,
+            CallCapture(
+                name = name,
+                dispatched = false,
+                success = false,
+                refusal = "policy BLOCK: ${decision.rule} — ${decision.justification}",
+                policy = "BLOCK",
+            ),
+        )
         trace += StepTrace(
             step, StepTrace.Kind.TOOL_CALL,
             "refused $name: ${decision.rule} — ${decision.justification}",
@@ -715,6 +903,38 @@ class AgentController(
         val observation = truncate(result.observation)
         loopDetector.recordResult(call.name, observation, result.success)
         sessions.appendToolObservation(call.tool, observation, result.success)
+        // The one call record per dispatch: name, the arguments AS PASSED, the
+        // observation, and whether it worked.
+        //
+        // WHY THE OBSERVATION IS CAPTURED AFTER `truncate` AND NOT BEFORE: the
+        // truncated form is what the model read and what the next step will be
+        // priced against, so a trace holding the untruncated string would
+        // describe a context window that does not exist. The length field still
+        // records the true size, so the truncation itself is visible.
+        //
+        // WHY IT IS SAFE TO WRITE: by the time a [ToolResult] reaches here it
+        // has already been through
+        // [dev.localintelligence.core.tool.redaction.RedactingToolRegistry],
+        // which filters the observation at the tool boundary - the registry is
+        // installed at `AppContainer.tools` and every tool the loop executes
+        // came from it. [TracedText.capture] runs the same
+        // [dev.localintelligence.core.tool.redaction.SecretRedactor] a second
+        // time, which is a documented no-op on already-filtered text, and it
+        // means the trace is safe even if a caller wires a registry that is not
+        // the redacting one.
+        decisions.call(
+            call.step,
+            CallCapture(
+                name = call.name,
+                args = TracedText.capture(call.args.toString(), bodyChars),
+                observation = TracedText.capture(observation, bodyChars),
+                success = result.success,
+                dispatched = true,
+                durationMs = durationMs,
+                risk = call.tool.definition.risk.name,
+                policy = call.policy,
+            ),
+        )
         // Charge the call to the task's blast radius. This happens on the
         // EXECUTE path only, and a denied call never reaches it, which is what
         // stops a model from starving itself by attempting what it may not do.
@@ -821,7 +1041,7 @@ class AgentController(
      * room, and no amount of further thinking changes that.
      */
     private fun refuseUnaffordableStep(call: PendingCall, reply: String): AgentResult? {
-        val verdict = priceStep(call, reply, observationSample) ?: return null
+        val verdict = priceStep(call, reply, observationSample, PHASE_PRE_TOOL) ?: return null
         val trim = verdict.plan as? StepPlan.Trim ?: return null
         val detail = "${call.name} needs ${trim.projectedTokens} tokens and the window holds " +
             "${trim.limit}; ${verdict.dropped} message(s) were trimmed and nothing else is droppable"
@@ -829,6 +1049,22 @@ class AgentController(
             call.step, StepTrace.Kind.TOOL_CALL, "refused ${call.name}: step does not fit — $detail",
             success = false,
             toolName = call.name,
+        )
+        // A budget refusal never reaches `execute`, so like `refuse` it needs its
+        // own record or the trace implies the tool ran. The arithmetic is already
+        // in the BUDGET line emitted by `priceStep` above; this one says what
+        // happened to the call.
+        decisions.call(
+            call.step,
+            CallCapture(
+                name = call.name,
+                args = TracedText.capture(compactArgs(call.args), bodyChars),
+                dispatched = false,
+                success = false,
+                phase = PHASE_PRE_TOOL,
+                refusal = "budget: $detail",
+                policy = "REFUSED_UNAFFORDABLE",
+            ),
         )
         // The phase ends here, and it ends as a failure: `recordToolCall` has
         // already counted this attempt as dispatched (the policy allowed it),
@@ -851,7 +1087,7 @@ class AgentController(
      * failure and there is nothing left to protect.
      */
     private fun repriceWithRealObservation(call: PendingCall, reply: String, observation: String) {
-        priceStep(call, reply, observation)
+        priceStep(call, reply, observation, PHASE_POST_OBSERVATION)
     }
 
     /**
@@ -870,9 +1106,31 @@ class AgentController(
      * eight messages given up to fit is a run whose window is structurally too
      * big, and the answer to that is a stop, not a gutted conversation.
      */
-    private fun priceStep(call: PendingCall, reply: String, observation: String): StepVerdict? {
+    private fun priceStep(call: PendingCall, reply: String, observation: String, phase: String): StepVerdict? {
         var state = contextOf(lastPrompt)
-        val enforcer = enforcement(state) ?: return null
+        val enforcer = enforcement(state)
+        if (enforcer == null) {
+            // THE GATE DID NOT RUN, AND THAT IS A FACT THE TRACE MUST CARRY.
+            //
+            // `enforcement()` returns null for two real reasons - a window below
+            // MIN_ENFORCEABLE_LIMIT, and a request that does not fit on its own -
+            // and both are documented as "keep behaving exactly as before". A
+            // trace that simply omitted the BUDGET line would render both as a
+            // gate that ran and said FITS, which is the permissive direction and
+            // precisely the failure this repository has already shipped once.
+            // So the line is emitted with the reason attached.
+            decisions.budget(
+                call.step,
+                BudgetVerdict(
+                    enforcement = "inactive: ${enforcementNote()}",
+                    verdict = "NOT_PRICED",
+                    buckets = pricedBuckets(state),
+                    currentTokens = state.measure().totalTokens,
+                    phase = phase,
+                ),
+            )
+            return null
+        }
 
         val proposed = ProposedStep(
             replyCandidate = reply,
@@ -890,6 +1148,11 @@ class AgentController(
         var plan = enforcer.evaluate(state, proposed)
         var applied = 0
         var labels = ""
+        // Every leg the plan ASKED for, with whether it actually freed anything.
+        // Accumulated across passes because a second pass can ask for a
+        // different leg than the first, and a trace showing only the last pass's
+        // request would understate what the gate believed it was giving up.
+        val legs = ArrayList<DropLeg>()
 
         while (plan is StepPlan.Trim && applied < MAX_BUDGET_ADJUSTMENTS) {
             // The allowance is passed down, not just checked here: a plan can
@@ -897,6 +1160,7 @@ class AgentController(
             // whole list in a single pass would gut the window past the cap
             // this loop is supposed to hold it to.
             val outcome = applyAdjustments(state, plan.adjustments, MAX_BUDGET_ADJUSTMENTS - applied)
+            legs += outcome.legs
             if (outcome.dropped == 0) break
             state = outcome.state
             applied += outcome.dropped
@@ -911,7 +1175,73 @@ class AgentController(
                     "($labels) — projected ${plan.projectedTokens}/${plan.limit} tokens",
             )
         }
+
+        decisions.budget(
+            call.step,
+            BudgetVerdict(
+                enforcement = "active",
+                // The FINAL verdict, after every drop the loop could actually
+                // perform. Not the first one: a TRIM that a later pass resolved
+                // to FITS really did fit, and reporting the opening number would
+                // be a claim about a state the run never entered.
+                verdict = when (plan) {
+                    is StepPlan.Fits -> "FITS"
+                    is StepPlan.Trim -> if (phase == PHASE_PRE_TOOL) "REFUSED" else "TRIM_UNRESOLVED"
+                },
+                buckets = pricedBuckets(state),
+                currentTokens = plan.currentTokens,
+                addedTokens = plan.addedTokens,
+                projectedTokens = plan.projectedTokens,
+                limit = plan.limit,
+                overage = (plan as? StepPlan.Trim)?.overage ?: 0,
+                headroom = plan.headroom,
+                dropLegs = legs,
+                dropped = applied,
+                unfixable = (plan as? StepPlan.Trim)?.unfixable ?: false,
+                phase = phase,
+            ),
+        )
         return StepVerdict(plan, applied)
+    }
+
+    /**
+     * The per-bucket token counts, named.
+     *
+     * The total alone cannot answer "why is this step expensive", which is the
+     * question the gate exists to manage: 4000 tokens in observations and 4000
+     * in turns are the same number and two completely different conversations.
+     * Keys are [UsageBucket] names so the map sorts and diffs deterministically
+     * rather than by hash.
+     */
+    private fun pricedBuckets(state: ContextState): Map<String, Int> {
+        val usage = state.measure()
+        return mapOf(
+            UsageBucket.SUMMARY.name to usage.workingSummaryTokens,
+            UsageBucket.TASK.name to usage.taskTokens,
+            UsageBucket.TOOL.name to usage.toolTokens,
+            UsageBucket.TURN.name to usage.turnTokens,
+            UsageBucket.MEMORY.name to usage.memoryTokens,
+            UsageBucket.OBSERVATION.name to usage.observationTokens,
+        )
+    }
+
+    /**
+     * Why the gate declined to run, in the loop's own terms.
+     *
+     * Split out of [enforcement] so the two reasons cannot drift apart: the
+     * function decides, this sentence explains, and both are read at the same
+     * call site in [priceStep].
+     */
+    private fun enforcementNote(): String {
+        val limit = workingLimit(model.capabilities.contextLength)
+        if (limit < MIN_ENFORCEABLE_LIMIT) {
+            return "working limit $limit is below $MIN_ENFORCEABLE_LIMIT, so the gate " +
+                "would refuse every call on principle"
+        }
+        val budget = ContextBudget(limitTokens = limit)
+        val floor = budget.floorFor(contextOf(lastPrompt))
+        return "the request alone needs $floor tokens against a $limit-token window, " +
+            "so nothing the gate drops could help"
     }
 
     /**
@@ -953,20 +1283,33 @@ class AgentController(
         var working = state
         var dropped = 0
         val labels = StringBuilder()
+        // One entry per REQUESTED leg, applied or not.
+        //
+        // This list is the mechanism that makes a permissive lie visible. The
+        // MEMORY leg below is the live example: `buildRequest` re-runs
+        // `memory.search` on every step, so shortening the priced list changes
+        // the arithmetic and not the prompt. The loop already refuses to claim
+        // that drop, and this is where that refusal becomes a field a trace can
+        // show - so a FITS verdict arrived at partly through a phantom drop is
+        // readable rather than invisible.
+        val legs = ArrayList<DropLeg>(actions.size)
 
         for (action in actions) {
             if (dropped >= allowance) break
             val given: Boolean
             val next: ContextState
+            var note = ""
             when (action.component) {
                 UsageBucket.OBSERVATION -> {
                     given = dropOldestObservation(working)
                     next = working.copy(observations = working.observations.drop(1))
+                    if (!given) note = "no observation left in the live window to remove"
                 }
 
                 UsageBucket.TURN -> {
                     given = dropOldestTurn(working)
                     next = working.copy(recentTurns = working.recentTurns.drop(1))
+                    if (!given) note = "no droppable turn left; user turns are never dropped"
                 }
 
                 UsageBucket.MEMORY -> {
@@ -987,20 +1330,32 @@ class AgentController(
                     // direction every other leg already fails in.
                     given = false
                     next = working
+                    note = "not applicable: the memory block is re-rendered from the " +
+                        "store on every step, so dropping it from the priced state " +
+                        "frees nothing"
                 }
 
                 UsageBucket.SUMMARY, UsageBucket.TASK, UsageBucket.TOOL -> {
                     given = false
                     next = working
+                    note = "inside the system prompt or the request; the step gate has " +
+                        "no cheaper place to take it from"
                 }
             }
+            legs += DropLeg(
+                component = action.component.name,
+                label = action.label,
+                requestedTokens = action.tokens,
+                applied = given,
+                note = note,
+            )
             if (!given) continue
             if (dropped > 0) labels.append("; ")
             labels.append(action.label)
             dropped++
             working = next
         }
-        return Adjustments(working, dropped, labels.toString())
+        return Adjustments(working, dropped, labels.toString(), legs)
     }
 
     /**
@@ -1126,14 +1481,93 @@ class AgentController(
 
     private data class StepVerdict(val plan: StepPlan, val dropped: Int)
 
-    private data class Adjustments(val state: ContextState, val dropped: Int, val label: String)
+    private data class Adjustments(
+        val state: ContextState,
+        val dropped: Int,
+        val label: String,
+        /** What the plan asked for, and what actually happened. See [DropLeg]. */
+        val legs: List<DropLeg> = emptyList(),
+    )
 
     // ------------------------------------------------------------ collaborators
 
-    private fun selectTools(): List<AgentTool> = try {
-        toolSelector.select(task, sessions.currentKeywords(), tools.all(), config.maxVisibleTools)
-    } catch (t: Throwable) {
-        tools.all().take(config.maxVisibleTools)
+    /**
+     * Chooses this step's tools, and tells the trace what was cut.
+     *
+     * [ToolSelector.explain] is asked for the ranking rather than the list, and
+     * the SAME list is used for the grammar, the system prompt and the trace.
+     * That is the point: an unselected tool is absent from
+     * [GrammarBuilder.forActions], so it is not "less likely", it is unspeakable.
+     * A trace that recorded only the surviving names could not tell a model
+     * that declined a tool from a selector that never offered it - and those
+     * are different defects with opposite fixes.
+     *
+     * The fallback is REPORTED rather than silent. A selector that throws
+     * degrades to first-N, which is a materially different prompt from a scored
+     * one, and the existing `catch` made that invisible.
+     */
+    private fun selectTools(): List<AgentTool> {
+        val available = try {
+            tools.all()
+        } catch (t: Throwable) {
+            // The registry itself failed, so there is no ranking to report and
+            // nothing to select. Recorded as a fallback with the type name and
+            // no message, because a message can carry a path the user shares.
+            decisions.selection(
+                0,
+                SelectionReport(
+                    strategy = "registry-unavailable",
+                    maxTools = config.maxVisibleTools,
+                    fellBack = true,
+                    fallbackReason = t::class.java.simpleName,
+                ),
+            )
+            return emptyList()
+        }
+        val report = try {
+            toolSelector.explain(task, sessions.currentKeywords(), available, config.maxVisibleTools)
+        } catch (t: Throwable) {
+            SelectionReport(
+                strategy = "selector-threw",
+                maxTools = config.maxVisibleTools,
+                availableCount = available.size,
+                selected = emptyList(),
+                fellBack = true,
+                fallbackReason = t::class.java.simpleName,
+            )
+        }
+        val chosen = if (report.fellBack) {
+            available.take(config.maxVisibleTools)
+        } else {
+            report.selected.mapNotNull { name -> available.firstOrNull { it.definition.name == name } }
+        }
+        // The trace records what REACHED THE GRAMMAR, not what the selector
+        // claimed.
+        //
+        // `mapNotNull` above can silently drop a name the selector returned —
+        // a selector naming a tool that is not in `available` is a real
+        // possibility for a `fun interface` any future caller may implement.
+        // Recording `report.selected` unchanged would then make the trace
+        // describe a tool list the model never saw, which is the precise
+        // failure this whole feature exists to end. So the resolved names are
+        // what get written, and any disagreement is stated rather than hidden.
+        val usedNames = chosen.map { it.definition.name }
+        val mismatched = report.selected.isNotEmpty() && report.selected != usedNames
+        decisions.selection(
+            step,
+            report.copy(
+                selected = usedNames,
+                // Names the selector named that are not in the registry. Null
+                // in the normal case, so the common record carries no claim of
+                // a problem that does not exist.
+                unmatched = if (mismatched) {
+                    report.selected.filterNot { it in usedNames }
+                } else {
+                    emptyList()
+                },
+            ),
+        )
+        return chosen
     }
 
     private suspend fun buildRequest(visible: List<AgentTool>): GenerationRequest {
@@ -1160,7 +1594,7 @@ class AgentController(
         // Retained so the step gate prices the context the model is about to be
         // given rather than a reconstruction of it. See [lastPrompt].
         lastPrompt = prompt
-        return GenerationRequest(
+        val request = GenerationRequest(
             messages = prompt,
             // Constrained generation, and this is the line that was the P0.
             //
@@ -1177,7 +1611,58 @@ class AgentController(
             grammar = GrammarBuilder.forActions(visible.map { it.definition }),
             allowedToolNames = visible.map { it.definition.name },
         )
+        // The prompt as it was actually handed over, captured AFTER the builder
+        // has had its say and BEFORE generation. Capturing it here rather than
+        // reconstructing it later is the only version that is true: the builder
+        // can reorder, budget, and substitute, so a re-derivation is a second
+        // opinion about what the model saw rather than a record of it.
+        decisions.prompt(
+            step,
+            PromptCapture(
+                messages = prompt.map(::promptMessage),
+                totalChars = prompt.sumOf { roleOf(it).length + bodyOf(it).length },
+                // The SAME estimator the budget gate prices with, so the number
+                // here and the number in the BUDGET line are comparable rather
+                // than two different opinions about the same prompt.
+                estimatedTokens = DefaultTokenCounter.count(
+                    prompt.joinToString("\n") { bodyOf(it) },
+                ),
+                grammarChars = request.grammar?.length ?: 0,
+                allowedTools = request.allowedToolNames,
+            ),
+        )
+        return request
     }
+
+    /** The role name, for the trace. Never a message body. */
+    private fun roleOf(message: ChatMessage): String = when (message) {
+        is ChatMessage.System -> "system"
+        is ChatMessage.User -> "user"
+        is ChatMessage.Assistant -> "assistant"
+        is ChatMessage.ToolObservation -> "tool"
+    }
+
+    /**
+     * The text of one message, for pricing and for the trace.
+     *
+     * A tool observation goes through [ChatMessage.ToolObservation.modelFacing]
+     * rather than its raw body, because that is the fenced form the model
+     * actually reads. Capturing the unfenced string would produce a trace that
+     * shows a hostile page looking like an instruction - which is precisely the
+     * confusion the fence exists to prevent, reintroduced into the debugging
+     * artifact where it is least welcome.
+     */
+    private fun bodyOf(message: ChatMessage): String = when (message) {
+        is ChatMessage.System -> message.text
+        is ChatMessage.User -> message.text
+        is ChatMessage.Assistant -> message.text
+        is ChatMessage.ToolObservation -> message.modelFacing()
+    }
+
+    private fun promptMessage(message: ChatMessage): PromptMessage = PromptMessage(
+        role = roleOf(message),
+        text = TracedText.capture(bodyOf(message), bodyChars),
+    )
 
     private fun parse(raw: String, visible: List<AgentTool>): ActionParseResult = try {
         parser.parse(raw, visible.map { it.definition.name }.toSet())
@@ -1244,10 +1729,12 @@ class AgentController(
         // Order matters and is not interchangeable: the slots are derived from
         // the messages [foldWindow] is about to delete, so compacting after the
         // fold would summarise a transcript that is already gone.
+        val before = sessions.messages.size
         val state: CompactedState =
             compactor.compact(sessions.messages, sessions.workingSummary, model)
         sessions.workingSummary = state
         foldWindow(keep)
+        val after = sessions.messages.size
 
         trace += StepTrace(
             step, StepTrace.Kind.COMPACTION,
@@ -1255,6 +1742,29 @@ class AgentController(
                 "${state.actionsTaken.size} actions, ${state.failures.size} failures, " +
                 "${state.knownFacts.size} facts, ${state.remainingWork.size} remaining " +
                 "(limit $limit)",
+        )
+        // What compaction ACTUALLY did, as numbers: the window before and after,
+        // what survived in each labelled slot, and what it threw away.
+        //
+        // The display trace's sentence counts the slots but not the window, so
+        // "compacted 6000 tokens" and "the window is now 3 messages" are
+        // separable claims and only one of them is in the line. When a run
+        // forgets something, this is the record that says what it forgot.
+        decisions.context(
+            step,
+            ContextCapture(
+                kind = "compaction",
+                activeTokens = active,
+                limit = limit,
+                windowMessagesBefore = before,
+                windowMessagesAfter = after,
+                kept = keep,
+                dropped = (before - after).coerceAtLeast(0),
+                summaryChars = compactor.summaryMessage(state).text.length,
+                note = "${state.progress.size} progress, ${state.actionsTaken.size} actions, " +
+                    "${state.failures.size} failures, ${state.knownFacts.size} facts, " +
+                    "${state.remainingWork.size} remaining",
+            ),
         )
     }
 
@@ -1343,11 +1853,58 @@ class AgentController(
      * six different places and the two most diagnosable outcomes — Cancelled
      * and StepLimitReached — are the easiest to forget. Finishing in one place
      * is the only way a failure is measured at all.
+     *
+     * THE SAME REASON PUTS THE TRACE'S RUN RECORDS HERE. The run header is
+     * emitted on the way in and the outcome on the way out, from the one
+     * function every exit passes through. Emitting the outcome at each `return`
+     * is the mistake this file's own history already documents for metrics, and
+     * the two failures most worth diagnosing — `Cancelled` and
+     * `StepLimitReached` — are exactly the two that carry no [StepTrace] at
+     * all. The decision trace closes the gap the display trace leaves.
      */
     private suspend fun measured(body: suspend () -> AgentResult): AgentResult {
+        decisions.run(
+            RunRecord(
+                phase = "start",
+                task = task,
+                modelId = model.id,
+                contextLength = model.capabilities.contextLength,
+                workingTokenLimit = workingLimit(model.capabilities.contextLength),
+                maxSteps = config.maxSteps,
+                maxVisibleTools = config.maxVisibleTools,
+            ),
+        )
         val result = guarded { body() }
         lastRunMetrics = metrics?.finish(result is AgentResult.Success)
+        decisions.run(
+            RunRecord(
+                phase = outcomeOf(result),
+                task = task,
+                modelId = model.id,
+                contextLength = model.capabilities.contextLength,
+                workingTokenLimit = workingLimit(model.capabilities.contextLength),
+                maxSteps = config.maxSteps,
+                maxVisibleTools = config.maxVisibleTools,
+            ),
+        )
         return result
+    }
+
+    /**
+     * The run's ending, as a name.
+     *
+     * Exhaustive over [AgentResult] on purpose: adding a sixth result should
+     * break this rather than silently record a run as having ended some other
+     * way. `StepLimitReached` and `Cancelled` are spelled out even though their
+     * `name` would be the same, because those are precisely the two the
+     * wave-1 contract strips the trace from and a reader needs them marked.
+     */
+    private fun outcomeOf(result: AgentResult): String = when (result) {
+        is AgentResult.Success -> "success"
+        is AgentResult.Stop -> "stop"
+        is AgentResult.AwaitingConfirmation -> "awaiting-confirmation"
+        AgentResult.StepLimitReached -> "step-limit-reached"
+        AgentResult.Cancelled -> "cancelled"
     }
 
     private suspend fun guarded(body: suspend () -> AgentResult): AgentResult = try {
@@ -1448,6 +2005,19 @@ class AgentController(
         const val TRACE_DETAIL_CHARS = 512
         const val LINE_CHARS = 200
         const val TRUNCATOR_MIN_SAFE_BUDGET = 64
+
+        /**
+         * Budget-gate phase names.
+         *
+         * A constant rather than two literals at the two call sites, because the
+         * BUDGET line's `phase` is what tells a reader whether an over-limit
+         * verdict meant "this call was refused and nothing ran" or "the tool has
+         * already run and the window was folded afterwards". Those are opposite
+         * situations for the user's data, and a typo in one literal would merge
+         * them in the artifact.
+         */
+        const val PHASE_PRE_TOOL = "pre-tool"
+        const val PHASE_POST_OBSERVATION = "post-observation"
 
         /**
          * Most messages the step gate may give up in a single step.
