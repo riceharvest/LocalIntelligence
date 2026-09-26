@@ -430,6 +430,181 @@ Disk, not RAM, and from this build:
 A device installs one ABI. These are debug builds; the release `.so` files are
 smaller, and nobody should quote the 27.7 MiB as a shipping figure.
 
+### 6.4 Taking the number: `docs/measure/measure_ram.sh`
+
+§6.1 above is the procedure in prose. This is the same procedure as a script,
+because the failure mode being guarded against is a *number that was never
+measured* being quoted as if it had been.
+
+```bash
+adb devices                        # exactly one device, and it must be booted
+bash docs/measure/measure_ram.sh dev.localintelligence.app \
+     /path/to/tinyllama-1.1b.Q4_K_M.gguf
+```
+
+It writes to `/tmp/li-ram` (override with `OUTDIR`): `00-env.txt`,
+`01-idle-{meminfo,smaps,vm}.txt`, `02-loaded-{meminfo,smaps,vm}.txt` and
+`03-summary.txt`, which is the delta table plus the caveat block that has to
+travel with every number taken from it.
+
+What it will not do: start if the device is not booted, measure a pid that does
+not exist, print a `?` as if it were a measurement, or take the loaded-state
+reading for you. That last one is deliberate — the reading has to be taken
+*after* `llama_init_from_model` has allocated the context, which only happens
+once a model is actually resident, and no amount of scripting can know when
+that is from the outside. The script stops and asks.
+
+The two things it settles that nothing else in this repository can:
+
+- **whether mmap is working.** `smaps_rollup` separates file-backed pages from
+  anonymous ones. A 640 MB model that maps cleanly shows up mostly in
+  `Private_Clean`/`Shared_Clean` and costs ~0 anonymous RAM; one that was read
+  into RAM shows up in `Private_Dirty`. This is the single largest uncertainty
+  in the fit model and it is unmeasured.
+- **whether `RUNTIME_FLOOR_BYTES` (64 MiB) is anywhere near right.** The delta
+  between the model's *predicted* terms and its *measured* `TOTAL PSS` delta,
+  with the KV term subtracted out, is that constant. §5 calls it an estimate;
+  this is what replaces it.
+
+### 6.5 What was audited, and what the audit found
+
+A code audit of the native layer and the model lifecycle, done without a
+device. Findings are stated with the arithmetic; none of them is a measurement.
+
+**The KV cache is sized to `n_ctx`, and `n_ctx` is not what the fit gate
+assumed.** This is the real defect and it is a class of bug, not a number.
+
+The chain is:
+
+1. `AppContainer.loadModel` gates on `ModelImporter.DEFAULT_CONTEXT_LENGTH`,
+   which is **4096** (`app/.../AppContainer.kt:267`).
+2. `LlamaCppBackend.load` computes the context it will actually pass as
+   `(meta.contextLength ?: DEFAULT_CONTEXT_LENGTH).coerceAtLeast(128)`
+   (`android/.../LlamaCppBackend.kt:92`) — i.e. **the model's trained length**,
+   read from the GGUF header, defaulting to 4096 only when the header is silent.
+3. That value is passed to `LlamaBridge.loadModel(contextLength = ...)` and
+   becomes `cparams.n_ctx` in `android/src/main/cpp/llama_jni.cpp:369`.
+4. Upstream then does `uint32_t kv_size = cparams.n_ctx`
+   (`src/llama.cpp:9680`) and allocates one `n_embd_k_gqa * kv_size` K tensor
+   and one `n_embd_v_gqa * kv_size` V tensor **per layer**
+   (`src/llama-kv-cache.cpp:94-95`).
+
+So for a model whose header declares a trained context larger than 4096 — which
+is most of them; Qwen2.5 and Llama-3.1 both ship 32K — the gate priced a 4K KV
+cache and the loader allocated a 32K one. That is an **8x** underestimate of
+the dominant term, on exactly the models most likely to be selected, and it is
+the "gate says it fits, then it allocates more than the gate counted" failure
+this document has been warning about since §1.2.
+
+The native side is not where the fix belongs and this branch did not paper over
+it: `llama_jni.cpp:357-362` clamps `ctx_len` down to `llama_model_n_ctx_train`,
+which is correct but does nothing here, because the caller *asked* for the
+trained length. The caller is `LlamaCppBackend.kt`, owned by another workstream.
+The exact edit is in the PR description.
+
+**`flash_attn` is ON, not off.** The working assumption going in was that
+`flash_attn` had been switched off while ruling out the prefill bug. It has
+not: `android/src/main/cpp/llama_jni.cpp:378` sets `cparams.flash_attn = true`,
+and it has said so since `a902c56`. Its real effect on memory, from the pinned
+tag rather than from memory:
+
+- `llama_kv_cache_get_padding` returns **256** with flash attention and **32**
+  without (`src/llama-kv-cache.cpp:16`), and `cparams.n_ctx` is padded up to
+  that (`src/llama.cpp:9601`). At `n_ctx = 4096`, which is a multiple of both,
+  **the padding costs nothing**. At an arbitrary `n_ctx` it would cost up to
+  255 cells, i.e. under 0.1% of a 32K context. This is not a memory lever.
+- `cache.v_trans` is `!recurrent && !flash_attn` (`src/llama-kv-cache.cpp:34`),
+  i.e. V is **not** stored transposed when flash attention is on. The tensor is
+  the same `n_embd_v_gqa * kv_size` elements either way; only its layout
+  differs, so the *allocated bytes are identical*.
+- What flash attention actually changes is the compute graph — it uses
+  `ggml_flash_attn_ext` instead of materialising the full attention matrix
+  (`src/llama.cpp:592`). That is a peak-*compute-buffer* effect, not a
+  persistent-allocation effect, and this build's compute buffer is inside
+  `RUNTIME_FLOOR_BYTES`, which is the 64 MiB ESTIMATE §5 is about.
+
+So: leaving it on costs nothing measurable in resident RAM, and turning it off
+would change decode numerics for a memory argument that does not apply. It was
+left alone. **What the flag's effect on resident RAM is, on this build, on a
+device, is unmeasured** — that is what §6.4 is for.
+
+**`mmap` is on, and it is the flag that actually matters.**
+
+- `mparams.use_mmap = use_mmap == JNI_TRUE` (`llama_jni.cpp:343`), fed from
+  `opened.isMmapCapable` (`LlamaCppBackend.kt:100`), which is
+  `fd.valid() && afd.declaredLength != 0L && afd.startOffset >= 0`
+  (`ModelImporter.kt:299-308`). So mmap is requested for any ordinary local
+  file and refused for a FUSE-backed cloud provider, which is the right call.
+- `use_mlock` is **false** (`llama_jni.cpp:346`), deliberately: mlock would pin
+  the model for the process's whole life and make it an immediate low-memory-
+  killer target.
+- `n_gpu_layers = 0` (`llama_jni.cpp:342`) — there is no GPU backend in this
+  build, so the model is CPU-only by construction, not by omission.
+- There is **no read-into-RAM fallback**. If mmap fails, `llama_model_load_from_file`
+  returns null and the load fails outright. `ModelImporter`'s own KDoc claims
+  "the backend falls back to a read-into-RAM load on `LlamaBridge.LoadResult`",
+  and there is no such type in `LlamaBridge.kt` — the KDoc describes a fallback
+  that was never built. That is a documented-but-absent capability, and closing
+  it would *increase* peak RAM on exactly the devices least able to afford it,
+  so it is left as-is and recorded here instead.
+- `n_batch`/`n_ubatch` are `min(ctx_len, 512)` (`llama_jni.cpp:370-371`). These
+  size the compute graph, not the KV cache.
+
+**Load count: one per process. Swap order: load-before-unload, which is a 2x peak.**
+
+- `ensureModelReady()` (`AppContainer.kt:308-313`) returns early on
+  `modelAvailability.current.canRun`, so it loads **once** per process, not
+  once per run and not once per component. `ExecutionService` calls it once per
+  task (`ExecutionService.kt:292`) and that call is the only load on the
+  task path. `LlamaCppBackend` is a `by lazy` singleton on the container
+  (`AppContainer.kt:168`), so there is one backend and therefore one handle.
+- Verified load/unload order in `LlamaCppBackend.load`: a **new** handle is
+  created and the new model is fully loaded *first*
+  (`LlamaCppBackend.kt:72-107`), and only then does `releaseLocked()`
+  (`LlamaCppBackend.kt:111`) free the old one. That is a 2x peak on a model
+  swap — old weights plus new weights resident simultaneously.
+
+  This is a real waste, but it is **not** provably removable from here:
+  `LlamaCppBackend.kt` is owned by another workstream, and the correct fix
+  (release before load) trades a 2x peak against a window where a failed load
+  has destroyed a working model. Which of those two is correct is a product
+  decision, not a measurement this host can settle. Recorded in the PR
+  description, not changed.
+
+- Native-side ordering is right: `free_model_locked(h)` runs at the top of
+  `nativeLoadModel` (`llama_jni.cpp:333`), so the native handle never holds two
+  models. And `free_model_locked` frees the **context before the model**
+  (`llama_jni.cpp:74-81`), which is the correct order — the context holds
+  pointers into the model's tensors.
+
+**No second copy of the weights.** `ModelImporter` never copies: it keeps the
+SAF `AssetFileDescriptor` open and hands `/proc/self/fd/N` to the loader
+(`ModelImporter.kt:314`), which mmap's it. The only whole-file read in the
+path is `GgufByteSource.ofStream`, which is **bounded to 32 MiB**
+(`GgufByteSource.kt:75`) and reads a header prefix, not the model. There is no
+`ByteArray` of the model anywhere in the Kotlin or native path.
+
+**One provable allocation removed.** `llama_jni.cpp` allocated
+`std::vector<llama_token_data> data(n_vocab)` *inside* the per-token decode
+loop. `llama_token_data` is 12 bytes and `n_vocab` is 151,936 for Qwen3, so
+that is **1,823,232 bytes — 1.74 MiB — allocated, filled and freed for every
+generated token**. It is now hoisted out of the loop and resized once. This is
+behaviour-preserving by construction rather than by measurement: the loop
+body overwrites all `n_vocab` entries unconditionally before reading any, so
+whatever the sampler chain did to the previous iteration's ordering is
+already gone. Nothing was changed on the basis of a guess.
+
+**What was deliberately NOT changed**, each with its reason:
+
+| not changed | why |
+|---|---|
+| KV cache type (`type_k`/`type_v` = F16) | switching to q8_0 halves the KV term and would be the single biggest RAM win available, but it is a quality decision, and §5's `KvCacheType` already prices it. No measurement justifies it here. |
+| `RUNTIME_FLOOR_BYTES`, `RUNTIME_RATIO` | these are exactly the constants §6.4 measures. Changing them without the measurement would be inventing the number this document exists to stop inventing. |
+| `DECISION_FACTOR` (1.15) | the fit gate's headroom, not its estimate. Untouched by this work and rightly so. |
+| load-before-unload on a model swap | real waste, but owned elsewhere and a product trade-off, not a provable win. |
+| `flash_attn` | see §6.5: no resident-RAM effect at this `n_ctx`. |
+| the missing mmap fallback | adding it raises peak RAM on the weakest devices. |
+
 ---
 
 ## 7. Reproducing everything above

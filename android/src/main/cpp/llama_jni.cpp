@@ -649,6 +649,36 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     // Trailing bytes of a UTF-8 character split across two tokens.
     std::string partial_utf8;
 
+    // The candidate array for sampling, hoisted out of the decode loop.
+    //
+    // WHY THIS IS HERE AND NOT INSIDE THE LOOP: it used to be constructed per
+    // token, as
+    //
+    //     std::vector<llama_token_data> data(n_vocab);
+    //
+    // `llama_token_data` is {int32 id, float logit, float p} = 12 bytes, and
+    // n_vocab is 151,936 for Qwen3. That is 1,823,232 bytes - 1.74 MiB - of
+    // heap allocated, filled and freed for EVERY generated token, on top of a
+    // 151,936-iteration loop that then rewrites every element anyway.
+    //
+    // WHY HOISTING IS PROVABLY BEHAVIOUR-PRESERVING, not a guess: the loop body
+    // overwrites all n_vocab entries unconditionally
+    //
+    //     data[v] = llama_token_data{v, logits[v], 0.0f};
+    //
+    // so any reordering the sampler chain did to the previous iteration (top_p
+    // and the penalties both sort in place) is fully overwritten before it can
+    // be read again. The vector is therefore scratch space, and scratch space
+    // does not need re-allocating per iteration.
+    //
+    // It is sized once, from the vocab, which cannot change for the life of the
+    // context. The cursor and size are re-stated every iteration anyway, so
+    // nothing downstream depends on them being sticky.
+    std::vector<llama_token_data> candidates;
+    if (n_vocab > 0) {
+        candidates.resize(static_cast<size_t>(n_vocab));
+    }
+
     // ---- prefill --------------------------------------------------------------
     const int32_t batch_limit = std::max(1, std::min(n_ctx, kDefaultBatch));
     for (int32_t off = 0; off < prompt_tokens; off += batch_limit) {
@@ -711,14 +741,15 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             if (logits != nullptr && n_vocab > 0) {
                 // llama_token_data is a plain {id, logit, p} triple; the context
                 // hands back a float* of raw logits, so wrap rather than copy
-                // the values.
-                std::vector<llama_token_data> data(static_cast<size_t>(n_vocab));
+                // the values. `candidates` is the hoisted scratch buffer - see
+                // its declaration above for why reusing it cannot change what
+                // is sampled.
                 for (int32_t v = 0; v < n_vocab; ++v) {
-                    data[static_cast<size_t>(v)] = llama_token_data{v, logits[v], 0.0f};
+                    candidates[static_cast<size_t>(v)] = llama_token_data{v, logits[v], 0.0f};
                 }
                 llama_token_data_array cur;
-                cur.data = data.data();
-                cur.size = data.size();
+                cur.data = candidates.data();
+                cur.size = candidates.size();
                 cur.selected = -1;
                 cur.sorted = false;
                 llama_sampler_apply(chain, &cur);
