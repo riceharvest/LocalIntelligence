@@ -111,7 +111,40 @@
 ##
 ## `-keepnames` rather than `-keep`: the classes stay shrinkable, their names
 ## simply stop moving.
+##
+## AND THE SEALED SUBTYPES ARE PINNED BY NAME, NOT BY ANNOTATION. The rules
+## above were not enough, and the release mapping proves it. `@Serializable` sits
+## on the sealed INTERFACE (`TaskCadence`); its three subtypes (`Once`,
+## `EveryMinutes`, `DailyAt`) are not annotated themselves, because
+## kotlinx.serialization derives a serializer for them through the sealed
+## hierarchy. An annotation-matched `-keepnames` therefore keeps the interface
+## and misses every subtype, which is exactly what happened:
+##
+##     dev.localintelligence.app.data.TaskCadence$DailyAt      -> f5.l:
+##     dev.localintelligence.app.data.TaskCadence$EveryMinutes -> f5.m:
+##     dev.localintelligence.app.data.TaskCadence$Once         -> f5.n:
+##
+## The consequence is not cosmetic. `ScheduledTaskStore` persists these to
+## SharedPreferences through a polymorphic `Json`, so the serial name -- the
+## fully-qualified class name -- is the `type` discriminator inside the stored
+## JSON. A row written by one build carries `...TaskCadence$EveryMinutes`; the
+## next build looks for `f5.m`, does not find it, and `all()` drops the row via
+## `mapNotNull`. Every scheduled task a user had set disappears on upgrade, and
+## nothing is logged: the code treats an undecodable row as a row to skip.
+##
+## So the subtypes are pinned by their full names. This is deliberately a
+## package-scoped `-keepnames class ...$*` rather than a blanket
+## `-keepnames class dev.localintelligence.**`, because the cost of a missed
+## subtype is silent data loss and the cost of keeping a name is a few bytes in
+## the dex.
 -keepnames @kotlinx.serialization.Serializable class dev.localintelligence.app.data.**
 -keepnames @kotlinx.serialization.Serializable class dev.localintelligence.core.metrics.**
 -keepnames @kotlinx.serialization.Serializable class dev.localintelligence.core.agent.**
 -keepnames @kotlinx.serialization.Serializable class dev.localintelligence.core.hub.**
+
+# Sealed-hierarchy subtypes: serializable through the parent, not annotated on
+# themselves, so the rules above cannot see them. See the note above.
+-keepnames class dev.localintelligence.app.data.**$*
+-keepnames class dev.localintelligence.core.metrics.**$*
+-keepnames class dev.localintelligence.core.agent.**$*
+-keepnames class dev.localintelligence.core.hub.**$*
