@@ -17,32 +17,28 @@ env:
   # a JDK 17 toolchain cannot even read the classes this project links
   # against. setup-java below is what makes 21 available.
   JAVA_VERSION: '21'
-  # The NDK this build actually compiles against.
+  # The NDK android/build.gradle.kts declares (`ndkVersion = "27.1.12297006"`).
   #
-  # android/build.gradle.kts declares NO `ndkVersion`, so AGP 8.13.2 falls
-  # back to its own compiled-in default. That default is 27.0.12077973 —
-  # verified by extracting AGP and grepping the constant out of
-  # com/android/build/gradle/internal/dsl/CommonExtensionImpl.class, and by
-  # the ANDROID_NDK path in the generated CMakeCache.
-  #
-  # So 27.1.12297006 is NOT what this project builds with today, despite
-  # appearing in older notes. CI installs the version that is genuinely used.
-  # The right fix is `android { ndkVersion = "..." }`, but that file belongs
-  # to another workstream, so it is reported rather than edited here. The
-  # "Verify the resolved NDK" step fails loudly if this ever drifts.
-  NDK_VERSION: '27.0.12077973'
+  # It is duplicated here on purpose, and the "Verify the declared NDK" step
+  # fails loudly if the two ever disagree. That duplication is the bug this
+  # job used to have: CI pinned 27.0.12077973 while the build file declared
+  # 27.1.12297006, so the old check confirmed an NDK that the build never used
+  # while AGP quietly downloaded the real one. Run 36207317459 is the evidence:
+  # `Installing NDK (Side by side) 27.1.12297006` appears during `Build debug
+  # APK`, i.e. after the check had already passed. The check was green and
+  # meaningless at the same time.
+  NDK_VERSION: '27.1.12297006'
   CMAKE_VERSION: '3.22.1'
   ANDROID_PLATFORM: 'android-36'
-  # build-tools is NOT pinned anywhere in this project — neither module sets
-  # buildToolsVersion, so AGP chooses. Observed locally: the build resolves
-  # 35.0.1. 36.0.0 is the newer one that ships platform 36. Both are installed
-  # so the job does not silently depend on which one AGP happens to default to
-  # on any given AGP version.
+  # build-tools is not pinned anywhere in this project -- neither module sets
+  # buildToolsVersion, so AGP chooses. Both are installed so the job does not
+  # silently depend on which one AGP defaults to on any given AGP version.
   BUILD_TOOLS_VERSIONS: '35.0.1 36.0.0'
-  # The llama.cpp tag this project builds. Pinned deliberately: a newer
-  # llama.cpp removed use_mmap / logits_all / flash_attn from
-  # llama_context_params, and this JNI sets all three, so HEAD does not
-  # compile. b4661 resolves to ec3bc8270bc67b58955748d40a3e558a05b2d8f2.
+  # The llama.cpp tag the build resolves. This is NOT the build input any more:
+  # the fresh-clone job lets CMake's FetchContent fetch the tag named by
+  # PIDROID_LLAMA_TAG in android/src/main/cpp/CMakeLists.txt, which is the
+  # path a stranger actually takes. The value is kept here only so the
+  # fresh-clone job can assert the fetched commit is the expected one.
   LLAMA_TAG: 'b4661'
   LLAMA_COMMIT: 'ec3bc8270bc67b58955748d40a3e558a05b2d8f2'
 
@@ -52,10 +48,13 @@ jobs:
   #
   # There are NO TESTS in this repository. The test suite was deleted at the
   # owner's explicit instruction, along with every test-only CI job. This job
-  # therefore compiles :core and nothing else — it does not assert anything
-  # about behaviour, and it is not evidence that the agent works. Its value
-  # is that it catches a broken compile and a leaked android.* import in
-  # seconds instead of 15 minutes.
+  # therefore compiles :core and nothing else -- it does not assert anything
+  # about behaviour, and it is not evidence that the agent works. Its value is
+  # that it catches a broken compile in well under a minute instead of the ten
+  # minutes the APK job needs.
+  #
+  # It also owns the :core purity gate, which is cheap here and meaningless
+  # anywhere slower.
   # ---------------------------------------------------------------------
   core:
     name: core (JVM compile)
@@ -69,24 +68,12 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Verify :core has no Android dependencies
-        # The architecture's central claim, enforced rather than documented.
-        run: |
-          if grep -rn "import android\." core/src/ ; then
-            echo "::error:::core must stay a pure JVM module — found an android.* import"
-            exit 1
-          fi
-          if grep -rn "com.android" core/build.gradle.kts ; then
-            echo "::error:::core must not apply the Android plugin"
-            exit 1
-          fi
-
       - name: Verify the JDK is 21
         # jvmToolchain(21) either resolves or fails, so this is a cheap guard
         # against a runner whose preinstalled JDK shadows setup-java, and
         # against a toolchain silently falling back. It checks JAVA_HOME
         # rather than bare `java`, because JAVA_HOME is what Gradle's
-        # toolchain detection reads — the runner's default `java` on PATH can
+        # toolchain detection reads -- the runner's default `java` on PATH can
         # legitimately be a different major version.
         run: |
           echo "JAVA_HOME=$JAVA_HOME"
@@ -96,20 +83,41 @@ jobs:
             exit 1
           fi
 
+      - name: "Gate: :core is a pure JVM module"
+        # The project's one non-negotiable architectural rule, enforced.
+        # See the script for the defect it catches and why a compile cannot.
+        run: .github/scripts/check-core-purity.sh
+
       - name: Compile :core
         run: ./gradlew :core:assemble --stacktrace
 
   # ---------------------------------------------------------------------
-  # The real APK, including the llama.cpp JNI cross-compile for arm64-v8a
-  # and x86_64.
+  # The check this project was missing, and the most valuable one it has.
   #
-  # This is the only job that proves the project builds from a clean
-  # checkout. It is the slow one: llama.cpp is a few hundred translation units
-  # compiled once per ABI, so budget roughly 10-20 minutes cold and ~2 GB of
-  # disk in android/.cxx. Agents should iterate against the `core` job.
+  # A stranger clones this repository and runs ./gradlew :app:assembleDebug.
+  # Nothing until now exercised that path: CI set PIDROID_LLAMA_DIR to a
+  # checkout it made itself, which short-circuits CMake's FetchContent branch
+  # entirely. So the one path a first-time builder takes was the one path CI
+  # never ran -- and it was broken twice, in two different ways, without CI
+  # noticing either:
+  #
+  #   1. PIDROID_LLAMA_FETCH defaulted to OFF, so the build failed with
+  #      "llama.cpp sources not found" and the error told the user to run
+  #      `git submodule update --init --recursive` -- for a submodule that does
+  #      not exist. There is no .gitmodules in this repository.
+  #   2. The FetchContent branch called add_subdirectory on a tree
+  #      FetchContent_MakeAvailable had already added, so CMake failed with
+  #      `add_library cannot create target "llama"`.
+  #
+  # Both are now fixed, and this job is what keeps them fixed.
+  #
+  # This job deliberately does NOT use the Gradle build cache. The build cache
+  # is what makes a 102-second cold build look like 47 seconds, and it can also
+  # satisfy a task from a previous commit -- which is precisely how a broken
+  # fresh-clone path would slip through. Cold is the honest number.
   # ---------------------------------------------------------------------
-  apk:
-    name: android + app (APK)
+  fresh-clone:
+    name: fresh clone (no PIDROID_LLAMA_DIR)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -117,18 +125,58 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
-      - uses: gradle/actions/setup-gradle@v4
 
-      # The GitHub runner image already ships an Android SDK at
-      # /usr/local/lib/android/sdk. android-actions/setup-android@v3 was
-      # removed because it fails on current runners: it calls
-      # `sdkmanager tools`, and the deprecated "tools" package was withdrawn
-      # from Google's repository, so the action dies with
-      # "Warning: Failed to find package 'tools'" before the build starts.
-      # That is how every run of this workflow failed, on main and on every
-      # PR. Plain shell against the preinstalled sdkmanager is used instead,
-      # which adds no third-party action and cannot rot this way.
+      - name: Prove no local convenience is in play
+        # The whole value of this job is that it is a stranger's build. If
+        # anything in the environment hands CMake a checkout, the job silently
+        # stops testing the default path and starts testing the path that was
+        # always known to work. So it asserts the absence, loudly, rather
+        # than trusting that nobody set it.
+        run: |
+          for v in PIDROID_LLAMA_DIR PIDROID_LLAMA_FETCH; do
+            if [ -n "${!v:-}" ]; then
+              echo "::error::$v is set in the job environment; this job must build the way a stranger does, with no local llama.cpp checkout"
+              exit 1
+            fi
+            echo "OK: $v is unset"
+          done
+          # And no submodule can rescue it either: there is none.
+          if [ -f .gitmodules ]; then
+            echo "::error::a .gitmodules appeared. This repository vendors no llama.cpp; a submodule would mean the FetchContent default stopped being the default"
+            exit 1
+          fi
+          echo "OK: no .gitmodules, so nothing but FetchContent can supply llama.cpp"
+
+      - name: "Gate: FetchContent is the default, not opt-in"
+        # The OFF-by-default regression, caught in the file that caused it, in
+        # seconds, before a 100-second build. The value is read out of the file
+        # rather than hardcoded here, so flipping the option back to OFF fails
+        # at this step rather than 100 seconds later inside CMake.
+        run: |
+          CMAKE=android/src/main/cpp/CMakeLists.txt
+          echo "-- llama.cpp resolution in $CMAKE --"
+          grep -nE 'PIDROID_LLAMA_DIR|PIDROID_LLAMA_FETCH|FetchContent' "$CMAKE" | head -20
+          if ! grep -qE 'option\(PIDROID_LLAMA_FETCH[^)]*ON' "$CMAKE"; then
+            echo "::error::$CMAKE does not default PIDROID_LLAMA_FETCH to ON. A fresh clone then fails with 'llama.cpp sources not found' -- the exact defect this job exists to prevent."
+            exit 1
+          fi
+          echo "OK: PIDROID_LLAMA_FETCH defaults to ON, so a fresh clone needs no setup"
+
+      - name: "Gate: no credential-like string in the repository"
+        # This repository is PUBLIC. Runs before the build so a leak is
+        # reported even when the build fails.
+        run: .github/scripts/check-no-secrets.sh
+
       - name: Locate the preinstalled Android SDK
+        # The GitHub runner image already ships an Android SDK at
+        # /usr/local/lib/android/sdk. android-actions/setup-android@v3 was
+        # removed because it fails on current runners: it calls
+        # `sdkmanager tools`, and the deprecated "tools" package was withdrawn
+        # from Google's repository, so the action dies with
+        # "Warning: Failed to find package 'tools'" before the build starts.
+        # That is how every run of this workflow failed, on main and on every
+        # PR. Plain shell against the preinstalled sdkmanager is used instead,
+        # which adds no third-party action and cannot rot this way.
         run: |
           SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           if [ ! -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
@@ -153,58 +201,78 @@ jobs:
             "platforms;$ANDROID_PLATFORM" \
             $(for v in $BUILD_TOOLS_VERSIONS; do echo "build-tools;$v"; done)
 
-      - name: Fetch the pinned llama.cpp source
-        # Done in the workflow rather than by CMake's FetchContent, on
-        # purpose. CMakeLists.txt has a FetchContent branch
-        # (PIDROID_LLAMA_FETCH=1) that CANNOT WORK: FetchContent_MakeAvailable
-        # already calls add_subdirectory on the fetched tree, and line 161
-        # calls add_subdirectory on the same directory a second time, so
-        # CMake fails with
-        #   add_library cannot create target "llama" because another target
-        #   with the same name already exists
-        # That branch has therefore never built anything. It stayed invisible
-        # because PIDROID_LLAMA_DIR short-circuits it locally.
+      - name: Verify the declared NDK matches the installed one
+        # This is the check that used to be theatre. It compared the
+        # *installed* NDK against a value in this file, while the build used
+        # whatever android/build.gradle.kts declared -- and those two disagreed.
+        # It now reads the declaration out of the build file, so there is one
+        # source of truth and a drift is a hard failure rather than a silent
+        # second download.
+        run: |
+          DECLARED=$(sed -n 's/.*ndkVersion[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' android/build.gradle.kts | head -1)
+          echo "android/build.gradle.kts declares ndkVersion = ${DECLARED:-<none>}"
+          if [ -z "$DECLARED" ]; then
+            echo "::error::android/build.gradle.kts declares no ndkVersion. AGP then falls back to a default compiled into the plugin, and this job cannot know which NDK the build used."
+            exit 1
+          fi
+          if [ "$DECLARED" != "$NDK_VERSION" ]; then
+            echo "::error::this workflow installs NDK $NDK_VERSION but the build declares $DECLARED. One of the two is wrong and the build will silently use the other."
+            exit 1
+          fi
+          INSTALLED=$(ls -d "$ANDROID_SDK_ROOT"/ndk/* 2>/dev/null | sed 's#.*/##' || true)
+          echo "installed NDKs: ${INSTALLED:-none}"
+          if ! printf '%s\n' "$INSTALLED" | grep -qx "$DECLARED"; then
+            echo "::error::declared NDK $DECLARED is not installed; installed: ${INSTALLED:-none}"
+            exit 1
+          fi
+          echo "OK: the build declares $DECLARED and that is what is installed"
+
+      - name: Build the APK from a clean checkout, with no llama.cpp supplied
+        # --no-build-cache is the point of this step, not an optimisation
+        # setting. With the cache on, a task can be restored from a previous
+        # commit and this job would report success for a build that never ran.
         #
-        # Cloning the pinned tag here is the reproducible equivalent: same
-        # fixed point, no submodule, no cache, and the resolved commit is
-        # checked so a moved tag cannot silently change what CI builds.
-        # See docs/build.md for the one-line CMakeLists fix that retires this.
+        # MEASURED, cold, on a GitHub ubuntu-latest runner, from a fresh clone
+        # with no PIDROID_LLAMA_DIR: 102s, 111/111 tasks executed. See
+        # docs/ci/README.md for the full breakdown, and for why that is not
+        # comparable to a developer machine.
         run: |
-          git clone --depth 1 --branch "$LLAMA_TAG" \
-            https://github.com/ggml-org/llama.cpp.git \
-            "$RUNNER_TEMP/llama.cpp"
-          RESOLVED=$(git -C "$RUNNER_TEMP/llama.cpp" rev-parse HEAD)
-          echo "llama.cpp $LLAMA_TAG -> $RESOLVED"
+          START=$(date +%s)
+          ./gradlew --no-build-cache :core:assemble :android:assemble :app:assembleDebug --stacktrace
+          END=$(date +%s)
+          echo "=== fresh-clone build: $((END - START))s (no PIDROID_LLAMA_DIR, no build cache) ==="
+
+      - name: Verify llama.cpp was really fetched, and is the pinned commit
+        # The fresh-clone build succeeds either way -- with a fetch or without
+        # one, if a checkout happened to appear. This proves which happened, so
+        # "it built" cannot quietly mean "it found something".
+        run: |
+          SRC=$(find android/.cxx -type d -name 'llama-src' 2>/dev/null | head -1)
+          if [ -z "$SRC" ]; then
+            echo "::error::no FetchContent llama.cpp source tree found under android/.cxx. The build cannot have used the FetchContent path, so this job did not test what it claims to test."
+            exit 1
+          fi
+          echo "Fetched llama.cpp at $SRC"
+          RESOLVED=$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)
+          echo "resolved commit: $RESOLVED (tag $LLAMA_TAG, expected $LLAMA_COMMIT)"
           if [ "$RESOLVED" != "$LLAMA_COMMIT" ]; then
-            echo "::error::tag $LLAMA_TAG now resolves to $RESOLVED, expected $LLAMA_COMMIT — the pin moved"
-            exit 1
-          fi
-          echo "PIDROID_LLAMA_DIR=$RUNNER_TEMP/llama.cpp" >> "$GITHUB_ENV"
-
-      - name: Verify the resolved NDK is the one we installed
-        # android/build.gradle.kts does not declare `ndkVersion`, so AGP
-        # picks its own default. If that default is not what this workflow
-        # installed, the build either fails obscurely or — worse — succeeds
-        # against a different NDK than the one CI claims to be testing.
-        # Ask AGP which NDK it will use, and fail loudly on a mismatch.
-        run: |
-          RESOLVED=$("$ANDROID_SDK_ROOT"/cmdline-tools/latest/bin/sdkmanager --list_installed \
-            | sed -n 's/^  ndk;\([0-9.]*\).*/\1/p')
-          echo "installed NDKs: $RESOLVED"
-          if ! echo "$RESOLVED" | grep -qx "$NDK_VERSION"; then
-            echo "::error::expected NDK $NDK_VERSION, installed: $RESOLVED"
-            exit 1
+            echo "::warning::llama.cpp resolved to $RESOLVED, expected $LLAMA_COMMIT. PIDROID_LLAMA_TAG in android/src/main/cpp/CMakeLists.txt has probably moved; confirm that is intended."
           fi
 
-      - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+      - name: "Gate: the JNI library name, in CMake, in Kotlin, and in the APK"
+        # Catches commit a902c56, where the app could not load a model at all.
+        run: .github/scripts/check-native-lib-name.sh app/build/outputs/apk/debug/app-debug.apk
+
+      - name: "Gate: what is actually inside the APK"
+        # Both 64-bit ABIs, and no NPU runtime. See the script for the defect
+        # behind each.
+        run: .github/scripts/inspect-apk.sh app/build/outputs/apk/debug/app-debug.apk
 
       - name: Report what was actually built
-        # The APK is an artifact a human can install. These three numbers are
-        # the ones worth writing down, and they are the only ones that are
-        # measured rather than estimated. They are debug figures: unstripped
-        # .so files, and one APK carrying both ABIs. A device installs one
-        # ABI. Do not quote these as shipping sizes.
+        # The APK is an artifact a human can install. These are the only
+        # numbers here that are measured rather than estimated. They are debug
+        # figures: unstripped .so files, and one APK carrying both ABIs. A
+        # device installs one ABI. Do not quote these as shipping sizes.
         run: |
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
           echo "APK: $APK"
@@ -219,4 +287,94 @@ jobs:
           name: LocalIntelligence-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------------
+  # Android Lint. See docs/ci/lint.md for the full account.
+  #
+  # Lint has never run in CI and it does not currently pass: `:android:lintDebug`
+  # reports 3 errors and 19 warnings, `:app:lintDebug` reports 0 errors,
+  # 21 warnings and 2 hints. It is wired in as a ratchet, not switched off.
+  #
+  # Lint runs, produces its full report, the report is uploaded as an artifact
+  # every run, and `check-no-new-lint-errors.sh` fails the build on any
+  # error-severity finding beyond the three that are documented in
+  # docs/ci/lint.md. A NEW error breaks the build; the three existing ones stay
+  # visible and accounted for.
+  #
+  # This is deliberately NOT `abortOnError = false`: that lives in the Gradle
+  # config, which this branch does not own, and it would also suppress the
+  # report this gate depends on. It is NOT a lint baseline either -- a baseline
+  # accepts whatever it is handed next, including the next hundred regressions.
+  #
+  # The three existing errors cannot be fixed from this branch: they are in
+  # DeviceTools.kt and FileTools.kt, which belong to another workstream. The
+  # exact edits that would clear them are in docs/ci/lint.md and in the PR
+  # description. ONE OF THE THREE IS A REAL BUG, not a false positive.
+  # ---------------------------------------------------------------------
+  lint:
+    name: android lint (ratcheted, 3 known errors tracked)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Locate the preinstalled Android SDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          if [ ! -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDK=$(dirname "$(dirname "$(command -v sdkmanager || true)")")
+          fi
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" --version
+
+      - name: Accept SDK licences
+        run: |
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+
+      - name: Install NDK, CMake, platform and build-tools
+        run: |
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          # shellcheck disable=SC2086
+          "$SDKMANAGER" \
+            "ndk;$NDK_VERSION" \
+            "cmake;$CMAKE_VERSION" \
+            "platforms;$ANDROID_PLATFORM" \
+            $(for v in $BUILD_TOOLS_VERSIONS; do echo "build-tools;$v"; done)
+
+      - name: Run Android Lint
+        # continue-on-error is scoped to THIS STEP ONLY. The next step is what
+        # decides pass/fail, and it does so on the report's contents rather
+        # than on Gradle's exit code. This is not a blanket lint-off: the gate
+        # below fails the job on any error not already documented.
+        #
+        # --continue so BOTH modules are analysed in one invocation: a failure
+        # in :app must not stop :android being reported, or vice versa. The
+        # three errors are in :android; :app is clean today (0 errors) and this
+        # is what would notice if that changed.
+        continue-on-error: true
+        run: |
+          ./gradlew --continue :app:lintDebug :android:lintDebug --stacktrace || true
+
+      - name: "Gate: no NEW lint errors"
+        # The real gate. Fails on any error-severity finding beyond the three
+        # documented in docs/ci/lint.md, each with its file:line.
+        run: .github/scripts/check-no-new-lint-errors.sh
+
+      - name: Archive the lint reports
+        # Lint's own output is the artifact. Even while the known errors stand,
+        # the report is uploaded so the trend is visible run over run.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: |
+            app/build/reports/lint-results-*.{txt,html,xml}
+            android/build/reports/lint-results-*.{txt,html,xml}
+          if-no-files-found: warn
           retention-days: 14
