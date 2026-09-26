@@ -45,6 +45,7 @@ import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import dev.localintelligence.app.ui.ModelManagerScreen
 import dev.localintelligence.app.ui.TraceScreen
+import dev.localintelligence.app.ui.trace.RedactionScreen
 import dev.localintelligence.app.ui.trace.ScheduleScreen
 import dev.localintelligence.app.ui.trace.ScheduleViewModel
 import kotlinx.coroutines.Dispatchers
@@ -127,6 +128,7 @@ class MainActivity : ComponentActivity() {
                                 viewModel = chat,
                                 onOpenTrace = { nav.navigate(ROUTE_TRACE) },
                                 onOpenModels = { nav.navigate(ROUTE_MODELS) },
+                                onOpenRedaction = { nav.navigate(ROUTE_REDACTION) },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -142,6 +144,22 @@ class MainActivity : ComponentActivity() {
                             runState = traceState,
                             onBack = { nav.popBackStack() },
                         )
+                    }
+
+                    composable(ROUTE_REDACTION) {
+                        // Reachable from the chat, not buried in settings.
+                        //
+                        // WHY IT IS A TOP-LEVEL ROUTE RATHER THAN A DIALOG: the
+                        // screen's content is a list of patterns and a list of
+                        // things it does not cover. That is a document, it
+                        // scrolls, and a dialog on a phone is the worst
+                        // container for a scrolling document there is.
+                        //
+                        // WHY IT IS NOT GATED: there is nothing to unlock. The
+                        // filter is always on, so the screen is a description,
+                        // and a description that sometimes refuses to open is
+                        // worse than one that is always there.
+                        RedactionScreen(onBack = { nav.popBackStack() })
                     }
 
                     composable(ROUTE_MODELS) {
@@ -319,6 +337,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_MODELS = "models"
         const val ROUTE_HUB = "hub"
         const val ROUTE_SCHEDULE = "schedule"
+        const val ROUTE_REDACTION = "redaction"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
         const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"
