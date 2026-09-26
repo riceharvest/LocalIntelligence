@@ -1,19 +1,114 @@
 # Evals
 
-## There is no eval suite in this repository
+## The headline number: 68.2% held-out selectability (116/170)
+
+**Read the per-tool table before quoting this.** A single percentage is not the
+deliverable; the breakdown is. This section is the summary, and the harness
+prints the rest.
+
+At the shipped `AgentConfig.maxVisibleTools = 6`, on a 170-turn corpus authored
+without reading a single tool tag:
+
+| k | turns reachable | selectability | slot-recall | mean system-prompt tokens |
+|---|---|---|---|---|
+| 3 | 101/170 | 59.4% | 57.9% | 322 |
+| **6 (shipped)** | **116/170** | **68.2%** | **66.3%** | **398** |
+| 10 | 133/170 | 78.2% | 75.8% | 494 |
+| 12 | 138/170 | 81.2% | 79.2% | 539 |
+
+```bash
+export JAVA_HOME=$HOME/jdk21
+./gradlew :core:compileKotlin
+./core/src/main/kotlin/dev/localintelligence/core/tool/eval/run-heldout-harness.sh
+```
+
+### What that number is, and is not
+
+It is **selectability**: was at least one tool that could correctly serve the
+request inside the visible 6-slot set? It is **not** task success and **not**
+"accuracy". `AgentController` hands the same selected list to the system prompt
+and to `GrammarBuilder`, and the grammar makes an unselected tool *unspeakable* —
+so a retrieval miss is not a worse answer, it is a task the agent cannot perform
+at all. Selectability is therefore an **upper bound** on task success.
+
+**It does not tell you the model will choose the tool.** No model, no device and
+no inference are involved. A 100% selectability score is compatible with an agent
+that never makes one correct call. Closing that gap needs a real GGUF on real
+hardware and a scorer that checks the emitted call — see the unmeasured table
+below, which is unchanged by any of this.
+
+### The findings that matter more than the percentage
+
+- **Language is a capability cliff, not a gradient.** EN 82.3% (93/113),
+  **NL 44.8%** (13/29), **DE 35.7%** (10/28). `LexicalToolSelector` tokenises on
+  `[^a-z0-9]+` with a length>2 floor, so an accented or compound word contributes
+  nothing at all. A German request is not scored badly; it is mostly not scored.
+  The tool tags are English. For a team that speaks Dutch and German this is the
+  single largest gap in the system, and it is a property of the shipped
+  selector, not of the corpus.
+- **85% of misses are unwinnable by any width.** Splitting every miss by cause:
+  56 tool-misses = **48 SCORER-BLIND** (the expected tool scored exactly 0, so it
+  shares no word with its own name, description or tags) + **8 LOST-AT-CUT**
+  (scored, then fell outside the 6 slots). Only 8 of 56 misses are a width
+  problem. Raising `maxVisibleTools` cannot fix the other 48.
+- **The cut is mostly decided alphabetically.** At k=6, **84.1%** of turns have
+  the 6th and 7th tool scoring *identically*, so the outcome is settled by the
+  `thenBy { name }` tie-break rather than by relevance.
+- **Referential turns are not measurably worse here** (control 68.2% vs
+  referential 68.2%, gap 0.1 points) — which is *not* the predicted result and is
+  reported as such. `Session.currentKeywords()` reads only the latest user turn,
+  so the asymmetry is real in production; n=22 is simply too small to resolve it.
+  Do not read "multi-turn is fine" off this row.
+- **Statistical resolution.** At n=170 a 95% interval is roughly +/-7 points, so
+  a few points of difference between two variants is not a result.
+
+### The contamination rule
+
+This corpus was written without reading a tag (rule R1) and run **once** (rule
+R2). It was not tuned against, and nothing in `:android`, `V0ToolCatalogue`,
+`LexicalToolSelector` or `AgentConfig` was changed on the basis of a result here.
+`HeldOutDataset.CONTAMINATION` records that as data and the harness prints it in
+the header on every run. **If someone changes a tag, description, weight or
+constant because of a case in this corpus, it must be flipped to `CONTAMINATED`
+in the same commit** — at that point every number here becomes a training-set
+score and the honest corpus is a new, smaller, freshly authored one.
+
+The harness also prints a **tautology check**: 26/170 turns are reachable only
+through a tag, with no name or description overlap. That is not evidence of
+overfitting here (the corpus never saw a tag), but it does mean part of the
+headline is carried by an artefact no user ever reads.
+
+### Coverage and blind spots
+
+All 25 shipped tools are exercised by at least 4 cases; 2 tools
+(`clipboard.read`, `device.vibrate`) have only 4 and are flagged `THIN` in the
+table — a cell that small cannot support a claim about the selector. The harness
+fails loudly on its own blind spots (B1–B9): tools never exercised, tools never
+selected, tautological turns, zero-signal turns, rank distribution, tie rate, and
+an explicit list of what the corpus cannot measure.
+
+---
+
+## There is no task-level eval suite in this repository
 
 This file used to describe a 50-task suite, an eval runner, and a
 `./gradlew :core:evals` task. **None of that exists.** It was deleted, along
 with the rest of the test sources, at the owner's explicit instruction.
+
+The held-out corpus above is not that suite. It measures one component — which
+tools the *selector* makes reachable — with no model in the loop. It does not
+measure whether a task completes.
 
 Verified against the current tree:
 
 ```
 $ ls core/src/
 main
+test    # 20 pure-JVM JUnit tests — deterministic, in-process, no fakes
 $ ls android/src/
 main
 $ find . -path ./.git -prune -o -type d -name test -print
+./core/src/test               # 20 tests
 ./app/src/androidTest          # DeviceModelProbe.kt — a manual probe, not a suite
 
 $ grep -rn 'evals' core/build.gradle.kts build.gradle.kts
@@ -26,9 +121,12 @@ $ find . -name 'FakeModelBackend*' -o -name 'ScriptedTool*'
 So these commands do not work and are not aspirational:
 
 ```bash
-./gradlew :core:test     # no test sources; there is nothing to run
 ./gradlew :core:evals    # the task does not exist
 ```
+
+`./gradlew :core:test` **does** work and runs 20 tests, but it is not an eval:
+every test is pure deterministic logic against the real production classes, and
+none of them involves a model, a device, or a task completing.
 
 If you find a document quoting a test count, a pass rate, or a coverage figure,
 it is stale. The reason for the deletion is recorded in `core/build.gradle.kts`:
@@ -161,13 +259,20 @@ input_tokens  output_tokens  prefill_ms  decode_tok_s  total_ms  peak_ram
 
 > If a feature does not move a number here, it does not ship.
 
-**This rule currently has no instrument, and that is a known, accepted gap.**
-Every metric above is unmeasured. Until someone runs the task list on real
-hardware, the project cannot answer whether a given change helped.
+**This rule has exactly one instrument, and it measures one component.**
+`run-heldout-harness.sh` gives a real, re-runnable, non-cached number for tool
+**selectability** — the ceiling on which tools the model is even allowed to
+call. That is more than there was, and it is not the whole rule.
 
-That is the honest state. It is also an argument for finishing the measurement
-work, not for inventing numbers or for restoring a fake-backed harness that
-would report 50/50 again.
+Everything a reader would want from "does it ship" is still unmeasured: task
+success, argument quality, loop behaviour, tokens per completed task. Until
+someone runs the task list on real hardware, the project still cannot answer
+whether a given change helped *end to end*.
+
+The honest position: a change can now be checked against a held-out selection
+number in seconds, and that number is a ceiling rather than a result. It is an
+argument for finishing the measurement work, not for treating 68.2% as a
+success rate.
 
 ---
 
