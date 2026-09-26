@@ -206,14 +206,15 @@ class AppContainer(private val context: Context) {
      * eagerly. This is an object with no database, no model and no I/O, so reading it
      * on a cold start that never runs a task is free.
      *
-     * THE GATE IS NOT YET CLAIMED ANYWHERE. `RunGate` and `RUN_ALREADY_ACTIVE_REASON`
-     * exist in `core/execution` and nothing calls them: `grep -rn 'tryClaim\|RunGate'`
-     * outside of that file returns the class and nothing else. The two claim sites are
-     * `ExecutionService.startRun` and `ScheduledTaskFireReceiver.startRun`, both in
-     * `:app` and both owned by another agent, so the exact edits are in the PR
-     * description rather than in this branch. This property is the piece they need: one
-     * instance, reachable from both, so the two claims contend with each other instead
-     * of each holding a private gate that never fires.
+     * THE GATE IS CLAIMED IN EXACTLY ONE PLACE: `ExecutionService.startRun`
+     * calls `tryClaim()` and releases in its single terminal cleanup path.
+     * Scheduled runs reach it too — `ScheduledTaskFireReceiver` starts the
+     * service rather than the loop, so scheduled and chat runs contend for
+     * this one instance instead of each holding a private gate.
+     *
+     * A second claim site here would be a bug, not belt-and-braces: the gate
+     * arbitrates a single global resource (the loaded model), and a run that
+     * claimed twice would deadlock against itself.
      */
     val runGate: RunGate by lazy { RunGate() }
 

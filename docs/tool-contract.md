@@ -213,6 +213,6 @@ backend that throws takes the loop with it.
 
 Step 9 was "write the nine-case test matrix". The test suite was deleted at the
 owner's explicit instruction, so the cases are now a manual device checklist
-rather than automated assertions — which is exactly why **none of the 22 tools
+rather than automated assertions — which is exactly why **none of the 25 tools
 has been verified end to end**. A tool with seven of those cases checked by hand
 is a tool that will page you at 2am on someone else's phone.

@@ -49,15 +49,19 @@ import dev.localintelligence.core.model.ChatMessage
  *
  * ## What the trim loses, said plainly
  *
- * The dropped messages are gone from memory, and the durable store that would
- * make this free - `RoomSessionStore` - has no callers in this build. So the cap
- * is lossy once it bites. That is a real cost of bounding memory on a phone and
- * is preferred to not bounding it, but it is a cost, not a free win. It is also
- * why the cap is set at two conversations rather than one.
+ * The dropped messages are gone from the live session. A durable store does
+ * exist and is now wired (`AppContainer.sessionStore` reaches
+ * `RoomSessionStore` via `durableSessionStore`), so trimmed turns survive
+ * process death — but they are not re-injected into the model's context, so the
+ * cap is still lossy for anything older than the retained window. That is a
+ * real cost of bounding memory on a phone and is preferred to not bounding it.
+ * It is also why the cap is set at two conversations rather than one.
  *
  * ## What is never dropped
  *
- * The anchor at index 0 is the run's task. Losing it means the model answers a
+ * The anchor at index 0. Under a SHARED, MULTI-RUN session this is the
+ * FIRST-EVER task, not the current one — an older assumption from when each run
+ * got a fresh Session, and it no longer describes what is being anchored.
  * question nobody asked. User turns are then re-admitted ahead of the oldest
  * kept turn, for the same reason the loop's step gate refuses to drop an
  * instruction (`AgentController.dropOldestTurn`): instructions are the last

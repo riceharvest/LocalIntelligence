@@ -78,7 +78,7 @@ tools/notifications/   tools/web/
 ```
 
 Each is a handful of `AgentTool` implementations. These agents never touch
-`AgentController`. **22 tools exist today** across the categories above; none
+`AgentController`. **25 tools exist today** across the categories above; none
 has been verified against real Android APIs through the agent loop.
 
 **droid-mcp is not a dependency.** The plan it replaces proposed adapting it to skip
