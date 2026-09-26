@@ -11,9 +11,11 @@ import dev.localintelligence.android.tools.androidTools
 import dev.localintelligence.core.agent.AgentConfig
 import dev.localintelligence.core.agent.AgentController
 import dev.localintelligence.core.agent.LoopDetector
-import dev.localintelligence.core.agent.MemoryStore
 import dev.localintelligence.core.agent.Session
 import dev.localintelligence.core.agent.ToolCallValidatorGate
+import dev.localintelligence.core.agent.TurnRecorder
+import dev.localintelligence.core.execution.RunGate
+import dev.localintelligence.core.memory.LexicalMemoryStore
 import dev.localintelligence.android.inference.RamEstimate
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import kotlinx.coroutines.Dispatchers
@@ -123,8 +125,67 @@ class AppContainer(private val context: Context) {
      * WHY `by lazy`: the database must not be built just because something read this
      * property. Construction is deferred to the first memory operation, which keeps the
      * §16 RAM budget intact for a cold start that never runs a task.
+     *
+     * ## WHY IT IS A [LexicalMemoryStore] AND NOT THE BARE RESILIENT ONE
+     *
+     * The type changed from `MemoryStore` to its `MemoryStore`-shaped subclass and
+     * nothing else. `LexicalMemoryStore` wraps the same `resilientMemoryStore(context)`
+     * delegate — same Room-when-it-opens / RAM-when-it-does-not behaviour, same
+     * `CancellationException` handling, same laziness, because the delegate is the same
+     * object — and adds the two halves this feature was missing:
+     *
+     *  - `recordTurn`, which is what makes a memory FORMABLE. Before this line the
+     *    container handed the loop a store it could only read, and the loop only ever
+     *    read: `grep -rn '\.remember(' --include=*.kt .` outside of tests returned four
+     *    hits, all of them declarations and implementations, zero call sites. The agent
+     *    could consult a memory it had no way to create.
+     *  - a `search` that ranks by `MemoryIndex` over a bounded candidate set rather
+     *    than delegating to the delegate's SQL `LIKE` prefilter, which uses a
+     *    different tokeniser and returns nothing for a query whose inflection does not
+     *    match a stored row. See `LexicalMemoryStore.search` for the measured case.
+     *
+     * Nothing in the app that reads this property is affected: `LexicalMemoryStore` IS a
+     * `MemoryStore`, so the only consumer — `newController`'s `memory =` argument —
+     * compiles and behaves identically. The concrete type is spelled here rather than
+     * kept behind an interface because the ONE thing the composition root has to do
+     * with a write-capable store is hand `recordTurn` to the loop, and a value typed as
+     * the read-only interface cannot express that.
      */
-    val memoryStore: MemoryStore by lazy { resilientMemoryStore(context) }
+    val memoryStore: LexicalMemoryStore by lazy {
+        LexicalMemoryStore(resilientMemoryStore(context))
+    }
+
+    /**
+     * The one run at a time, for the whole process.
+     *
+     * ## WHY THE GATE LIVES HERE AND NOT IN THE SERVICE
+     *
+     * Both ways of starting a run — a chat message and a scheduled alarm — reach
+     * `ExecutionService.onStartCommand`, and neither is serialised by the service:
+     * `serviceScope` is `CoroutineScope(SupervisorJob() + Dispatchers.Default)`, and
+     * `Dispatchers.Default` is a thread POOL, so two `launch`es into it run at once.
+     * `startForegroundService` on a live service delivers a second `onStartCommand` to
+     * the SAME instance and serialises nothing. So the contention domain is the process,
+     * and the process-wide object is this container — not the service, which is created
+     * and destroyed around each run and would hand out a fresh gate every time if the
+     * gate lived there.
+     *
+     * WHY IT IS `by lazy` AND WHY IT MUST NOT BE: an `AtomicBoolean` costs nothing
+     * when idle, so laziness here is habit rather than necessity, and the real
+     * constraint is the one in the KDoc above: the container must not be built
+     * eagerly. This is an object with no database, no model and no I/O, so reading it
+     * on a cold start that never runs a task is free.
+     *
+     * THE GATE IS NOT YET CLAIMED ANYWHERE. `RunGate` and `RUN_ALREADY_ACTIVE_REASON`
+     * exist in `core/execution` and nothing calls them: `grep -rn 'tryClaim\|RunGate'`
+     * outside of that file returns the class and nothing else. The two claim sites are
+     * `ExecutionService.startRun` and `ScheduledTaskFireReceiver.startRun`, both in
+     * `:app` and both owned by another agent, so the exact edits are in the PR
+     * description rather than in this branch. This property is the piece they need: one
+     * instance, reachable from both, so the two claims contend with each other instead
+     * of each holding a private gate that never fires.
+     */
+    val runGate: RunGate by lazy { RunGate() }
 
     /**
      * The conversation, kept across runs.
@@ -338,6 +399,22 @@ class AppContainer(private val context: Context) {
      * now, and a controller is thrown away after it. A field on the container
      * would be a second source of truth that a second run could overwrite while
      * the first is still decoding.
+     *
+     * WHY [turnRecorder] IS PASSED RATHER THAN THE LOOP FINDING THE STORE: the
+     * loop is `:core` and the durable store is `:android`, so the loop has no way
+     * to reach one and never will. Without this argument the agent can read
+     * memory and cannot write any, which is the exact state this feature was in
+     * for its entire life: `memoryStore` existed, `recordTurn` existed, and
+     * nothing connected them, so the prompt's "Remembered facts" block was built
+     * from a table nothing wrote to. It is a `TurnRecorder` rather than the store
+     * itself so the loop depends on the one method it calls and not on a concrete
+     * class from a package it does not own.
+     *
+     * NOTE WHAT IS *NOT* HERE: a `runGate` claim. [runGate] is process-wide and
+     * has to be claimed around the whole run — including the model load that
+     * happens before the controller exists — so it cannot be claimed from inside
+     * `newController`, which returns long before a run starts. The claim belongs
+     * at the two `ExecutionService.startRun` call sites; see [runGate].
      */
     fun newController(
         model: ModelBackend = modelBackend,
@@ -359,6 +436,11 @@ class AppContainer(private val context: Context) {
         config = agentConfig,
         riskPolicy = riskPolicy,
         metrics = metrics,
+        // The write half of memory. Bound here rather than inside the loop
+        // because the loop is `:core` and only `:app` knows which store is
+        // durable. `recordTurn` applies MemoryWritePolicy, so this costs one
+        // regex per completed run and at most one row.
+        turnRecorder = TurnRecorder { userText -> memoryStore.recordTurn(userText) },
     )
 
     // ---- HuggingFace download -----------------------------------------
