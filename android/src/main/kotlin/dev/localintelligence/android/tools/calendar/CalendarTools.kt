@@ -1,9 +1,9 @@
 package dev.localintelligence.android.tools.calendar
 
-import android.content.Context
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
+import android.content.Context
 import android.database.Cursor
 import android.provider.CalendarContract
 import dev.localintelligence.core.model.ToolArgs
@@ -15,9 +15,19 @@ import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.catalogue.ToolMeta
+import dev.localintelligence.core.tool.catalogue.ToolArgumentBounds
+import dev.localintelligence.core.tool.catalogue.ToolSchemas
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,14 +37,6 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
-import java.util.Locale
 
 /**
  * Pure, android-free calendar logic: argument coercion, instant parsing, window and
@@ -86,14 +88,18 @@ internal sealed interface ResolvedDuration {
 
 internal object CalendarArgs {
 
-    const val DEFAULT_LIMIT = 20
-    const val MAX_LIMIT = 50
+    // Aliased from :core's ToolArgumentBounds: these numbers appear in this
+    // tool's JSON Schema, which :core owns, and in its `execute()`, below.
+    // Aliasing rather than repeating is what stops the advertised bound and
+    // the enforced bound from drifting apart.
+    const val DEFAULT_LIMIT = ToolArgumentBounds.CALENDAR_DEFAULT_LIMIT
+    const val MAX_LIMIT = ToolArgumentBounds.CALENDAR_MAX_LIMIT
 
     /** Hard ceiling on a search window. Beyond this the provider scan is a battery event. */
     const val MAX_WINDOW_DAYS = 90L
 
-    const val MIN_DURATION_MINUTES = 1
-    const val MAX_DURATION_MINUTES = 24 * 60
+    const val MIN_DURATION_MINUTES = ToolArgumentBounds.CALENDAR_MIN_DURATION_MINUTES
+    const val MAX_DURATION_MINUTES = ToolArgumentBounds.CALENDAR_MAX_DURATION_MINUTES
     const val DEFAULT_DURATION_MINUTES = 60
 
     const val MAX_QUERY_CHARS = 64
@@ -566,34 +572,7 @@ class CalendarSearchTool internal constructor(
         this(ResolverCalendarProvider(resolver), zone, grant)
 
     override val definition: ToolDefinition = ToolMeta.CALENDAR_SEARCH.define(
-        schema = buildJsonObject {
-            put("type", "object")
-            put("properties", buildJsonObject {
-                put("from", buildJsonObject {
-                    put("type", "string")
-                    put(
-                        "description",
-                        "Start of the window: 2026-09-25, 2026-09-25T09:00:00, " +
-                            "2026-09-25T09:00:00+02:00, epoch millis, or today/tomorrow/yesterday.",
-                    )
-                })
-                put("to", buildJsonObject {
-                    put("type", "string")
-                    put("description", "End of the window, same formats as 'from'.")
-                })
-                put("query", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Optional text matched against event title and location.")
-                })
-                put("limit", buildJsonObject {
-                    put("type", "integer")
-                    put("minimum", 1)
-                    put("maximum", CalendarArgs.MAX_LIMIT)
-                    put("default", CalendarArgs.DEFAULT_LIMIT)
-                })
-            })
-            put("required", buildJsonArray { add("from"); add("to") })
-        },
+        schema = ToolSchemas.calendarSearch,
         risk = ToolRisk.READ_ONLY,
         requiredPermission = "android.permission.READ_CALENDAR",
     )
@@ -759,36 +738,7 @@ class CalendarCreateTool internal constructor(
         this(ResolverCalendarProvider(resolver), zone, grant)
 
     override val definition: ToolDefinition = ToolMeta.CALENDAR_CREATE.define(
-        schema = buildJsonObject {
-            put("type", "object")
-            put("properties", buildJsonObject {
-                put("title", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Event title, 1-200 characters.")
-                })
-                put("start", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Start as 2026-09-25T09:00:00 or 2026-09-25T09:00:00+02:00.")
-                })
-                put("durationMinutes", buildJsonObject {
-                    put("type", "integer")
-                    put("minimum", CalendarArgs.MIN_DURATION_MINUTES)
-                    put("maximum", CalendarArgs.MAX_DURATION_MINUTES)
-                    put("description", "Length in minutes (default 60, maximum 1440).")
-                })
-                put("end", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Alternative to durationMinutes: the end time. Ignored if durationMinutes is given.")
-                })
-                put("location", buildJsonObject { put("type", "string") })
-                put("description", buildJsonObject { put("type", "string") })
-                put("allDay", buildJsonObject {
-                    put("type", "boolean")
-                    put("description", "True for a whole-day event; start is taken as the day it starts.")
-                })
-            })
-            put("required", buildJsonArray { add("title"); add("start") })
-        },
+        schema = ToolSchemas.calendarCreate,
         risk = ToolRisk.REVERSIBLE,
         requiredPermission = "android.permission.WRITE_CALENDAR",
     )

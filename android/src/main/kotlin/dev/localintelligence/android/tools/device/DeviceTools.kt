@@ -18,6 +18,9 @@ import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.catalogue.ToolMeta
+import dev.localintelligence.core.tool.catalogue.SettingsScreen
+import dev.localintelligence.core.tool.catalogue.ToolArgumentBounds
+import dev.localintelligence.core.tool.catalogue.ToolSchemas
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
@@ -523,9 +526,13 @@ sealed class VibrationPlan {
 }
 
 object VibrationLogic {
-    const val MIN_DURATION_MS = 10
-    const val MAX_DURATION_MS = 5_000
-    const val DEFAULT_DURATION_MS = 300
+    // Aliased from :core's ToolArgumentBounds: these numbers appear in this
+    // tool's JSON Schema, which :core owns, and in its `execute()`, below.
+    // Aliasing rather than repeating is what stops the advertised bound and
+    // the enforced bound from drifting apart.
+    const val MIN_DURATION_MS = ToolArgumentBounds.VIBRATE_MIN_DURATION_MS
+    const val MAX_DURATION_MS = ToolArgumentBounds.VIBRATE_MAX_DURATION_MS
+    const val DEFAULT_DURATION_MS = ToolArgumentBounds.VIBRATE_DEFAULT_DURATION_MS
 
     /** Clamps a model-supplied duration into the range the API is safe with. */
     fun coerceDurationMs(raw: Int?): Int = when {
@@ -554,25 +561,11 @@ object VibrationLogic {
 // Settings screens
 // =====================================================================================
 
-/**
- * The settings sub-screens the agent may open.
- *
- * The Intent action is deliberately NOT stored here: it is supplied by the Android
- * layer from the real `Settings.ACTION_*` constant, so this enum stays pure and the
- * one-per-screen mapping lives next to the platform call that uses it.
- */
-enum class SettingsScreen(val argName: String, val displayName: String) {
-    WIFI("wifi", "Wi-Fi"),
-    BLUETOOTH("bluetooth", "Bluetooth"),
-    DISPLAY("display", "Display"),
-    SOUND("sound", "Sound & vibration"),
-    BATTERY_SAVER("battery_saver", "Battery saver"),
-    ;
-
-    companion object {
-        val ARG_NAMES: List<String> get() = entries.map { it.argName }
-    }
-}
+// `SettingsScreen` itself now lives in :core, next to the `device.open_settings`
+// schema that publishes its argument names. It is a pure enum of names, and the
+// schema could not be correct without it: while the enum sat here and the schema
+// sat in the catalogue, the two sides each published a different list of screens
+// and eleven of the catalogue's sixteen names resolved to nothing.
 
 object SettingsScreenResolver {
     /**
@@ -652,46 +645,10 @@ interface DevicePlatform {
 // =====================================================================================
 // Tools
 // =====================================================================================
-
-private val BATTERY_SCHEMA: ToolArgs = buildJsonObject {
-    put("type", "object")
-    put("description", "No arguments.")
-    putJsonObject("properties") { }
-    putJsonArray("required") { }
-}
-
-private val VIBRATE_SCHEMA: ToolArgs = buildJsonObject {
-    put("type", "object")
-    putJsonObject("properties") {
-        putJsonObject("duration_ms") {
-            put("type", "integer")
-            put("minimum", VibrationLogic.MIN_DURATION_MS)
-            put("maximum", VibrationLogic.MAX_DURATION_MS)
-            put(
-                "description",
-                "How long to buzz in milliseconds. Defaults to ${VibrationLogic.DEFAULT_DURATION_MS}.",
-            )
-        }
-    }
-    putJsonArray("required") { }
-}
-
-private val OPEN_SETTINGS_SCHEMA: ToolArgs = buildJsonObject {
-    put("type", "object")
-    putJsonObject("properties") {
-        putJsonObject("screen") {
-            put("type", "string")
-            putJsonArray("enum") { SettingsScreen.ARG_NAMES.forEach { add(it) } }
-            put("description", "Which settings screen to open. One of: ${SettingsScreen.ARG_NAMES.joinToString(", ")}.")
-        }
-    }
-    putJsonArray("required") { add("screen") }
-}
-
 class DeviceBatteryTool(private val platform: DevicePlatform) : AgentTool {
 
     override val definition = ToolMeta.DEVICE_BATTERY.define(
-        schema = BATTERY_SCHEMA,
+        schema = ToolSchemas.deviceBattery,
         risk = ToolRisk.READ_ONLY,
         requiredPermission = null,
     )
@@ -735,7 +692,7 @@ class DeviceBatteryTool(private val platform: DevicePlatform) : AgentTool {
 class DeviceInfoTool(private val platform: DevicePlatform) : AgentTool {
 
     override val definition = ToolMeta.DEVICE_INFO.define(
-        schema = BATTERY_SCHEMA,
+        schema = ToolSchemas.deviceInfo,
         risk = ToolRisk.READ_ONLY,
         requiredPermission = null,
     )
@@ -768,7 +725,7 @@ class DeviceVibrateTool(
 ) : AgentTool {
 
     override val definition = ToolMeta.DEVICE_VIBRATE.define(
-        schema = VIBRATE_SCHEMA,
+        schema = ToolSchemas.deviceVibrate,
         risk = ToolRisk.REVERSIBLE,
         requiredPermission = "android.permission.VIBRATE",
     )
@@ -858,7 +815,7 @@ class DeviceVibrateTool(
 class DeviceOpenSettingsTool(private val platform: DevicePlatform) : AgentTool {
 
     override val definition = ToolMeta.DEVICE_OPEN_SETTINGS.define(
-        schema = OPEN_SETTINGS_SCHEMA,
+        schema = ToolSchemas.deviceOpenSettings,
         risk = ToolRisk.REVERSIBLE,
         // No permission: this launches an ordinary settings activity. It is classified
         // REVERSIBLE rather than READ_ONLY because it takes the user out of the app and

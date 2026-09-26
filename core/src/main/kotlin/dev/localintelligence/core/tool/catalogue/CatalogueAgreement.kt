@@ -58,6 +58,20 @@ import dev.localintelligence.core.tool.ToolDefinition
  *    are a shorter restatement kept as documentation. Unifying them is a real
  *    migration with real breakage risk, and it is tracked as follow-up rather
  *    than smuggled in here.
+ *  - **Schema**, by reference equality. Both sides now read the same
+ *    [ToolSchemas] val, so this check cannot fail for a tool written correctly.
+ *    It exists to catch the one that was not: a tool that builds its own schema
+ *    literal instead of referencing the shared declaration, which is exactly
+ *    the drift that used to go unnoticed. See [CatalogueDrift.schemaMismatch].
+ *
+ * ## What is still NOT checked, and why that is a decision
+ *
+ * Description and tags are not compared at all, because they are separately
+ * written strings on each side. Unlike the schema, no code path depends on
+ * them agreeing, so unifying them means choosing which wording reaches the
+ * model — a prompt-quality change with a measurement attached, not a
+ * correctness fix. The schema was different in kind: it decides which argument
+ * NAMES a call may use, and both sides had one.
  */
 data class CatalogueDrift(
     /** Shipped tools with no catalogue entry. */
@@ -74,6 +88,16 @@ data class CatalogueDrift(
     val descriptionMismatch: List<String>,
     /** `"name: only in catalogue=[...] only in tool=[...]"` per mismatch. */
     val tagMismatch: List<String>,
+    /**
+     * Shipped tools whose schema is not the shared [ToolSchemas] declaration.
+     *
+     * Compared by IDENTITY, not by content. Content equality would let a tool
+     * carry a hand-copied literal that happens to match today, which is the
+     * failure this is meant to catch: the copy that rots the moment either side
+     * is edited. Identity means the only way to pass is to reference the same
+     * object, so a schema cannot be forked without the build noticing.
+     */
+    val schemaMismatch: List<String>,
 ) {
     /**
      * True when both sides say the same thing about the same set of tools.
@@ -87,9 +111,13 @@ data class CatalogueDrift(
      */
     val isEmpty: Boolean
         get() = unlisted.isEmpty() && unimplemented.isEmpty() &&
-            riskTierMismatch.isEmpty() && observationOriginMismatch.isEmpty() &&
+            riskTierMismatch.isEmpty() &&
+            observationOriginMismatch.isEmpty() &&
             categoryMismatch.isEmpty() &&
-            descriptionMismatch.isEmpty() && tagMismatch.isEmpty()
+            descriptionMismatch.isEmpty() &&
+            tagMismatch.isEmpty() &&
+            schemaMismatch.isEmpty()
+
     /**
      * One sentence per class of drift, in the order a reader should act on them.
      *
@@ -146,6 +174,14 @@ data class CatalogueDrift(
                     "ToolMeta.<TOOL>.define(...) instead of restating tags.",
             )
         }
+        if (schemaMismatch.isNotEmpty()) {
+            add(
+                "schema drift ($schemaMismatch): the tool does not use the shared ToolSchemas " +
+                    "declaration. That is how the catalogue and the tool ended up disagreeing " +
+                    "about argument names and bounds on all 25 tools while nothing failed. " +
+                    "Reference ToolSchemas.<tool> from both sides instead of writing a literal.",
+            )
+        }
     }.joinToString(separator = " ")
 }
 
@@ -174,6 +210,7 @@ object CatalogueAgreement {
         val categoryMismatch = mutableListOf<String>()
         val descriptionMismatch = mutableListOf<String>()
         val tagMismatch = mutableListOf<String>()
+        val schemaMismatch = mutableListOf<String>()
         for ((name, tool) in shippedByName) {
             val def = tool.definition
             val catalogued = catalogueByName[name] ?: continue
@@ -201,6 +238,13 @@ object CatalogueAgreement {
                     quoteTags(catalogued.tags - def.tags)
                 } only in tool=${quoteTags(def.tags - catalogued.tags)}"
             }
+            // Identity, deliberately — see [CatalogueDrift.schemaMismatch]. The
+            // two declarations are the same `ToolSchemas` val, so this is true
+            // for every correctly written tool, and false for exactly one kind
+            // of mistake: a tool carrying its own schema literal.
+            if (catalogued.schema !== def.schema) {
+                schemaMismatch += "$name: schema is not the shared ToolSchemas declaration"
+            }
         }
         return CatalogueDrift(
             unlisted = unlisted,
@@ -210,6 +254,7 @@ object CatalogueAgreement {
             categoryMismatch = categoryMismatch.sorted(),
             descriptionMismatch = descriptionMismatch.sorted(),
             tagMismatch = tagMismatch.sorted(),
+            schemaMismatch = schemaMismatch.sorted(),
         )
     }
 

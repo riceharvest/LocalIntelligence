@@ -22,6 +22,8 @@ import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.catalogue.ToolMeta
+import dev.localintelligence.core.tool.catalogue.ToolArgumentBounds
+import dev.localintelligence.core.tool.catalogue.ToolSchemas
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
@@ -54,7 +56,11 @@ import kotlinx.serialization.json.buildJsonObject
 // ===========================================================================
 
 /** Cap on how many notifications one observation will describe. */
-internal const val DEFAULT_LIST_LIMIT: Int = 10
+// Aliased from :core's ToolArgumentBounds: these numbers appear in this
+// tool's JSON Schema, which :core owns, and in its `execute()`, below.
+// Aliasing rather than repeating is what stops the advertised bound and
+// the enforced bound from drifting apart.
+internal const val DEFAULT_LIST_LIMIT: Int = ToolArgumentBounds.NOTIFICATIONS_DEFAULT_LIST_LIMIT
 internal const val MAX_LIST_LIMIT: Int = 30
 
 /** The settings screen the user has to open, named exactly. */
@@ -597,45 +603,7 @@ class NotificationListTool(
 ) : AgentTool {
 
     override val definition: ToolDefinition = ToolMeta.NOTIFICATIONS_LIST.define(
-        schema = buildJsonObject {
-            put("type", JsonPrimitive("object"))
-            put(
-                "properties",
-                buildJsonObject {
-                    put(
-                        "limit",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("integer"))
-                            put(
-                                "description",
-                                JsonPrimitive("How many to return, $DEFAULT_LIST_LIMIT by default."),
-                            )
-                        },
-                    )
-                    put(
-                        "query",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put(
-                                "description",
-                                JsonPrimitive("Optional text to match against app name, title or body."),
-                            )
-                        },
-                    )
-                    put(
-                        "onlyReplyable",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("boolean"))
-                            put(
-                                "description",
-                                JsonPrimitive("Only notifications that accept a quick reply."),
-                            )
-                        },
-                    )
-                },
-            )
-            put("required", buildJsonArray { })
-        },
+        schema = ToolSchemas.notificationsList,
         risk = ToolRisk.READ_ONLY,
         requiredPermission = null,
     )
@@ -784,38 +752,7 @@ class NotificationReplyTool(
 ) : AgentTool {
 
     override val definition: ToolDefinition = ToolMeta.NOTIFICATIONS_REPLY.define(
-        schema = buildJsonObject {
-            put("type", JsonPrimitive("object"))
-            put(
-                "properties",
-                buildJsonObject {
-                    put(
-                        "key",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put(
-                                "description",
-                                JsonPrimitive("Notification key from notifications.list, e.g. com.whatsapp#2."),
-                            )
-                        },
-                    )
-                    put(
-                        "text",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("The message body to send."))
-                        },
-                    )
-                },
-            )
-            put(
-                "required",
-                buildJsonArray {
-                    add(JsonPrimitive("key"))
-                    add(JsonPrimitive("text"))
-                },
-            )
-        },
+        schema = ToolSchemas.notificationsReply,
         risk = ToolRisk.EXTERNAL_COMMUNICATION,
         requiredPermission = null,
     )
@@ -984,25 +921,7 @@ class NotificationDismissTool(
 ) : AgentTool {
 
     override val definition: ToolDefinition = ToolMeta.NOTIFICATIONS_DISMISS.define(
-        schema = buildJsonObject {
-            put("type", JsonPrimitive("object"))
-            put(
-                "properties",
-                buildJsonObject {
-                    put(
-                        "key",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put(
-                                "description",
-                                JsonPrimitive("Notification key from notifications.list."),
-                            )
-                        },
-                    )
-                },
-            )
-            put("required", buildJsonArray { add(JsonPrimitive("key")) })
-        },
+        schema = ToolSchemas.notificationsDismiss,
         risk = ToolRisk.REVERSIBLE,
         requiredPermission = null,
     )

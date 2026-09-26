@@ -1,7 +1,7 @@
 package dev.localintelligence.android.tools.contacts
 
-import android.content.Context
 import android.content.ContentResolver
+import android.content.Context
 import android.database.Cursor
 import android.provider.ContactsContract
 import dev.localintelligence.core.model.ToolArgs
@@ -13,6 +13,8 @@ import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.catalogue.ToolMeta
+import dev.localintelligence.core.tool.catalogue.ToolArgumentBounds
+import dev.localintelligence.core.tool.catalogue.ToolSchemas
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
@@ -66,8 +68,12 @@ internal sealed interface ParsedContactId {
 
 internal object ContactsArgs {
 
-    const val DEFAULT_LIMIT = 10
-    const val MAX_LIMIT = 25
+    // Aliased from :core's ToolArgumentBounds: these numbers appear in this
+    // tool's JSON Schema, which :core owns, and in its `execute()`, below.
+    // Aliasing rather than repeating is what stops the advertised bound and
+    // the enforced bound from drifting apart.
+    const val DEFAULT_LIMIT = ToolArgumentBounds.CONTACTS_DEFAULT_LIMIT
+    const val MAX_LIMIT = ToolArgumentBounds.CONTACTS_MAX_LIMIT
 
     const val MAX_QUERY_CHARS = 64
 
@@ -377,22 +383,7 @@ class ContactsSearchTool internal constructor(
             this(ResolverContactsProvider(resolver), grant)
 
     override val definition: ToolDefinition = ToolMeta.CONTACTS_SEARCH.define(
-        schema = buildJsonObject {
-            put("type", "object")
-            put("properties", buildJsonObject {
-                put("query", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Name fragment or phone number to look for.")
-                })
-                put("limit", buildJsonObject {
-                    put("type", "integer")
-                    put("minimum", 1)
-                    put("maximum", ContactsArgs.MAX_LIMIT)
-                    put("default", ContactsArgs.DEFAULT_LIMIT)
-                })
-            })
-            put("required", buildJsonArray { add("query") })
-        },
+        schema = ToolSchemas.contactsSearch,
         risk = ToolRisk.READ_ONLY,
         requiredPermission = "android.permission.READ_CONTACTS",
     )
@@ -517,16 +508,7 @@ class ContactsGetTool internal constructor(
             this(ResolverContactsProvider(resolver), grant)
 
     override val definition: ToolDefinition = ToolMeta.CONTACTS_GET.define(
-        schema = buildJsonObject {
-            put("type", "object")
-            put("properties", buildJsonObject {
-                put("id", buildJsonObject {
-                    put("type", "integer")
-                    put("description", "Contact id from contacts.search, for example 42.")
-                })
-            })
-            put("required", buildJsonArray { add("id") })
-        },
+        schema = ToolSchemas.contactsGet,
         risk = ToolRisk.READ_ONLY,
         requiredPermission = "android.permission.READ_CONTACTS",
     )

@@ -14,6 +14,8 @@ import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.catalogue.ToolMeta
+import dev.localintelligence.core.tool.catalogue.ToolArgumentBounds
+import dev.localintelligence.core.tool.catalogue.ToolSchemas
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.ToolPermissions
 import kotlinx.serialization.json.add
@@ -69,7 +71,11 @@ object ClipboardText {
      * every other app pay for it. Rejecting is better than silently truncating, because
      * a truncated clipboard is a clipboard holding the wrong content.
      */
-    const val MAX_WRITE_CHARS = 100_000
+    // Aliased from :core's ToolArgumentBounds: these numbers appear in this
+    // tool's JSON Schema, which :core owns, and in its `execute()`, below.
+    // Aliasing rather than repeating is what stops the advertised bound and
+    // the enforced bound from drifting apart.
+    const val MAX_WRITE_CHARS = ToolArgumentBounds.CLIPBOARD_MAX_WRITE_CHARS
 
     /** How much of a read clip is shown to the model. The rest is summarised by count. */
     const val MAX_PREVIEW_CHARS = 1_200
@@ -206,44 +212,14 @@ object ClipboardText {
 
 // =====================================================================================
 // Schemas
-// =====================================================================================
-
-private val WRITE_SCHEMA: ToolArgs = buildJsonObject {
-    put("type", "object")
-    putJsonObject("properties") {
-        putJsonObject("text") {
-            put("type", "string")
-            put("description", "The plain text to place on the clipboard.")
-            put("maxLength", ClipboardText.MAX_WRITE_CHARS)
-        }
-        putJsonObject("label") {
-            put("type", "string")
-            put("description", "A short name for the clip, shown in the system clipboard UI.")
-        }
-    }
-    putJsonArray("required") { add("text") }
-}
-
-private val READ_SCHEMA: ToolArgs = buildJsonObject {
-    put("type", "object")
-    putJsonObject("properties") {
-        putJsonObject("format") {
-            put("type", "string")
-            putJsonArray("enum") { add("text") }
-            put("description", "Only \"text\" is supported. Defaults to text.")
-        }
-    }
-    putJsonArray("required") { }
-}
-
-// =====================================================================================
+// =====================================================================================// =====================================================================================
 // Tools
 // =====================================================================================
 
 class ClipboardWriteTool(private val platform: ClipboardPlatform) : AgentTool {
 
     override val definition = ToolMeta.CLIPBOARD_WRITE.define(
-        schema = WRITE_SCHEMA,
+        schema = ToolSchemas.clipboardWrite,
         risk = ToolRisk.REVERSIBLE,
         // No runtime permission exists for writing the clipboard. The `label` is a hint
         // the system shows and is not content; requiredPermission is documentation only,
@@ -330,7 +306,7 @@ class ClipboardWriteTool(private val platform: ClipboardPlatform) : AgentTool {
 class ClipboardReadTool(private val platform: ClipboardPlatform) : AgentTool {
 
     override val definition = ToolMeta.CLIPBOARD_READ.define(
-        schema = READ_SCHEMA,
+        schema = ToolSchemas.clipboardRead,
         risk = ToolRisk.READ_ONLY,
         requiredPermission = null,
     )
