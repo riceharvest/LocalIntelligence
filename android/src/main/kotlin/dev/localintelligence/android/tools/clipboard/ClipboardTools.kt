@@ -6,15 +6,14 @@ import android.content.Context
 import dev.localintelligence.android.tools.device.ArgCoerce
 import dev.localintelligence.android.tools.device.ArgResult
 import dev.localintelligence.android.tools.device.guarded
-import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
-import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolMeta
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.ToolPermissions
 import kotlinx.serialization.json.add
@@ -243,17 +242,9 @@ private val READ_SCHEMA: ToolArgs = buildJsonObject {
 
 class ClipboardWriteTool(private val platform: ClipboardPlatform) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "clipboard.write",
-        description = "Copy plain text to the device clipboard and return how many characters " +
-            "were copied.",
-        category = "clipboard",
+    override val definition = ToolMeta.CLIPBOARD_WRITE.define(
         schema = WRITE_SCHEMA,
         risk = ToolRisk.REVERSIBLE,
-        tags = setOf(
-            "clipboard", "copy", "copy to clipboard", "put on clipboard", "cut",
-            "copy text", "share text", "paste",
-        ),
         // No runtime permission exists for writing the clipboard. The `label` is a hint
         // the system shows and is not content; requiredPermission is documentation only,
         // so it is null rather than a permission string that does not exist.
@@ -338,19 +329,9 @@ class ClipboardWriteTool(private val platform: ClipboardPlatform) : AgentTool {
 
 class ClipboardReadTool(private val platform: ClipboardPlatform) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "clipboard.read",
-        description = "Read the plain text currently on the device clipboard and return it.",
-        category = "clipboard",
+    override val definition = ToolMeta.CLIPBOARD_READ.define(
         schema = READ_SCHEMA,
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        // Lowercase, per tool-contract.md, and deduplicated: "read clipboard" appeared
-        // twice, which made the set smaller than it looked.
-        tags = setOf(
-            "clipboard", "read clipboard", "what did i copy", "paste",
-            "copied text", "clipboard contents", "what is on my clipboard",
-        ),
         requiredPermission = null,
     )
 

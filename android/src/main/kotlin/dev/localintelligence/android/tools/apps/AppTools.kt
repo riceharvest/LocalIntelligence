@@ -9,15 +9,14 @@ import android.content.pm.ResolveInfo
 import android.net.Uri
 import dev.localintelligence.android.tools.files.OBSERVATION_BUDGET
 import dev.localintelligence.android.tools.files.ToolSafety
-import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
-import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolMeta
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
@@ -452,10 +451,7 @@ private fun fail(observation: String, error: ToolError) =
 /** List launchable apps. */
 class AppsListTool(private val appContext: Context) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "apps.list",
-        description = "List launchable apps on this device with their labels and package names, optionally filtered by a query.",
-        category = "apps",
+    override val definition = ToolMeta.APPS_LIST.define(
         schema = buildJsonObject {
             put("type", "object")
             put(
@@ -478,8 +474,6 @@ class AppsListTool(private val appContext: Context) : AgentTool {
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("apps", "applications", "installed", "launcher", "home screen", "what apps do i have", "packages"),
         // No permission, and the field now says so. It used to hold the
         // sentence "QUERY_ALL_PACKAGES is NOT used; package visibility rules
         // apply on API 30+", which is documentation masquerading as a permission
@@ -517,10 +511,7 @@ class AppsListTool(private val appContext: Context) : AgentTool {
 /** Launch an app by package or by label. */
 class AppsOpenTool(private val appContext: Context) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "apps.open",
-        description = "Open an app by its exact package name, or by a label that matches exactly one installed app.",
-        category = "apps",
+    override val definition = ToolMeta.APPS_OPEN.define(
         schema = buildJsonObject {
             put("type", "object")
             put(
@@ -546,7 +537,6 @@ class AppsOpenTool(private val appContext: Context) : AgentTool {
             put("additionalProperties", false)
         },
         risk = ToolRisk.REVERSIBLE,
-        tags = setOf("open", "launch", "start", "run", "switch to", "go to app", "show me the app"),
         requiredPermission = null,
     )
 
@@ -629,10 +619,7 @@ class AppsOpenTool(private val appContext: Context) : AgentTool {
 /** Share a document or a piece of text. */
 class AppsShareTool(private val appContext: Context) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "apps.share",
-        description = "Share a content:// document or a text snippet through the Android share sheet, with the user's confirmation.",
-        category = "apps",
+    override val definition = ToolMeta.APPS_SHARE.define(
         schema = buildJsonObject {
             put("type", "object")
             put(
@@ -666,7 +653,6 @@ class AppsShareTool(private val appContext: Context) : AgentTool {
             put("additionalProperties", false)
         },
         risk = ToolRisk.EXTERNAL_COMMUNICATION,
-        tags = setOf("share", "send", "attach", "share file", "share text", "pass to another app", "forward"),
         requiredPermission = null,
     )
 

@@ -16,15 +16,14 @@ import androidx.core.app.NotificationCompat
 import dev.localintelligence.android.tools.device.ArgCoerce
 import dev.localintelligence.android.tools.device.ArgResult
 import dev.localintelligence.android.tools.device.guarded
-import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
-import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolMeta
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import kotlinx.serialization.json.add
@@ -688,17 +687,9 @@ class AlarmCreateTool(
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "alarm.create",
-        description = "Set a one-time alarm on the phone and return the time and the id it was " +
-            "given.",
-        category = "alarm",
+    override val definition = ToolMeta.ALARM_CREATE.define(
         schema = CREATE_SCHEMA,
         risk = ToolRisk.REVERSIBLE,
-        tags = setOf(
-            "alarm", "set an alarm", "wake me up", "remind me at", "timer", "ring at",
-            "wake up call", "set a reminder",
-        ),
         // SCHEDULE_EXACT_ALARM is needed on Android 12+ for setExactAndAllowWhileIdle.
         requiredPermission = "android.permission.SCHEDULE_EXACT_ALARM",
     )
@@ -849,18 +840,9 @@ class AlarmCreateTool(
 
 class AlarmListTool(private val platform: AlarmPlatform) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "alarm.list",
-        description = "List the alarms this assistant has set, and state that alarms from the " +
-            "system Clock app are not visible.",
-        category = "alarm",
+    override val definition = ToolMeta.ALARM_LIST.define(
         schema = LIST_SCHEMA,
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf(
-            "my alarms", "list alarms", "what alarms do i have", "upcoming alarms",
-            "alarm list", "what did i set", "do i have an alarm",
-        ),
         requiredPermission = null,
     )
 
@@ -904,11 +886,7 @@ class AlarmListTool(private val platform: AlarmPlatform) : AgentTool {
 
 class AlarmCancelTool(private val platform: AlarmPlatform) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "alarm.cancel",
-        description = "Cancel exactly one previously set alarm, identified by its id or by its " +
-            "hour, minute and label.",
-        category = "alarm",
+    override val definition = ToolMeta.ALARM_CANCEL.define(
         schema = CANCEL_SCHEMA,
         // REVERSIBLE, not DESTRUCTIVE: the runtime derives confirmation from the risk
         // field, and a user who has to confirm every single-alarm cancel will stop using
@@ -916,10 +894,6 @@ class AlarmCancelTool(private val platform: AlarmPlatform) : AgentTool {
         // ambiguity guard — it can only ever cancel one alarm, and only one the tool
         // itself created, and it refuses rather than guessing.
         risk = ToolRisk.REVERSIBLE,
-        tags = setOf(
-            "cancel alarm", "delete alarm", "remove alarm", "turn off alarm",
-            "cancel my alarm", "remove the wake up", "stop the alarm",
-        ),
         requiredPermission = "android.permission.SCHEDULE_EXACT_ALARM",
     )
 
