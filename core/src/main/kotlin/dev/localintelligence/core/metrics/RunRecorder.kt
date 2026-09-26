@@ -109,25 +109,38 @@ class RunRecorder(
     fun attemptedCalls(): List<ToolCallKey> = attempted.toList()
 
     /**
-     * Freezes the run. Callable once; the result is a plain immutable value and
-     * the recorder holds no reference back into it.
+     * Freezes the run, and files the result where the self-check screen can
+     * read it. Callable once; the result is a plain immutable value and the
+     * recorder holds no reference back into it.
+     *
+     * WHY the journal write lives here and not at the call site: `finish` is
+     * the only moment a run's numbers stop changing, so it is the only place a
+     * reader can be handed a complete record. A caller that remembered to file
+     * it would be a caller that could also forget, and the symptom of the
+     * forgetting is a screen that says "no run recorded" about a run that
+     * plainly happened — the exact class of invisible bug this project keeps
+     * paying for.
      */
-    fun finish(success: Boolean): RunMetrics = RunMetrics(
-        runId = runId,
-        taskId = taskId,
-        modelId = modelId,
-        success = success,
-        steps = step,
-        toolCalls = toolCalls,
-        invalidToolCalls = invalidToolCalls,
-        duplicateCalls = attempted.size - attempted.distinct().size,
-        inputTokens = inputTokens,
-        outputTokens = outputTokens,
-        prefillMs = prefillMs,
-        decodeMs = decodeMs,
-        totalMs = runWatch.elapsedMs(),
-        stepTimings = stepTimings.toList(),
-    )
+    fun finish(success: Boolean): RunMetrics {
+        val metrics = RunMetrics(
+            runId = runId,
+            taskId = taskId,
+            modelId = modelId,
+            success = success,
+            steps = step,
+            toolCalls = toolCalls,
+            invalidToolCalls = invalidToolCalls,
+            duplicateCalls = attempted.size - attempted.distinct().size,
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+            prefillMs = prefillMs,
+            decodeMs = decodeMs,
+            totalMs = runWatch.elapsedMs(),
+            stepTimings = stepTimings.toList(),
+        )
+        RunMetricsJournal.record(metrics)
+        return metrics
+    }
 
     private companion object {
         const val NANOS_PER_MS = 1_000_000L
