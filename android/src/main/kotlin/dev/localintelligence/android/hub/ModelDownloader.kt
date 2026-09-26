@@ -432,12 +432,30 @@ class ModelDownloader(
         /**
          * The context length used for the on-disk re-check.
          *
-         * WHY it matches the default rather than the user's setting: the disk
-         * re-check exists to catch a full volume, and RAM does not change
-         * between the pre-flight and the transfer. Re-asking for a context
-         * length would mean the download function has a parameter the UI has to
-         * keep in sync with the plan it already passed in.
+         * WHY IT IS 4096 AND NOT 2048: this value prices the KV cache, and the
+         * KV term is exactly linear in context. The app allocates the cache at
+         * [dev.localintelligence.android.inference.ModelImporter.DEFAULT_CONTEXT_LENGTH]
+         * (4096), the load gate in `AppContainer.loadModel` uses 4096, and
+         * `LlamaCppBackend` creates the cache at 4096. This constant was 2048,
+         * so the re-check priced **half the cache that will actually be
+         * allocated** — not an estimate disagreeing with reality, the model
+         * pricing half a real allocation.
+         *
+         * `docs/memory-model.md` §5.3 measured the size of that error over the
+         * nine measured architectures: worst case **-19.8%**
+         * (Phi-3-mini-4k-instruct), eight of nine under-statements. That is
+         * larger than the 15% `FitGate.DECISION_FACTOR` provides, and
+         * under-statement is the direction that gets a phone OOM-killed after
+         * the user has spent the download. It was named there as "the one
+         * remaining instance" of a defect already fixed everywhere else.
+         *
+         * WHY IT MATCHES THE DEFAULT RATHER THAN THE USER'S SETTING: there is
+         * no context control in this app, so there is no user setting to match.
+         * The disk re-check exists to catch a full volume, and RAM does not
+         * change between the pre-flight and the transfer; the re-check exists
+         * to re-derive the same allocation the pre-flight priced, not to ask a
+         * new question about a lever nobody can move.
          */
-        const val PreDownloadContextLength = 2_048
+        const val PreDownloadContextLength = 4_096
     }
 }

@@ -400,19 +400,47 @@ object RamGateCrossCheck {
                     "weights from $basisText",
                 ),
             )
+            // WHY THESE TWO ARE `computed` AND NOT `measured`:
+            //
+            // Neither function reads a figure off the device. Both take a
+            // platform reading (ActivityManager.totalMem, /proc/meminfo
+            // MemTotal) and multiply it by 0.55, and `RamEstimate` then caps
+            // the result at 6x the JVM heap ceiling. A number produced by
+            // arithmetic is not a measurement, and the chip on this screen is
+            // the user's only cue about which numbers can be trusted. These
+            // were `measured`, which put a derived budget in exactly the
+            // styling a real platform reading gets.
+            //
+            // WHY THE GATE'S FIGURE NAMES ITS FALLBACK: when every route to
+            // the real number failed, `AndroidDeviceBudget` returns a hardcoded
+            // 4 GiB, and the derivation used to claim 55% of totalMem on this
+            // device regardless. That is a hardcoded constant described as a
+            // platform reading. `totalRamBytes() <= 0` is exactly the condition
+            // the fallback fires on, so the derivation can state the truth in
+            // either case instead of always asserting the flattering one.
             add(
-                Finding.measured(
+                Finding.computed(
                     "Available to the gate",
                     MemoryEstimate.formatBytes(gate.availableBytes),
-                    "AndroidDeviceBudget: 55% of ActivityManager.totalMem on this device",
+                    if (budget.totalRamBytes() > 0L) {
+                        "AndroidDeviceBudget: 55% of ActivityManager.totalMem " +
+                            "read on this device — a fraction of a platform " +
+                            "reading, not a measurement of free memory"
+                    } else {
+                        "HARDCODED FALLBACK: AndroidDeviceBudget could not read " +
+                            "this device's RAM at all, so it used its built-in " +
+                            "4 GiB constant. This number is a guess, not a fact " +
+                            "about this phone."
+                    },
                 ),
             )
             add(
-                Finding.measured(
+                Finding.computed(
                     "Available to the loader",
                     MemoryEstimate.formatBytes(loaderAvailableBytes),
-                    "RamEstimate.usableDeviceBytes(): 55% of /proc/meminfo MemTotal, " +
-                        "capped at 6x the JVM heap ceiling",
+                    "RamEstimate.usableDeviceBytes(): 55% of /proc/meminfo " +
+                        "MemTotal, capped at 6x the JVM heap ceiling — a " +
+                        "derived budget, not a measurement of free memory",
                 ),
             )
             if (disagreement != null) {
@@ -480,10 +508,15 @@ object RamGateCrossCheck {
  * ## Why the performance figures are UNKNOWN and not zero
  *
  * This project contains no measured RAM, latency or token-rate figure for a
- * phone. The only decode number that exists anywhere in it is ~0.66 tok/s, and
- * that was taken on an **x86_64 Android emulator** whose CPU is emulated. It is
- * not a phone number and presenting it as one would be the single worst thing
- * this screen could do.
+ * phone. The decode numbers that exist in it (~0.67 tok/s on an **x86_64
+ * Android emulator** with an emulated CPU, 37.4 tok/s on a desktop CPU-only
+ * llama.cpp control run) are both about hardware that is not a phone, and
+ * presenting either as a phone number would be the single worst thing this
+ * screen could do. This text used to assert that the emulator figure was "the
+ * only decode number anywhere in this repository", which stopped being true
+ * the moment the desktop control run was recorded in `docs/measurements.md` —
+ * an absolute claim about the repository, made from inside the repository, is
+ * the same staleness problem as a remembered value, just spelled differently.
  *
  * So a diagnostics screen that renders performance figures has exactly two
  * honest options: show nothing, or show the absence. This shows the absence, at
@@ -510,9 +543,11 @@ object RunPerformanceCheck {
             "rate, a first-token latency, or a `dumpsys meminfo` resident cost taken on " +
             "physical hardware.",
         finding = "There are none. Zero measured performance figures exist for a real " +
-            "device. The only decode number anywhere in this repository is about 0.66 " +
-            "tok/s, and it was measured on an x86_64 Android emulator with an emulated " +
-            "CPU. It is not a phone number and it is not shown as one.",
+            "device. The two decode numbers in this project are both about " +
+            "hardware that is not a phone: about 0.67 tok/s from an x86_64 " +
+            "Android emulator with an emulated CPU, and 37.4 tok/s from a desktop " +
+            "CPU-only llama.cpp control run. Neither is a phone number and " +
+            "neither is shown as one.",
         cannotTell = "Everything about this phone's speed. Decode rate, time to first " +
             "token, peak resident memory during a run — all unknown, and no amount of " +
             "reading this app will produce them. What this screen can show you instead " +
@@ -522,9 +557,10 @@ object RunPerformanceCheck {
         findings = listOf(
             Finding.unknown(
                 "Decode throughput",
-                "Never measured on a phone. The ~0.66 tok/s figure in this repository " +
-                    "is an x86_64 emulator artefact and must not be quoted as a device " +
-                    "number.",
+                "Never measured on a phone. The two decode figures in this " +
+                    "project (~0.67 tok/s on an x86_64 emulator, 37.4 tok/s on a " +
+                    "desktop CPU) are both about hardware this is not, and neither " +
+                    "may be quoted as a device number.",
             ),
             Finding.unknown(
                 "Resident cost of a loaded model",

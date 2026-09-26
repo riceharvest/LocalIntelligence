@@ -597,10 +597,39 @@ class AppContainer(private val context: Context) {
         if (!model.fitsOnDevice(ModelImporter.DEFAULT_CONTEXT_LENGTH)) {
             val needed = model.estimate.totalBytes(ModelImporter.DEFAULT_CONTEXT_LENGTH)
             val have = RamEstimate.usableDeviceBytes()
+            // WHY EVERY FIGURE HERE IS LABELLED, AND WHY THE SECOND HALF OF
+            // THIS SENTENCE IS GONE:
+            //
+            // 1. Both numbers are ARITHMETIC, not measurements. `needed` is the
+            //    tensor table plus a documented runtime allowance; `have` is a
+            //    fraction of this phone's physical RAM. Nothing in this app has
+            //    loaded a model on a device, so there is no measured figure to
+            //    compare either one against. `ModelManagerScreen` already says
+            //    so on the record itself ("RAM at load (estimated)", "They are
+            //    not measured on this phone") — this is the same refusal in the
+            //    same visual style one screen over, and it has to carry the same
+            //    qualifier or the app contradicts itself about its own numbers.
+            //
+            // 2. "Pick a smaller quant, or a shorter context" named a control
+            //    that does not exist. There is no context setting anywhere in
+            //    this app: every load uses the fixed
+            //    `ModelImporter.DEFAULT_CONTEXT_LENGTH` below, the backend
+            //    allocates the KV cache at that size, and
+            //    `ModelManagerScreen` was already corrected to stop offering it
+            //    as a lever. `describeLoadFailure` says the same thing
+            //    correctly. A refusal the user cannot act on reads as a bug in
+            //    the app rather than as the one thing it is: too big for this
+            //    phone, and the fix is a smaller model.
             return ModelAvailability.Failed(
-                "This model needs about ${needed / (1024 * 1024)} MiB of RAM and " +
-                    "this device has about ${have / (1024 * 1024)} MiB usable. " +
-                    "Pick a smaller quant, or a shorter context.",
+                "This model is estimated to need about " +
+                    "${needed / (1024 * 1024)} MiB of RAM at load, and this " +
+                    "phone's own budget is about ${have / (1024 * 1024)} MiB, " +
+                    "so the load gate refuses it. Both figures are calculated " +
+                    "from the model file and this device's RAM — neither is " +
+                    "measured, because nothing has loaded a model on a phone " +
+                    "yet. Context length is fixed at " +
+                    "${ModelImporter.DEFAULT_CONTEXT_LENGTH} tokens with no " +
+                    "control for it, so a smaller model is the only lever.",
             ).also { modelAvailability.set(it) }
         }
         // Route per model, not once for the app: a .litertlm needs LiteRT-LM and
