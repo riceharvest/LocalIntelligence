@@ -22,11 +22,15 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URISyntaxException
 import java.net.UnknownHostException
 import java.net.URL
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import javax.net.ssl.SSLException
 
 // ===========================================================================
@@ -50,13 +54,32 @@ import javax.net.ssl.SSLException
 //      so the redirect chain is validated by us rather than silently by the
 //      stack.
 //
-//   3. Bounded in time and in bytes. A phone on mobile data will hang forever
-//      on a black-holed connection, and a 50 MB body must never reach the
-//      heap of a process that already holds a model in native memory.
+//   3. Re-validated on EVERY hop, and resolved before every connection.
+//      [EgressGate] resolves the host and refuses any address that is not
+//      globally routable — once for the model's URL and again for each
+//      redirect target, because a `Location:` header is chosen by the server
+//      and is exactly as untrusted as the model's own string. Without this,
+//      `localtest.me` (a public name resolving to 127.0.0.1) and
+//      `http://[::ffff:127.0.0.1]/` both passed validation and reached the
+//      socket. Both were confirmed ACCEPTED against the shipped class before
+//      this gate existed.
 //
-// The pure functions ([WebUrls], [HtmlText], [BodyReader], [WebFetchContent])
-// hold all of that logic and carry no android.* imports, which is what makes
-// them testable in principle.
+//   4. Bounded in time and in bytes. A phone on mobile data will hang forever
+//      on a black-holed connection, and a 50 MB body must never reach the
+//      heap of a process that already holds a model in native memory. DNS is
+//      bounded too ([EgressGate.RESOLVE_TIMEOUT_MS]), because an unbounded
+//      lookup on a captive-portal network would make the gate that runs most
+//      often the slowest thing in the request.
+//
+// RESIDUAL RISK, IN THE FILE RATHER THAN ONLY IN THE DOCS: the DNS gate is
+// check-then-connect, so a hostile resolver that answers differently to our
+// lookup than to the stack's still wins. Pinning would close it and the
+// platform client cannot be pinned — the reasoning is in [EgressGate]'s KDoc
+// and in docs/threat-model.md (T2). "Narrowed" is the accurate claim.
+//
+// The pure functions ([WebUrls], [EgressAddresses], [HtmlText], [BodyReader],
+// [WebFetchContent]) hold all of the offline logic and carry no android.*
+// imports, which is what makes them testable in principle.
 //
 // THERE IS NO SUCH TEST SUITE. An earlier version of this comment claimed
 // "the rules that matter are the rules the JVM test suite executes". That was
@@ -144,6 +167,277 @@ internal object WebArgs {
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
 }
+
+// ----------------------------------------------------------------------------
+// Address classification — the ONE list of non-global ranges
+// ----------------------------------------------------------------------------
+
+/**
+ * Decides whether an address is globally routable.
+ *
+ * THIS IS THE ONLY SUCH LIST IN THE FILE, and that is the point of it. The
+ * text path ([WebUrls.validate], which resolves nothing) and the resolved path
+ * ([EgressGate], which resolves DNS) both call [nonGlobalKind]. Keeping two
+ * lists is how a checker ends up with a hole: someone adds `100.64/10` to the
+ * DNS-side list and the literal `100.100.100.100` sails through the other one.
+ * A range is added here once or not at all.
+ *
+ * The ranges are the IANA special-purpose registry, plus the IPv6 transition
+ * mechanisms that EMBED an IPv4 address. An embedded `127.0.0.1` is still
+ * loopback however it is spelled, and `::ffff:127.0.0.1` is the spelling an
+ * attacker reaches for first.
+ */
+internal object EgressAddresses {
+
+    /** Why [bytes] is not globally routable, or null when it is. */
+    fun nonGlobalKind(bytes: ByteArray): String? = when (bytes.size) {
+        4 -> nonGlobalIpv4(bytes)
+        16 -> nonGlobalIpv6(bytes)
+        // A length we do not understand is not an address we should connect
+        // to. Refusing is the only safe reading of an unknown shape.
+        else -> "an address form this tool does not recognise"
+    }
+
+    private fun nonGlobalIpv4(b: ByteArray): String? {
+        val b0 = b[0].u()
+        val b1 = b[1].u()
+        val b2 = b[2].u()
+        return when {
+            b0 == 0 -> "reserved (0/8)"
+            b0 == 10 -> "private (10/8)"
+            // Not RFC 1918, so it is easy to forget, and it is the range
+            // Tailscale and several ISPs hand out. It is a private network
+            // and reaching it is exactly the SSRF this tool refuses.
+            b0 == 100 && b1 in 64..127 -> "carrier-grade NAT (100.64/10), a private overlay network"
+            b0 == 127 -> "loopback"
+            b0 == 169 && b1 == 254 -> "link-local, which is where cloud instance metadata lives"
+            b0 == 172 && b1 in 16..31 -> "private (172.16/12)"
+            b0 == 192 && b1 == 0 && b2 == 0 -> "IETF protocol assignments (192.0.0/24)"
+            b0 == 192 && b1 == 0 && b2 == 2 -> "documentation (192.0.2/24)"
+            b0 == 192 && b1 == 88 && b2 == 99 -> "6to4 relay anycast (192.88.99/24)"
+            b0 == 192 && b1 == 168 -> "private (192.168/16)"
+            b0 == 198 && (b1 == 18 || b1 == 19) -> "benchmarking (198.18/15)"
+            b0 == 198 && b1 == 51 && b2 == 100 -> "documentation (198.51.100/24)"
+            b0 == 203 && b1 == 0 && b2 == 113 -> "documentation (203.0.113/24)"
+            b0 >= 224 -> "multicast or reserved"
+            else -> null
+        }
+    }
+
+    private fun nonGlobalIpv6(b: ByteArray): String? {
+        // The first 16-bit group, which is how every prefix below is defined.
+        val g0 = (b.u(0) shl 8) or b.u(1)
+        val b0 = b.u(0)
+        val b1 = b.u(1)
+
+        // ORDER MATTERS, and the order is the opposite of what looks natural.
+        // `::` and `::1` both satisfy the IPv4-compatible unwrap rule further
+        // down, so testing them AFTER the unwrap reports loopback as
+        // "reserved (0/8)" — true, and useless to a model deciding what to
+        // send next. The two self-describing addresses are named first.
+        if (b.all { it == 0.toByte() }) return "unspecified"
+        if (g0 == 0 && b.copyOfRange(1, 15).all { it == 0.toByte() } && b[15] == 1.toByte()) {
+            return "loopback"
+        }
+
+        // An IPv4 address wearing an IPv6 hat. InetAddress collapses the common
+        // spellings to 4 bytes on its own, but a literal we parsed by hand does
+        // not, and which of the two you get depends on who did the parsing. So
+        // the embedded address is unwrapped and judged as IPv4.
+        embeddedIpv4(b)?.let { embedded ->
+            val kind = nonGlobalIpv4(embedded) ?: return null
+            return "$kind, reached through an IPv6 address that embeds it"
+        }
+
+        // Prefix tests are on the MASK, not on leading bytes. `fe80::/10` spans
+        // fe80:: through febf:ffff:..., so a test for the literal bytes
+        // fe:80:00:00 accepts fe80::1 and misses febf::1, which is the same
+        // link-local network and just as unreachable from the internet.
+        if (b0 == 0xfe && (b1 and 0xc0) == 0x80) return "link-local (fe80::/10)"
+        if ((b0 and 0xfe) == 0xfc) return "unique-local (fc00::/7)"
+        if (b0 == 0xff) return "multicast (ff00::/8)"
+        if (b0 == 0xfe && (b1 and 0xc0) == 0xc0) return "site-local (fec0::/10), deprecated"
+        // 100::/64, RFC 6666. 0x0100 is `100` in the first group, and the /64
+        // means the next six bytes are zero.
+        if (g0 == 0x0100 && b.copyOfRange(2, 8).all { it == 0.toByte() }) {
+            return "discard-only (100::/64)"
+        }
+        // 2001::/32 Teredo and 2001:db8::/32 documentation, both /32 on the
+        // first two groups. Teredo tunnels over UDP and embeds an obfuscated
+        // IPv4; it is not a place a web page is served from, so it is refused
+        // rather than unwrapped.
+        if (g0 == 0x2001) {
+            val g1 = (b.u(2) shl 8) or b.u(3)
+            if (g1 == 0x0000) return "Teredo tunnelling (2001::/32)"
+            if (g1 == 0x0db8) return "documentation (2001:db8::/32)"
+        }
+        return null
+    }
+
+    /**
+     * The IPv4 address an IPv6 form embeds, or null when it embeds none.
+     *
+     * Four forms, all of which have been used to carry `127.0.0.1` past a
+     * checker that only understood the first:
+     *  - `::ffff:a.b.c.d`  IPv4-mapped. The common one.
+     *  - `::a.b.c.d`       IPv4-compatible, RFC 4291 §2.5.5.1. Deprecated,
+     *                       still parsed, and it is why `::` and `::1` are
+     *                       checked BEFORE the unwrap rather than after.
+     *  - `64:ff9b::a.b.c.d` NAT64, RFC 6052. The real translation path on an
+     *                       IPv6-only mobile network, which is most of them.
+     *  - `2002:aabb:ccdd::` 6to4, RFC 3056. The v4 sits in bits 16..48.
+     */
+    private fun embeddedIpv4(b: ByteArray): ByteArray? {
+        // ::ffff:a.b.c.d
+        if (b.u(10) == 0xff && b.u(11) == 0xff && b.take(10).all { it == 0.toByte() }) {
+            return b.copyOfRange(12, 16)
+        }
+        // 64:ff9b::a.b.c.d
+        if (isIpv6(b, 0x00, 0x64, 0xff, 0x9b) && b.copyOfRange(4, 12).all { it == 0.toByte() }) {
+            return b.copyOfRange(12, 16)
+        }
+        // ::a.b.c.d
+        if (b.take(12).all { it == 0.toByte() }) return b.copyOfRange(12, 16)
+        // 2002:aabb:ccdd::
+        if (b.u(0) == 0x20 && b.u(1) == 0x02) return b.copyOfRange(2, 6)
+        return null
+    }
+
+    /** True when the first four bytes of [b] are exactly [a0].[a1].[a2].[a3]. */
+    private fun isIpv6(b: ByteArray, a0: Int, a1: Int, a2: Int, a3: Int): Boolean =
+        b.u(0) == a0 && b.u(1) == a1 && b.u(2) == a2 && b.u(3) == a3
+
+    /**
+     * Strict dotted-quad IPv4 parser: four 0-255 decimal octets, nothing else.
+     *
+     * A leading zero is treated as ambiguous (octal-looking) and refused
+     * rather than guessed at. Returns null if [literal] is not exactly a
+     * numeric IPv4 address.
+     */
+    fun parseIpv4Literal(literal: String): ByteArray? {
+        val parts = literal.split('.')
+        if (parts.size != 4) return null
+        val bytes = ByteArray(4)
+        for (i in 0 until 4) {
+            val part = parts[i]
+            if (part.isEmpty() || part.length > 3) return null
+            if (!part.all { it in '0'..'9' }) return null
+            if (part.length > 1 && part[0] == '0') return null
+            val value = part.toIntOrNull() ?: return null
+            if (value !in 0..255) return null
+            bytes[i] = value.toByte()
+        }
+        return bytes
+    }
+
+    /**
+     * Strict IPv6 literal parser. Returns 16 bytes, or null if [literal] is not
+     * a well-formed address.
+     *
+     * Written out rather than delegated to `InetAddress.getByName` for two
+     * reasons, and both matter:
+     *
+     *  1. `InetAddress` is a RESOLVER. Calling it inside [WebUrls.validate] would
+     *     make a function documented as pure-and-offline start doing network I/O
+     *     on a code path that also runs from error formatting.
+     *  2. `InetAddress` is lenient about which IPv4-embedded IPv6 forms it
+     *     collapses to 4 bytes. A hand parser that always returns 16 keeps the
+     *     unwrapping decision in [nonGlobalIpv6], where it can be read and
+     *     argued about, instead of spread across platform behaviour.
+     *
+     * A zone id (`fe80::1%eth0`) is REFUSED rather than stripped. The `%` form
+     * only ever names a link-local scope, and stripping it to get a parseable
+     * address would mean manufacturing a routable address out of one that is
+     * not.
+     */
+    fun parseIpv6Literal(literal: String): ByteArray? {
+        // 45 is the longest legal IPv6 text form: the full 8-group expansion
+        // with an embedded IPv4 tail. Anything longer is not an address.
+        if (literal.isEmpty() || literal.length > 45) return null
+        if ('%' in literal) return null
+        if (literal.any { it !in '0'..'9' && it !in 'a'..'f' && it !in 'A'..'F' &&
+                it != ':' && it != '.' }
+        ) {
+            return null
+        }
+
+        val gap = literal.indexOf("::")
+        // At most one `::`. Two of them is not an address.
+        if (gap >= 0 && literal.indexOf("::", gap + 1) >= 0) return null
+        val head = if (gap >= 0) literal.substring(0, gap) else literal
+        val tail = if (gap >= 0) literal.substring(gap + 2) else null
+
+        val values = ArrayList<Int>(8)
+        val headGroups = splitGroups(head) ?: return null
+        for (g in headGroups) if (!addGroup(g, values, isLast = tail == null && g === headGroups.last())) {
+            return null
+        }
+        val headCount = values.size
+        if (tail != null) {
+            val tailGroups = splitGroups(tail) ?: return null
+            for (g in tailGroups) addGroup(g, values, isLast = g === tailGroups.last()) || return null
+        }
+
+        // A trailing dotted quad is two groups, not one, and it may only
+        // appear at the very end.
+        val groups = values.size
+        val zeros = if (gap >= 0) 8 - groups else 0
+        if (gap >= 0) {
+            // `::` stands for one or more zero groups, never none.
+            if (zeros < 1) return null
+        } else if (groups != 8) {
+            return null
+        }
+
+        val out = ByteArray(16)
+        var i = 0
+        for (v in values.take(headCount)) {
+            out[i++] = (v shr 8).toByte()
+            out[i++] = v.toByte()
+        }
+        i = 16 - (values.size - headCount) * 2
+        for (v in values.drop(headCount)) {
+            out[i++] = (v shr 8).toByte()
+            out[i++] = v.toByte()
+        }
+        return out
+    }
+
+    /** `""` -> no groups. `"a::b"` sides -> the groups between colons. */
+    private fun splitGroups(text: String): List<String>? {
+        if (text.isEmpty()) return emptyList()
+        val groups = text.split(':')
+        if (groups.any { it.isEmpty() }) return null
+        return groups
+    }
+
+    /**
+     * Appends one group, or two if it is a trailing IPv4 dotted quad.
+     *
+     * `::ffff:127.0.0.1` is three groups of text and four of bytes, which is
+     * the whole reason a hand parser is not a one-liner.
+     */
+    private fun addGroup(group: String, into: MutableList<Int>, isLast: Boolean): Boolean {
+        if ('.' in group) {
+            // An embedded IPv4 tail is only legal as the final group.
+            if (!isLast) return false
+            val v4 = parseIpv4Literal(group) ?: return false
+            into.add(((v4[0].u() shl 8) or v4[1].u()))
+            into.add(((v4[2].u() shl 8) or v4[3].u()))
+            return true
+        }
+        if (group.isEmpty() || group.length > 4) return false
+        val v = group.toIntOrNull(16) ?: return false
+        into.add(v)
+        return true
+    }
+}
+
+/** Unsigned view of a byte. `-1` and `255` are the same bit pattern. */
+private fun Byte.u(): Int = this.toInt() and 0xff
+
+/** Unsigned view of byte [i] of [b]. */
+private fun ByteArray.u(i: Int): Int = this[i].u()
 
 // ----------------------------------------------------------------------------
 // URL validation
@@ -312,10 +606,25 @@ internal object WebUrls {
         if (host.isEmpty()) {
             return UrlVerdict.Rejected("That url has an empty host name, so there is nothing to fetch.")
         }
-        if (!host.contains('.') && !host.equals("localhost", ignoreCase = true)) {
-            // A single-label host is a LAN name or a typo. It is also the shape
-            // an SSRF attempt takes when it is probing the local network, and
-            // the model has no legitimate way to know which it is.
+        // A single-label host is a LAN name or a typo. It is also the shape
+        // an SSRF attempt takes when it is probing the local network, and
+        // the model has no legitimate way to know which it is.
+        //
+        // An IP LITERAL is exempt, and specifically an IPv6 one. A v6 address
+        // is written in colons and hex and has no dot anywhere in it, so the
+        // dot test below would refuse every public IPv6 literal on the
+        // internet — `2606:4700:4700::1111` is Cloudflare's DNS and it would
+        // have been called a typo. The exemption is keyed on "parses as an
+        // address", not on "contains a dot", so it cannot be used to smuggle a
+        // name past this check: `localhost` and `intranet` parse as nothing.
+        val looksLikeAddress = EgressAddresses.parseIpv4Literal(
+            host.removeSurrounding("[", "]"),
+        ) != null || EgressAddresses.parseIpv6Literal(
+            host.removeSurrounding("[", "]"),
+        ) != null
+        if (!looksLikeAddress && !host.contains('.') &&
+            !host.equals("localhost", ignoreCase = true)
+        ) {
             return UrlVerdict.Rejected(
                 "\"$host\" is not a public web host name. Pass a full address such as " +
                     "https://$host.example or https://$host.com.",
@@ -343,18 +652,17 @@ internal object WebUrls {
     /**
      * Refuses any host that is a literal non-public IP address.
      *
-     * Returns null for public addresses and for host names — a name cannot be
-     * classified without resolving it, and resolving here would open its own
-     * TOCTOU window between the check and the connection.
+     * Returns null for public addresses and for host NAMES. A name is not
+     * classified here because doing so would mean resolving it, and this
+     * function is deliberately resolver-free: it is called from
+     * [WebFetcher.hostOf] while formatting an error, and a function that can
+     * block on the network while reporting a timeout is a tool that can hang
+     * the agent loop. Names are resolved by [EgressGate] instead, which runs
+     * once per connection attempt, on the IO dispatcher, with a timeout.
      *
-     * KNOWN LIMIT, stated rather than hidden: this is address TEXT matching. A
-     * public name that resolves to 127.0.0.1 or 169.254.169.254 still passes,
-     * because nothing here resolves DNS. Closing that properly means pinning
-     * the resolved address and connecting to the pinned IP with a matching Host
-     * header, or re-validating after each redirect hop; both are larger changes
-     * than this one and are not made here. Until they are, web.fetch should be
-     * treated as able to reach hosts the resolver chooses — see the threat
-     * model in docs/threat-model.md.
+     * The classification itself is [EgressAddresses.nonGlobalKind] — the same
+     * function the resolved path uses — so the literal list and the DNS list
+     * cannot drift apart.
      */
     private fun rejectNonPublicAddress(host: String): UrlVerdict.Rejected? {
         if (host.equals("localhost", ignoreCase = true) ||
@@ -364,18 +672,31 @@ internal object WebUrls {
                 "\"$host\" is this device. $ALLOWED to public addresses only.",
             )
         }
-        // Numeric shorthand: a dotted host whose EVERY label is numeric is an IP
-        // address written in an older notation, not a name. `127.1` is loopback
-        // and `0177.0.0.1` is 127.0.0.1 with an octal-looking first octet, and
-        // both would otherwise sail past a strict dotted-quad parser as
-        // "not an IP literal" and reach the connection. Refusing every
-        // all-numeric host is a few characters and closes the whole family,
-        // including forms no hand-written range list would enumerate.
-        val allNumericLabels = host.split('.').all { part ->
-            part.isNotEmpty() && part.all { it in '0'..'9' }
-        }
-        val bytes = parseIpv4Literal(host.removeSurrounding("[", "]"))
-            ?: if (allNumericLabels) {
+        val bare = host.removeSurrounding("[", "]")
+
+        // Numeric shorthand: a host written entirely of digits, dots and hex
+        // markers is an IP address in SOME notation, not a name. `127.1` is
+        // loopback, `0177.0.0.1` has an octal-looking first octet, and
+        // `0x7f.0.0.1` is hex. The platform resolver accepts all of these, so
+        // refusing only the decimal family would leave the hex family open on
+        // whatever platform decides to parse it — and the decision we are
+        // making is "is this a name I should resolve at all", which does not
+        // want to depend on the platform's leniency.
+        //
+        // `0x7f.0.0.1` was CONFIRMED ACCEPTED by the previous check, which
+        // only looked for all-digit labels and let every hex spelling through.
+        val numericNotation = bare.indexOf(':') < 0 && bare.isNotEmpty() &&
+            bare.all { part ->
+                part == '.' || part in '0'..'9' ||
+                    part == 'x' || part == 'X' || part in 'a'..'f' || part in 'A'..'F'
+            } &&
+            // At least one digit, so a host like `abcdef.com` is not caught
+            // by this purely because its letters are all valid hex digits.
+            bare.any { it in '0'..'9' }
+
+        val bytes = EgressAddresses.parseIpv4Literal(bare)
+            ?: EgressAddresses.parseIpv6Literal(bare)
+            ?: if (numericNotation) {
                 // An IP written in shorthand/alternate notation. Rather than
                 // reimplement every legacy encoding, refuse it: a legitimately
                 // public host is always spelled with letters or as a real
@@ -388,52 +709,18 @@ internal object WebUrls {
             } else {
                 return null
             }
-        // `bytes` is a real dotted quad: parseIpv4Literal did no DNS, so this
-        // classification is a pure string decision and cannot be raced against
-        // a later resolution.
-        val b0 = bytes[0].toInt() and 0xff
-        val b1 = bytes[1].toInt() and 0xff
-        when {
-            b0 == 127 -> "loopback"
-            b0 == 10 -> "private (10/8)"
-            b0 == 172 && b1 in 16..31 -> "private (172.16/12)"
-            b0 == 192 && b1 == 168 -> "private (192.168/16)"
-            b0 == 169 && b1 == 254 -> "link-local, which is where cloud instance metadata lives"
-            b0 == 0 -> "unspecified"
-            b0 >= 224 -> "multicast or reserved"
-            else -> return null
-        }.let { kind ->
-            return UrlVerdict.Rejected(
-                "\"$host\" is a $kind address. $ALLOWED to public addresses only.",
-            )
-        }
-    }
 
-    /**
-     * Strict dotted-quad IPv4 parser: four 0-255 decimal octets, nothing else.
-     *
-     * Returns the 4 bytes, or null if [literal] is not exactly a numeric IPv4
-     * address. This is the ONLY place a host string becomes bytes, and it is
-     * resolver-free by construction, so validation stays offline and
-     * side-effect-free.
-     */
-    private fun parseIpv4Literal(literal: String): ByteArray? {
-        val parts = literal.split('.')
-        if (parts.size != 4) return null
-        val bytes = ByteArray(4)
-        for (i in 0 until 4) {
-            val part = parts[i]
-            // Reject empty, over-long, non-digit, and leading-zero forms. A
-            // leading zero is treated as ambiguous (octal-looking) and refused
-            // rather than guessed at.
-            if (part.isEmpty() || part.length > 3) return null
-            if (!part.all { it in '0'..'9' }) return null
-            if (part.length > 1 && part[0] == '0') return null
-            val value = part.toIntOrNull() ?: return null
-            if (value !in 0..255) return null
-            bytes[i] = value.toByte()
-        }
-        return bytes
+        // The parse was pure string work over a literal: no resolver was
+        // involved, so this decision cannot be raced against a later
+        // resolution. What it CAN be raced against is a NAME, which is why
+        // `::ffff:127.0.0.1` and `0:0:0:0:0:ffff:10.0.0.1` land here too —
+        // they parse as IPv6 literals, unwrap to the same private IPv4, and
+        // are refused. Before the IPv6 parser existed they were not IPs at
+        // all to this function and sailed straight through to the socket.
+        val kind = EgressAddresses.nonGlobalKind(bytes) ?: return null
+        return UrlVerdict.Rejected(
+            "\"$host\" is a $kind address. $ALLOWED to public addresses only.",
+        )
     }
 
     /** Security level of a scheme. Plaintext is 0, TLS is 1. */
@@ -505,6 +792,23 @@ internal object WebUrls {
         SCHEME.find(url)?.groupValues?.get(1)?.lowercase()
             ?: BARE_SCHEME.find(url)?.value?.dropLast(1)?.lowercase()
             ?: "https"
+
+    /**
+     * The host of [url] after full text validation, or null if it is refused.
+     *
+     * This is the per-hop text gate. [WebFetcher] calls it on the FIRST url
+     * and again on every redirect target, so a URL that is unacceptable on
+     * its face never reaches the resolver and never reaches a socket. The
+     * resolver is a separate, more expensive gate ([EgressGate]) and there is
+     * no reason to spend it on a `file:` URL.
+     *
+     * Returning null rather than throwing keeps it usable from the error
+     * formatting in [WebFetcher.hostOf], which must never itself fail.
+     */
+    fun hostOf(url: String): String? = when (val v = validate(url)) {
+        is UrlVerdict.Accepted -> v.host
+        is UrlVerdict.Rejected -> null
+    }
 }
 
 /** Outcome of a single redirect hop. */
@@ -515,6 +819,219 @@ internal sealed interface RedirectVerdict {
 
 /** True for the status codes that mean "go somewhere else". */
 internal fun isRedirectStatus(status: Int): Boolean = status in setOf(301, 302, 303, 307, 308)
+
+// ----------------------------------------------------------------------------
+// DNS resolution and the egress gate
+// ----------------------------------------------------------------------------
+
+/**
+ * Outcome of [EgressGate.check].
+ *
+ * [Pinned] carries the addresses the host resolved to. It is not currently
+ * used to open the connection — see the TOCTOU section in [EgressGate] for why
+ * that is not possible with the platform client — but the resolution is
+ * returned rather than discarded so the decision is auditable and so a future
+ * client swap has the data it needs.
+ */
+internal sealed interface EgressVerdict {
+    data class Pinned(val host: String, val addresses: List<ByteArray>) : EgressVerdict
+    data class Rejected(val reason: String) : EgressVerdict
+}
+
+/** Name resolution, as a seam. Production uses the platform resolver. */
+internal fun interface HostResolver {
+    /** Addresses for [host]. Throws UnknownHostException when it does not resolve. */
+    fun resolve(host: String): List<ByteArray>
+
+    companion object {
+        /**
+         * The platform resolver.
+         *
+         * `getAllByName`, not `getByName`: a host with both an A record for a
+         * public address and an AAAA record for `::1` is a name we must REFUSE,
+         * and only the full set tells us that. Checking one address and
+         * connecting to whichever the stack picks is the bypass.
+         */
+        val SYSTEM = HostResolver { host ->
+            InetAddress.getAllByName(host).map { it.address }
+        }
+    }
+}
+
+/**
+ * Resolves a host and refuses any address that is not globally routable.
+ *
+ * WHAT THIS CLOSES. `localtest.me`, `127.0.0.1.nip.io` and every nip.io-style
+ * service are ordinary public names with a public-looking TLD that resolve to
+ * `127.0.0.1`. Before this existed, [WebUrls.validate] was the only gate and it
+ * matched address TEXT, so those names passed it and the socket went to
+ * loopback. Confirmed against the shipped class before the change:
+ * `http://localtest.me/` returned `Accepted`.
+ *
+ * EVERY ADDRESS IS CHECKED, not the first. A name that resolves to both a
+ * public and a private address is refused, because the connection is not ours
+ * to make: `HttpURLConnection` picks from the set and we cannot see which. This
+ * is the difference between a rebinding-resistant gate and a trivially
+ * defeated one.
+ *
+ * RUNS ON EVERY HOP. [WebFetcher] calls this immediately before each
+ * `opener.open`, including after a redirect, because a redirect target is
+ * chosen by the server and is exactly as untrusted as the model-supplied URL.
+ *
+ * ## The TOCTOU problem, stated plainly
+ *
+ * Check-then-connect is a race and this class does not close it. Between
+ * [HostResolver.resolve] returning and the socket's own resolution, a hostile
+ * authoritative server can answer twice: a public address for us, `127.0.0.1`
+ * for the connection. The window is milliseconds, which is why this is a
+ * meaningful mitigation rather than a fix, and it is why the honest claim is
+ * "narrowed" and not "closed".
+ *
+ * Pinning is what would close it, and it is NOT available here:
+ *
+ *  - `HttpURLConnection` exposes no hook to supply a pre-resolved address. It
+ *    resolves internally, and there is no `setResolvedAddress` on the JDK 21
+ *    or the Android API 36 `android.jar` (checked, not assumed).
+ *  - The `InetAddressResolverProvider` SPI (JDK 18+) is absent from
+ *    `android.jar` entirely, so the platform offers no interception point.
+ *  - The usual workaround — connect to the pinned IP literal with a `Host:`
+ *    header override — breaks TLS, because the certificate is then verified
+ *    against an IP instead of a name, which requires disabling hostname
+ *    verification. Turning that off to make SSRF harder is a strictly worse
+ *    trade than the one being made here.
+ *  - OkHttp's `Dns` interface is the clean answer and is not a dependency this
+ *    project has; adding one is out of scope.
+ *
+ * So: DNS names are checked, every redirect hop is re-checked, and a rebind
+ * that answers differently to our lookup than to the stack's still gets
+ * through. `docs/threat-model.md` says so in the same words.
+ */
+internal object EgressGate {
+
+    /** DNS lookup ceiling. A blackholed resolver must not hang the agent loop. */
+    const val RESOLVE_TIMEOUT_MS: Int = 5_000
+
+    private const val ALLOWED = "only http:// and https:// URLs can be fetched"
+
+    /**
+     * Resolves [host] and judges every address it maps to.
+     *
+     * A host that is already an address literal is classified WITHOUT
+     * resolving: [WebUrls.validate] has already done the text work, and asking
+     * the resolver about a literal gains nothing.
+     */
+    fun check(
+        host: String,
+        resolver: HostResolver = HostResolver.SYSTEM,
+    ): EgressVerdict {
+        val bare = host.removeSurrounding("[", "]")
+
+        // A literal needs no lookup. Classify the bytes we already parsed.
+        val literal = EgressAddresses.parseIpv4Literal(bare)
+            ?: EgressAddresses.parseIpv6Literal(bare)
+        if (literal != null) {
+            val kind = EgressAddresses.nonGlobalKind(literal)
+            return if (kind == null) {
+                EgressVerdict.Pinned(host, listOf(literal))
+            } else {
+                EgressVerdict.Rejected("\"$host\" is a $kind address. $ALLOWED to public addresses only.")
+            }
+        }
+
+        val addresses = try {
+            resolver.resolve(bare)
+        } catch (e: UnknownHostException) {
+            return EgressVerdict.Rejected(
+                "\"$host\" does not resolve to any address, so there is nothing to fetch.",
+            )
+        } catch (e: SecurityException) {
+            return EgressVerdict.Rejected(
+                "Android refused the DNS lookup for \"$host\" (${e.javaClass.simpleName}).",
+            )
+        }
+
+        if (addresses.isEmpty()) {
+            return EgressVerdict.Rejected(
+                "\"$host\" resolved to no addresses, so there is nothing to fetch.",
+            )
+        }
+
+        // EVERY address, and the FIRST non-global one is reported by name.
+        // A resolver that answers with a mix is refused outright: the stack
+        // chooses which one to connect to, and it is not us.
+        for (address in addresses) {
+            val kind = EgressAddresses.nonGlobalKind(address)
+            if (kind != null) {
+                return EgressVerdict.Rejected(
+                    "\"$host\" resolves to a $kind address (${describe(address)}). " +
+                        "$ALLOWED to public addresses only — a public name that points " +
+                        "inward is refused as well as a private address typed directly.",
+                )
+            }
+        }
+        return EgressVerdict.Pinned(host, addresses)
+    }
+
+    /** Printable form of an address, for the model-facing rejection text. */
+    fun describe(address: ByteArray): String = try {
+        InetAddress.getByAddress(address).hostAddress
+    } catch (e: IllegalArgumentException) {
+        "an unrecognised address"
+    }
+
+    /**
+     * [check] with the lookup itself put under a timeout.
+     *
+     * `InetAddress.getAllByName` on a captive-portal Wi-Fi network or a
+     * blackholed resolver blocks for the platform's own retry schedule, which
+     * on Android is tens of seconds. The tool already bounds its socket time
+     * at [CONNECT_TIMEOUT_MS]; leaving the lookup unbounded would mean the
+     * call that is supposed to be fast enough to be re-checked on every hop
+     * is the slowest thing in the request. The timeout is enforced by
+     * abandoning the future, not by interrupting the thread, because a
+     * half-cancelled resolver call can return a partial set.
+     */
+    fun checkBounded(host: String): EgressVerdict = try {
+        val future = LOOKUP_POOL.submit<EgressVerdict> { check(host) }
+        try {
+            future.get(RESOLVE_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+        } catch (e: TimeoutException) {
+            future.cancel(true)
+            EgressVerdict.Rejected(
+                "The DNS lookup for \"$host\" did not answer within " +
+                    "${RESOLVE_TIMEOUT_MS / 1000}s, so nothing was fetched.",
+            )
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            EgressVerdict.Rejected("The DNS lookup for \"$host\" was interrupted.")
+        } catch (e: java.util.concurrent.ExecutionException) {
+            // check() handles UnknownHostException and SecurityException
+            // itself, so anything arriving here is a resolver bug. Refusing
+            // is the correct reading: an unexplained failure is not consent.
+            EgressVerdict.Rejected(
+                "The DNS lookup for \"$host\" failed unexpectedly " +
+                    "(${e.cause?.javaClass?.simpleName ?: e.javaClass.simpleName}), " +
+                    "so nothing was fetched.",
+            )
+        }
+    } catch (e: RuntimeException) {
+        EgressVerdict.Rejected("The DNS lookup for \"$host\" could not be started.")
+    }
+
+    /**
+     * One daemon thread for every lookup the app ever makes.
+     *
+     * Daemon, so a stuck resolver cannot keep the process alive on shutdown;
+     * single-threaded, because a burst of concurrent fetches must not spawn a
+     * thread per lookup. A timed-out task that is genuinely stuck stays stuck
+     * on this thread — that is the deliberate trade for a tool that is allowed
+     * a handful of fetches per session, and it is why the timeout abandons the
+     * future instead of trying to kill it.
+     */
+    private val LOOKUP_POOL = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "web-fetch-dns").apply { isDaemon = true }
+    }
+}
 
 // ----------------------------------------------------------------------------
 // Bounded body read
@@ -933,8 +1450,40 @@ internal class WebFetcher(
             }
 
             // Bounded loop: MAX_REDIRECTS hops, each one re-validating the target.
+            //
+            // THREE GATES RUN PER HOP, IN THIS ORDER, and the order is the
+            // design. `current` is re-validated as TEXT first (cheap, offline,
+            // refuses a bad scheme or a private LITERAL), then the host is
+            // RESOLVED and every address judged, and only then is a socket
+            // opened. Putting the DNS gate on this line rather than once
+            // before the loop is the entire point: a redirect target is
+            // chosen by the server, so a public page that answers
+            // `Location: http://localtest.me/` is exactly as dangerous as a
+            // model-supplied one, and a gate that ran only on the first URL
+            // would walk straight into it.
             while (true) {
                 response?.close()
+                response = null
+
+                if (context.signal.isCancelled()) return cancelled()
+
+                // Gate 1+2, on every hop including the first and every
+                // redirect. A rejection here never reaches the network.
+                //
+                // The text gate runs first and, on a refusal, the resolver is
+                // never asked: resolving a host we have already decided not to
+                // fetch is both wasted latency and a needless DNS leak to a
+                // name the model chose.
+                val hopHost = WebUrls.hostOf(current)
+                    ?: return invalid(
+                        "Refusing to fetch $current: it did not pass URL validation.",
+                        "url rejected before connecting: $current",
+                    )
+                when (val gate = EgressGate.checkBounded(hopHost)) {
+                    is EgressVerdict.Rejected -> return invalid(gate.reason, gate.reason)
+                    is EgressVerdict.Pinned -> Unit
+                }
+
                 response = opener.open(current, context.signal)
                 if (context.signal.isCancelled()) return cancelled()
 
