@@ -52,5 +52,17 @@ tasks.withType<Test>().configureEach {
 // The agent eval suite lived in core/src/test and ran against fakes, not the
 // real loop and a real model. It reported 50/50 for a harness that could not
 // fail, and the app it "verified" could not answer a single question. Removed
-// with the rest of the test sources. Verification now means running a real
-// model on a real device, not a green suite.
+// with the rest of the test sources, and it is NOT coming back.
+//
+// What replaced it is deliberately the opposite: pure, deterministic JUnit
+// against the real production classes. Every test in core/src/test is one a
+// reviewer can check by reading the production source and the assertion
+// together, with no fakes standing in for the thing under test. That is also
+// why the dependency block above is one line and is not expected to grow:
+// there is no mock library here because there is nothing to mock.
+//
+// Verification still ultimately means running a real model on a real device.
+// This suite is not a substitute for that and does not claim to be — it is
+// the cheap layer that catches the bugs a device run would take ten minutes
+// to notice, and the five that reached main despite it are named in
+// .github/workflows/ci.yml.

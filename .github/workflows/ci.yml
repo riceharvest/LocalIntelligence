@@ -46,12 +46,16 @@ jobs:
   # ---------------------------------------------------------------------
   # The core module, compiled on the JVM.
   #
-  # There are NO TESTS in this repository. The test suite was deleted at the
-  # owner's explicit instruction, along with every test-only CI job. This job
-  # therefore compiles :core and nothing else -- it does not assert anything
-  # about behaviour, and it is not evidence that the agent works. Its value is
-  # that it catches a broken compile in well under a minute instead of the ten
-  # minutes the APK job needs.
+  # This job compiles :core and runs the :core purity gate. It does NOT run
+  # the unit tests — the `test` job below does that, and keeping them apart
+  # means a broken test compile is distinguishable from a failing assertion
+  # in the workflow UI.
+  #
+  # Before the `test` job existed this job was the project's entire automated
+  # verification: a compile plus human review. Its value is still the fast
+  # signal — a broken compile in well under a minute instead of the ten
+  # minutes the APK job needs — but it is a compile and nothing more, and it
+  # is not by itself evidence that the agent works.
   #
   # It also owns the :core purity gate, which is cheap here and meaningless
   # anywhere slower.
@@ -90,6 +94,130 @@ jobs:
 
       - name: Compile :core
         run: ./gradlew :core:assemble --stacktrace
+
+  # ---------------------------------------------------------------------
+  # The pure-JVM unit tests. REQUIRED, and this is the job that makes
+  # "compiles" no longer the whole verification story.
+  #
+  # Until this existed, the project's only automated check was a compile plus
+  # a human reading the diff. That combination demonstrably shipped five real
+  # defects to main, every one of them individually defensible:
+  #
+  #   - the live task duplicated into the prompt, with the stale copy in the
+  #     most-recent position (strongest weight for a 1-4B model)
+  #   - credentials scored at IMPORTANCE_CREDENTIAL (0.9, the highest tier)
+  #     and therefore actively retained in plain Room SQLite
+  #   - untrusted tool observations feeding the keyword source that decides
+  #     which tools the GRAMMAR exposes, so page text could arm a tool
+  #   - `Session.start` dropping the second and later user turns of a shared
+  #     session, so the agent answered the first question forever
+  #   - `currentKeywords()` reading the FIRST-EVER turn instead of the latest
+  #
+  # Not one of those is a compile error. Each is correct-looking code composed
+  # into the wrong product, which is exactly the class a type checker cannot
+  # see and a reviewer has to be lucky to catch.
+  #
+  # WHY IT IS CHEAP ENOUGH TO BE NON-NEGOTIABLE: :core is a pure JVM module,
+  # so this needs no emulator, no device, no model and no network — the JDK 21
+  # toolchain is the only prerequisite, and `core` above already resolves it.
+  # The whole job is a few seconds of wall clock. There is no version of the
+  # cost argument that justifies not running it.
+  #
+  # SCOPE, DELIBERATELY NARROW: pure, deterministic, in-process JUnit only. No
+  # androidTest source set, no instrumentation, no emulator, no network, and
+  # no new dependency — JUnit 4.13.2 was already in the version catalog. The
+  # earlier "agent E2E" suite is not being restored: it ran against a fake
+  # model and a fake tool registry, reported 50/50 for a harness that could
+  # not fail, and was deleted for that reason. What runs here is the part of
+  # the system that is genuinely pure logic.
+  #
+  # THE GATE IS REAL. There is no `continue-on-error` and no `|| true` on this
+  # step or on this job, deliberately, and neither may be added: a test job
+  # that reports failure without failing the workflow is worse than no test
+  # job at all, because it converts "we have tests" into a claim the build
+  # does not actually make.
+  # ---------------------------------------------------------------------
+  test:
+    name: core (pure JVM tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify the JDK is 21
+        # Same guard, same reason, as the `core` job above: jvmToolchain(21)
+        # resolving is not proof that JAVA_HOME is 21, and a JDK 17 fallback
+        # would fail this job for a reason that has nothing to do with the code.
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME"
+          "$JAVA_HOME/bin/java" -version
+          if ! "$JAVA_HOME/bin/java" -version 2>&1 | head -1 | grep -qE '"21\.'; then
+            echo "::error::expected JDK 21 in JAVA_HOME, got: $("$JAVA_HOME/bin/java" -version 2>&1 | head -1)"
+            exit 1
+          fi
+
+      - name: "Gate: :core is a pure JVM module"
+        # Re-checked here, and the reason is specific: the tests are the first
+        # code in this repository that a contributor is likely to add. A single
+        # `import android.os.Build` in a test file compiles fine and would
+        # quietly make the whole suite require a device, i.e. make it not run
+        # at all. The purity check has to cover the new code, not just the
+        # code that existed when it was written.
+        run: .github/scripts/check-core-purity.sh
+
+      - name: Run the :core unit tests
+        # No --continue, no `|| true`, no continue-on-error. A red test fails
+        # the job and fails the workflow, which is the entire point.
+        #
+        # --rerun-tasks so the run is a real execution rather than a restored
+        # result: `actions/setup-gradle` can serve :core:test from its cache,
+        # and a FROM-CACHE result on a test job is indistinguishable on the
+        # workflow page from a genuine green run. Same reasoning as
+        # --no-build-cache in the fresh-clone job, for the same reason.
+        run: ./gradlew :core:test --rerun-tasks --stacktrace
+
+      - name: "Gate: the suite actually ran"
+        # A test job that silently ran zero tests is indistinguishable from a
+        # passing one, and that is the failure mode a green tick hides best:
+        # delete the test sources, leave the build file alone, and every other
+        # signal in this workflow still says green.
+        #
+        # It asserts a NON-ZERO count rather than a hardcoded one, so adding a
+        # test file never breaks this gate, but emptying the source set does.
+        run: |
+          RESULTS=core/build/test-results/test
+          if [ ! -d "$RESULTS" ]; then
+            echo "::error::$RESULTS does not exist. :core:test reported success without producing a test report, so it is not evidence that anything ran."
+            exit 1
+          fi
+          TOTAL=$(grep -ho 'tests="[0-9]*"' "$RESULTS"/*.xml \
+            | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')
+          SKIPPED=$(grep -ho 'skipped="[0-9]*"' "$RESULTS"/*.xml \
+            | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')
+          echo "tests executed: $TOTAL (skipped: $SKIPPED)"
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "::error:::core:test reported success having executed ZERO tests. There is no test source set, or the filter matched nothing."
+            exit 1
+          fi
+          echo "OK: $TOTAL tests executed, $SKIPPED skipped"
+
+      - name: Upload the test report
+        # XML is the artifact. Uploaded even on failure (`if: always()`) so a
+        # red run is diagnosable from the workflow page without a local
+        # re-run, which is the difference between a gate people keep enabled
+        # and a gate people learn to retry.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-test-results
+          path: core/build/test-results/test/*.xml
+          if-no-files-found: warn
+          retention-days: 14
 
   # ---------------------------------------------------------------------
   # The check this project was missing, and the most valuable one it has.
