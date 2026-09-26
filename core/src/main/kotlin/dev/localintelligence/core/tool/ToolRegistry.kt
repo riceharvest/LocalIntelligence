@@ -66,8 +66,23 @@ class SimpleToolRegistry(
 /**
  * Picks the handful of tools worth showing the model.
  *
- * v0 uses lexical scoring only — no LLM. Returning 3-6 tools instead of 20 is
- * the single biggest context saving in the system.
+ * v0 uses lexical scoring only — no LLM. What it returns is not a ranked list
+ * with a tail the model is meant to ignore: `AgentController` hands this
+ * result to BOTH the system prompt and `GrammarBuilder.forActions`, so a tool
+ * left out is unspeakable. Returning a smaller set saves context at the cost of
+ * making tasks impossible, and [dev.localintelligence.core.agent.AgentConfig.maxVisibleTools]
+ * is set from a measured trade between exactly those two.
+ *
+ * ## `maxTools >= available.size` returns the input order, unscored
+ *
+ * [LexicalToolSelector] short-circuits with
+ * `if (available.size <= maxTools) return available`, so a caller asking for
+ * at least the whole registry gets the registry's own order with no scoring
+ * applied. Every tool is still callable, so nothing fails — but the order the
+ * prompt and grammar see is arbitrary rather than relevance-ordered. Nothing
+ * in the current loop depends on that order, so this is not a live bug. It is
+ * named because the ceiling is exactly the knob a future change-set would
+ * turn, and a caller who turns it far enough silently gets the other branch.
  */
 fun interface ToolSelector {
     fun select(
@@ -126,27 +141,46 @@ fun interface ToolSelector {
  * over a tag list would make the next missing inflection invisible instead of
  * reported.
  *
- * The lever that *is* measured, and the one worth taking, is width:
+ * The lever that *is* measured, and the one that was taken, is width:
  *
- * | visible tools | held-out hit@ | mean system-prompt tokens |
- * |---------------|--------------:|-------------------------:|
- * | 3             |         50.0% |  141                     |
- * | **6 (shipped)** |   **61.6%** |  **219**             |
- * | 8             |         62.8% |  271                     |
- * | 10            |         70.9% |  320                     |
- * | 12            |         74.4% |  367                     |
+ * | visible tools | tasks made possible | mean system-prompt tokens |
+ * |---------------|---------------------:|-------------------------:|
+ * | 3             |            149/176  |  141                     |
+ * | 6 (was)       |            158/176  |  218                     |
+ * | **10 (ships)**|    **167/176**      |  **321**                 |
+ * | 12            |            169/176  |  370                     |
+ * | all 25        |            176/176  |  705                     |
  *
- * 6 -> 10 buys 8.1 points of retrieval for 101 prompt tokens, against a 6000
- * token working limit. It is `AgentConfig.maxVisibleTools`, one constant, in a
- * file this change-set does not own — and it trades against the opposite
- * constraint, that a 1-3B model chooses less reliably from 10 tools than from
- * 6. That is a product call with a measurement on both sides, not a heuristic
- * somebody should quietly pick.
+ * Measured on the 176-case dataset committed at
+ * `core/tool/eval/SelectorDataset.kt`, against the 25 tools `:android` ships,
+ * over a REPLACEMENT for the utterance list the old numbers used. The old
+ * figures (120 pinned utterances, 86 held out, 61.6% at k=6) are not
+ * comparable to these and are not restated here: the dataset is different, the
+ * absolute percentages therefore differ, and quoting both as one trend would
+ * be inventing a curve. What carries over is the SHAPE — recall rises
+ * steeply to about 10 and then flattens — and the shape is what the constant
+ * is set from.
  *
- * Reproducing these numbers needs the held-out utterance lists, which are not
- * in this repository. There is no harness here, so these are stated as a
- * measurement with its inputs named, not as a claim anybody can re-run from
- * `main`. `docs/evals.md` records that gap.
+ * `AgentConfig.maxVisibleTools` now ships at 10. The tie rate is why it is 10
+ * and not 12: at k=10 the 10th and 11th tools score identically on 86.9% of
+ * turns and at k=12 on 96.6%, so width past 10 is bought from the alphabet
+ * rather than from the ranking. See that constant's KDoc for the full
+ * reasoning, the width-safety check against the working limit, and the half of
+ * the trade that stays unmeasured.
+ *
+ * **These numbers are reproducible.** `core/tool/eval/` holds the dataset, the
+ * tool snapshot and a `main()` harness; run
+ *
+ * ```
+ * ./gradlew :core:compileKotlin
+ * ./core/src/main/kotlin/dev/localintelligence/core/tool/eval/run-recall-harness.sh
+ * ```
+ *
+ * and it re-derives every row above from the live selector, reports whether the
+ * snapshot still agrees with the shipped catalogue, and fails loudly if the
+ * scorer has changed underneath a quoted figure. The old numbers could not be
+ * re-derived at all, which is the reason they were unfalsifiable rather than
+ * merely old.
  *
  * ## Do not quote a retrieval number without the tool set it was measured on
  *

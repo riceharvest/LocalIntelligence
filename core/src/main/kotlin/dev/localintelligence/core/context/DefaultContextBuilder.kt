@@ -49,7 +49,7 @@ import dev.localintelligence.core.tool.ToolDefinition
  *  - the history window: a [java.util.List.subList] VIEW, zero copy
  *  - the newest-first accumulation buffer: at most 64 refs
  *  - generated strings: system prompt (bounded by the caller's tool set, which
- *    architecture section 11 hard-caps at 8 tools), memories <= ~1 KB
+ *    architecture section 11 caps the set at 10 tools), memories <= ~1 KB
  *
  * Worst case builder-owned heap: **~12 KB**. The builder holds no state between
  * calls, so it is garbage the moment `build` returns. There is no cache here and

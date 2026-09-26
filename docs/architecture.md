@@ -297,13 +297,48 @@ follow the first instruction it sees over the last one.
 Lexical only in v0. No LLM, no embeddings, no vector database.
 
 Score each tool on token overlap across `name`, `description`, `tags`, `category`,
-plus an exact-substring hit on the full tool name. Return **3-6** tools.
+plus an exact-substring hit on the full tool name.
 
-Hard maximum **8** unless explicitly requested.
+Return **up to 10** tools — `AgentConfig.maxVisibleTools`, which ships at 10.
 
-This is the single biggest context saving in the entire system, and therefore the
-highest-value thing to benchmark. If you can improve the score function with a
-deterministic change, do it and show the eval delta.
+**This section previously said "Return 3-6 tools" with a "hard maximum 8", and
+both numbers were wrong for the system as built.** The selected set is what
+`GrammarBuilder` turns into the `toolcall` alternation, so a tool that is not
+selected is not under-used — it is unspeakable, and the task is not
+performable at all. Selection accuracy is an upper bound on task success.
+
+Measured over the 176-case dataset in `core/tool/eval/SelectorDataset.kt`,
+against the 25 tools `:android` ships:
+
+| visible tools | tasks made possible | mean system-prompt tokens |
+|---------------|---------------------:|-------------------------:|
+| 3             |            149/176  |  141                     |
+| 6             |            158/176  |  218                     |
+| **10 (ships)**|    **167/176**      |  **321**                 |
+| 12            |            169/176  |  370                     |
+| all 25        |            176/176  |  705                     |
+
+6 -> 10 makes nine more tasks performable for 103 prompt tokens against a
+6000-token working limit; at 10 the worst case over the whole dataset is 391
+tokens for system prompt plus task, so the width is nowhere near the ceiling.
+12 buys two more cases for 49 tokens and was declined: at k=10 the 10th and
+11th tools score identically on 86.9% of turns and at k=12 on 96.6%, so width
+past 10 is bought from the alphabetical tie-break rather than from ranking.
+
+Reproduce with:
+
+```
+./gradlew :core:compileKotlin
+./core/src/main/kotlin/dev/localintelligence/core/tool/eval/run-recall-harness.sh
+```
+
+The grammar itself costs **no** context tokens — it is a sampler constraint
+passed to the backend, never prefilled — so its growth from k=6 to k=10
+(1045 -> 1345 chars) is parse overhead, not budget.
+
+What is still unmeasured: whether a 1-3B model chooses reliably from a 10-item
+grammar. The harness has no model in it, so it proves the ceiling went up and
+cannot prove the model exploits it.
 
 ---
 
