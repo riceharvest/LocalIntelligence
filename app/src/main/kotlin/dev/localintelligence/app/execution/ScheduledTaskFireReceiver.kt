@@ -254,6 +254,32 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
      * or a future log line — can see it. A schedule that vanishes on reboot
      * while still being listed in the UI is the specific lie this project
      * treats as the worst kind of bug.
+     *
+     * ## A one-shot that is already past is retired here, not left armed
+     *
+     * A reboot wipes every `AlarmManager` PendingIntent, including a one-shot's
+     * single pending fire. The row survives that wipe, so the question on every
+     * later boot is what this loop does with a `TaskCadence.Once` task whose
+     * time has passed. `TaskCadence.nextAfter` returns null for it, and the
+     * `?: continue` that used to sit on that line threw the row away
+     * unread: nothing armed it, and nothing disabled it either. The row stayed
+     * `enabled = true` with a `nextRunAtMillis` in the past, so the schedule
+     * screen rendered "Next: <yesterday>" for a task that could never fire
+     * again and that nothing would ever run — enabled, visible, and dead. On
+     * every subsequent boot the same thing happened, so the state never
+     * cleared itself.
+     *
+     * Retiring it is the same transition the fire path performs in
+     * `advanceSchedule` when a one-shot fires for real: `enabled = false` and a
+     * `lastResult` that says what happened. The task stays in the store rather
+     * than being deleted, so the screen can still show what it was, and it now
+     * reads "Already ran. Not scheduled any more." instead of promising a next
+     * run that does not exist.
+     *
+     * `lastRunAtMillis` is deliberately left alone. This task did not run —
+     * that is exactly why it is being retired — and writing a timestamp here
+     * would put a run in the history that never happened. The UI reads the
+     * "already ran" fact from `enabled` + `cadence`, not from that field.
      */
     private fun rearmAll(context: Context) {
         val appContext = context.applicationContext
@@ -264,6 +290,13 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
             // phone will not let this app schedule exact alarms", which is a
             // thing the user can fix, rather than a schedule that quietly
             // stopped existing.
+            //
+            // A missed one-shot is the exception, and it is retired anyway. Its
+            // problem is not that an alarm is missing — there was never going
+            // to be another one — so the permission that would fix a recurring
+            // task cannot fix this one, and returning early would leave it
+            // armed-looking for good.
+            retireMissedOneShots(store)
             return
         }
 
@@ -271,7 +304,11 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
         for (task in store.all()) {
             if (!task.enabled) continue
             val rolled = if (task.nextRunAtMillis <= now) {
-                val next = TaskCadence.nextAfter(task.cadence, now) ?: continue
+                // Null means "no next occurrence": a one-shot past its single
+                // fire. Retire it rather than skipping the row unread, which is
+                // what left it enabled and looking armed forever.
+                val next = TaskCadence.nextAfter(task.cadence, now)
+                    ?: run { store.upsert(retire(task)); continue }
                 task.copy(nextRunAtMillis = next)
             } else {
                 task
@@ -286,6 +323,39 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
             }
         }
     }
+
+    /**
+     * Retires every one-shot whose single fire time has already passed.
+     *
+     * Separate from [rearmAll] because that method has an early return for
+     * missing exact-alarm permission, and a missed one-shot must not be caught
+     * by it — see the comment there. Reads the store once and writes only if
+     * there is something to change, so a boot with nothing missed does not
+     * rewrite the preferences file.
+     */
+    private fun retireMissedOneShots(store: ScheduledTaskStore) {
+        val now = System.currentTimeMillis()
+        for (task in store.all()) {
+            if (!task.enabled) continue
+            if (task.cadence != TaskCadence.Once) continue
+            if (task.nextRunAtMillis > now) continue
+            store.upsert(retire(task))
+        }
+    }
+
+    /**
+     * The one state change a finished one-shot needs: not enabled, and a
+     * `lastResult` that tells the truth about why.
+     *
+     * Shared by both call sites in [rearmAll] so the reboot path and the
+     * no-permission path cannot drift apart in what they write.
+     */
+    private fun retire(task: ScheduledTask): ScheduledTask = task.copy(
+        enabled = false,
+        lastResult = ScheduledRunReporter.DID_NOT_START +
+            "this one-time task's time passed while the phone was off, " +
+            "so it never ran and is no longer scheduled.",
+    )
 
     companion object {
         const val ACTION_TASK_FIRED = "dev.localintelligence.app.execution.TASK_FIRED"
