@@ -179,6 +179,32 @@
             android:label="@string/background_access_title"
             android:theme="@style/Theme.LocalIntelligence" />
 
+        <!-- The permission screen: where a user the model told "grant Contacts"
+             can actually grant it.
+
+             Without this, the tools return an honest PermissionDenied naming
+             android.permission.READ_CONTACTS and the exact Settings path, and
+             the user has no way to act on that sentence. An honest refusal
+             paired with a missing button is what made this an app that could
+             never be told yes.
+
+             Reached from inside the app, and from a launcher shortcut once
+             res/xml/shortcuts.xml grows one (see the PR description for the
+             exact entry, and for the exported=true that a shortcut requires).
+
+             The label is a literal rather than a @string because strings.xml is
+             owned by another workstream in this repo and a permission screen is
+             not worth a merge conflict over. Moving it to a resource is a
+             one-line follow-up.
+
+             Not exported and no LAUNCHER category: an in-app destination, not
+             a second icon on the home screen. -->
+        <activity
+            android:name=".ui.PermissionActivity"
+            android:exported="false"
+            android:label="Permissions"
+            android:theme="@style/Theme.LocalIntelligence" />
+
         <!-- Required for notifications.list / notifications.reply. Android
              surfaces this as a Settings toggle, not a runtime prompt, so it
              cannot be requested with requestPermissions(). -->
