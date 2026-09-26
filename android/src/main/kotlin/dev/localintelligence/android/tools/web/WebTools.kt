@@ -287,7 +287,7 @@ internal object WebUrls {
         if (host.isEmpty()) {
             return UrlVerdict.Rejected("That url has an empty host name, so there is nothing to fetch.")
         }
-        if (!host.contains('.') && host != "localhost") {
+        if (!host.contains('.') && !host.equals("localhost", ignoreCase = true)) {
             // A single-label host is a LAN name or a typo. It is also the shape
             // an SSRF attempt takes when it is probing the local network, and
             // the model has no legitimate way to know which it is.
@@ -332,17 +332,40 @@ internal object WebUrls {
      * model in docs/threat-model.md.
      */
     private fun rejectNonPublicAddress(host: String): UrlVerdict.Rejected? {
-        if (host == "localhost" || host.endsWith(".localhost")) {
+        if (host.equals("localhost", ignoreCase = true) ||
+            host.endsWith(".localhost", ignoreCase = true)
+        ) {
             return UrlVerdict.Rejected(
                 "\"$host\" is this device. $ALLOWED to public addresses only.",
             )
         }
-        val literal = host.removeSurrounding("[", "]")
-        // NEVER call InetAddress.getByName here: it performs a real DNS lookup,
-        // so validation would block on the network and a public name would be
-        // resolved (then raced against the actual connection). Only a strict
-        // numeric-IPv4-or-IPv6 LITERAL is parsed, with no resolver involved.
-        val bytes = parseIpv4Literal(literal) ?: return null
+        // Numeric shorthand: a dotted host whose EVERY label is numeric is an IP
+        // address written in an older notation, not a name. `127.1` is loopback
+        // and `0177.0.0.1` is 127.0.0.1 with an octal-looking first octet, and
+        // both would otherwise sail past a strict dotted-quad parser as
+        // "not an IP literal" and reach the connection. Refusing every
+        // all-numeric host is a few characters and closes the whole family,
+        // including forms no hand-written range list would enumerate.
+        val allNumericLabels = host.split('.').all { part ->
+            part.isNotEmpty() && part.all { it in '0'..'9' }
+        }
+        val bytes = parseIpv4Literal(host.removeSurrounding("[", "]"))
+            ?: if (allNumericLabels) {
+                // An IP written in shorthand/alternate notation. Rather than
+                // reimplement every legacy encoding, refuse it: a legitimately
+                // public host is always spelled with letters or as a real
+                // dotted quad, so nothing real is lost by rejecting the rest.
+                return UrlVerdict.Rejected(
+                    "\"$host\" is a numeric address in a non-standard notation, which " +
+                        "this tool refuses rather than guess at. $ALLOWED to public " +
+                        "addresses only.",
+                )
+            } else {
+                return null
+            }
+        // `bytes` is a real dotted quad: parseIpv4Literal did no DNS, so this
+        // classification is a pure string decision and cannot be raced against
+        // a later resolution.
         val b0 = bytes[0].toInt() and 0xff
         val b1 = bytes[1].toInt() and 0xff
         when {
