@@ -202,8 +202,40 @@ fun intentForTaskAction(context: Context, action: TaskAction): Intent? {
     val intent = when (action) {
         TaskAction.OpenModels -> return null
 
+        // `Settings.ACTION_APP_NOTIFICATION_SETTINGS`, and this is NOT a
+        // placeholder pending a manifest entry.
+        //
+        // It used to be `Intent("dev.localintelligence.android.tools.notifications.REQUEST_CONSENT")`
+        // — a synthetic action that appears nowhere in AndroidManifest.xml. Nothing
+        // in this app or any other declares that filter, so `resolveActivity`
+        // returned null, `intentForTaskAction` returned null, and the "Fix" button
+        // on the NoNotifications blocker did absolutely nothing, silently, on
+        // screen. A blocker whose only escape hatch is a dead button is a trap:
+        // the screen asserts the user can fix this, and they cannot.
+        //
+        // Why this Settings action rather than the notification-listener one:
+        // they are DIFFERENT capabilities and conflating them is its own lie.
+        //
+        //  - This blocker is [areNotificationsAllowed], i.e. POST_NOTIFICATIONS —
+        //    the app posting its OWN notifications. The platform exposes exactly
+        //    one screen for that, and it is this action.
+        //  - Notification LISTENER access is what the `notifications.*` tools
+        //    need, is granted by a different switch under "Device & app
+        //    notifications", and is reached via
+        //    `LocalNotificationListenerService.settingsIntent` (see
+        //    BackgroundAccessActivity). Pointing this blocker at the listener
+        //    screen would send a user who needs POST_NOTIFICATIONS to a screen
+        //    that cannot grant it, and they would be back here in a minute with
+        //    the blocker unchanged.
+        //
+        // EXTRA_APP_PACKAGE lands the user on THIS app's notification settings
+        // rather than the global list, so the toggle they need is the first
+        // thing on the page. The action exists on every API level from 26 up
+        // (minSdk here), so `resolveActivity` below is an OEM-wipe guard rather
+        // than the thing standing between the user and the switch.
         TaskAction.OpenNotificationAccess ->
-            Intent("dev.localintelligence.android.tools.notifications.REQUEST_CONSENT")
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
 
         // `Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`, not an
         // Intent constant: it lives on Settings. This opens the system's own
@@ -215,6 +247,14 @@ fun intentForTaskAction(context: Context, action: TaskAction): Intent? {
         // `canScheduleExactAlarms()` is false and the only way to change that is
         // a system screen. This exact action is the one the platform documents
         // for it; a generic ACTION_SETTINGS would land the user in a list.
+        //
+        // API 31+. Below that the action does not exist, so `resolveActivity`
+        // returns null and this returns null — which is correct rather than a
+        // dead button, because `canScheduleExactAlarms()` is hard-coded `true`
+        // below 31 (see TaskAlarmScheduler), so the blocker that offers this
+        // action is never rendered on such a device. The two facts cannot
+        // disagree: the gate that hides the blocker and the gate that hides the
+        // intent are the same API-level check.
         TaskAction.OpenExactAlarmSettings ->
             Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
     }
