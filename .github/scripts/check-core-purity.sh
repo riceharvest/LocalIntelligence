@@ -68,7 +68,9 @@ unreadable=0
 # single-quote character of its own — comparing a char literal to "'" would
 # terminate the string. SQ is that character, built numerically instead.
 readonly KT_LEXER='
-BEGIN { SQ = sprintf("%c", 39); src = (src == "" ? "-" : src); st = "code"; bd = 0; td = 0 }
+BEGIN { SQ = sprintf("%c", 39); src = (src == "" ? "-" : src)
+        keepstr = (keepstr == "1")
+        st = "code"; bd = 0; td = 0 }
 {
   n = length($0); out = ""
   for (i = 1; i <= n; i++) {
@@ -87,15 +89,18 @@ BEGIN { SQ = sprintf("%c", 39); src = (src == "" ? "-" : src); st = "code"; bd =
       if (t2 == "*/") { bd--; i += 1; if (bd <= 0) st = "code"; continue }
     } else if (st == "raw") {
       if (t3 == "\"\"\"") { st = "code"; i += 2; continue }
+      if (keepstr) out = out c
     } else if (st == "str") {
       if (c == "\\") { i += 1; continue }
       if (c == "\"") { st = "code"; continue }
       if (c == "$" && (i < n) && substr($0, i+1, 1) == "{") {
         st = "tmpl"; td = 1; out = out "${"; i += 1; continue
       }
+      if (keepstr) out = out c
     } else if (st == "chr") {
       if (c == "\\") { i += 1; continue }
-      if (c == SQ)  { st = "code"; continue }
+      if (c == SQ)  { st = "code"; if (keepstr) out = out c; continue }
+      if (keepstr) out = out c
     } else if (st == "tmpl") {
       if (c == "{") { td++; out = out c; continue }
       if (c == "}") { td--; if (td <= 0) { st = "str" } else { out = out c }; continue }
@@ -181,22 +186,47 @@ if [ -s "$codefile" ]; then
   fi
 fi
 
-# 3. :core must not apply the Android plugin. If it ever does, the JDK-only
-#    compile in this job stops meaning anything.
-if [ -f "$BUILD_FILE" ]; then
-  if grep -n 'com\.android' "$BUILD_FILE"; then
-    echo "::error::$BUILD_FILE must not apply the Android plugin"
+# 3. :core must not apply the Android plugin, and 4. must not depend on an
+#    Android artifact — even transitively through a version-catalog alias whose
+#    name does not say "android".
+#
+#    Both read the build file with COMMENTS REMOVED BUT STRINGS KEPT (keepstr=1).
+#    Strings must stay: `id("com.android.library")` and
+#    `implementation("androidx.core:core-ktx:…")` ARE strings, so a full source
+#    lexer would hide exactly the two things these checks exist to catch. But a
+#    prose comment was enough to fail this gate on its own — a comment reading
+#    "the api surface must never mention an android implementation" contains
+#    both trigger words and was reported as an Android dependency. Same defect
+#    class as the KDoc false positive, one file over.
+if [ -f "$BUILD_FILE" ] && [ -r "$BUILD_FILE" ]; then
+  bf_code=$(tr -d '\000' < "$BUILD_FILE" | awk -v src="$BUILD_FILE" -v keepstr=1 "$KT_LEXER")
+  if [ -z "$bf_code" ]; then
+    echo "::error::could not read $BUILD_FILE after stripping comments. Refusing to report a clean :core from an instrument that produced nothing."
     fail=1
-  fi
-
-  # 4. :core must not depend on an Android artifact, even transitively through
-  #    a version-catalog alias whose name does not say "android".
-  if grep -nE 'implementation|api' "$BUILD_FILE" | grep -i 'android'; then
-    echo "::error::$BUILD_FILE declares an Android dependency"
-    fail=1
+  else
+    # NOTE: each filter below is tested on its OUTPUT, not its exit status. awk
+    # exits 0 whether or not it matched, so `if awk ...; then fail=1` fires on
+    # a clean build file — the first version of this fix did exactly that and
+    # failed the gate on the untouched tree.
+    if [ -n "$(printf '%s\n' "$bf_code" | awk -F'\t' '$3 ~ /com[.]android/ { print $1 ":" $2 ": " $3 }')" ]; then
+      printf '%s\n' "$bf_code" | awk -F'\t' '$3 ~ /com[.]android/ { print "  " $1 ":" $2 ": " $3 }'
+      echo "::error::$BUILD_FILE must not apply the Android plugin"
+      fail=1
+    fi
+    if [ -n "$(printf '%s\n' "$bf_code" | awk -F'\t' '
+        { u = toupper($3) }
+        u ~ /(^|[^A-Z0-9_.])(IMPLEMENTATION|API)[( ]/ && u ~ /ANDROID/ { print $1 ":" $2 ": " $3 }
+      ')" ]; then
+      printf '%s\n' "$bf_code" | awk -F'\t' '
+        { u = toupper($3) }
+        u ~ /(^|[^A-Z0-9_.])(IMPLEMENTATION|API)[( ]/ && u ~ /ANDROID/ { print "  " $1 ":" $2 ": " $3 }
+      '
+      echo "::error::$BUILD_FILE declares an Android dependency"
+      fail=1
+    fi
   fi
 else
-  echo "::error::$BUILD_FILE not found. Cannot verify that :core is free of the Android plugin and of Android dependencies."
+  echo "::error::$BUILD_FILE missing or unreadable. Cannot verify that :core is free of the Android plugin and of Android dependencies."
   fail=1
 fi
 
