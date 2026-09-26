@@ -61,13 +61,28 @@ class ModelMemoryEstimator(
 ) {
 
     /**
-     * Context length assumed when the file declares none.
+     * Context length assumed when the file declares none AND the caller states
+     * none.
+     *
+     * NOT the app's context, and deliberately not
+     * [dev.localintelligence.core.model.token.ContextCeiling.ALLOCATED_CONTEXT_TOKENS]:
+     * this is the floor for a memory *estimate*, and the app allocates
+     * [dev.localintelligence.core.model.token.ContextCeiling.ALLOCATED_CONTEXT_TOKENS].
+     * It is recorded here so the two can never be confused for one number.
      *
      * WHY 2048: it is the smallest window that can hold a system prompt, a tool result
      * and a reply, so it is the smallest assumption that would not obviously understate
      * a real session. Choosing something larger would inflate every estimate for files
      * that simply omit the key, and choosing something smaller would hide the problem.
      * The assumption is always reported as [GgufWarning.ContextLengthMissing].
+     *
+     * UNREACHABLE IN THE SHIPPING PATH, and audited as part of the 6000-vs-4096
+     * ceiling work: every production caller of [estimate] passes
+     * `contextLengthOverride` (the importer, the downloader, the self-check and
+     * `Diagnostics` all do), so this only fires for a direct library caller. It
+     * was left at 2048 rather than "fixed" to the allocation because changing it
+     * would move RAM-fit verdicts — a different subsystem, on a path nothing
+     * currently reaches. Worth revisiting if that ever changes.
      */
     val assumedContextLength: Long = 2_048
 

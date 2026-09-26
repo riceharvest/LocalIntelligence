@@ -5,8 +5,14 @@ import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.tool.ToolDefinition
 
 /**
- * Assembles the exact prompt the model sees. Optimized for small models:
- * target 3-6K tokens, hard objective that no routine task needs a 20K prefill.
+ * Assembles the exact prompt the model sees. Optimized for small models, with
+ * the hard objective that no routine task needs a 20K prefill.
+ *
+ * The 3-6K figure in that sentence is a COST target, not a ceiling. The ceiling
+ * is [dev.localintelligence.core.model.token.ContextCeiling.workingLimit] of
+ * whatever the loaded model reports, and on a 4K-context model that is 2662 —
+ * see `DefaultContextBuilder`, which is where the 6000-vs-4096 disagreement
+ * between those two numbers used to live.
  */
 interface ContextBuilder {
     fun build(

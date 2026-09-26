@@ -1,5 +1,7 @@
 package dev.localintelligence.core.hub
 
+import dev.localintelligence.core.model.token.ContextCeiling
+
 /**
  * The device's memory and storage budget, as the hub needs to see it.
  *
@@ -179,15 +181,19 @@ object PreDownloadMemoryModel : RangedMemoryModel {
      * The KV term is exactly linear in context, so a mismatch here is not an
      * estimate disagreeing with reality, it is the model pricing half a cache.
      *
-     * WHY 4096 IS A CONSTANT AND NOT A PARAMETER: the app has no context
-     * control. `ModelManagerScreen` says so on the record itself, and
+     * WHY IT IS A CONSTANT AND NOT A PARAMETER: the app has no context control.
+     * `ModelManagerScreen` says so on the record itself, and
      * `ModelAvailability.describeLoadFailure` tells a user hitting OOM that
      * "a smaller model is the only lever" for exactly this reason. So there is
-     * one context length the app ever uses, and this is it. When a control is
-     * added, this becomes a parameter and the callers that pass 2048 —
-     * `ModelDownloader.PreDownloadContextLength` — have to move with it.
+     * one context length the app allocates, and it is
+     * [ContextCeiling.ALLOCATED_CONTEXT_TOKENS] — the same constant the prompt
+     * budget derives from, so a download plan and the prompt it precedes can
+     * never be priced at different contexts.
+     *
+     * The `ModelDownloader.PreDownloadContextLength` caller that used to pass
+     * 2048 now derives this too; it was the last one.
      */
-    const val DEFAULT_CONTEXT_LENGTH: Int = 4_096
+    const val DEFAULT_CONTEXT_LENGTH: Int = ContextCeiling.ALLOCATED_CONTEXT_TOKENS
 
     override fun estimate(
         fileBytes: Long,

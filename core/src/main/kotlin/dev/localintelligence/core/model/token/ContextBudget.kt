@@ -176,18 +176,31 @@ class ContextBudget(
          *
          * Architecture section 10: "When the task is complete, answer
          * concisely." 256 tokens is ~180 words, which is far more than a
-         * concise answer needs and small enough that a 6K working target still
-         * allows a 5.7K prompt.
+         * concise answer needs and small enough that a [ContextCeiling] working
+         * target still allows a prompt of nearly the whole limit.
          */
         const val DEFAULT_OUTPUT_RESERVE = 256
 
         /**
-         * The working target from architecture section 9, as a budget.
+         * The working target as a budget, for a model with this window.
          *
-         * Provided so the agent loop has one obvious constant to tune and every
-         * call site agrees. A 4K-context model uses a smaller instance of this.
+         * The parameter is the loaded model's real context length, and it is
+         * REQUIRED rather than defaulted. A default here is what made this
+         * function a second source of truth: it used to return
+         * `ContextBudget(6000)` with no model in sight, which is how a 6000
+         * ceiling and a 4096 cache coexisted in one product. A caller that
+         * cannot say how big the window is must pass
+         * [ContextCeiling.FALLBACK_WINDOW_TOKENS] deliberately and be wrong on
+         * purpose, rather than inherit a number that was never anybody's.
+         *
+         * @param modelContextTokens what the loaded model reports, or 0 for
+         *   "does not know yet" — resolved by [ContextCeiling].
+         * @param costCap the prefill cost cap. See [ContextCeiling.PREFILL_COST_CAP].
          */
-        fun workingTarget(): ContextBudget = ContextBudget(limitTokens = 6000)
+        fun workingTarget(
+            modelContextTokens: Int,
+            costCap: Int = ContextCeiling.PREFILL_COST_CAP,
+        ): ContextBudget = ContextCeiling.budget(modelContextTokens, costCap)
     }
 }
 

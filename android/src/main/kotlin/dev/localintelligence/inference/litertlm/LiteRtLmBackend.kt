@@ -15,6 +15,7 @@ import dev.localintelligence.core.model.ModelSpec
 import dev.localintelligence.core.model.SamplingParams
 import dev.localintelligence.core.model.StopReason
 import dev.localintelligence.core.model.StreamingModelBackend
+import dev.localintelligence.core.model.token.ContextCeiling
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -679,7 +680,16 @@ class LiteRtLmBackend(
          */
         const val DEFAULT_TOP_K = 40
 
-        const val DEFAULT_CONTEXT_LENGTH = 4096
+        /**
+         * The context allocated when the caller does not state one.
+         *
+         * [ContextCeiling.ALLOCATED_CONTEXT_TOKENS] so this backend, the GGUF
+         * loader and the prompt budget in `:core` all read one number. A
+         * LiteRT model that reports a different context at load has its
+         * reported value used instead (see [deriveCapabilities]) — the constant
+         * is only the floor, never the ceiling.
+         */
+        const val DEFAULT_CONTEXT_LENGTH = ContextCeiling.ALLOCATED_CONTEXT_TOKENS
 
         /** Below this the model cannot fit a prompt and an answer together. */
         private const val MIN_CONTEXT_LENGTH = 128

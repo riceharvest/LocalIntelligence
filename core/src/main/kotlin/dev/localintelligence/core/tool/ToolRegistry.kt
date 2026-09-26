@@ -136,12 +136,15 @@ fun interface ToolSelector {
  * | 10            |         70.9% |  320                     |
  * | 12            |         74.4% |  367                     |
  *
- * 6 -> 10 buys 8.1 points of retrieval for 101 prompt tokens, against a 6000
- * token working limit. It is `AgentConfig.maxVisibleTools`, one constant, in a
- * file this change-set does not own — and it trades against the opposite
- * constraint, that a 1-3B model chooses less reliably from 10 tools than from
- * 6. That is a product call with a measurement on both sides, not a heuristic
- * somebody should quietly pick.
+ * 6 -> 10 buys 8.1 points of retrieval for 101 prompt tokens, against a
+ * working limit of `ContextCeiling.workingLimit(modelWindow)` — 2662 on this
+ * app's 4096 allocation, not the 6000 prefill cost cap. Against 2662 those 101
+ * tokens are 3.8% of the budget rather than 1.7%, so the trade is worse than
+ * it looked when the ceiling was the cap. It is `AgentConfig.maxVisibleTools`,
+ * one constant, in a file this change-set does not own — and it trades against
+ * the opposite constraint, that a 1-3B model chooses less reliably from 10
+ * tools than from 6. That is a product call with a measurement on both sides,
+ * not a heuristic somebody should quietly pick.
  *
  * Reproducing these numbers needs the held-out utterance lists, which are not
  * in this repository. There is no harness here, so these are stated as a
