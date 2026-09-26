@@ -969,8 +969,23 @@ class AgentController(
                 }
 
                 UsageBucket.MEMORY -> {
-                    given = working.memories.isNotEmpty()
-                    next = working.copy(memories = working.memories.drop(1))
+                    // NOT a real drop, and must not pretend to be one.
+                    //
+                    // `buildRequest` re-runs `memory.search(task, config.memoryResults)`
+                    // on every step and hands the full result to the builder, so
+                    // shortening `working.memories` here changes the PRICED state
+                    // and nothing else. The next step re-fetches the same rows and
+                    // the prompt is exactly as long as before, while the gate has
+                    // already recorded a drop it was credited with.
+                    //
+                    // That is falsifying in the permissive direction: reproduced
+                    // at 2625 real tokens against a 2406 ceiling, where this leg
+                    // supplied the one phantom drop that flipped the verdict to
+                    // FITS. Reporting `given = false` makes the gate say DOES NOT
+                    // FIT instead, which is the honest answer and is the same
+                    // direction every other leg already fails in.
+                    given = false
+                    next = working
                 }
 
                 UsageBucket.SUMMARY, UsageBucket.TASK, UsageBucket.TOOL -> {
@@ -1055,8 +1070,22 @@ class AgentController(
                         system.append(message.text).append('\n')
                     }
 
+                // A PRIOR user turn is a TURN, not a memory.
+                //
+                // It used to go into `memories`, which made the budget gate lie
+                // in the permissive direction: the MEMORY leg drops from the
+                // priced fiction only, because a real memory block is re-rendered
+                // from the store each step. A prior user turn is a live message
+                // in the window, so dropping it from the fiction freed tokens
+                // that were never actually freed. Reproduced: 2625 real tokens
+                // against a 2406 ceiling reported FITS, because one phantom
+                // MEMORY drop moved the projection under the limit.
+                //
+                // `recentTurns` is the bucket whose drop leg really does remove
+                // from the live window (`dropOldestTurn`), so the fiction and
+                // reality stay in agreement.
                 is ChatMessage.User ->
-                    if (message.text == task) Unit else memories += message.text
+                    if (message.text == task) Unit else turns += message
 
                 is ChatMessage.Assistant -> turns += message
 
