@@ -23,9 +23,13 @@ import dev.localintelligence.core.tool.catalogue.V0ToolCatalogue
  * that lists the tool families is a `:app` that has to be edited every time a
  * tool lands.
  *
- * Adding a tool means editing three places, and `init` fails loudly rather than
- * letting any two of them drift: the definition in its own file, the entry in
- * [V0ToolCatalogue], and the list below.
+ * Adding a tool means editing two files — its own implementation in
+ * `android/.../tools/<family>/`, which carries only the schema and the risk
+ * tier, and the one [dev.localintelligence.core.tool.catalogue.ToolMeta]
+ * descriptor that holds its name, description, category and tags. The entry
+ * below cannot drift from any of them: the definitions are built from the same
+ * descriptors, so `init` failing loudly means two of those files genuinely
+ * disagree rather than that somebody forgot to copy a string across.
  *
  * ## Why it is cheap to call
  *
@@ -77,13 +81,36 @@ fun androidTools(context: Context): List<AgentTool> {
  * said `DESTRUCTIVE` would be auto-executed, and no amount of green tests
  * elsewhere would notice.
  *
- * NOT checked: description, tags, category and schema properties. Those differ
- * legitimately today — the Android schemas carry richer argument
- * documentation and a few argument names the catalogue does not have — and
- * forcing one side onto the other would either delete working schema
- * documentation or break `execute()`. Making the catalogue authoritative for
- * the whole definition is a real piece of work with a real migration, and it is
- * recorded as follow-up rather than smuggled in here.
+ * ## Description and tags: one value, and still checked
+ *
+ * This function used to carry a paragraph explaining that description, tags,
+ * category and schema were deliberately out of scope because the Android
+ * schemas carry richer argument documentation and "forcing one side onto the
+ * other would be a real piece of work". The schema half of that is still true.
+ * The description/tags half is not, and the reason it was ever true is the bug
+ * this file's guard used to sit next to without seeing.
+ *
+ * Descriptions and tags were written out twice, and the two copies differed on
+ * all 25 descriptions and 22 of 25 tag sets. Because `AppContainer` builds the
+ * registry from `androidTools(context)` and `AgentController.buildRequest` builds
+ * both the system prompt and the grammar from the *registry's* definitions, the
+ * `:android` text was the only text the model ever saw. The catalogue's prose
+ * was documentation of a tool set nobody reads, which is why careful tuning
+ * there could not have moved selection accuracy at all.
+ *
+ * Both sides now build their definitions from the same
+ * [dev.localintelligence.core.tool.catalogue.ToolMeta] descriptor, so there is
+ * one description and one tag set per tool. The checks below are belt to that
+ * braces: they cannot fail through the descriptor, and they fire the moment
+ * somebody hand-writes a `ToolDefinition` with its own strings — the one way
+ * the duplication can come back, and a way that compiles cleanly.
+ *
+ * NOT checked: schema. The `:android` schemas are the ones the model is given
+ * and the ones `execute()` validates against; they carry richer argument
+ * documentation, per-tool argument names, and `minProperties` constraints the
+ * implementations enforce. The catalogue's are a shorter restatement kept as
+ * documentation. Collapsing them onto one side is a real migration with real
+ * breakage risk, and it is recorded as follow-up rather than smuggled in here.
  *
  * ## Why this is an exception and not a warning
  *
@@ -112,6 +139,31 @@ private fun requireCatalogueAgreement(tools: List<AgentTool>): List<AgentTool> {
         "risk tier drift between V0ToolCatalogue and the shipped tools. The policy gates on " +
             "the tool's own tier, so a mismatch means the catalogue understates how dangerous " +
             "a call is: $tierMismatch"
+    }
+
+    // The one-direction name-and-tier check above is kept separate on purpose:
+    // its messages name the failure a reader hits in :android, and it runs
+    // before the shared check below so a tool that is not catalogued at all is
+    // reported as missing rather than as three simultaneous mismatches.
+    val textMismatch = tools.mapNotNull { tool ->
+        val def = tool.definition
+        val catalogued = V0ToolCatalogue.byName(def.name) ?: return@mapNotNull null
+        when {
+            catalogued.description != def.description ->
+                "${def.name}: description differs from the catalogue entry"
+            catalogued.tags != def.tags ->
+                "${def.name}: tags differ from the catalogue entry " +
+                    "(only in catalogue=${catalogued.tags - def.tags} " +
+                    "only in tool=${def.tags - catalogued.tags})"
+            else -> null
+        }
+    }
+    check(textMismatch.isEmpty()) {
+        "descriptive metadata drift between V0ToolCatalogue and the shipped tools. Both " +
+            "sides are supposed to read one string and one tag set from ToolMeta, and the " +
+            "shipped tool's copy is the one the model and the selector actually read — so " +
+            "this means a ToolDefinition was hand-written instead of built with " +
+            "ToolMeta.<TOOL>.define(...). $textMismatch"
     }
     return tools
 }

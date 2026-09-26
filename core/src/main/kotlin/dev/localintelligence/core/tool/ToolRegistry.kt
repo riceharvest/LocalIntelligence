@@ -36,8 +36,7 @@ interface ToolRegistry {
  *
  * The check fires at construction, so drift is a start-up failure rather than a
  * model that confidently calls a tool the product does not have. See
- * [CatalogueAgreement] for what is checked and why description, tags and schema
- * deliberately are not.
+ * [CatalogueAgreement] for what is checked and why schema deliberately is not.
  *
  * @param catalogue the reference set. Pass an empty list to opt out — for a
  *   registry of tools that are not part of the shipped v0 catalogue at all,

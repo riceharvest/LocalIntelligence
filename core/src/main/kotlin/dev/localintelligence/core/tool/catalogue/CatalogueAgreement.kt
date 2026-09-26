@@ -44,6 +44,20 @@ import dev.localintelligence.core.tool.ToolDefinition
  *  - **Risk tier**, against the catalogue as the reference. Risk is the one
  *    field that must never drift, because
  *    [dev.localintelligence.core.policy.RiskPolicy] gates on it.
+ *  - **Description, category and tags.** These are NOT duplicated any more —
+ *    both sides build their [ToolDefinition] from the same [ToolMeta]
+ *    descriptor, so agreement is structural. It is checked anyway, and the
+ *    reason matters: a structural guarantee only holds for code that goes
+ *    through the descriptor, and the failure this catches is exactly someone
+ *    hand-writing a `ToolDefinition` with its own description. That is a
+ *    well-typed, compiling, silent mistake, and it is the one that shipped a
+ *    whole change-set's tag tuning to a file the model never reads.
+ *  - **Schema**, deliberately NOT checked. The `:android` schemas are the real
+ *    ones: richer argument documentation, per-tool argument names, and
+ *    `minProperties` constraints the implementations enforce. The catalogue's
+ *    are a shorter restatement kept as documentation. Unifying them is a real
+ *    migration with real breakage risk, and it is tracked as follow-up rather
+ *    than smuggled in here.
  */
 data class CatalogueDrift(
     /** Shipped tools with no catalogue entry. */
@@ -56,14 +70,26 @@ data class CatalogueDrift(
     val observationOriginMismatch: List<String>,
     /** `"name: catalogue=<c> tool=<c>"` per mismatch. */
     val categoryMismatch: List<String>,
+    /** `"name: ..."` per mismatch, with both descriptions quoted. */
+    val descriptionMismatch: List<String>,
+    /** `"name: only in catalogue=[...] only in tool=[...]"` per mismatch. */
+    val tagMismatch: List<String>,
 ) {
-    /** True when both sides say the same thing about the same set of tools. */
+    /**
+     * True when both sides say the same thing about the same set of tools.
+     *
+     * [observationOriginMismatch] is part of this, and was briefly dropped when
+     * the ToolMeta refactor merged: the check still *computed* the list, and
+     * `describe()` still explained it, so the field looked guarded while
+     * `isEmpty` returned true with origin drift present and `require()` let the
+     * app boot. A security check that is computed and printed but never acted on
+     * is worse than no check, because it reads as covered.
+     */
     val isEmpty: Boolean
         get() = unlisted.isEmpty() && unimplemented.isEmpty() &&
-            riskTierMismatch.isEmpty() &&
-                observationOriginMismatch.isEmpty() &&
-                categoryMismatch.isEmpty()
-
+            riskTierMismatch.isEmpty() && observationOriginMismatch.isEmpty() &&
+            categoryMismatch.isEmpty() &&
+            descriptionMismatch.isEmpty() && tagMismatch.isEmpty()
     /**
      * One sentence per class of drift, in the order a reader should act on them.
      *
@@ -103,6 +129,23 @@ data class CatalogueDrift(
                     "documentation, and a wrong one is a wrong claim about what the product does.",
             )
         }
+        if (descriptionMismatch.isNotEmpty()) {
+            add(
+                "description drift ($descriptionMismatch): both sides are supposed to read the " +
+                    "one string in ToolMeta, so this means a ToolDefinition was hand-written " +
+                    "instead of built from ToolMeta.<TOOL>.define(...). The model reads the " +
+                    "tool's copy, so the catalogue is documenting text it never sends.",
+            )
+        }
+        if (tagMismatch.isNotEmpty()) {
+            add(
+                "retrieval tag drift ($tagMismatch): the lexical selector scores the shipped " +
+                    "tool's tags, so a tool whose tags differ from its catalogue entry is " +
+                    "reachable by different words on the two sides — which is the failure this " +
+                    "check exists to make impossible. Build the definition from " +
+                    "ToolMeta.<TOOL>.define(...) instead of restating tags.",
+            )
+        }
     }.joinToString(separator = " ")
 }
 
@@ -112,7 +155,7 @@ object CatalogueAgreement {
     /**
      * Compares [shipped] against [catalogue] and returns every disagreement.
      *
-     * Never throws and never short-circuits: it reports all four classes at once,
+     * Never throws and never short-circuits: it reports all six classes at once,
      * because a reader fixing drift wants the whole list, not the first entry
      * repeated once per run.
      */
@@ -129,6 +172,8 @@ object CatalogueAgreement {
         val riskTierMismatch = mutableListOf<String>()
         val observationOriginMismatch = mutableListOf<String>()
         val categoryMismatch = mutableListOf<String>()
+        val descriptionMismatch = mutableListOf<String>()
+        val tagMismatch = mutableListOf<String>()
         for ((name, tool) in shippedByName) {
             val def = tool.definition
             val catalogued = catalogueByName[name] ?: continue
@@ -147,6 +192,15 @@ object CatalogueAgreement {
             if (catalogued.category != def.category) {
                 categoryMismatch += "$name: catalogue=${catalogued.category} tool=${def.category}"
             }
+            if (catalogued.description != def.description) {
+                descriptionMismatch += "$name: catalogue=${quote(catalogued.description)} " +
+                    "tool=${quote(def.description)}"
+            }
+            if (catalogued.tags != def.tags) {
+                tagMismatch += "$name: only in catalogue=${
+                    quoteTags(catalogued.tags - def.tags)
+                } only in tool=${quoteTags(def.tags - catalogued.tags)}"
+            }
         }
         return CatalogueDrift(
             unlisted = unlisted,
@@ -154,6 +208,8 @@ object CatalogueAgreement {
             riskTierMismatch = riskTierMismatch.sorted(),
             observationOriginMismatch = observationOriginMismatch.sorted(),
             categoryMismatch = categoryMismatch.sorted(),
+            descriptionMismatch = descriptionMismatch.sorted(),
+            tagMismatch = tagMismatch.sorted(),
         )
     }
 
@@ -190,3 +246,19 @@ object CatalogueAgreement {
         return shipped
     }
 }
+
+/**
+ * Quote a description for a drift message.
+ *
+ * Truncated, because a description is two clauses at most today and a future
+ * one could be a paragraph — and a start-up failure whose message is longer
+ * than the log line is a start-up failure nobody reads.
+ */
+private fun quote(text: String): String {
+    val clipped = if (text.length <= 80) text else text.take(77) + "..."
+    return "\"" + clipped + "\""
+}
+
+/** Quote a tag set difference for a drift message. */
+private fun quoteTags(tags: Set<String>): String =
+    if (tags.isEmpty()) "[]" else tags.sorted().joinToString(prefix = "[", postfix = "]")

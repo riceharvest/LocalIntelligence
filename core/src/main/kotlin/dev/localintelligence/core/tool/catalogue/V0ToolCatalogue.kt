@@ -3,7 +3,6 @@ package dev.localintelligence.core.tool.catalogue
 import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolRisk
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -37,32 +36,35 @@ import kotlinx.serialization.json.putJsonObject
  * | `notifications` |     3 | read the shade, reply in it, clear it                    |
  * | `web`           |     1 | the one tool that reaches the internet                   |
  *
- * ## WHAT THIS FILE IS NOT, stated because it was previously misstated
+ * ## What this file holds, and where the descriptions went
  *
- * **The descriptions and tags below do not reach the model and do not drive
- * retrieval.** This file is read by exactly one consumer: the catalogue
- * agreement check ([CatalogueAgreement]), for names, risk tiers and categories.
- * `AppContainer` builds the registry from `androidTools(context)`, and
- * `AgentController.buildRequest` builds both the system prompt
- * (`SystemPrompts.forTools`) and the grammar (`GrammarBuilder.forActions`) from
- * the *registry's* definitions. So the text the model reads and the tags the
- * lexical selector scores are the `:android` ones — measurably different
- * strings, written separately.
+ * A tool's **name, description, category and tags live in [ToolMeta]**, one
+ * entry per tool, and the `AgentTool` implementations in `:android` build their
+ * definitions from those same entries via `ToolMeta.<TOOL>.define(...)`. This
+ * file passes the two things that legitimately differ per side — the schema and
+ * the risk tier — and nothing else.
  *
- * That is not a rounding error to be tidied here. It is the reason a whole
- * change-set's careful tag and description tuning could not have moved
- * selection accuracy at all, and it is worth stating rather than leaving the
- * next author to tune the wrong file again. Two numbers, both measured with
- * `HeuristicTokenCounter` rather than estimated:
+ * That split is the point. These fields used to be written out twice, and the
+ * two copies were not equal: measured on main before the split, all 25
+ * descriptions and 22 of 25 tag sets differed. The `:android` copy was the live
+ * one, because `AppContainer` builds the registry from `androidTools(context)`
+ * and `AgentController.buildRequest` builds both the system prompt and the
+ * grammar from the *registry's* definitions. So a change-set that retuned the
+ * text in this file could not have moved selection accuracy at all — the model
+ * never saw it. There is no second copy to retune now.
  *
- * | set                | description tokens | tag tokens |
- * |--------------------|-------------------:|-----------:|
- * | this catalogue, 25 |                632 |        356 |
- * | `:android`, 25     |                484 |        320 |
+ * The two fields that stay per-side, and why:
  *
- * The 219-token system prompt a real turn carries is built from the `:android`
- * side. The budgets below are therefore about the *documentation* staying
- * reviewable, not about prompt cost.
+ *  - **schema.** The `:android` schemas are the ones the model is given and the
+ *    ones `execute()` validates against. They carry richer argument
+ *    documentation, per-tool argument names, and `minProperties` constraints
+ *    the implementations enforce. The versions below are a shorter restatement
+ *    kept as the catalogue's record of each tool's arguments. Collapsing them
+ *    onto one side is a real migration with real breakage risk, and it is not
+ *    this change's job.
+ *  - **risk.** Declared on both sides and checked by [CatalogueAgreement] in
+ *    both directions, because [dev.localintelligence.core.policy.RiskPolicy]
+ *    gates unattended execution on it.
  *
  * Explicitly NOT in v0, and why:
  *
@@ -76,65 +78,49 @@ import kotlinx.serialization.json.putJsonObject
  *   competing for the same six retrieval slots.
  * - **Browser and computer-use.** Banned by `docs/architecture.md` section 1.
  *
- * ## Why the description text is written the way it is
- *
- * A 1-3B model reads *some* description text, just not this one — see the note
- * above. The rules below were written for a text that reaches the prompt, and
- * they are kept because the catalogue is the reference a future migration to a
- * single source of truth would start from:
- *
- * 1. One clause for what it returns, one clause for when to use it.
- * 2. No parameter names. That is what the JSON Schema is for, and duplicating it is
- *    how a 25-tool catalogue becomes a 2,000-token prompt.
- * 3. No marketing voice, no "This tool allows you to", no second person.
- * 4. The words a user would type, not the words a programmer would.
- *
  * ## Budget
  *
  * [DESCRIPTION_TOKEN_BUDGET] is 800 tokens of description text for the whole
- * catalogue. The measured cost is **632** across 25 tools under
+ * catalogue. The measured cost is **484** across the 25 tools under
  * `HeuristicTokenCounter` — the same estimator the context builder's step gate
  * uses, and a calibrated one (`HeuristicTokenCounter`'s own KDoc records it
  * landing within ~1% of a real Qwen2.5 vocabulary on its golden set). It is
- * about 25 tokens, two short clauses, per tool.
+ * about 19 tokens, two short clauses, per tool.
  *
- * The older figure in this comment (738 across 26 tools) came from the
- * `length / 4` heuristic, which `HeuristicTokenCounter` documents as ~35% low
- * on text like this. It has been replaced rather than left beside the truth.
+ * [TAG_BUDGET] is 384 against a measured 320 across the 25 tools, so the tags fit
+ * with room, which is right: tags are the one part of a definition that exists
+ * to be over-broad.
  *
- * **Nothing enforces either budget.** No build step and no test asserts them.
- * The constants are kept as review targets and are honest about being
+ * Both budgets are measured against [ToolMeta]'s text, which is the text the
+ * model is actually given. **Neither budget is enforced.** No build step and no
+ * test asserts them. The constants are review targets and are honest about being
  * unenforced — which is a different thing from a number that looks enforced and
  * is not.
  *
- * That is also why the catalogue/registry agreement is now *structural* rather
- * than a test: [CatalogueAgreement] runs in `SimpleToolRegistry`'s constructor,
- * in both directions, so a catalogue entry with no implementation behind it
- * cannot be committed. This file once carried exactly that: `calendar.delete`
- * was documented, schema'd, tiered DESTRUCTIVE and tagged for retrieval, and no
- * class implemented it. Nothing noticed, because nothing checked.
- *
- * [TAG_BUDGET] is 224 against a measured 356 across 25 tools, so the tags are
- * over budget as written. Raised to 384 rather than the tags cut, because the
- * tags are the one part of a definition that exists to be over-broad — and again
- * they are documentation, since retrieval reads the `:android` side.
+ * The catalogue/registry agreement is *structural* rather than a test:
+ * [CatalogueAgreement] runs in `SimpleToolRegistry`'s constructor, in both
+ * directions, so a catalogue entry with no implementation behind it cannot be
+ * committed, and a shipped tool the catalogue has never heard of cannot be
+ * built. That check once had a hole worth naming: `calendar.delete` was
+ * documented, schema'd, tiered DESTRUCTIVE and tagged here, and no class
+ * implemented it. Nothing noticed, because the check only ran one way.
  */
 object V0ToolCatalogue {
 
     /**
      * Total description tokens allowed across the catalogue.
      *
-     * 800 against a measured 632 at 25 tools. Sizing this is a judgement call about
-     * what a 1-3B model can hold in its head at once, not a round number -- but it is
-     * a number, and it is NOT enforced by any build step. See the Budget section.
+     * 800 against a measured 484 at 25 tools. Sizing this is a judgement call
+     * about what a 1-3B model can hold in its head at once, not a round number
+     * -- but it is a number, and it is NOT enforced by any build step.
      */
     const val DESCRIPTION_TOKEN_BUDGET: Int = 800
 
     /**
-     * Total tags allowed across the catalogue, against a measured 356 at 25 tools.
+     * Total tags allowed across the catalogue, against a measured 320 at 25 tools.
      *
      * Not enforced, and set with room because tags are retrieval fuel: they are
-     * meant to be over-broad. See the Budget section.
+     * meant to be over-broad.
      */
     const val TAG_BUDGET: Int = 384
 
@@ -160,11 +146,7 @@ object V0ToolCatalogue {
 
     val definitions: List<ToolDefinition> = listOf(
         // ---------------------------------------------------------------- files
-        ToolDefinition(
-            name = "files.list",
-            description = "List documents and downloads this app can see, newest " +
-                "first. Use when the user asks what files they have.",
-            category = "files",
+        ToolMeta.FILES_LIST.define(
             schema = objSchema {
                 putJsonObject("limit") {
                     put("type", "integer")
@@ -174,19 +156,9 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
-            tags = setOf(
-                "files", "documents", "downloads", "folder",
-                "what files do i have", "list my files",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "files.search",
-            description = "Find documents by name, type, or date. Use when the " +
-                "user names a file or asks what they downloaded recently.",
-            category = "files",
+        ToolMeta.FILES_SEARCH.define(
             schema = objSchema {
                 putJsonObject("query") {
                     put("type", "string")
@@ -214,19 +186,9 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
-            tags = setOf(
-                "search", "find", "look for", "where is",
-                "pdf", "report", "downloaded", "my note",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "files.read_text",
-            description = "Read the beginning of a text document. Use when the " +
-                "user wants to see or quote what a file says.",
-            category = "files",
+        ToolMeta.FILES_READ_TEXT.define(
             schema = objSchema(required = listOf("uri")) {
                 putJsonObject("uri") {
                     put("type", "string")
@@ -234,19 +196,9 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
-            tags = setOf(
-                "read", "open file", "contents", "text",
-                "preview", "what does it say", "summarize this file", "show me the file",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "files.write_text",
-            description = "Write text into a document, or create a new file in " +
-                "Downloads. Use when the user wants a note or answer saved to a file.",
-            category = "files",
+        ToolMeta.FILES_WRITE_TEXT.define(
             schema = objSchema(required = listOf("content")) {
                 putJsonObject("uri") {
                     put("type", "string")
@@ -279,18 +231,9 @@ object V0ToolCatalogue {
             // The cost is a confirmation on "save my notes", which is the
             // right trade against silently overwriting a file.
             risk = ToolRisk.DESTRUCTIVE,
-            tags = setOf(
-                "save", "write", "note", "notes",
-                "new note", "create file", "jot down", "export",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "files.delete",
-            description = "Delete one document by URI, or by a name matching " +
-                "exactly one file. Use when the user says delete or remove it.",
-            category = "files",
+        ToolMeta.FILES_DELETE.define(
             schema = objSchema {
                 putJsonObject("uri") {
                     put("type", "string")
@@ -306,19 +249,10 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.DESTRUCTIVE,
-            tags = setOf(
-                "delete", "remove", "erase", "trash",
-                "get rid of", "pdf", "invoice", "document",
-            ),
-            requiredPermission = null,
         ),
 
         // ----------------------------------------------------------------- apps
-        ToolDefinition(
-            name = "apps.list",
-            description = "List installed apps with their labels and package " +
-                "names. Use when the user asks what apps are on the phone.",
-            category = "apps",
+        ToolMeta.APPS_LIST.define(
             schema = objSchema {
                 putJsonObject("query") {
                     put("type", "string")
@@ -333,19 +267,9 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
-            tags = setOf(
-                "apps", "applications", "installed", "what apps do i have",
-                "launcher", "home screen", "package name",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "apps.open",
-            description = "Open one installed app by package name, or by a name " +
-                "matching exactly one app. Use when the user says open or launch it.",
-            category = "apps",
+        ToolMeta.APPS_OPEN.define(
             schema = objSchema {
                 putJsonObject("package") {
                     put("type", "string")
@@ -361,18 +285,9 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.REVERSIBLE,
-            tags = setOf(
-                "open", "launch", "start", "run",
-                "switch to", "go to app", "maps", "whatsapp",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "apps.share",
-            description = "Share a file or text through the Android share sheet. " +
-                "Use when the user says send, share, or forward something to someone.",
-            category = "apps",
+        ToolMeta.APPS_SHARE.define(
             schema = objSchema {
                 putJsonObject("uri") {
                     put("type", "string")
@@ -395,10 +310,6 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.EXTERNAL_COMMUNICATION,
-            tags = setOf(
-                "share", "send", "forward", "pass to another app",
-                "attach", "send it to", "whatsapp it", "email it",
-            ),
             // No Android permission. The system share sheet owns the destination
             // choice, so there is nothing for this app to hold. The runtime still
             // confirms the call, because the risk tier, not the permission, gates it.
@@ -406,11 +317,7 @@ object V0ToolCatalogue {
         ),
 
         // ------------------------------------------------------------- clipboard
-        ToolDefinition(
-            name = "clipboard.read",
-            description = "Read the text currently on the clipboard. Use when " +
-                "the user asks what they copied or what is on the clipboard.",
-            category = "clipboard",
+        ToolMeta.CLIPBOARD_READ.define(
             schema = objSchema {
                 putJsonObject("format") {
                     put("type", "string")
@@ -419,19 +326,9 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
-            tags = setOf(
-                "clipboard", "read clipboard", "what did i copy", "copied text",
-                "clipboard contents", "what is on my clipboard", "paste",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "clipboard.write",
-            description = "Copy text to the device clipboard. Use when the user " +
-                "says copy, cut, or put this on my clipboard.",
-            category = "clipboard",
+        ToolMeta.CLIPBOARD_WRITE.define(
             schema = objSchema(required = listOf("text")) {
                 putJsonObject("text") {
                     put("type", "string")
@@ -448,49 +345,20 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.REVERSIBLE,
-            tags = setOf(
-                "clipboard", "copy", "copy to clipboard", "put on clipboard",
-                "cut", "copy text", "copy this", "save to clipboard",
-            ),
-            requiredPermission = null,
         ),
 
         // ---------------------------------------------------------------- device
-        ToolDefinition(
-            name = "device.battery",
-            description = "Return the battery percentage, charging state, and " +
-                "time until full or empty. Use when the user asks about power.",
-            category = "device",
+        ToolMeta.DEVICE_BATTERY.define(
             schema = objSchema(),
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
-            tags = setOf(
-                "battery", "charge", "power", "battery level",
-                "how much battery", "charging", "how long until charged", "drain",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "device.info",
-            description = "Return the phone model, Android version, screen " +
-                "size, and free storage. Use when the user asks what phone this is.",
-            category = "device",
+        ToolMeta.DEVICE_INFO.define(
             schema = objSchema(),
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
-            tags = setOf(
-                "device info", "phone model", "specs", "which phone",
-                "what phone", "how much storage", "free space", "android version",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "device.open_settings",
-            description = "Open a system settings screen such as wifi, " +
-                "bluetooth, or battery. Use when the user says open settings.",
-            category = "device",
+        ToolMeta.DEVICE_OPEN_SETTINGS.define(
             schema = objSchema(required = listOf("screen")) {
                 putJsonObject("screen") {
                     put("type", "string")
@@ -501,18 +369,9 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.REVERSIBLE,
-            tags = setOf(
-                "open settings", "settings", "wifi settings", "turn on bluetooth",
-                "display settings", "battery saver", "sound settings",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "device.vibrate",
-            description = "Vibrate the phone for a moment. Use when the user " +
-                "says vibrate, buzz, ring, or find my phone.",
-            category = "device",
+        ToolMeta.DEVICE_VIBRATE.define(
             schema = objSchema {
                 putJsonObject("duration_ms") {
                     put("type", "integer")
@@ -522,21 +381,13 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.REVERSIBLE,
-            tags = setOf(
-                "vibrate", "buzz", "vibration", "shake",
-                "ringer", "find my phone", "ring",
-            ),
             // A normal (install-time) permission. Named here as documentation
             // and rendered in the approval dialog; it is not a runtime grant.
             requiredPermission = "android.permission.VIBRATE",
         ),
 
         // ----------------------------------------------------------------- alarm
-        ToolDefinition(
-            name = "alarm.create",
-            description = "Wake the phone at a given time with a one-time " +
-                "alarm. Use when the user says wake me up, ring me at, or set a reminder.",
-            category = "alarm",
+        ToolMeta.ALARM_CREATE.define(
             schema = objSchema(required = listOf("hour")) {
                 putJsonObject("hour") {
                     put("type", "integer")
@@ -575,33 +426,15 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.REVERSIBLE,
-            tags = setOf(
-                "alarm", "set an alarm", "wake me up", "remind me at",
-                "ring at", "set a reminder", "timer for",
-            ),
             requiredPermission = "android.permission.SCHEDULE_EXACT_ALARM",
         ),
 
-        ToolDefinition(
-            name = "alarm.list",
-            description = "List the alarms the assistant has set, with their " +
-                "times and labels. Use when the user asks what alarms they have.",
-            category = "alarm",
+        ToolMeta.ALARM_LIST.define(
             schema = objSchema(),
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
-            tags = setOf(
-                "alarm list", "my alarm", "what alarm do i have", "upcoming alarm",
-                "what did i set", "do i have an alarm", "show my alarm",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "alarm.cancel",
-            description = "Cancel one alarm the assistant set, by id or by " +
-                "time. Use when the user says cancel, delete, or turn off an alarm.",
-            category = "alarm",
+        ToolMeta.ALARM_CANCEL.define(
             schema = objSchema {
                 putJsonObject("id") {
                     put("type", "string")
@@ -633,20 +466,11 @@ object V0ToolCatalogue {
             // assistant itself created, and it refuses rather than guessing. A user
             // asked to confirm every single-alarm cancel stops using the feature.
             risk = ToolRisk.REVERSIBLE,
-            tags = setOf(
-                "cancel alarm", "delete alarm", "remove alarm", "turn off alarm",
-                "stop the alarm", "get rid of my alarm", "kill the alarm",
-            ),
             requiredPermission = "android.permission.SCHEDULE_EXACT_ALARM",
         ),
 
         // -------------------------------------------------------------- calendar
-        ToolDefinition(
-            name = "calendar.search",
-            description = "Return calendar events in a date range, with times " +
-                "and titles. Use when the user asks what is on the calendar or " +
-                "tomorrow's schedule.",
-            category = "calendar",
+        ToolMeta.CALENDAR_SEARCH.define(
             schema = objSchema {
                 putJsonObject("date") {
                     put("type", "string")
@@ -679,19 +503,10 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
-            tags = setOf(
-                "calendar", "schedule", "appointment", "meeting",
-                "event", "agenda", "what do i have on", "next",
-            ),
             requiredPermission = "android.permission.READ_CALENDAR",
         ),
 
-        ToolDefinition(
-            name = "calendar.create",
-            description = "Create a calendar event with a title and a start " +
-                "time. Use when the user says schedule, book, or block out time.",
-            category = "calendar",
+        ToolMeta.CALENDAR_CREATE.define(
             schema = objSchema(required = listOf("title", "start")) {
                 putJsonObject("title") {
                     put("type", "string")
@@ -726,10 +541,6 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.REVERSIBLE,
-            tags = setOf(
-                "schedule", "book", "add event", "new meeting",
-                "block out", "put in my calendar", "reserve",
-            ),
             requiredPermission = "android.permission.WRITE_CALENDAR",
         ),
 
@@ -758,15 +569,13 @@ object V0ToolCatalogue {
         // it, get a validation failure, and leave the user worse off than if the
         // capability had simply never been promised.
         //
-        // To add it back, do it as: implement `CalendarDeleteTool` in
-        // `:android`, add the definition here, and the bidirectional check in
-        // `SimpleToolRegistry` will hold the two sides together on its own.
+        // To add it back, do it as: add a `CALENDAR_DELETE` entry to [ToolMeta],
+        // implement `CalendarDeleteTool` in `:android` with
+        // `ToolMeta.CALENDAR_DELETE.define(...)`, add the definition here, and
+        // the bidirectional check in `SimpleToolRegistry` will hold the two
+        // sides together on its own.
 
-        ToolDefinition(
-            name = "contacts.search",
-            description = "Find contacts by name and return their phone " +
-                "numbers and emails. Use when the user names a person or wants a number.",
-            category = "contacts",
+        ToolMeta.CONTACTS_SEARCH.define(
             schema = objSchema(required = listOf("query")) {
                 putJsonObject("query") {
                     put("type", "string")
@@ -781,19 +590,10 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
-            tags = setOf(
-                "contacts", "contact", "phone number", "who is",
-                "look up", "address book", "call", "ring",
-            ),
             requiredPermission = "android.permission.READ_CONTACTS",
         ),
 
-        ToolDefinition(
-            name = "contacts.get",
-            description = "Return every stored field for one contact by id. " +
-                "Use when a search found the person but the detail is incomplete.",
-            category = "contacts",
+        ToolMeta.CONTACTS_GET.define(
             schema = objSchema(required = listOf("id")) {
                 putJsonObject("id") {
                     put("type", "string")
@@ -802,21 +602,11 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
-            tags = setOf(
-                "contact details", "full contact", "everything about",
-                "contact card", "their email", "their address",
-            ),
             requiredPermission = "android.permission.READ_CONTACTS",
         ),
 
         // --------------------------------------------------------- notifications
-        ToolDefinition(
-            name = "notifications.list",
-            description = "List the notifications on the phone, newest " +
-                "first. Use when the user names an app like WhatsApp, or asks " +
-                "what alerts they missed.",
-            category = "notifications",
+        ToolMeta.NOTIFICATIONS_LIST.define(
             schema = objSchema {
                 putJsonObject("query") {
                     put("type", "string")
@@ -835,19 +625,9 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
-            tags = setOf(
-                "notifications", "alerts", "what came in", "miss",
-                "messages", "whatsapp", "what did i miss", "anything new",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "notifications.reply",
-            description = "Reply to a messaging notification that offers a " +
-                "reply box. Use when the user says answer, reply, or text back.",
-            category = "notifications",
+        ToolMeta.NOTIFICATIONS_REPLY.define(
             schema = objSchema(required = listOf("key", "text")) {
                 putJsonObject("key") {
                     put("type", "string")
@@ -864,18 +644,9 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.EXTERNAL_COMMUNICATION,
-            tags = setOf(
-                "reply", "respond", "answer", "text back",
-                "message back", "quick reply", "send a message", "tell them",
-            ),
-            requiredPermission = null,
         ),
 
-        ToolDefinition(
-            name = "notifications.dismiss",
-            description = "Dismiss one notification from the shade by its key. " +
-                "Use when the user says clear, dismiss, or get rid of it.",
-            category = "notifications",
+        ToolMeta.NOTIFICATIONS_DISMISS.define(
             schema = objSchema(required = listOf("key")) {
                 putJsonObject("key") {
                     put("type", "string")
@@ -884,20 +655,14 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.REVERSIBLE,
-            tags = setOf(
-                "dismiss", "clear notification", "swipe away", "silence",
-                "get rid of notification", "mark as read", "no more alerts",
-            ),
-            requiredPermission = null,
         ),
 
         // ------------------------------------------------------------------- web
-        ToolDefinition(
-            name = "web.fetch",
-            description = "Fetch a web page and return its readable text. " +
-                "Use for weather, news, prices, scores, and any question the " +
-                "phone cannot answer offline.",
-            category = "web",
+        ToolMeta.WEB_FETCH.define(
+            // MUST match `WebFetchTool.definition`. `CatalogueAgreement.require`
+            // is a hard `check()` at composition, so a mismatch here crashes the
+            // app rather than degrading.
+            risk = ToolRisk.NETWORK_EGRESS,
             schema = objSchema(required = listOf("url")) {
                 putJsonObject("url") {
                     put("type", "string")
@@ -911,18 +676,6 @@ object V0ToolCatalogue {
                     put("description", "Characters of text to return. Default 4000.")
                 }
             },
-            risk = ToolRisk.NETWORK_EGRESS,
-            // MUST match `WebFetchTool.definition`. `CatalogueAgreement.require`
-            // is a hard `check()` at composition, so a mismatch here crashes
-            // the app rather than degrading.
-            // A weather or news question has almost no content token to match on
-            // beyond the topic word itself, so this tool needs several exact-token
-            // hits to clear the stopword noise floor every description carries.
-            tags = setOf(
-                "web", "internet", "online", "look up",
-                "website", "weather", "forecast", "right now",
-            ),
-            requiredPermission = null,
         ),
     )
 
@@ -932,6 +685,17 @@ object V0ToolCatalogue {
         // the catalogue is a single file, so fail at class-init with the actual names.
         val dupes = definitions.groupBy { it.name }.filterValues { it.size > 1 }.keys
         check(dupes.isEmpty()) { "duplicate tool names in V0ToolCatalogue: $dupes" }
+
+        // Every entry must come from a descriptor. Without this, a future edit
+        // could add a hand-written ToolDefinition here with a description that
+        // the shipped tool does not share, and the drift this file was refactored
+        // to remove would come straight back through the one door left open.
+        val undescribed = definitions.map { it.name }.filter { ToolMeta.byName(it) == null }
+        check(undescribed.isEmpty()) {
+            "catalogue entries with no ToolMeta descriptor ($undescribed): every entry " +
+                "must be built as ToolMeta.<TOOL>.define(...) so the descriptive " +
+                "metadata has exactly one home."
+        }
     }
 
     // ---------------------------------------------------------------- accessors

@@ -1,6 +1,5 @@
 package dev.localintelligence.android.tools.web
 
-import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.CancellationSignal
@@ -10,6 +9,7 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolMeta
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
@@ -1189,12 +1189,12 @@ class WebFetchTool private constructor(
 
     constructor(grant: PlatformGrant) : this(HttpUrlConnectionOpener(), grant)
 
-    override val definition: ToolDefinition = ToolDefinition(
-        name = "web.fetch",
-        description = "Fetches a web page over http or https and returns its readable text, " +
-            "with any HTML markup stripped out. There is no format argument: the result is " +
-            "always plain text.",
-        category = "web",
+    override val definition: ToolDefinition = ToolMeta.WEB_FETCH.define(
+        // NETWORK_EGRESS, not READ_ONLY. See the file header: this is the one
+        // tool whose return value is text written by a party the user did not
+        // choose, so the tier that let it run unattended is the tier that made
+        // it an injection entry point.
+        risk = ToolRisk.NETWORK_EGRESS,
         schema = buildJsonObject {
             put("type", JsonPrimitive("object"))
             put(
@@ -1239,15 +1239,6 @@ class WebFetchTool private constructor(
             )
             put("required", kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive("url")) })
         },
-        risk = ToolRisk.NETWORK_EGRESS,
-        // Stated rather than inherited: this is the one tool in the system whose
-        // observations are written by a party the user did not choose, and the
-        // default is NETWORK precisely so that being explicit here is a
-        // deliberate act.
-        observationOrigin = ObservationOrigin.NETWORK,
-        tags = setOf(
-            "web", "fetch", "url", "internet", "page", "website", "read online", "http",
-        ),
         requiredPermission = null,
     )
 

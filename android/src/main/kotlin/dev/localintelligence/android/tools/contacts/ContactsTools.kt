@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.ContentResolver
 import android.database.Cursor
 import android.provider.ContactsContract
-import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
@@ -13,6 +12,7 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolMeta
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
@@ -376,10 +376,7 @@ class ContactsSearchTool internal constructor(
         constructor(resolver: ContentResolver, grant: PlatformGrant) :
             this(ResolverContactsProvider(resolver), grant)
 
-    override val definition: ToolDefinition = ToolDefinition(
-        name = "contacts.search",
-        description = "Return the contacts whose name or phone number matches a query, one line per person.",
-        category = "contacts",
+    override val definition: ToolDefinition = ToolMeta.CONTACTS_SEARCH.define(
         schema = buildJsonObject {
             put("type", "object")
             put("properties", buildJsonObject {
@@ -397,10 +394,6 @@ class ContactsSearchTool internal constructor(
             put("required", buildJsonArray { add("query") })
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf(
-            "contact", "contacts", "phone book", "address book", "call", "who is", "number", "lookup",
-        ),
         requiredPermission = "android.permission.READ_CONTACTS",
     )
 
@@ -523,10 +516,7 @@ class ContactsGetTool internal constructor(
         constructor(resolver: ContentResolver, grant: PlatformGrant) :
             this(ResolverContactsProvider(resolver), grant)
 
-    override val definition: ToolDefinition = ToolDefinition(
-        name = "contacts.get",
-        description = "Return every phone number, email and organisation saved for one contact id.",
-        category = "contacts",
+    override val definition: ToolDefinition = ToolMeta.CONTACTS_GET.define(
         schema = buildJsonObject {
             put("type", "object")
             put("properties", buildJsonObject {
@@ -538,10 +528,6 @@ class ContactsGetTool internal constructor(
             put("required", buildJsonArray { add("id") })
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf(
-            "contact", "contact details", "phone number", "email address", "address book", "who is", "lookup",
-        ),
         requiredPermission = "android.permission.READ_CONTACTS",
     )
 

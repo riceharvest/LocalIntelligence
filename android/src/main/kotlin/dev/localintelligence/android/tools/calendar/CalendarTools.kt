@@ -6,7 +6,6 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.database.Cursor
 import android.provider.CalendarContract
-import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
@@ -15,6 +14,7 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolMeta
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
@@ -565,10 +565,7 @@ class CalendarSearchTool internal constructor(
     constructor(resolver: ContentResolver, zone: ZoneId = ZoneId.systemDefault(), grant: PlatformGrant) :
         this(ResolverCalendarProvider(resolver), zone, grant)
 
-    override val definition: ToolDefinition = ToolDefinition(
-        name = "calendar.search",
-        description = "Return the calendar events in a time window, optionally filtered by title or location text.",
-        category = "calendar",
+    override val definition: ToolDefinition = ToolMeta.CALENDAR_SEARCH.define(
         schema = buildJsonObject {
             put("type", "object")
             put("properties", buildJsonObject {
@@ -598,10 +595,6 @@ class CalendarSearchTool internal constructor(
             put("required", buildJsonArray { add("from"); add("to") })
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf(
-            "calendar", "events", "agenda", "schedule", "appointment", "meeting", "busy", "what's on",
-        ),
         requiredPermission = "android.permission.READ_CALENDAR",
     )
 
@@ -765,10 +758,7 @@ class CalendarCreateTool internal constructor(
     constructor(resolver: ContentResolver, zone: ZoneId = ZoneId.systemDefault(), grant: PlatformGrant) :
         this(ResolverCalendarProvider(resolver), zone, grant)
 
-    override val definition: ToolDefinition = ToolDefinition(
-        name = "calendar.create",
-        description = "Create a calendar event at a given start time and return the new event's id and start time.",
-        category = "calendar",
+    override val definition: ToolDefinition = ToolMeta.CALENDAR_CREATE.define(
         schema = buildJsonObject {
             put("type", "object")
             put("properties", buildJsonObject {
@@ -800,7 +790,6 @@ class CalendarCreateTool internal constructor(
             put("required", buildJsonArray { add("title"); add("start") })
         },
         risk = ToolRisk.REVERSIBLE,
-        tags = setOf("calendar", "add event", "schedule", "reminder", "book", "appointment", "meeting"),
         requiredPermission = "android.permission.WRITE_CALENDAR",
     )
 

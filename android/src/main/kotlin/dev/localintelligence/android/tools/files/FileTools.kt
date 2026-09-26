@@ -6,15 +6,14 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
-import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolMeta
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
@@ -1016,10 +1015,7 @@ class FilesListTool(
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "files.list",
-        description = "List documents and downloads this app can see, newest first, with name, type, size and date.",
-        category = "files",
+    override val definition = ToolMeta.FILES_LIST.define(
         schema = buildJsonObject {
             put("type", "object")
             put(
@@ -1037,8 +1033,6 @@ class FilesListTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("files", "documents", "downloads", "storage", "browse", "my files", "what files do i have"),
         requiredPermission = null,
     )
 
@@ -1073,10 +1067,7 @@ class FilesSearchTool(
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "files.search",
-        description = "Find documents by name substring, MIME type and modification date, returning a capped list of matches.",
-        category = "files",
+    override val definition = ToolMeta.FILES_SEARCH.define(
         schema = buildJsonObject {
             put("type", "object")
             put(
@@ -1112,8 +1103,6 @@ class FilesSearchTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("search", "find", "look for", "filename", "extension", "mime type", "recent files", "modified"),
         requiredPermission = null,
     )
 
@@ -1172,10 +1161,7 @@ class FilesReadTextTool(
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "files.read_text",
-        description = "Read the beginning of a text document given its content:// URI, returning at most 8 KB of its text.",
-        category = "files",
+    override val definition = ToolMeta.FILES_READ_TEXT.define(
         schema = buildJsonObject {
             put("type", "object")
             put(
@@ -1191,8 +1177,6 @@ class FilesReadTextTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("read", "open", "text", "contents", "preview", "file content", "what does the file say"),
         requiredPermission = null,
     )
 
@@ -1265,10 +1249,7 @@ class FilesWriteTextTool(
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "files.write_text",
-        description = "Write text into an existing content:// document, or create a new file in Downloads on Android 10 and newer.",
-        category = "files",
+    override val definition = ToolMeta.FILES_WRITE_TEXT.define(
         schema = buildJsonObject {
             put("type", "object")
             put(
@@ -1306,7 +1287,6 @@ class FilesWriteTextTool(
         // Supplying `uri` alongside it is the destructive act, and the runtime
         // gates on the tool tier, so the confirmation covers both.
         risk = ToolRisk.DESTRUCTIVE,
-        tags = setOf("write", "save", "create file", "new note", "store text", "overwrite", "export"),
         requiredPermission = null,
     )
 
@@ -1362,10 +1342,7 @@ class FilesDeleteTool(
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "files.delete",
-        description = "Delete one identified document by content:// URI, or by a name that matches exactly one file.",
-        category = "files",
+    override val definition = ToolMeta.FILES_DELETE.define(
         schema = buildJsonObject {
             put("type", "object")
             put(
@@ -1385,7 +1362,6 @@ class FilesDeleteTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.DESTRUCTIVE,
-        tags = setOf("delete", "remove", "erase", "trash", "get rid of", "unlink"),
         requiredPermission = null,
     )
 

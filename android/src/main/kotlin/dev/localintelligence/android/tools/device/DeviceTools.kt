@@ -10,15 +10,14 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
-import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
-import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import dev.localintelligence.core.tool.catalogue.ToolMeta
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
@@ -691,18 +690,9 @@ private val OPEN_SETTINGS_SCHEMA: ToolArgs = buildJsonObject {
 
 class DeviceBatteryTool(private val platform: DevicePlatform) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "device.battery",
-        description = "Return the current battery percentage, whether the phone is charging, " +
-            "and the estimated time until the battery is empty or full.",
-        category = "device",
+    override val definition = ToolMeta.DEVICE_BATTERY.define(
         schema = BATTERY_SCHEMA,
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf(
-            "battery", "charge", "power", "how much battery", "battery level",
-            "charging", "how long until charged", "drain",
-        ),
         requiredPermission = null,
     )
 
@@ -744,18 +734,9 @@ class DeviceBatteryTool(private val platform: DevicePlatform) : AgentTool {
 
 class DeviceInfoTool(private val platform: DevicePlatform) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "device.info",
-        description = "Return the phone model, Android version, screen size, total RAM, and " +
-            "free storage.",
-        category = "device",
+    override val definition = ToolMeta.DEVICE_INFO.define(
         schema = BATTERY_SCHEMA,
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf(
-            "device info", "phone model", "specs", "how much ram", "storage",
-            "free space", "android version", "screen size",
-        ),
         requiredPermission = null,
     )
 
@@ -786,15 +767,9 @@ class DeviceVibrateTool(
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "device.vibrate",
-        description = "Vibrate the phone for a short duration and return what actually happened.",
-        category = "device",
+    override val definition = ToolMeta.DEVICE_VIBRATE.define(
         schema = VIBRATE_SCHEMA,
         risk = ToolRisk.REVERSIBLE,
-        tags = setOf(
-            "vibrate", "buzz", "vibration", "shake", "ringer", "find my phone", "ring",
-        ),
         requiredPermission = "android.permission.VIBRATE",
     )
 
@@ -882,17 +857,9 @@ class DeviceVibrateTool(
 
 class DeviceOpenSettingsTool(private val platform: DevicePlatform) : AgentTool {
 
-    override val definition = ToolDefinition(
-        name = "device.open_settings",
-        description = "Open a system settings screen on the phone and return the screen that " +
-            "was opened.",
-        category = "device",
+    override val definition = ToolMeta.DEVICE_OPEN_SETTINGS.define(
         schema = OPEN_SETTINGS_SCHEMA,
         risk = ToolRisk.REVERSIBLE,
-        tags = setOf(
-            "open settings", "settings", "wifi settings", "turn on bluetooth", "display settings",
-            "battery saver", "sound settings", "system settings",
-        ),
         // No permission: this launches an ordinary settings activity. It is classified
         // REVERSIBLE rather than READ_ONLY because it takes the user out of the app and
         // changes what they are looking at.
