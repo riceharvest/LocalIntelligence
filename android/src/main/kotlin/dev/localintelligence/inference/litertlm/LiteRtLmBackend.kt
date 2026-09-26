@@ -541,10 +541,14 @@ class LiteRtLmBackend(
         is ChatMessage.System -> LiteRtLmTurn(LiteRtLmRole.SYSTEM, text)
         is ChatMessage.User -> LiteRtLmTurn(LiteRtLmRole.USER, text)
         is ChatMessage.Assistant -> LiteRtLmTurn(LiteRtLmRole.MODEL, text)
-        // The observation is the only part the model ever sees, so it is passed
-        // through verbatim. The tool name travels beside it because LiteRT-LM
-        // models a tool result as a named response, not free text.
-        is ChatMessage.ToolObservation -> LiteRtLmTurn(LiteRtLmRole.TOOL, observation, toolName)
+        // Fenced via `modelFacing()` rather than passed through verbatim. The
+        // TOOL role is a real boundary here rather than a textual convention, so
+        // a page cannot forge a *turn* the way it can in the llama.cpp
+        // transcript — but the body still arrives as plain text inside that
+        // turn, and the fence is what tells the model the text is quoted. The
+        // tool name travels beside it because LiteRT-LM models a tool result as
+        // a named response, not free text.
+        is ChatMessage.ToolObservation -> LiteRtLmTurn(LiteRtLmRole.TOOL, modelFacing(), toolName)
     }
 
     private fun SamplingParams.toSampler(topK: Int) = LiteRtLmSampler(
@@ -610,7 +614,9 @@ class LiteRtLmBackend(
         is ChatMessage.System -> text
         is ChatMessage.User -> text
         is ChatMessage.Assistant -> text
-        is ChatMessage.ToolObservation -> observation
+        // Fenced, to match what `toLiteRtLmTurn` actually sends. Pricing the
+        // bare body here would make the reported prompt-token count a fiction.
+        is ChatMessage.ToolObservation -> modelFacing()
     }
 
     /** Frees the engine. Only ever called with [generationLock] held. */

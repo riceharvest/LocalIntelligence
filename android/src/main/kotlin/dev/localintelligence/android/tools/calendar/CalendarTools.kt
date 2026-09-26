@@ -6,6 +6,7 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.database.Cursor
 import android.provider.CalendarContract
+import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
@@ -597,6 +598,7 @@ class CalendarSearchTool internal constructor(
             put("required", buildJsonArray { add("from"); add("to") })
         },
         risk = ToolRisk.READ_ONLY,
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "calendar", "events", "agenda", "schedule", "appointment", "meeting", "busy", "what's on",
         ),

@@ -60,6 +60,16 @@ enum class PolicyRule {
     /** A message body is a bare link — the classic drive-by-phishing shape. */
     MESSAGE_IS_BARE_LINK,
 
+    /**
+     * The call leaves the device: a request to a host the model named.
+     *
+     * A distinct rule, not [RISK_TIER], so an audit log can answer "was this
+     * gated because of the tier" separately from "was this gated because a
+     * request to a specific host is about to be sent" — which is the question
+     * that matters when reading back what the user was asked.
+     */
+    NETWORK_EGRESS,
+
     /** The blast radius or rate limit for this task is already spent. */
     LIMIT_EXCEEDED,
 

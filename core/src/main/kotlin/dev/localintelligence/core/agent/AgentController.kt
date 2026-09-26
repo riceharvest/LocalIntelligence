@@ -1279,11 +1279,11 @@ class AgentController(
         // kept tail is removed, which is why durable persistence keys on message
         // identity (Session.writtenIds) rather than on a count of what is new.
         //
-        // Checkpoint BEFORE the clear, not after. This ordering is the whole
-        // fix and was verified by simulation: firing after the fold left 3 of 18
-        // messages permanently unwritten, because they were already gone from
-        // the window by the time anything looked. Firing first stores all 18
-        // with no duplicates. See onWindowChanged.
+        // Checkpoint BEFORE the clear, not after. This ordering is the whole fix
+        // and was verified by simulation: firing after the fold left 3 of 18
+        // messages permanently unwritten, because they were already gone from the
+        // window by the time anything looked. Firing first stores all 18 with no
+        // duplicates. See onWindowChanged.
         onWindowChanged?.invoke()
         messages.clear()
         messages += head

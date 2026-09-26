@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.ContentResolver
 import android.database.Cursor
 import android.provider.ContactsContract
+import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
@@ -396,6 +397,7 @@ class ContactsSearchTool internal constructor(
             put("required", buildJsonArray { add("query") })
         },
         risk = ToolRisk.READ_ONLY,
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "contact", "contacts", "phone book", "address book", "call", "who is", "number", "lookup",
         ),
@@ -536,6 +538,7 @@ class ContactsGetTool internal constructor(
             put("required", buildJsonArray { add("id") })
         },
         risk = ToolRisk.READ_ONLY,
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "contact", "contact details", "phone number", "email address", "address book", "who is", "lookup",
         ),

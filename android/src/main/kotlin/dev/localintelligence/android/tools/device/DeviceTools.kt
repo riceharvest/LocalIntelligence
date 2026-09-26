@@ -10,6 +10,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
@@ -697,6 +698,7 @@ class DeviceBatteryTool(private val platform: DevicePlatform) : AgentTool {
         category = "device",
         schema = BATTERY_SCHEMA,
         risk = ToolRisk.READ_ONLY,
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "battery", "charge", "power", "how much battery", "battery level",
             "charging", "how long until charged", "drain",
@@ -749,6 +751,7 @@ class DeviceInfoTool(private val platform: DevicePlatform) : AgentTool {
         category = "device",
         schema = BATTERY_SCHEMA,
         risk = ToolRisk.READ_ONLY,
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "device info", "phone model", "specs", "how much ram", "storage",
             "free space", "android version", "screen size",

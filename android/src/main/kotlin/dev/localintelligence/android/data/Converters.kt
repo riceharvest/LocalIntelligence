@@ -2,6 +2,7 @@ package dev.localintelligence.android.data
 
 import androidx.room.TypeConverter
 import dev.localintelligence.core.model.ChatMessage
+import dev.localintelligence.core.model.ObservationOrigin
 import java.time.Instant
 
 /**
@@ -94,10 +95,28 @@ object MessageMapping {
         MessageKind.SYSTEM -> ChatMessage.System(entity.text.orEmpty())
         MessageKind.USER -> ChatMessage.User(entity.text.orEmpty())
         MessageKind.ASSISTANT -> ChatMessage.Assistant(entity.text.orEmpty())
+        // WHY THE ORIGIN IS NOT READ FROM A COLUMN, AND WHY THAT IS SAFE.
+        //
+        // `MessageEntity` has no origin column and this change does not add
+        // one. The database is at version 1 with no migrations and
+        // `allowBackup=false`, so the only way to carry the flag is a version
+        // bump plus a migration — and a failed migration on a store holding the
+        // user's conversation history, with no backup to restore from, trades a
+        // cosmetic fidelity loss for a real chance of losing every past
+        // conversation. Not worth it.
+        //
+        // `fromWire(null)` is NETWORK, so a restored observation is always
+        // treated as externally authored. That direction is the safe one: a
+        // local read that comes back over-fenced costs the model a slightly
+        // wrong header on a tool it was going to quote anyway, whereas the
+        // other direction would strip the fence from a page someone else wrote.
+        // An over-fence is a cosmetic inaccuracy; an under-fence is the bug
+        // this whole change exists to close.
         MessageKind.TOOL_OBSERVATION -> ChatMessage.ToolObservation(
             toolName = entity.toolName.orEmpty(),
             observation = entity.observation.orEmpty(),
             success = entity.success ?: false,
+            origin = ObservationOrigin.fromWire(null),
         )
     }
 }

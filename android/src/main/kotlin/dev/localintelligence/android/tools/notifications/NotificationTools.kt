@@ -12,6 +12,7 @@ import android.os.Build
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.CancellationSignal
@@ -639,6 +640,7 @@ class NotificationListTool(
             put("required", buildJsonArray { })
         },
         risk = ToolRisk.READ_ONLY,
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "notifications", "alerts", "messages", "list", "banner",
             "inbox", "what came in", "ping",

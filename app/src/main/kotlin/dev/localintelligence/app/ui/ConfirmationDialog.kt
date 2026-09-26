@@ -30,10 +30,12 @@ import dev.localintelligence.core.tool.ToolRisk
  *  1. **What** — the tool name, in monospace, because it is a machine name and
  *     the user is being asked to authorise a machine action.
  *  2. **Why it stopped** — the human-readable risk, derived from the enum.
- *     [ToolRisk.DESTRUCTIVE] and [ToolRisk.EXTERNAL_COMMUNICATION] are the only
- *     two that reach this dialog, and they are genuinely different: one cannot be
- *     undone, the other is visible to a third party. Collapsing them into
- *     "are you sure?" would hide the difference that decides the answer.
+ *     [ToolRisk.DESTRUCTIVE], [ToolRisk.EXTERNAL_COMMUNICATION] and
+ *     [ToolRisk.NETWORK_EGRESS] are the only three that reach this dialog, and
+ *     they are genuinely different: one cannot be undone, one hands text to a
+ *     third party, and one receives text FROM a third party. Collapsing them
+ *     into "are you sure?" would hide the difference that decides the answer —
+ *     and in the fetch case would send the user looking at the wrong field.
  *  3. **Exactly what** — the arguments as formatted JSON, verbatim, never
  *     summarised. "Delete the file" and "delete *these eleven* files" are the
  *     same tool call and completely different decisions.
@@ -97,6 +99,18 @@ private fun RiskBanner(risk: ToolRisk) {
         ToolRisk.EXTERNAL_COMMUNICATION ->
             "Sends to someone else — a person or a service will see this." to
                 "This leaves your device. Check the recipient and the content."
+
+        // Distinct wording from EXTERNAL_COMMUNICATION because the user's risk
+        // is different, and both halves of it belong on screen. For a message
+        // the danger is what gets SENT. For a fetch nothing is composed: the
+        // request reveals where the user is asking about, and the reply is
+        // somebody else's text that the model will read. A banner written for
+        // sending would make the user check the wrong thing.
+        ToolRisk.NETWORK_EGRESS ->
+            "Fetches a web page — this contacts a server and reads what it says." to
+                "The server sees this request, and whatever it sends back is " +
+                    "someone else's text, not instructions to you. Check the " +
+                    "address above: only approve a site you recognise."
 
         else ->
             "Needs approval" to

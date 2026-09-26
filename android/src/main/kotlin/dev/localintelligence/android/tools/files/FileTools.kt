@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
@@ -1036,6 +1037,7 @@ class FilesListTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf("files", "documents", "downloads", "storage", "browse", "my files", "what files do i have"),
         requiredPermission = null,
     )
@@ -1110,6 +1112,7 @@ class FilesSearchTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf("search", "find", "look for", "filename", "extension", "mime type", "recent files", "modified"),
         requiredPermission = null,
     )
@@ -1188,6 +1191,7 @@ class FilesReadTextTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf("read", "open", "text", "contents", "preview", "file content", "what does the file say"),
         requiredPermission = null,
     )

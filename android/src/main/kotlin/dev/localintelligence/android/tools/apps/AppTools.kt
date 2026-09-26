@@ -9,6 +9,7 @@ import android.content.pm.ResolveInfo
 import android.net.Uri
 import dev.localintelligence.android.tools.files.OBSERVATION_BUDGET
 import dev.localintelligence.android.tools.files.ToolSafety
+import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
@@ -477,6 +478,7 @@ class AppsListTool(private val appContext: Context) : AgentTool {
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf("apps", "applications", "installed", "launcher", "home screen", "what apps do i have", "packages"),
         // No permission, and the field now says so. It used to hold the
         // sentence "QUERY_ALL_PACKAGES is NOT used; package visibility rules

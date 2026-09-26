@@ -292,6 +292,87 @@ object ArgumentInspector {
     }
 
     /**
+     * The host a network-egress call would contact, or null when the arguments
+     * name no address we can read.
+     *
+     * ## WHY THIS EXISTS, AND WHY IT PARSES TEXT
+     *
+     * A confirmation the user cannot act on is close to a confirmation that
+     * gets rubber-stamped, and "a request will leave your phone" is not
+     * actionable. Naming the host is what turns the dialog into a decision.
+     *
+     * It parses and never resolves, deliberately. DNS here would make the policy
+     * non-deterministic, which `docs/architecture.md` requires of this class,
+     * and it would be a TOCTOU anyway: the name shown to the user and the
+     * address actually connected to would be two separate lookups. The resolver
+     * gap is stated in `docs/threat-model.md` (T2) rather than papered over
+     * here.
+     */
+    fun hostOf(args: ToolArgs): String? =
+        URL_ARGS.firstNotNullOfOrNull { name ->
+            when (val value = args[name]) {
+                // `isString` first: a JSON `true` or `42` in a url argument is a
+                // malformed call, and `content` would hand it over as text.
+                is JsonPrimitive -> if (value.isString) hostFrom(value.content) else null
+                else -> null
+            }
+        }
+
+    /** Argument names that may carry a network address, in priority order. */
+    private val URL_ARGS = listOf("url", "uri", "href", "link", "endpoint")
+
+    /** A `scheme://` prefix, so a bare word cannot be mistaken for a host. */
+    private val URL_LIKE = Regex("""\b(https?)://""", RegexOption.IGNORE_CASE)
+
+    /**
+     * Longer than any real hostname, and short enough that a model cannot use
+     * it to blow out the dialog. RFC 1035 caps a label at 63 and a name at 253.
+     */
+    private const val MAX_HOST_CHARS = 253
+
+    private fun hostFrom(raw: String): String? {
+        val match = URL_LIKE.find(raw) ?: return null
+        val scheme = match.groupValues[1].lowercase()
+        if (scheme != "http" && scheme != "https") return null
+        val authority = raw.substringAfter("//", "")
+            .substringBefore('/').substringBefore('?').substringBefore('#')
+        if (authority.isEmpty()) return null
+        // Userinfo is stripped BEFORE the port is split off, and the split has
+        // to be on the LAST colon *of what remains*.
+        //
+        // WHY, IN ORDER: `https://user:pw@example.com/` has two colons, and
+        // taking the last one from the raw authority yields "user" — so the
+        // dialog would announce "web.fetch will contact user" for a URL whose
+        // real destination is example.com. That is the wrong string in the one
+        // place the user is being asked to make a trust decision, and it is
+        // wrong precisely on the credential-bearing URLs that look most like
+        // phishing.
+        //
+        // `WebUrls.validate` in `:android` refuses any host containing `@`
+        // outright, so this shape never reaches a socket. Handling it here
+        // anyway is the point: the dialog must not depend on a decision made
+        // later, in a different module, to avoid printing something misleading.
+        //
+        // `substringAfterLast('@', "")` IS the right call and returns "" when
+        // there is no delimiter — unlike `substringBeforeLast(delimiter, "")`,
+        // whose two-arg form returns the DELIMITER when absent, so a URL with no
+        // port would come back as the bare character ":". That asymmetry is the
+        // whole reason this is spelled out rather than left implicit.
+        val at = authority.lastIndexOf('@')
+        val hostOnly = if (at >= 0) authority.substring(at + 1) else authority
+        val colon = hostOnly.lastIndexOf(':')
+        // A colon before a `]` is an IPv6 literal's own separator, not a port.
+        val closes = hostOnly.lastIndexOf(']')
+        val host = if (colon > 0 && (closes < 0 || colon > closes)) {
+            hostOnly.substring(0, colon)
+        } else {
+            hostOnly
+        }
+        return host.removeSurrounding("[", "]")
+            .takeIf { it.isNotBlank() && it.length <= MAX_HOST_CHARS && it.none { c -> c == '\n' || c == '\r' } }
+    }
+
+    /**
      * True when a message body is a single link and nothing else.
      *
      * WHY that specific shape matters: a body the user can read and judge is a

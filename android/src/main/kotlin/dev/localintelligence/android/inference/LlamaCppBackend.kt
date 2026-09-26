@@ -303,6 +303,22 @@ class LlamaCppBackend(
      * needs either a template engine or native calls, and a wrong template is
      * worse than an explicit one. The role markers are the portable subset
      * every instruct model in the 1-4B range recognises.
+     *
+     * ## THE COST OF THIS FORMAT, AND WHAT PAYS IT
+     *
+     * A flat transcript with literal `### User` markers means the *format itself*
+     * is forgeable by anything that can put text in a message. That is not a
+     * theoretical weakness of this function: a fetched web page containing the
+     * seven characters `### User` followed by a newline does not need to
+     * persuade the model of anything, because this renderer will emit it as a
+     * genuine user turn and the model cannot tell the difference.
+     *
+     * The fix is not in this function. It is that
+     * [dev.localintelligence.core.model.UntrustedContent.neutralise] has already
+     * removed the ability of an observation body to contain a role marker, at
+     * construction. `modelFacing()` is used for the body so that this function
+     * has exactly one way to render an observation, and cannot drift into a
+     * second one that forgets the fence.
      */
     internal fun buildPrompt(request: GenerationRequest): String = buildString {
         for (m in request.messages) {
@@ -315,7 +331,7 @@ class LlamaCppBackend(
                         .append(m.toolName)
                         .append(if (m.success) "" else ", failed")
                         .append(")\n")
-                        .append(m.observation)
+                        .append(m.modelFacing())
                         .append("\n\n")
             }
         }

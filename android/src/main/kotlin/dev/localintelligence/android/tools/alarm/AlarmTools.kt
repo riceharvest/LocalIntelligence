@@ -16,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import dev.localintelligence.android.tools.device.ArgCoerce
 import dev.localintelligence.android.tools.device.ArgResult
 import dev.localintelligence.android.tools.device.guarded
+import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
@@ -855,6 +856,7 @@ class AlarmListTool(private val platform: AlarmPlatform) : AgentTool {
         category = "alarm",
         schema = LIST_SCHEMA,
         risk = ToolRisk.READ_ONLY,
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "my alarms", "list alarms", "what alarms do i have", "upcoming alarms",
             "alarm list", "what did i set", "do i have an alarm",

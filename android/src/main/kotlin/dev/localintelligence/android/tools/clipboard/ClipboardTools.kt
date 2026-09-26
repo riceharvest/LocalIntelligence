@@ -6,6 +6,7 @@ import android.content.Context
 import dev.localintelligence.android.tools.device.ArgCoerce
 import dev.localintelligence.android.tools.device.ArgResult
 import dev.localintelligence.android.tools.device.guarded
+import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
@@ -343,6 +344,7 @@ class ClipboardReadTool(private val platform: ClipboardPlatform) : AgentTool {
         category = "clipboard",
         schema = READ_SCHEMA,
         risk = ToolRisk.READ_ONLY,
+        observationOrigin = ObservationOrigin.LOCAL,
         // Lowercase, per tool-contract.md, and deduplicated: "read clipboard" appeared
         // twice, which made the set smaller than it looked.
         tags = setOf(

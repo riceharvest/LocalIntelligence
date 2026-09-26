@@ -1,6 +1,7 @@
 package dev.localintelligence.core.context
 
 import dev.localintelligence.core.model.ChatMessage
+import dev.localintelligence.core.model.UntrustedContent
 import dev.localintelligence.core.model.ModelBackend
 import kotlin.math.min
 

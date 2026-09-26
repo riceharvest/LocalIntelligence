@@ -1,5 +1,6 @@
 package dev.localintelligence.core.tool.catalogue
 
+import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolRisk
 import kotlinx.serialization.json.JsonObject
@@ -173,6 +174,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "files", "documents", "downloads", "folder",
                 "what files do i have", "list my files",
@@ -212,6 +214,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "search", "find", "look for", "where is",
                 "pdf", "report", "downloaded", "my note",
@@ -231,6 +234,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "read", "open file", "contents", "text",
                 "preview", "what does it say", "summarize this file", "show me the file",
@@ -329,6 +333,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "apps", "applications", "installed", "what apps do i have",
                 "launcher", "home screen", "package name",
@@ -414,6 +419,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "clipboard", "read clipboard", "what did i copy", "copied text",
                 "clipboard contents", "what is on my clipboard", "paste",
@@ -457,6 +463,7 @@ object V0ToolCatalogue {
             category = "device",
             schema = objSchema(),
             risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "battery", "charge", "power", "battery level",
                 "how much battery", "charging", "how long until charged", "drain",
@@ -471,6 +478,7 @@ object V0ToolCatalogue {
             category = "device",
             schema = objSchema(),
             risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "device info", "phone model", "specs", "which phone",
                 "what phone", "how much storage", "free space", "android version",
@@ -581,6 +589,7 @@ object V0ToolCatalogue {
             category = "alarm",
             schema = objSchema(),
             risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "alarm list", "my alarm", "what alarm do i have", "upcoming alarm",
                 "what did i set", "do i have an alarm", "show my alarm",
@@ -670,6 +679,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "calendar", "schedule", "appointment", "meeting",
                 "event", "agenda", "what do i have on", "next",
@@ -771,6 +781,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "contacts", "contact", "phone number", "who is",
                 "look up", "address book", "call", "ring",
@@ -791,6 +802,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "contact details", "full contact", "everything about",
                 "contact card", "their email", "their address",
@@ -823,6 +835,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "notifications", "alerts", "what came in", "miss",
                 "messages", "whatsapp", "what did i miss", "anything new",
@@ -898,7 +911,10 @@ object V0ToolCatalogue {
                     put("description", "Characters of text to return. Default 4000.")
                 }
             },
-            risk = ToolRisk.READ_ONLY,
+            risk = ToolRisk.NETWORK_EGRESS,
+            // MUST match `WebFetchTool.definition`. `CatalogueAgreement.require`
+            // is a hard `check()` at composition, so a mismatch here crashes
+            // the app rather than degrading.
             // A weather or news question has almost no content token to match on
             // beyond the topic word itself, so this tool needs several exact-token
             // hits to clear the stopword noise floor every description carries.

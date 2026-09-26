@@ -1,5 +1,6 @@
 package dev.localintelligence.android.tools.web
 
+import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.CancellationSignal
@@ -29,7 +30,7 @@ import java.net.URL
 import javax.net.ssl.SSLException
 
 // ===========================================================================
-// web.fetch — READ_ONLY HTTP GET, rendered as plain text.
+// web.fetch — NETWORK_EGRESS HTTP GET, rendered as plain text.
 //
 // This is the one tool in the system that takes a string straight from a 1B
 // model and turns it into a socket connection. That makes it the single most
@@ -54,8 +55,32 @@ import javax.net.ssl.SSLException
 //      heap of a process that already holds a model in native memory.
 //
 // The pure functions ([WebUrls], [HtmlText], [BodyReader], [WebFetchContent])
-// hold all of that logic and carry no android.* imports, so the rules that
-// matter are the rules the JVM test suite executes.
+// hold all of that logic and carry no android.* imports, which is what makes
+// them testable in principle.
+//
+// THERE IS NO SUCH TEST SUITE. An earlier version of this comment claimed
+// "the rules that matter are the rules the JVM test suite executes". That was
+// false: the suite was deleted, and nothing in this repository exercises
+// [WebUrls.validate] today. The rules are pure, internal, and reachable only
+// through a real socket, so the SSRF rejection list below is currently verified
+// by nothing at all and can be shortened by a refactor with no test failing.
+// `docs/threat-model.md` (T2) says so rather than implying coverage.
+//
+// ===========================================================================
+//
+// RISK TIER, AND WHY IT IS NOT READ_ONLY.
+//
+// `web.fetch` was `READ_ONLY`, on the reasoning that a credential-less GET
+// changes nothing on the device. That reasoning counts only the outbound half
+// of the call and gets the inbound half exactly backwards. This is the one
+// tool whose return value is text written by a party the user did not choose,
+// chosen by the model: a hostile page becomes a `ToolObservation` that the
+// model then reads. It is the system's injection entry point, and the tier that
+// let it run unattended is the tier that made it one.
+//
+// It is now `ToolRisk.NETWORK_EGRESS`, which means it cannot execute without a
+// per-call human approval naming the destination host. See `RiskPolicy` (7b),
+// `ToolDefinition.observationOrigin`, and `docs/threat-model.md` (T3).
 // ===========================================================================
 
 /** Hard ceiling on the raw body we will pull off the socket, in bytes. */
@@ -1214,7 +1239,12 @@ class WebFetchTool private constructor(
             )
             put("required", kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive("url")) })
         },
-        risk = ToolRisk.READ_ONLY,
+        risk = ToolRisk.NETWORK_EGRESS,
+        // Stated rather than inherited: this is the one tool in the system whose
+        // observations are written by a party the user did not choose, and the
+        // default is NETWORK precisely so that being explicit here is a
+        // deliberate act.
+        observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf(
             "web", "fetch", "url", "internet", "page", "website", "read online", "http",
         ),

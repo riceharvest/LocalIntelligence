@@ -52,13 +52,17 @@ data class CatalogueDrift(
     val unimplemented: List<String>,
     /** `"name: catalogue=TIER tool=TIER"` per mismatch. */
     val riskTierMismatch: List<String>,
+    /** `"name: catalogue=<origin> tool=<origin>"` per mismatch. */
+    val observationOriginMismatch: List<String>,
     /** `"name: catalogue=<c> tool=<c>"` per mismatch. */
     val categoryMismatch: List<String>,
 ) {
     /** True when both sides say the same thing about the same set of tools. */
     val isEmpty: Boolean
         get() = unlisted.isEmpty() && unimplemented.isEmpty() &&
-            riskTierMismatch.isEmpty() && categoryMismatch.isEmpty()
+            riskTierMismatch.isEmpty() &&
+                observationOriginMismatch.isEmpty() &&
+                categoryMismatch.isEmpty()
 
     /**
      * One sentence per class of drift, in the order a reader should act on them.
@@ -84,6 +88,13 @@ data class CatalogueDrift(
             add(
                 "risk tier drift ($riskTierMismatch): the policy gates on the tool's own tier, " +
                     "so a mismatch means one side understates how dangerous the call is.",
+            )
+        }
+        if (observationOriginMismatch.isNotEmpty()) {
+            add(
+                "observation origin drift ($observationOriginMismatch): this decides whether a " +
+                    "tool's output is fenced as third-party text, so a tool reading LOCAL where the " +
+                    "catalogue says NETWORK strips the untrusted fence from attacker-controlled text.",
             )
         }
         if (categoryMismatch.isNotEmpty()) {
@@ -116,12 +127,22 @@ object CatalogueAgreement {
         val unimplemented = catalogueByName.keys.filterNot { it in shippedByName }.sorted()
 
         val riskTierMismatch = mutableListOf<String>()
+        val observationOriginMismatch = mutableListOf<String>()
         val categoryMismatch = mutableListOf<String>()
         for ((name, tool) in shippedByName) {
             val def = tool.definition
             val catalogued = catalogueByName[name] ?: continue
             if (catalogued.risk != def.risk) {
                 riskTierMismatch += "$name: catalogue=${catalogued.risk} tool=${def.risk}"
+            }
+            // WHY THE ORIGIN IS COMPARED HERE AND NOT LEFT TO REVIEW: it is the
+            // field that decides whether a tool's output is fenced as third-party
+            // text. A tool that silently reads LOCAL where the catalogue says
+            // NETWORK removes the fence from an attacker's page without changing
+            // a single line of code a reviewer would notice.
+            if (catalogued.observationOrigin != def.observationOrigin) {
+                observationOriginMismatch +=
+                    "$name: catalogue=${catalogued.observationOrigin} tool=${def.observationOrigin}"
             }
             if (catalogued.category != def.category) {
                 categoryMismatch += "$name: catalogue=${catalogued.category} tool=${def.category}"
@@ -131,6 +152,7 @@ object CatalogueAgreement {
             unlisted = unlisted,
             unimplemented = unimplemented,
             riskTierMismatch = riskTierMismatch.sorted(),
+            observationOriginMismatch = observationOriginMismatch.sorted(),
             categoryMismatch = categoryMismatch.sorted(),
         )
     }
