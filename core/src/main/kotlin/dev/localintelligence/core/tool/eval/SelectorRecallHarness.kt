@@ -470,7 +470,15 @@ fun main() {
     println("=".repeat(78))
 }
 
-private fun pct(fraction: Double): String = "${(fraction * 100).let { "%.1f".format(it) }}%"
+/**
+ * Formats a fraction as a percentage.
+ *
+ * Promoted from `private` in the single-turn harness's file to `internal` so
+ * both harnesses print percentages the same way. Two copies of a rounding
+ * helper is the sort of thing that makes two reports disagree by a rounding
+ * step and sends someone looking for a bug that is not there.
+ */
+internal fun pct(fraction: Double): String = "${(fraction * 100).let { "%.1f".format(it) }}%"
 
 /**
  * Public accessor for one tool's mirrored score.

@@ -452,7 +452,14 @@ object AndroidToolSnapshot {
             name = "web.fetch",
             description = "Fetches a web page over http or https and returns its readable text, with any HTML markup stripped out. There is no format argument: the result is always plain text.",
             category = "web",
-            risk = ToolRisk.READ_ONLY,
+            // NETWORK_EGRESS, not READ_ONLY. The security merge on `main`
+            // reclassified every tool whose observation is third-party text, and
+            // a fetch is the definition of one: it returns whatever an arbitrary
+            // host chose to serve. `verifyAgainstCatalogue` caught the stale
+            // tier here rather than letting the harness quote numbers against a
+            // risk model the app no longer ships — which is the check doing the
+            // one job it was written for.
+            risk = ToolRisk.NETWORK_EGRESS,
             tags = setOf(
                 "web",
                 "fetch",
