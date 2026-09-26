@@ -1,25 +1,20 @@
 package dev.localintelligence.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,30 +22,36 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.blockingReason
 import dev.localintelligence.app.isActive
+import dev.localintelligence.app.ui.components.ChatComposer
+import dev.localintelligence.app.ui.components.ChatModelIdentity
+import dev.localintelligence.app.ui.components.ModelIdentityLine
+import dev.localintelligence.app.ui.components.ApprovalRow
+import dev.localintelligence.app.ui.components.ToolStepRow
 import kotlinx.coroutines.delay
 
 /**
@@ -60,6 +61,14 @@ import kotlinx.coroutines.delay
  * Boring on purpose. This is a debugging tool that happens to be a chat app, and
  * every feature added to the transcript is one more thing between a developer and
  * the answer to "why did the agent do that". [TraceView] is where the depth lives.
+ *
+ * ## WHAT LIVES IN A COMPONENT INSTEAD
+ *
+ * The composer, the model line and the tool rows moved to
+ * `ui/components/`. That is not tidiness for its own sake: the composer carries
+ * the one-handed geometry argument and the inset reasoning, and the tool rows
+ * carry the rule about what collapsing may hide. Those are two paragraphs each
+ * and they were burying the screen's actual logic, which is the transcript.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,6 +77,18 @@ fun ChatScreen(
     onOpenTrace: () -> Unit,
     onOpenModels: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Which model is answering, when the host knows.
+     *
+     * Nullable and defaulted on purpose. `ModelAvailability` is
+     * `None | Failed | Ready` and carries no name, so no caller can supply this
+     * yet without a change to a file this change does not own. Defaulting to
+     * null keeps every existing call site compiling and keeps the screen honest
+     * in the meantime: [ModelIdentityLine] renders an explicit "name not
+     * reported" rather than nothing. The exact state change needed is written
+     * out in the PR description.
+     */
+    activeModel: ChatModelIdentity? = null,
 ) {
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
@@ -93,12 +114,51 @@ fun ChatScreen(
         (if (streaming.isNotEmpty()) 1 else 0) +
         (if (progress != null) 1 else 0)
 
+    // Whether the transcript is parked at the newest row.
+    //
+    // WHY THIS IS GATED AT ALL: the previous version scrolled on every change
+    // to the row count, unconditionally. A user who had scrolled up to re-read
+    // an answer was yanked back to the bottom the moment the next tool row
+    // arrived — which, in a run that adds a row every few seconds, means the
+    // transcript could not actually be read. This is the transcript fighting
+    // the reader, and it is worse than the layout problems it sits next to.
+    //
+    // It is read INSIDE the effect, deliberately: at the instant a row is
+    // appended the layout is still the previous one, so this answers "was the
+    // user at the bottom before this arrived?", which is the question worth
+    // asking. A user who has not moved stays followed; a user who has scrolled
+    // is left alone until they come back.
+    val parkedAtNewest by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()
+            last == null || last.index >= info.totalItemsCount - 1
+        }
+    }
+
     // Follow the conversation as it grows. The `animate` matters: the phone
     // keyboard animating open is the difference between the composer staying put
     // and the whole list jumping under the user's thumb.
     LaunchedEffect(rowCount) {
-        if (rowCount > 0) listState.animateScrollToItem(rowCount - 1)
+        if (rowCount > 0 && parkedAtNewest) listState.animateScrollToItem(rowCount - 1)
     }
+
+    // Whether the window is too short for a stacked composer.
+    //
+    // WHY A HEIGHT TEST RATHER THAN A FOLD DETECTOR: the failure being prevented
+    // is arithmetic, not posture. A landscape phone with the keyboard up leaves
+    // on the order of 200dp of window, and a two-row composer plus the app bar
+    // is most of that, so the transcript is reduced to a sliver. That happens on
+    // an unfolded foldable in landscape for the same reason and with the same
+    // number, so one height test covers both without a hinge API this screen
+    // would otherwise have to learn about.
+    //
+    // The threshold is a heuristic on `screenHeightDp`, and it is honest about
+    // being one: it cannot tell a book-posture fold from a normal landscape
+    // window, and it does not need to, because the layout that answers both is
+    // the same one.
+    val configuration = LocalConfiguration.current
+    val compactComposer = configuration.screenHeightDp < COMPACT_HEIGHT_DP
 
     val pending = runState as? RunState.AwaitingApproval
     if (pending != null) {
@@ -110,15 +170,34 @@ fun ChatScreen(
     }
 
     Scaffold(
-        // WHY imePadding LIVES HERE, NOT ON THE LAZYCOLUMN: the composer is the
-        // Scaffold's bottomBar. An inset on the LazyColumn pads the message list
-        // and leaves the composer underneath the keyboard, which is why the text
-        // box used to be unreachable. The window that has to shrink is the one
-        // that contains the composer.
-        modifier = modifier.imePadding(),
+        // NO imePadding HERE, and this is the load-bearing part of the fix.
+        //
+        // The composer is this Scaffold's bottomBar, and Material3's Scaffold
+        // documents that it expects the bottom bar to handle its own insets: the
+        // padding it hands the content is the bottom bar's measured height, not
+        // that height plus an inset. So the inset belongs on the composer's own
+        // content — see `ChatComposer` — where it grows the bar by exactly the
+        // keyboard's height, the Scaffold measures the grown bar, and the
+        // transcript above shrinks by the same amount. One inset, one place, and
+        // no interval in which the window and the composer can disagree.
+        //
+        // The version this replaced put `imePadding()` on the Scaffold, which
+        // shrinks the whole scaffold including the composer's own background. The
+        // composer did come above the keyboard — that part worked — but the strip
+        // between the composer and the keyboard was then painted with the window
+        // background instead of the composer's surface, and on a build where the
+        // window is already resized for the keyboard the same inset gets counted
+        // twice.
+        modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("LocalIntelligence") },
+                title = {
+                    ModelIdentityLine(
+                        availability = modelState,
+                        identity = activeModel,
+                        onOpenModels = onOpenModels,
+                    )
+                },
                 actions = {
                     IconButton(onClick = onOpenModels) {
                         Icon(Icons.Filled.Memory, contentDescription = "Models")
@@ -130,7 +209,7 @@ fun ChatScreen(
             )
         },
         bottomBar = {
-            Composer(
+            ChatComposer(
                 input = input,
                 busy = busy,
                 // A disabled send button with no reason is the definition of a
@@ -139,6 +218,7 @@ fun ChatScreen(
                 onInputChange = viewModel::onInputChange,
                 onSend = viewModel::send,
                 onStop = viewModel::stop,
+                compact = compactComposer,
             )
         },
     ) { padding ->
@@ -146,7 +226,7 @@ fun ChatScreen(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),  // IME inset is applied on the Scaffold.
+                .padding(padding),  // bottom bar height, which carries the IME inset
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -185,71 +265,17 @@ fun ChatScreen(
     }
 }
 
-@Composable
-private fun Composer(
-    input: String,
-    busy: Boolean,
-    blockedReason: String?,
-    onInputChange: (String) -> Unit,
-    onSend: () -> Unit,
-    onStop: () -> Unit,
-) {
-    val canSend = input.isNotBlank() && blockedReason == null && !busy
-    Surface(tonalElevation = 3.dp) {
-        Column {
-            if (blockedReason != null) {
-                // Announced as it appears: without this, a TalkBack user
-                // encounters a disabled button with no explanation of why.
-                Text(
-                    text = blockedReason,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
-                        .semantics { liveRegion = LiveRegionMode.Polite },
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = onInputChange,
-                    modifier = Modifier.weight(1f),
-                    // A label, not just a placeholder: a placeholder disappears
-                    // the moment the user types, which leaves a screen-reader
-                    // user with an unlabelled edit field.
-                    label = { Text("Message") },
-                    placeholder = { Text("Ask for something…") },
-                    maxLines = 4,
-                    // Enter sends, Shift+Enter is a newline: a phone keyboard has one
-                    // return key and the user expects it to do the obvious thing.
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
-                )
-                if (busy) {
-                    IconButton(onClick = onStop, modifier = Modifier.size(48.dp)) {
-                        Icon(
-                            imageVector = Icons.Filled.Stop,
-                            contentDescription = "Stop the current task",
-                            tint = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                } else {
-                    IconButton(
-                        onClick = onSend,
-                        enabled = canSend,
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
-                    }
-                }
-            }
-        }
-    }
-}
+/**
+ * Below this the composer stacks and the transcript is a sliver.
+ *
+ * 560dp rather than something round: a Pixel-class phone is ~915dp tall in
+ * portrait and ~411dp in landscape, a small phone in portrait is ~640dp, and an
+ * unfolded foldable in landscape is ~450dp. One number that separates "a phone
+ * held upright" from "a window too short to be read in" has to sit between the
+ * largest of the second group and the smallest of the first, and that gap is
+ * wide.
+ */
+private const val COMPACT_HEIGHT_DP = 560
 
 @Composable
 private fun UserBubble(text: String) {
@@ -280,6 +306,20 @@ private fun AssistantBubble(text: String) {
  *
  * A spinner next to real tokens, not a "thinking…" label: the runtime produces no
  * reasoning narration, and inventing one would be a claim the system cannot back.
+ *
+ * ## WHY THIS AND THE COMMITTED BUBBLE SHARE ONE LAYOUT
+ *
+ * The committed text lands in exactly this slot — the transcript commits the
+ * generation and the stream is suppressed on the terminal transition, so there
+ * is one row, not two, and the answer never appears twice. That is true, but it
+ * is only half of it: if the two renderings differ at all, the row still changes
+ * size and the text under the user's eye shifts at the moment they are reading
+ * it.
+ *
+ * So the surface, the width and the padding here are literally the same values
+ * as [AssistantBubble], and the live text is laid out by the same [Row] with the
+ * spinner hanging off the end. Committing then removes the spinner and nothing
+ * else: the words do not move, and the text does not re-wrap.
  */
 @Composable
 private fun StreamingBubble(text: String) {
@@ -288,145 +328,23 @@ private fun StreamingBubble(text: String) {
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth(0.95f),
     ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        // `Arrangement.spacedBy`, not padding on the spinner. A 14dp indicator
+        // with 8dp of padding on it is a 6dp spinner, which is not a spinner.
+        Row(
+            Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Text(
                 text = text,
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
             )
-            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-        }
-    }
-}
-
-/**
- * One tool call and the phone's answer to it.
- *
- * WHY IT IS NOT A CHAT BUBBLE: a bubble is something the user said or the model
- * said. This is the app reporting on its own work, and dressing it as dialogue
- * would put a fabricated "assistant" turn in the transcript. It is deliberately
- * quiet: monospace, smaller, and it shows the raw observation because a
- * paraphrase here would let the app claim the phone said something it did not.
- *
- * ## The three shapes a row can take
- *
- *  - **A result.** The runtime dispatched the tool and the phone answered. The
- *    observation is rendered exactly as the runtime recorded it.
- *  - **A failure.** Same, with the runtime's success flag false.
- *  - **A refusal.** No observation at all, because the runtime never dispatched
- *    the tool: a policy `BLOCK`, a rejected argument, an approval that could not
- *    be claimed. These were previously rendered as "running…", which told the
- *    user a call was in flight at the exact moment the app had already decided
- *    not to make it — a refusal the user could watch as a spinner, forever, with
- *    no way to tell it from a tool that was genuinely still working. The
- *    runtime's own sentence is shown instead, and the row is styled as a
- *    failure because that is what it is.
- *
- * Note the consequence: with the current gateway there is no "in flight" shape
- * at all. `AgentViewModel` publishes the trace only when the run reports back —
- * at an approval or a terminal outcome — so a `TOOL_CALL` is never observed
- * before its `OBSERVATION`. If the trace is ever made live, the honest rendering
- * for the gap is the runtime's `detail` line, which is what this uses.
- */
-@Composable
-private fun ToolStepRow(step: ChatMessage.ToolStep) {
-    val refused = step.observation == null
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        // A refusal can arrive without a tool name — the two approval paths that
-        // fail to claim a call do exactly that. Showing the runtime's sentence
-        // in the name slot and then again in the body would read as a stutter,
-        // so with no name there is only the one line.
-        if (step.toolName.isNotBlank()) {
-            Text(
-                text = "▸ ${step.toolName}${if (step.args.isNotBlank()) " ${step.args}" else ""}",
-                style = MaterialTheme.typography.labelMedium,
-                fontFamily = FontFamily.Monospace,
-                color = if (refused) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.primary
-                },
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                strokeWidth = 2.dp,
             )
         }
-        Text(
-            text = when {
-                refused -> step.detail
-                step.success -> step.observation
-                else -> "failed: ${step.observation}"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace,
-            color = if (step.success && !refused) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.error
-            },
-            modifier = Modifier.padding(start = 14.dp),
-        )
-        if (!refused && step.durationMs > 0) {
-            // The runtime measures every dispatch. It was captured in the row and
-            // then never shown, so the one number that answers "was it slow?" was
-            // thrown away on the floor.
-            Text(
-                text = "took ${step.durationMs}ms",
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 14.dp),
-            )
-        }
-    }
-}
-
-/**
- * The user's answer to an approval prompt.
- *
- * Without this the decline vanished: the dialog closed, `ChatViewModel` recorded
- * it in a list no screen read, and the transcript resumed as if nothing had been
- * asked. For a destructive action that is the worst outcome available — the user
- * cannot afterwards tell whether the agent acted, and the app cannot show them.
- *
- * The wording states the consequence because it is the real one: on a decline
- * `AgentController.confirmAndResume` puts "The user declined <tool>. Do not call
- * it again." into the session, so the model is told and told not to retry. On an
- * approval the staged call runs exactly as it was shown.
- */
-@Composable
-private fun ApprovalRow(approval: ChatMessage.Approval) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Text(
-            text = if (approval.approved) {
-                "▸ you approved ${approval.toolName}"
-            } else {
-                "▸ you declined ${approval.toolName}"
-            },
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = FontFamily.Monospace,
-            color = if (approval.approved) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.error
-            },
-        )
-        Text(
-            text = if (approval.approved) {
-                "The agent was told, and it may now run this call."
-            } else {
-                "The agent was told, and was told not to try it again."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 14.dp),
-        )
     }
 }
 
@@ -497,6 +415,7 @@ private fun EmptyState(
             text = blockedReason ?: "Ask the agent to do something on this phone.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
         if (blockedReason != null) {
             // 48dp: the minimum touch target. A plain TextButton would be 40dp
@@ -561,6 +480,10 @@ private fun ProgressLine(label: String) {
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // A reserved width. Without it the clock grows from "4s" to
+                // "2m 05s" as it runs, and the row re-measures every second.
+                modifier = Modifier.widthIn(min = 64.dp),
+                textAlign = TextAlign.End,
             )
         }
     }
