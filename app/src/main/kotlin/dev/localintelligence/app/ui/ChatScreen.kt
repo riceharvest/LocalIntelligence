@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -76,6 +77,15 @@ fun ChatScreen(
     viewModel: ChatViewModel,
     onOpenTrace: () -> Unit,
     onOpenModels: () -> Unit,
+    /**
+     * Opens the "what is filtered" screen.
+     *
+     * Defaulted to a no-op, not required, because this screen is shared with
+     * another change-set that also edits this file. A defaulted parameter
+     * means an addition here cannot break a caller that has not been updated
+     * yet, which is the failure mode when two changes touch one signature.
+     */
+    onOpenRedaction: () -> Unit = {},
     modifier: Modifier = Modifier,
     /**
      * Which model is answering, when the host knows.
@@ -204,6 +214,17 @@ fun ChatScreen(
                     }
                     IconButton(onClick = onOpenTrace) {
                         Icon(Icons.Filled.Timeline, contentDescription = "Trace")
+                    }
+                    // The shield is the whole point of the icon: this is where
+                    // a user goes to find out what the app is doing with their
+                    // secrets, and it has to be one tap from the chat rather
+                    // than two menus deep. A text label would not fit three
+                    // actions into a phone's app bar, and an unlabelled glyph
+                    // with no contentDescription is invisible to a screen
+                    // reader — hence the description, which is what actually
+                    // names it.
+                    IconButton(onClick = onOpenRedaction) {
+                        Icon(Icons.Filled.Shield, contentDescription = "What is filtered")
                     }
                 },
             )
