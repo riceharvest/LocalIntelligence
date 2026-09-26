@@ -62,8 +62,8 @@ import kotlinx.serialization.json.JsonObject
  * all 25 Android definitions, and since
  * [ToolDefinition.observationOrigin] defaults to
  * [ObservationOrigin.NETWORK], "dropped" did not mean inert — it meant **every
- * tool became NETWORK**, including `web.fetch`'s twelve local siblings. The
- * untrusted-content fence kept working; it was just now claiming that
+ * tool became NETWORK**, including `web.fetch`'s twenty-four local siblings.
+ * The untrusted-content fence kept working; it was just now claiming that
  * `files.list` output was a hostile web page, which is the kind of false alarm
  * that trains a reader to ignore the fence.
  *
@@ -74,6 +74,12 @@ import kotlinx.serialization.json.JsonObject
  * only reads the call sites. Declaring it here makes all twenty-five visible in
  * one table, and the `init` block pins the NETWORK set so a tool cannot quietly
  * move across that line.
+ *
+ * ## The values: 24 LOCAL, 1 NETWORK, and why that is not the safe default
+ *
+ * [ObservationOrigin.NETWORK] is the pessimistic reading and it is correct for
+ * exactly one tool. It is also the reading that, applied to the other 24, made
+ * this fence actively harmful — see "THE FENCE WAS OVER-FIRING" below.
  *
  * ## Why [define] rather than three more field references
  *
@@ -119,6 +125,43 @@ data class ToolDescriptor(
      * make the claim deliberately, so a new tool cannot inherit the pessimistic
      * one by omission, and the review that reads this table sees all 25 origins
      * together instead of 13 of them scattered across call sites.
+     *
+     * ## THE FENCE WAS OVER-FIRING, AND THAT IS A SECURITY DEFECT
+     *
+     * [dev.localintelligence.core.model.UntrustedContent] fences **every**
+     * observation of **every** origin, and cannot be opted out of — the
+     * structural-marker neutralisation is unconditional. What the origin
+     * actually selects is the *claim* the model is told, via
+     * [dev.localintelligence.core.model.UntrustedContent.NETWORK_HEADER] versus
+     * its LOCAL_HEADER.
+     *
+     * So the 12 mislabelled tools were not merely over-cautious. They had the
+     * model reading "this is untrusted network content from device.vibrate"
+     * over its own battery reading, 12 times out of 13. A marker that fires on
+     * almost everything is a marker the reader learns to discount — and the one
+     * call it exists for is `web.fetch`. Over-firing does not fail safe here;
+     * it disarms the fence by teaching the model that the marker is noise.
+     * This is why the split is 24/1 and not a compromise.
+     *
+     * ## HOW TO DECIDE, WHEN YOU ARE ADDING THE 26TH TOOL
+     *
+     * The question is **who chose the text this tool returns**, not whether the
+     * tool is dangerous, writes, deletes, or leaves the device. Risk and origin
+     * are orthogonal: `apps.share` hands a document to another app and is
+     * [dev.localintelligence.core.tool.ToolRisk.EXTERNAL_COMMUNICATION], but
+     * the text it returns is this app's own confirmation sentence, so it is
+     * LOCAL. `files.write_text` destroys a document and is DESTRUCTIVE, and
+     * still LOCAL. Both would be correct answers to the wrong question.
+     *
+     * Answer [ObservationOrigin.NETWORK] only if bytes arrive from a host the
+     * user did not name. Concretely, in this codebase that means a socket:
+     * `WebTools.kt` is the only file under `android/.../tools/` that imports
+     * `java.net`, and that is the evidence — not the tool's blast radius.
+     *
+     * LOCAL is the right reading for a SAF document even when the document
+     * originally came from cloud storage. The user picked that document, the
+     * grant is this app's, and the content is already on the device; treating
+     * it as hostile would mean the fence fires on the user's own files.
      */
     val observationOrigin: ObservationOrigin,
 ) {
@@ -204,7 +247,7 @@ object ToolMeta {
         tags = setOf(
             "create file", "export", "new note", "overwrite", "save", "store text", "write",
         ),
-        observationOrigin = ObservationOrigin.NETWORK,
+        observationOrigin = ObservationOrigin.LOCAL,
     )
 
     val FILES_DELETE = ToolDescriptor(
@@ -215,7 +258,7 @@ object ToolMeta {
         tags = setOf(
             "delete", "erase", "get rid of", "remove", "trash", "unlink",
         ),
-        observationOrigin = ObservationOrigin.NETWORK,
+        observationOrigin = ObservationOrigin.LOCAL,
     )
 
     // ------------------------------------------------------------------- apps
@@ -240,7 +283,7 @@ object ToolMeta {
         tags = setOf(
             "go to app", "launch", "open", "run", "show me the app", "start", "switch to",
         ),
-        observationOrigin = ObservationOrigin.NETWORK,
+        observationOrigin = ObservationOrigin.LOCAL,
     )
 
     val APPS_SHARE = ToolDescriptor(
@@ -252,7 +295,7 @@ object ToolMeta {
             "attach", "forward", "pass to another app", "send", "share", "share file",
             "share text",
         ),
-        observationOrigin = ObservationOrigin.NETWORK,
+        observationOrigin = ObservationOrigin.LOCAL,
     )
 
     // --------------------------------------------------------------- clipboard
@@ -278,7 +321,7 @@ object ToolMeta {
             "clipboard", "copy", "copy text", "copy to clipboard", "cut", "paste",
             "put on clipboard", "share text",
         ),
-        observationOrigin = ObservationOrigin.NETWORK,
+        observationOrigin = ObservationOrigin.LOCAL,
     )
 
     // ------------------------------------------------------------------ device
@@ -316,7 +359,7 @@ object ToolMeta {
             "battery saver", "display settings", "open settings", "settings",
             "sound settings", "system settings", "turn on bluetooth", "wifi settings",
         ),
-        observationOrigin = ObservationOrigin.NETWORK,
+        observationOrigin = ObservationOrigin.LOCAL,
     )
 
     val DEVICE_VIBRATE = ToolDescriptor(
@@ -327,7 +370,7 @@ object ToolMeta {
         tags = setOf(
             "buzz", "find my phone", "ring", "ringer", "shake", "vibrate", "vibration",
         ),
-        observationOrigin = ObservationOrigin.NETWORK,
+        observationOrigin = ObservationOrigin.LOCAL,
     )
 
     // ------------------------------------------------------------------- alarm
@@ -341,7 +384,7 @@ object ToolMeta {
             "alarm", "remind me at", "ring at", "set a reminder", "set an alarm", "timer",
             "wake me up", "wake up call",
         ),
-        observationOrigin = ObservationOrigin.NETWORK,
+        observationOrigin = ObservationOrigin.LOCAL,
     )
 
     val ALARM_LIST = ToolDescriptor(
@@ -365,7 +408,7 @@ object ToolMeta {
             "cancel alarm", "cancel my alarm", "delete alarm", "remove alarm",
             "remove the wake up", "stop the alarm", "turn off alarm",
         ),
-        observationOrigin = ObservationOrigin.NETWORK,
+        observationOrigin = ObservationOrigin.LOCAL,
     )
 
     // ---------------------------------------------------------------- calendar
@@ -390,7 +433,7 @@ object ToolMeta {
         tags = setOf(
             "add event", "appointment", "book", "calendar", "meeting", "reminder", "schedule",
         ),
-        observationOrigin = ObservationOrigin.NETWORK,
+        observationOrigin = ObservationOrigin.LOCAL,
     )
 
     // ---------------------------------------------------------------- contacts
@@ -442,7 +485,7 @@ object ToolMeta {
             "answer", "chat", "message back", "notification", "reply", "respond", "send",
             "text message",
         ),
-        observationOrigin = ObservationOrigin.NETWORK,
+        observationOrigin = ObservationOrigin.LOCAL,
     )
 
     val NOTIFICATIONS_DISMISS = ToolDescriptor(
@@ -452,7 +495,7 @@ object ToolMeta {
         tags = setOf(
             "banner", "clear", "dismiss", "notification", "remove", "silence", "swipe away",
         ),
-        observationOrigin = ObservationOrigin.NETWORK,
+        observationOrigin = ObservationOrigin.LOCAL,
     )
 
     // --------------------------------------------------------------------- web
@@ -507,32 +550,35 @@ object ToolMeta {
         val untagged = all.filter { it.tags.isEmpty() }.map { it.name }
         check(untagged.isEmpty()) { "tools with no retrieval tags in ToolMeta: $untagged" }
 
-        // The NETWORK set is pinned, not derived. Every tool in this table reads
-        // device state except web.fetch, so this list should stay at exactly
-        // one entry for as long as that is true — and the moment a second tool
-        // starts talking to a third party, this check is what makes a human
-        // look at it instead of letting a default decide.
+        // The NETWORK set is pinned, not derived, and it is now ONE tool.
         //
-        // The 12 tools listed as NETWORK below do not fetch anything. They carry
-        // the value they had on main, where they inherited the pessimistic
-        // `ToolDefinition` default because nobody wrote the field. Re-classing
-        // them to LOCAL is a separate decision, not a side effect of moving the
-        // value: several of them (files.write_text, notifications.reply) return
-        // text the user or a third party put on the device, and the fence is
-        // what is currently standing between that text and the model.
+        // Every other tool in this table resolves entirely against state already on
+        // the device: PackageManager, MediaStore, ContentResolver through a SAF
+        // grant, AlarmManager, BatteryManager, the Settings intents, and the
+        // NotificationListenerService. `web.fetch` is the only implementation that
+        // opens a socket (`WebTools.kt` is the sole `java.net` user under
+        // `android/src/main/kotlin/.../tools/`), so it is the only tool whose
+        // observation text is authored by a party the user did not choose.
+        //
+        // WHY THE PIN IS WORTH KEEPING AT ONE ENTRY. The bug this table already
+        // fixed once was a security claim left to a default: 12 of these tools
+        // never stated an origin and silently inherited NETWORK, so the model was
+        // told that its own battery reading was a hostile web page. A false alarm
+        // on 12 of 13 calls is worse than no alarm at all, because it is what
+        // teaches a reader to ignore the marker on the one call it exists for.
+        // A named list cannot rot silently: adding a 26th tool, or re-classifying
+        // one, trips this check at class-init with both sides of the diff in the
+        // message, so the change lands in review instead of in a default.
         val network = all.filter { it.observationOrigin == ObservationOrigin.NETWORK }
             .map { it.name }.sorted()
-        val expectedNetwork = listOf(
-            "alarm.cancel", "alarm.create", "apps.open", "apps.share",
-            "calendar.create", "clipboard.write", "device.open_settings",
-            "device.vibrate", "files.delete", "files.write_text",
-            "notifications.dismiss", "notifications.reply", "web.fetch",
-        )
+        val expectedNetwork = listOf("web.fetch")
         check(network == expectedNetwork) {
             "tools whose observation origin changed. Expected $expectedNetwork, got $network. " +
-                "web.fetch is the only tool that retrieves third-party text; a tool moving " +
+                "web.fetch is the only tool that retrieves third-party text. A tool moving " +
                 "onto or off that list changes what the model is told to trust, so it " +
-                "belongs in review and in docs/threat-model.md (T3)."
+                "belongs in review and in docs/threat-model.md (T3). If the new tool really " +
+                "does reach a network, say so here and say WHY in its descriptor — an " +
+                "unstated origin is what caused this in the first place."
         }
     }
 }

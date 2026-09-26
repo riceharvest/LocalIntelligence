@@ -696,6 +696,44 @@ object V0ToolCatalogue {
                 "must be built as ToolMeta.<TOOL>.define(...) so the descriptive " +
                 "metadata has exactly one home."
         }
+
+        // The untrusted-content fence and the confirmation dialog are two answers
+        // to two different questions, and this is the check that keeps them from
+        // being answered about the same tool by accident.
+        //
+        //   observationOrigin == NETWORK  ->  the RETURNED TEXT was written by a
+        //                                       third party, so the model must be
+        //                                       told to distrust it.
+        //   risk == NETWORK_EGRESS        ->  the CALL ITSELF reaches a third
+        //                                       party, so it cannot run unattended.
+        //
+        // Today both name exactly `web.fetch`, and that coincidence is the whole
+        // reason the classification is reviewable: a new tool that opens a socket
+        // is now FORCED to declare it in two independent fields, and the risk tier
+        // is the one RiskPolicy already gates on, so getting the origin wrong
+        // means contradicting the policy tier rather than editing one string in a
+        // table. Conversely, a tool cannot be quietly marked DESTRUCTIVE and
+        // NETWORK without tripping this.
+        //
+        // WHY THIS IS NOT THE SAME AS THE ToolMeta NETWORK PIN. That one pins a
+        // name list, so it fires when someone re-classifies a KNOWN tool. This one
+        // fires when the two fields stop agreeing, which catches the case a name
+        // list cannot see: a new NETWORK_EGRESS tool added with a stale LOCAL
+        // origin. Two mechanisms, two different failure modes.
+        val egress = definitions.filter { it.risk == ToolRisk.NETWORK_EGRESS }
+            .map { it.name }.sorted()
+        val networkOrigin = definitions
+            .filter { it.observationOrigin == ObservationOrigin.NETWORK }
+            .map { it.name }.sorted()
+        check(egress == networkOrigin) {
+            "observation origin and risk tier disagree about which tools reach a " +
+                "third party. NETWORK_EGRESS (cannot execute unattended) = $egress, " +
+                "but observationOrigin=NETWORK (return value is third-party text) = " +
+                "$networkOrigin. A tool that fetches is BOTH; a tool that only reads " +
+                "the device is NEITHER. If a tool genuinely retrieves remote text, it " +
+                "is NETWORK_EGRESS and NETWORK together — see " +
+                "dev.localintelligence.core.model.ObservationOrigin."
+        }
     }
 
     // ---------------------------------------------------------------- accessors
