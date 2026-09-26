@@ -108,7 +108,27 @@ object ArgumentInspector {
      */
     private val IMPLICIT_PATH_ARGS = setOf("path", "paths", "filePath", "file_path", "dir", "directory", "filename")
 
-    fun analyze(args: ToolArgs, config: PolicyConfig): ArgumentAnalysis {
+    /**
+     * Reads [args] against [config].
+     *
+     * @param required argument names the calling tool's schema marks required.
+     *   Defaults to empty, which means "check nothing", and that default is the
+     *   honest one: this function is handed an argument blob and a configuration
+     *   and is given no schema, so it cannot know what any tool requires. The one
+     *   caller that DOES hold the schema — [RiskPolicy.evaluate], which is handed
+     *   a whole [dev.localintelligence.core.tool.ToolDefinition] — reads
+     *   `schema["required"]` and passes it down.
+     *
+     *   Before this parameter existed, [ArgumentAnalysis.missing] was hard-coded to
+     *   `emptyList()`, so [PolicyRule.MISSING_ARGUMENTS] was a rule no evaluation
+     *   could ever produce and the absence of a required argument was invisible to
+     *   the policy engine.
+     */
+    fun analyze(
+        args: ToolArgs,
+        config: PolicyConfig,
+        required: Set<String> = emptySet(),
+    ): ArgumentAnalysis {
         if (args.isEmpty()) {
             // An argument-less call is legitimate (battery.read). The risk tier
             // decides, not this function — so report "empty" without punishing.
@@ -116,7 +136,12 @@ object ArgumentInspector {
                 paths = emptyList(), escapingPaths = emptyList(), target = null,
                 targetIsKnown = false, body = null, bodyIsBareLink = false,
                 affectedCount = 0, isBulk = false, malformed = emptyList(),
-                missing = emptyList(), isEmpty = true,
+                // A tool that requires arguments and received none has not made a
+                // legitimate argument-less call; it has made an incomplete one.
+                // `device.battery`{} and `files.read_text`{} look identical from
+                // here, and `required` is the only thing that tells them apart.
+                missing = required.toList(),
+                isEmpty = true,
             )
         }
 
@@ -209,7 +234,11 @@ object ArgumentInspector {
             affectedCount = if (countDeclared) count.coerceAtLeast(0) else 0,
             isBulk = countDeclared && (count > config.bulkThreshold || count == Int.MAX_VALUE),
             malformed = malformed,
-            missing = emptyList(),
+            // An explicit null was already recorded as `malformed` above and
+            // skipped; it is not also "missing". A JSON `null` is a value the
+            // model stated, and step 2 of [RiskPolicy] reports it as unreadable,
+            // which is the accurate description of it.
+            missing = required.filterNot { it in args },
             isEmpty = false,
         )
     }
