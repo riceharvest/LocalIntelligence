@@ -322,7 +322,16 @@ class HuggingFaceClient(
          */
         header: GgufHeader? = null,
     ): DownloadPlan {
-        val effectiveModel = header?.let { GgufMemoryModel.from(it) } ?: model
+        // WHY `rangedFrom` AND NOT `from`: `from` returns the plain
+        // `MemoryModel` the seam declares, and a lambda cannot also be a
+        // `RangedMemoryModel`. Handing `FitGate.ramFit` a non-ranged model
+        // makes it call `estimate(...)` three times and present three identical
+        // answers as low/central/high — an "exact" range on the one path whose
+        // whole purpose is to be exact, and a `highBytes` equal to
+        // `centralBytes` so the screen's "unless it needs more" caveat can
+        // never fire. The tensor table still leaves the runtime-buffer term
+        // unmeasured, so the range it produces is that term's width.
+        val effectiveModel = header?.let { GgufMemoryModel.rangedFrom(it) } ?: model
         val ram = FitGate.ramFit(
             fileBytes = file.sizeBytes,
             quant = file.quant,

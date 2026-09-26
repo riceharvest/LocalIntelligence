@@ -207,11 +207,51 @@ object PreDownloadMemoryModel : RangedMemoryModel {
     /**
      * The context length assumed when the caller does not have one yet.
      *
-     * WHY 2048: the smallest window that can hold a system prompt, a tool
-     * result and a reply. Assuming more inflates every estimate for a model
-     * the user has not configured; assuming less hides the real problem.
+     * ## WHY THIS IS 4096 AND NOT 2048 — the same bug the Models screen had
+     *
+     * This constant was 2048, and it was wrong for the same reason
+     * `ModelManagerScreen` was wrong: it is not the context the app allocates.
+     * `ModelImporter.DEFAULT_CONTEXT_LENGTH` and
+     * `LlamaCppBackend.DEFAULT_CONTEXT_LENGTH` are both 4096, the load gate in
+     * `AppContainer.loadModel` uses 4096, and the backend creates the KV cache
+     * at 4096. A pre-download estimate is a claim about *that* allocation, so
+     * pricing the cache at half its real size is a straight under-statement.
+     *
+     * Measured cost of getting this wrong, against a 4096 load, over the nine
+     * measured architectures (see `docs/memory-model.md` §2 for the inputs):
+     *
+     * ```
+     * architecture            est@2048      true@4096     error
+     * Qwen2.5-0.5B-Instruct     623.3M        609.0M     +2.4%
+     * gemma-3-1b-it             927.8M        982.3M     -5.6%
+     * TinyLlama-1.1B-Chat       782.0M        828.2M     -5.6%
+     * Llama-3.2-1B-Instruct     929.7M       1009.4M     -7.9%
+     * gemma-2-2b-it            1915.0M       2208.9M    -13.3%
+     * Qwen2.5-3B-Instruct      2071.3M       2146.8M     -3.5%
+     * Phi-3-mini-4k-instruct   3265.6M       4071.0M    -19.8%
+     * Mistral-7B-Instruct      4464.6M       4733.0M     -5.7%
+     * Meta-Llama-3.1-8B        5287.6M       5556.0M     -4.8%
+     * ```
+     *
+     * Worst case **-19.8%**, and eight of the nine are under-statements. The
+     * direction is the one that gets a phone OOM-killed after the user has
+     * spent the download, which is the failure this whole gate exists to
+     * prevent, and the 1.15 decision factor does not cover it: 19.8% > 15%.
+     *
+     * The KV term is exactly linear in context, so this is not an estimate
+     * disagreeing with reality — it is the model pricing half a cache.
+     *
+     * ## WHY 4096 IS A CONSTANT AND NOT A PARAMETER
+     *
+     * The app has no context control. `ModelManagerScreen` says so on the
+     * record itself, and `ModelAvailability.describeLoadFailure` tells a user
+     * hitting OOM that "a smaller model is the only lever" for exactly this
+     * reason. So there is one context length the app ever uses, and this is
+     * it. When a control is added, this becomes a parameter and the callers
+     * that pass 2048 — `ModelDownloader.PreDownloadContextLength` — have to
+     * move with it.
      */
-    const val DEFAULT_CONTEXT_LENGTH: Int = 2_048
+    const val DEFAULT_CONTEXT_LENGTH: Int = 4_096
 
     override fun estimate(
         fileBytes: Long,
@@ -237,10 +277,33 @@ object PreDownloadMemoryModel : RangedMemoryModel {
         // direction.
         val weights = safeBytes
         val overhead = overheadFor(safeBytes)
+
+        // The parameter count itself has a spread when it was recovered from
+        // the file size and the quant, and that spread moves the KV term. See
+        // [parameterCountRange] for why the *high* bpw is the dangerous end.
+        val paramRange = parameterCountRange(safeBytes, quant, parameterCount)
+        val fewestParams = paramRange.first
+        val mostParams = paramRange.last
+        val fewestArch = MeasuredArchitectures.forParameterCount(fewestParams)
+        val mostArch = MeasuredArchitectures.forParameterCount(mostParams)
+        val fewestBand = MeasuredArchitectures.kvWidthBand(fewestArch)
+        val mostBand = MeasuredArchitectures.kvWidthBand(mostArch)
+
+        // Four corners rather than three points: each of the two unknown
+        // factors (the parameter count, and the GQA ratio within the
+        // architecture it selects) can move the KV term independently, and the
+        // high corner needs both of them high at once.
+        val candidates = listOf(
+            saturatingTotal(weights, kvBytes(architecture.layers, band.low, ctx), overhead),
+            saturatingTotal(weights, kvBytes(architecture.layers, band.central, ctx), overhead),
+            saturatingTotal(weights, kvBytes(architecture.layers, band.high, ctx), overhead),
+            saturatingTotal(weights, kvBytes(fewestArch.layers, fewestBand.high, ctx), overhead),
+            saturatingTotal(weights, kvBytes(mostArch.layers, mostBand.low, ctx), overhead),
+        )
         return MemoryRange(
-            lowBytes = saturatingTotal(weights, kvBytes(architecture.layers, band.low, ctx), overhead),
-            centralBytes = saturatingTotal(weights, kvBytes(architecture.layers, band.central, ctx), overhead),
-            highBytes = saturatingTotal(weights, kvBytes(architecture.layers, band.high, ctx), overhead),
+            lowBytes = candidates.min(),
+            centralBytes = candidates[1],
+            highBytes = candidates.max(),
         )
     }
 
@@ -319,13 +382,79 @@ object PreDownloadMemoryModel : RangedMemoryModel {
         declared: Long?,
     ): Long {
         if (declared != null && declared > 0L) return declared
-        if (quant != null && fileBytes > 0L && quant.bitsPerWeight > 0.0) {
+        // WHY THE isMeasured GATE: two of the forty-odd entries — Q4_1 and
+        // Q5_1 — have `measuredSamples == 0` and carry the *block layout* of a
+        // format no repository in the 160-file sample publishes. The layout is
+        // the right answer for a file that really is uniformly that quant, so
+        // this is not a refusal; but a blended file (and a file whose
+        // vocabulary embedding is kept in a wider type, which is what moved
+        // gemma-3's single Q4_1 sample to 6.0607 against a layout of 5.0)
+        // is not described by a block layout at all. Using it silently is
+        // using a number this project has never checked, in a code path whose
+        // entire job is to avoid unchecked numbers.
+        //
+        // The failure it prevents is directional: `params = bytes*8/bpw`, so
+        // an *over*-stated bpw yields too few parameters, a too-small KV
+        // cache, and a gate that says yes to a model that will not load.
+        if (quant != null && quant.isMeasured && fileBytes > 0L && quant.bitsPerWeight > 0.0) {
             val recovered = fileBytes.toDouble() * 8.0 / quant.bitsPerWeight
             if (recovered.isFinite() && recovered >= 1.0 && recovered < Long.MAX_VALUE.toDouble()) {
                 return recovered.toLong().coerceAtLeast(1L)
             }
         }
         return UNKNOWN_PARAMETER_COUNT
+    }
+
+    /**
+     * The same derivation, at both ends of the measured bits-per-weight spread.
+     *
+     * WHY THIS EXISTS — a correction to the KDoc above, which was backwards.
+     *
+     * The previous comment said the recovered count's uncertainty is
+     * "deliberately not propagated into the verdict: a count that is 60% high
+     * over-charges the KV, which fails toward refusing a model." That
+     * describes the wrong end. `params = bytes * 8 / bpw`, so:
+     *
+     * - bpw **higher** than the median -> `params` **lower** -> KV
+     *   under-counted -> the gate says **yes** to a model that OOMs. This is
+     *   the dangerous direction, and it is the one the spread reaches.
+     * - bpw **lower** than the median -> `params` higher -> KV over-counted
+     *   -> a false refusal. Annoying, not fatal.
+     *
+     * `GgufQuant.bitsPerWeightMax` is measured and is the dangerous end: it
+     * reaches 1.61x the median for `Q2_K` (5.4669 against 3.4051) and 1.28x
+     * for `Q4_K_M`. A `Q2_K` file at the top of its spread recovers 36% fewer
+     * parameters than one at the median, and is charged 36% less KV.
+     *
+     * So the *high* end of the memory range is now computed from
+     * `bitsPerWeightMax` and the *low* end from `bitsPerWeight`. The verdict
+     * still lands on the central figure, per [FitGate]'s existing rule, but
+     * the number the user is shown as the upper bound is the one that can
+     * actually be too small.
+     */
+    fun parameterCountRange(
+        fileBytes: Long,
+        quant: GgufQuant?,
+        declared: Long?,
+    ): LongRange {
+        val central = resolveParameterCount(fileBytes, quant, declared)
+        // A declared count has no spread: it came from the file name and is
+        // either right or it is not. Same for the UNKNOWN fallback.
+        if (declared != null && declared > 0L) return central..central
+        if (quant == null || !quant.isMeasured || fileBytes <= 0L || quant.bitsPerWeight <= 0.0) {
+            return central..central
+        }
+        val recover = { bpw: Double ->
+            val v = fileBytes.toDouble() * 8.0 / bpw
+            if (v.isFinite() && v >= 1.0 && v < Long.MAX_VALUE.toDouble()) {
+                v.toLong().coerceAtLeast(1L)
+            } else {
+                central
+            }
+        }
+        val fewest = recover(quant.bitsPerWeightMax)
+        val most = recover(quant.bitsPerWeight)
+        return minOf(fewest, most)..maxOf(fewest, most)
     }
 }
 
@@ -353,6 +482,16 @@ data class RamFit(
     val lowBytes: Long = totalBytes,
     /** The high end. Defaults to [totalBytes]. */
     val highBytes: Long = totalBytes,
+    /**
+     * True when the estimate was built from a real tensor table rather than
+     * from a file name and a file size.
+     *
+     * Set by [FitGate.ramFit] from the model it was handed, so a caller cannot
+     * claim an exact basis it did not use. Defaults false, which is the safe
+     * direction: an unlabelled estimate is reported as [Confidence.NARROW] and
+     * never as [Confidence.EXACT].
+     */
+    val exactBasis: Boolean = false,
 ) {
     /**
      * True when the range is wide enough that the verdict could flip on a
@@ -364,6 +503,88 @@ data class RamFit(
      */
     val uncertain: Boolean
         get() = highBytes > lowBytes + (lowBytes / UNCERTAINTY_BAND_PERCENT)
+
+    /**
+     * How much room is left between what this device can give and what the
+     * model is estimated to need, as a fraction of the need.
+     *
+     * WHY this is the number that decides how the verdict reads: a gate that
+     * says "fits" is a claim about a *margin*, and a margin of 40% and a
+     * margin of 2% are the same word with completely different meanings. A
+     * user who is told "it will fit" and then watches the app die has been
+     * told something the arithmetic does not support, and the arithmetic is
+     * the only thing here a user cannot check for themselves.
+     */
+    val headroomFraction: Double
+        get() = if (totalBytes <= 0L) 0.0
+        else (availableBytes.toDouble() - totalBytes) / totalBytes.toDouble()
+
+    /**
+     * How well the *verdict* is known, which is what the verdict text is
+     * allowed to claim.
+     *
+     * ## WHY THIS IS NOT `MemoryEstimate.Confidence`
+     *
+     * `dev.localintelligence.core.model.gguf.MemoryEstimate` already has an
+     * enum called `Confidence`, and it answers a different question: *how good
+     * were the inputs to this number*. This one answers *how good is the
+     * yes/no the user is about to act on*, which additionally depends on how
+     * much room there is between the figure and the device — a tensor-table
+     * estimate with 5% headroom is a worse verdict than a name-derived
+     * estimate with 50%, and `MemoryEstimate` cannot see the second number.
+     *
+     * They compose rather than replace: [confidence] is `EXACT` only when
+     * [exactBasis] holds *and* the range is narrow, so a caller wanting the
+     * full picture reads both.
+     */
+    enum class VerdictConfidence {
+        /**
+         * The estimate came from the file's own tensor table, term for term,
+         * and the interval around it is too narrow to matter.
+         *
+         * Weights and KV are exact given the header. What remains is
+         * [PreDownloadMemoryModel.RUNTIME_FLOOR_BYTES] and
+         * [PreDownloadMemoryModel.RUNTIME_RATIO], which are argued from first
+         * principles and have never been measured on a device, so "exact"
+         * here means "every term that can be read was read".
+         */
+        EXACT,
+
+        /**
+         * A pre-download estimate whose range is too narrow to show: the
+         * architecture matched a measured row, so the KV geometry is asserted
+         * rather than ranged.
+         *
+         * This is the case that used to be presented as a confident number.
+         * It is not wrong — it is 0.00% out on five of the nine measured
+         * architectures — but "measured on this class of model" is not the
+         * same claim as "measured on your file", and the verdict text has to
+         * say which one it is making.
+         */
+        NARROW,
+
+        /**
+         * The range is wide enough that the verdict genuinely could go either
+         * way. The user is told the range and told which end decided it.
+         */
+        WIDE,
+    }
+
+    /**
+     * Which of the three claims this verdict is entitled to make.
+     *
+     * The threshold is [UNCERTAINTY_BAND_PERCENT], the same one [uncertain]
+     * uses, so a reader never sees "uncertain: true" next to a confident
+     * sentence. A 10% spread on a 2 GB model is 200 MB, which is the
+     * difference between loading and not; a 10% spread on a 200 MB model is
+     * 20 MB, which is noise. The percentage is a proxy for both and neither,
+     * which is why the enum exists: it lets the UI say something true in both
+     * cases instead of something uniformly hedged.
+     */
+    val confidence: VerdictConfidence
+        get() = if (uncertain) VerdictConfidence.WIDE
+        else if (exactBasis) VerdictConfidence.EXACT
+        else VerdictConfidence.NARROW
 
     private companion object {
         /** A range wider than a tenth of its low end counts as uncertain. */
@@ -403,8 +624,108 @@ data class RamFit(
  */
 object FitGate {
 
-    /** Multiplier on the RAM estimate, for the reasons above. */
+    /**
+     * Multiplier on the RAM estimate, for the reasons above.
+     *
+     * ## WHERE 1.15 COMES FROM, AND WHY IT IS NOT ENOUGH
+     *
+     * This was previously justified as "leaves room for the estimate being
+     * wrong in the direction it is most likely to be wrong", which is a
+     * direction, not a magnitude. Measured against the nine architectures in
+     * `docs/memory-model.md` §2, at the context the app actually allocates,
+     * the total-estimate error is:
+     *
+     * ```
+     * worst case  12.98%  (Qwen2.5-0.5B-Instruct)
+     * mean         2.48%
+     * ```
+     *
+     * so 15% does cover the worst case, with 2 points to spare, **on that
+     * sample**. Three things it does not cover:
+     *
+     * 1. The 9 architectures are a sample of the models that exist. A model
+     *    outside them takes the derived path, whose embedding-width error was
+     *    measured at up to +65% and whose layer count is interpolated.
+     * 2. `parameterCountRange` adds a second, independent spread on top: the
+     *    measured bits-per-weight range reaches 1.61x for `Q2_K`, which moves
+     *    a recovered parameter count by up to 38%.
+     * 3. [PreDownloadMemoryModel.RUNTIME_FLOOR_BYTES] (64 MiB) and
+     *    [PreDownloadMemoryModel.RUNTIME_RATIO] (2%) are **estimates that
+     *    have never been measured on a device**. On a 400 MB model the floor
+     *    alone is 16% of the total and is pure argument.
+     *
+     * So 1.15 is kept — widening it further would be inventing a margin, and
+     * the instruction on this project is explicit that a safety factor must be
+     * derived from the measured distribution rather than chosen for the
+     * comfort of the person reading it. What changes instead is that the
+     * verdict no longer *says* more than the arithmetic supports: see
+     * [MarginBand] and the explanation text in [ramFit].
+     */
     const val DECISION_FACTOR: Double = 1.15
+
+    /**
+     * How a fit verdict's confidence is graded, and why there is a band rather
+     * than a boolean.
+     *
+     * The problem this solves, stated as a user would state it: a model that
+     * needs 95% of the available RAM and a model that needs 40% of it produce
+     * the same word — "fits" — from the same arithmetic, and only one of them
+     * is a promise. With a worst-case estimate error of 12.98% and an
+     * unmeasured 64 MiB runtime constant on top, a 5% margin is not "it will
+     * fit", it is "it will probably fit, and the reason it probably will is
+     * arithmetic the user cannot check".
+     *
+     * The bands are set from the measured distribution, not chosen:
+     *
+     * - [CONFIDENT] at 25% headroom. 25% is above the 12.98% measured
+     *   worst-case error, so the verdict survives the estimate being wrong at
+     *   its worst observed value on this sample.
+     * - [TIGHT] at 10% headroom. 10% is *below* the measured worst case, so
+     *   the verdict is stated as a probability rather than a fact, and the
+     *   range is always shown.
+     * - Below 10%, the verdict is stated as a coin-flip and the range is
+     *   shown prominently.
+     *
+     * Nothing here widens the gate. Every one of these cases already fit or
+     * did not fit before this change; what changed is the sentence the user
+     * reads about it.
+     */
+    enum class MarginBand(val minHeadroomFraction: Double, val label: String) {
+        /** Comfortably clear of the measured worst-case error. */
+        CONFIDENT(0.25, "comfortable"),
+
+        /** Fits, but inside the measured error band of the estimate. */
+        TIGHT(0.10, "tight"),
+
+        /** Fits with less room than the estimate's own worst-case error. */
+        MARGINAL(0.0, "marginal"),
+        ;
+
+        companion object {
+            fun of(headroomFraction: Double): MarginBand = when {
+                headroomFraction >= CONFIDENT.minHeadroomFraction -> CONFIDENT
+                headroomFraction >= TIGHT.minHeadroomFraction -> TIGHT
+                else -> MARGINAL
+            }
+        }
+    }
+
+    /**
+     * The measured worst-case error in the total, as a fraction.
+     *
+     * This is the number the verdict language is allowed to reason about, and
+     * it is the only one in this file that comes from a measurement rather
+     * than an argument: 12.98% across the nine measured architectures at
+     * context 4096, recomputed through the real call path
+     * (`HuggingFaceClient.parseParameterCount` on the file name,
+     * `PreDownloadMemoryModel.estimateRange`, the same 64 MiB floor and 2%
+     * ratio on both sides). The mean on the same sample is 2.48%.
+     *
+     * It is stated as a property of the *model*, not of a specific file, and
+     * the KDoc on [MarginBand] says so where a user would read it.
+     */
+    const val MEASURED_WORST_CASE_ERROR: Double = 0.1298
+    const val MEASURED_MEAN_ERROR: Double = 0.0248
 
     /**
      * Extra free space required beyond the file size, as a ratio plus a floor.
@@ -447,25 +768,111 @@ object FitGate {
         val high = scaled(range.highBytes)
         val available = budget.availableRamBytes()
         val fits = needed <= available
-        val explanation = if (fits && high > available) {
-            "Estimated ${formatBytes(needed)} in memory, ${formatBytes(available)} available. " +
-                "A model of this size that does not use grouped-query attention would need " +
-                "${formatBytes(high)}; the file's own header settles it for 8 MB of download."
-        } else if (fits) {
-            "Estimated ${formatBytes(needed)} in memory, ${formatBytes(available)} available."
-        } else {
-            "Needs about ${formatBytes(needed)} in memory, this device has ${formatBytes(available)}. " +
-                "Try a smaller quantization or a shorter context."
-        }
-        return RamFit(
+        val fit = RamFit(
             totalBytes = needed,
             availableBytes = available,
             fits = fits,
-            explanation = explanation,
+            explanation = "",
             lowBytes = low,
             highBytes = high,
+            // Only a model that is NOT the name-based one can claim an exact
+            // basis. `PreDownloadMemoryModel` is a `RangedMemoryModel` too, so
+            // the cast above cannot tell them apart; the type check here can.
+            exactBasis = model !is PreDownloadMemoryModel,
         )
+        return fit.copy(explanation = explain(fit, high))
     }
+
+    /**
+     * The sentence the user reads.
+     *
+     * ## WHAT CHANGED AND WHY
+     *
+     * The previous text was, in full:
+     *
+     * ```
+     * "Estimated 2.1 GB in memory, 3.4 GB available."
+     * ```
+     *
+     * which is true and useless. It is the same sentence for a model with
+     * 62% headroom and a model with 2%, it says nothing about whether the
+     * estimate is one the user should rely on, and "Estimated" does a lot of
+     * quiet work in a sentence with no number attached to the uncertainty.
+     *
+     * The new text is assembled from three facts the arithmetic already has
+     * and the old text threw away:
+     *
+     * 1. the headroom, as a percentage the user can reason about;
+     * 2. whether the figure came from the file's own header ([RamFit.Confidence.EXACT])
+     *    or from its name ([RamFit.Confidence.NARROW]) — a different claim in
+     *    each case, and the old text made them identical;
+     * 3. the range, whenever the verdict is close enough for the range to
+     *    matter.
+     *
+     * ## WHY IT DOES NOT NAME A PERCENTAGE OF UNCERTAINTY
+     *
+     * [MEASURED_WORST_CASE_ERROR] is 12.98% on a nine-architecture sample, and
+     * this text is shown on files that are not in that sample. Printing "±13%"
+     * on an arbitrary file would convert a measured statement about a
+     * measured sample into an unmeasured claim about this one file, which is
+     * the exact substitution this project keeps refusing to make elsewhere.
+     * What the text does instead is grade the *headroom* against that
+     * measured band, which is a true statement about both numbers at once:
+     * "there is more room here than the estimate has ever been wrong" is
+     * checkable; "this number is within 13%" is not.
+     */
+    private fun explain(fit: RamFit, high: Long): String {
+        if (!fit.fits) {
+            return "Needs about ${formatBytes(fit.totalBytes)} in memory, " +
+                "this device has ${formatBytes(fit.availableBytes)}. " +
+                "Try a smaller quantization. Context length is fixed at " +
+                "${PreDownloadMemoryModel.DEFAULT_CONTEXT_LENGTH} tokens, so a " +
+                "smaller model is the only lever."
+        }
+
+        val headroom = fit.headroomFraction
+        val band = MarginBand.of(headroom)
+        val basis = if (fit.exactBasis) {
+            "read from the model's own header"
+        } else {
+            "estimated from the file name and size"
+        }
+        val head = "Estimated ${formatBytes(fit.totalBytes)} in memory, " +
+            "${formatBytes(fit.availableBytes)} available — " +
+            "${percent(headroom)} headroom, $basis."
+
+        return when (band) {
+            MarginBand.CONFIDENT ->
+                if (high > fit.availableBytes) {
+                    "$head The margin is wider than this estimate has been " +
+                        "measured wrong (worst case " +
+                        "${percent(MEASURED_WORST_CASE_ERROR)} across nine " +
+                        "measured architectures), so this is a comfortable fit."
+                } else {
+                    "$head The margin is wider than this estimate has been " +
+                        "measured wrong, so this is a comfortable fit."
+                }
+
+            MarginBand.TIGHT ->
+                "$head It fits, but the margin is inside the range this " +
+                    "estimate has been measured wrong by (worst case " +
+                    "${percent(MEASURED_WORST_CASE_ERROR)} across nine " +
+                    "measured architectures, average " +
+                    "${percent(MEASURED_MEAN_ERROR)}), so it will probably " +
+                    "fit rather than certainly."
+
+            MarginBand.MARGINAL ->
+                "$head It fits by less than this estimate has ever been " +
+                    "measured wrong (worst case " +
+                    "${percent(MEASURED_WORST_CASE_ERROR)} across nine " +
+                    "measured architectures), which is close to a coin flip. " +
+                    "A smaller quantization is the safe choice here."
+        }
+    }
+
+    /** A fraction as a whole-number percentage, for display. */
+    private fun percent(fraction: Double): String =
+        if (fraction <= 0.0) "0%" else "${(fraction * 100).toInt()}%"
 
     private fun scaled(bytes: Long): Long {
         if (bytes <= 0L) return 0L

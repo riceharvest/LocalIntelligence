@@ -7,6 +7,10 @@ document is the record of what each number in
 separates **MEASURED** from **ESTIMATED** so a reader never has to guess which
 is which.
 
+It also records, in §9, what long-term memory actually does — including the
+part of it that was broken and what the numbers below do and do not establish
+about retrieval quality.
+
 Two paths produce a verdict, and they must not disagree:
 
 | path | input | class | status |
@@ -292,10 +296,113 @@ estimate for seven files in ten. The constant is now 8 MiB, which clears 160 of
 | `PreDownloadMemoryModel.RUNTIME_FLOOR_BYTES` | 64 MiB | the compute graph, RoPE tables, `vocab * 4` logits and tokenizer arrays, priced from first principles and never measured on a device |
 | `PreDownloadMemoryModel.RUNTIME_RATIO` | 2% of weight bytes | page-in slack and backend graph allocations; no device measurement |
 | `MeasuredArchitectures.MATCH_TOLERANCE` | 1.25x | judgement: within a quarter of a measured architecture, borrowing its geometry is defensible; outside it, the model says DERIVED and widens the range |
-| `FitGate.DECISION_FACTOR` | 1.15 | unchanged, and unchanged deliberately |
+| `FitGate.DECISION_FACTOR` | 1.15 | unchanged, and unchanged deliberately — see §5.1 for what it does and does not cover |
 | `AndroidDeviceBudget.USABLE_FRACTION` | 0.55 of physical RAM | unchanged; the *available* side of the comparison, not the estimate |
 
 Section 6 is the procedure that replaces the first two with measurements.
+
+### 5.1 What `DECISION_FACTOR = 1.15` actually covers
+
+Recomputed through the real call path at the context the app allocates
+(`parseParameterCount` on the file name, `PreDownloadMemoryModel.estimateRange`,
+the same 64 MiB floor and 2% ratio on both sides):
+
+```
+worst case  12.98%  (Qwen2.5-0.5B-Instruct)
+mean         2.48%
+```
+
+So 15% covers the worst case **on this nine-architecture sample**, with two
+points to spare. Three things it does not cover:
+
+1. **The sample.** Nine architectures is a sample. A model outside them takes
+   the derived path, whose embedding-width error was measured at up to +65%
+   and whose layer count is interpolated between anchors.
+2. **The quant spread.** `params = bytes * 8 / bitsPerWeight`, and the
+   measured bits-per-weight range reaches 1.61x the median for `Q2_K`. The
+   *high* end is the dangerous one: a higher bpw yields fewer parameters, a
+   smaller KV cache, and a gate that says yes to a model that will not load.
+   `PreDownloadMemoryModel.parameterCountRange` now carries both ends, and the
+   measured spread for a 1.7 GB file is:
+
+   | quant | recovered parameters | spread |
+   |---|---|---|
+   | `Q2_K` | 2,495,914,446 .. 4,007,199,403 | 60.6% |
+   | `Q4_K_M` | 2,133,051,116 .. 2,724,079,594 | 27.7% |
+   | `Q6_K` | 1,668,082,480 .. 2,078,781,621 | 24.6% |
+   | `Q5_K_M` | 2,018,687,539 .. 2,332,503,921 | 15.5% |
+
+3. **The two constants above.** On a 400 MB model the 64 MiB floor alone is
+   16% of the total and is pure argument.
+
+`DECISION_FACTOR` is **not** widened. Inventing a larger factor would be
+choosing a number for comfort rather than deriving it, which is the failure
+this document exists to prevent. What changed is that the verdict no longer
+says more than the arithmetic supports — see §5.2.
+
+### 5.2 The verdict now states its margin
+
+`FitGate.MarginBand` grades a passing verdict on its headroom, with the bands
+set from the measured distribution rather than chosen:
+
+| band | headroom | what the user is told |
+|---|---|---|
+| `CONFIDENT` | >= 25% | more room than this estimate has ever been measured wrong |
+| `TIGHT` | >= 10% | fits, but the margin is inside the measured error — "will probably fit rather than certainly" |
+| `MARGINAL` | < 10% | fits by less than the estimate's worst measured error; "close to a coin flip" |
+
+Nothing in this widens the gate. Every case already fit or did not fit before;
+what changed is the sentence. A model needing 95% of the budget and one needing
+40% of it used to produce the identical text, and only one of those was a
+promise.
+
+The same grading is applied on the tensor-table path in `GgufMemoryModel`, with
+one difference that is stated rather than hidden: there the weights and the KV
+cache are read term for term out of the file, and the *only* unmeasured term is
+`overheadBytes`. Its width is the entire reported range.
+
+### 5.3 The context length, and where it was still wrong
+
+`PreDownloadMemoryModel.DEFAULT_CONTEXT_LENGTH` was 2048. The app allocates
+4096 (`ModelImporter.DEFAULT_CONTEXT_LENGTH`, `LlamaCppBackend.DEFAULT_CONTEXT_LENGTH`,
+and the load gate in `AppContainer.loadModel`). This is the same defect the
+prior audit found in `ModelManagerScreen` — a fit verdict computed at a context
+the app does not use — in the opposite direction: it **under**-counted.
+
+Measured against a 4096 load, over the nine measured architectures:
+
+```
+architecture            est@2048      true@4096     error
+Qwen2.5-0.5B-Instruct     623.3M        609.0M     +2.4%
+gemma-3-1b-it             927.8M        982.3M     -5.6%
+TinyLlama-1.1B-Chat       782.0M        828.2M     -5.6%
+Llama-3.2-1B-Instruct     929.7M       1009.4M     -7.9%
+gemma-2-2b-it            1915.0M       2208.9M    -13.3%
+Qwen2.5-3B-Instruct      2071.3M       2146.8M     -3.5%
+Phi-3-mini-4k-instruct   3265.6M       4071.0M    -19.8%
+Mistral-7B-Instruct      4464.6M       4733.0M     -5.7%
+Meta-Llama-3.1-8B        5287.6M       5556.0M     -4.8%
+```
+
+Worst case **-19.8%**, eight of nine under-statements, and 19.8% > the 15% the
+decision factor provides. The KV term is exactly linear in context, so this is
+not an estimate disagreeing with reality — it is the model pricing half a
+cache. Now 4096.
+
+`ModelDownloader.PreDownloadContextLength` (in `:android`, not owned by the
+change that fixed this) is **still 2048** and is the one remaining instance.
+The exact edit is in the PR description.
+
+### 5.4 Two unmeasured quant entries no longer feed a safety verdict
+
+`Q4_1` and `Q5_1` have `measuredSamples == 0` — they carry the *block layout* of
+a format no repository in the 160-file sample publishes.
+`resolveParameterCount` used them unconditionally to recover a parameter count.
+It now checks `GgufQuant.isMeasured` and falls back to
+`UNKNOWN_PARAMETER_COUNT`, which fails toward refusing. The cost is that a real
+`Q4_1` file is priced as a 7B model; the benefit is that a number this project
+has never measured no longer reaches a verdict whose entire job is to avoid
+unmeasured numbers.
 
 ---
 
@@ -456,3 +563,107 @@ PIDROID_LLAMA_DIR=/path/to/llama.cpp ./gradlew :app:assembleDebug
 
 The `:core:assemble` line above is a compile, not a test run. There is no test
 suite in this repository, and no `:core:test`; see docs/build.md.
+
+---
+
+## 9. Long-term memory: what it actually does
+
+### 9.1 It was never written to
+
+Verified on `b9defbf` by grepping the whole tree for call sites:
+
+```
+$ grep -rn '\.remember(' --include=*.kt . | grep -v androidTest
+android/.../ResilientMemoryStore.kt:126:  override suspend fun remember(...)
+android/.../RoomMemoryStore.kt:206:       override suspend fun remember(...)
+core/.../agent/MemoryStore.kt:17:         suspend fun remember(...)
+core/.../agent/MemoryStore.kt:36:         override suspend fun remember(...)
+```
+
+Four hits: one interface declaration and three implementations. **Zero call
+sites.** The loop read memory at `AgentController.kt:1036`
+(`memory.search(task, config.memoryResults)`, inside `buildRequest`) and never
+wrote any, so the table was empty for the life of the process and the memory
+block injected into every prompt was always empty.
+
+The write side now exists as `core/memory/MemoryWritePolicy` (what qualifies)
+and `core/memory/LexicalMemoryStore` (`recordTurn`, the call the loop was
+missing). It is a first-person declarative pattern matcher — no model call, no
+summarisation, no embeddings, no second inference. The reason is RAM: an
+unconditional "remember every turn" is a table with no ceiling, and RAM is the
+primary metric.
+
+### 9.2 The search was token-set matching with a length filter
+
+The old rule was `lowercase → split on [^a-z0-9]+ → drop anything not longer
+than 2 characters`, matched as a set, ranked by `importance` and then `id`.
+
+Measured against a five-memory corpus (the real, compiled
+`InMemoryMemoryStore`, not a reading of the source):
+
+| query | result |
+|---|---|
+| `what's my wifi password` | 2 hits, correct one first — worked |
+| `where do I live` | **0 hits** — "live" and "address" are different tokens |
+| `how much is the gym` | **4 hits**, gym memory ranked **third** |
+| `the` | **3 hits** — "the" is 3 chars, so the length filter admits it |
+| `passwords` | **0 hits** — no inflectional normalisation |
+| `Anna` | 1 hit — worked |
+
+Three distinct defects, all reproduced:
+
+1. **Stopwords were indexed and matched.** "the" survives a >2-character
+   filter, and it is the only term connecting a gym question to a wifi
+   memory. Fourteen of the twenty most frequent English words are three
+   letters or fewer; a length threshold cannot separate "cat" from "the".
+2. **No normalisation.** `passwords` did not match `password`.
+3. **Apostrophes and hyphens split words that are one word.** `wi-fi`
+   tokenised to `wi` + `fi`, *both* then dropped by the length filter — a
+   memory about wi-fi was literally unsearchable by the word wi-fi.
+
+And the ranking was wrong independently of all three: `importance` was the
+primary sort key, so a memory matching one of five query terms outranked one
+matching all five whenever it had been stored at a higher importance.
+
+After the change, against the same corpus:
+
+| query | result |
+|---|---|
+| `what's my wifi password` | 1 hit, the right one |
+| `how much is the gym` | 1 hit, the gym memory |
+| `the` | **0 hits** |
+| `passwords` | 1 hit |
+| `where do I live` | **0 hits** — still, and cannot be fixed lexically |
+
+### 9.3 What these numbers are and are not
+
+**They are not a retrieval-quality measurement.** The corpus is five sentences
+written by the author of this change, constructed to contain the specific
+known failures. It is a regression check. There is no user corpus in this
+repository, no relevance judgements, and no held-out set, so **no precision,
+recall, MRR or nDCG figure is reported here, and none should be quoted from
+this document.** Anyone who wants to claim a retrieval number needs to build
+the corpus first; the machinery in `core/memory/` is the thing to measure, and
+`MemoryIndex.rank` returns a `score` and a `matchedTerms` count per hit
+specifically so a future evaluation can read them.
+
+The limitation that survives the fix is stated rather than hidden: **a query
+whose terms appear in no memory still retrieves nothing.** `"where do I live"`
+does not find `"home address"`. That is a property of lexical retrieval, it
+needs embeddings or a synonym table to fix, and there is no corpus against
+which such a thing could be evaluated before it was built.
+
+### 9.4 A second tokeniser, and why the store scans
+
+`LexicalMemoryStore.search` takes its candidate set from `MemoryStore.all(500)`
+rather than from `MemoryStore.search`. That is deliberate and it is a
+workaround: the Room delegate prefilters with a SQL `LIKE` over a `keywords`
+column built by `MemoryQueries.tokenize`, which is still the old rule, so a
+query for `passwords` never reaches a row keyed `password` and no downstream
+re-ranking can recover a row that was never fetched. Measured: **0 results**
+for `passwords` before this change, 1 after, with the ranking unchanged.
+
+The one-line fix in `MemoryQueries.tokenize` is in the PR description. Once it
+lands, the scan can go back to being a delegated `search` and the per-query
+allocation disappears. Until then the store is correct and slightly wasteful,
+which is the right way round.
