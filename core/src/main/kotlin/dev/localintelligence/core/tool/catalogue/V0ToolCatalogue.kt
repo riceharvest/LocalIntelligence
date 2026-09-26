@@ -11,14 +11,15 @@ import kotlinx.serialization.json.putJsonObject
 /**
  * The canonical v0 tool set, as data.
  *
- * ## Why 26 tools and not 145
+ * ## Why 25 tools and not 145
  *
- * The number is not the point; the *filter* is. v0 shows 3-6 tools per step, chosen
- * lexically, so a 26-tool catalogue never puts 26 definitions in a 4K context. What
- * actually costs the model is a tool it cannot tell apart from its neighbour, and
- * that risk grows with every tool sharing a name fragment, a tag, or a phrasing with
- * another. A 145-tool catalogue is not "more capable", it is 145 ways for the right
- * tool to lose the retrieval race against an almost-identical sibling.
+ * The number is not the point; the *filter* is. v0 shows 3-6 tools per step,
+ * chosen lexically, so a 25-tool catalogue never puts 25 definitions in a 4K
+ * context. What actually costs the model is a tool it cannot tell apart from its
+ * neighbour, and that risk grows with every tool sharing a name fragment, a tag,
+ * or a phrasing with another. A 145-tool catalogue is not "more capable", it is
+ * 145 ways for the right tool to lose the retrieval race against an
+ * almost-identical sibling.
  *
  * The set covers the seven target tasks in `docs/architecture.md` section 1 and
  * nothing those tasks do not need:
@@ -30,10 +31,37 @@ import kotlinx.serialization.json.putJsonObject
  * | `clipboard`     |     2 | "copy his number" and "what did I copy"                   |
  * | `device`        |     4 | battery, phone specs, open settings, buzz                 |
  * | `alarm`         |     3 | set, list, cancel; "wake me up" and "remind me"          |
- * | `calendar`      |     3 | "what is on my calendar", "block out 16:00"              |
+ * | `calendar`      |     2 | "what is on my calendar", "block out 16:00"              |
  * | `contacts`      |     2 | resolve a person to a phone number                       |
  * | `notifications` |     3 | read the shade, reply in it, clear it                    |
  * | `web`           |     1 | the one tool that reaches the internet                   |
+ *
+ * ## WHAT THIS FILE IS NOT, stated because it was previously misstated
+ *
+ * **The descriptions and tags below do not reach the model and do not drive
+ * retrieval.** This file is read by exactly one consumer: the catalogue
+ * agreement check ([CatalogueAgreement]), for names, risk tiers and categories.
+ * `AppContainer` builds the registry from `androidTools(context)`, and
+ * `AgentController.buildRequest` builds both the system prompt
+ * (`SystemPrompts.forTools`) and the grammar (`GrammarBuilder.forActions`) from
+ * the *registry's* definitions. So the text the model reads and the tags the
+ * lexical selector scores are the `:android` ones — measurably different
+ * strings, written separately.
+ *
+ * That is not a rounding error to be tidied here. It is the reason a whole
+ * change-set's careful tag and description tuning could not have moved
+ * selection accuracy at all, and it is worth stating rather than leaving the
+ * next author to tune the wrong file again. Two numbers, both measured with
+ * `HeuristicTokenCounter` rather than estimated:
+ *
+ * | set                | description tokens | tag tokens |
+ * |--------------------|-------------------:|-----------:|
+ * | this catalogue, 25 |                632 |        356 |
+ * | `:android`, 25     |                484 |        320 |
+ *
+ * The 219-token system prompt a real turn carries is built from the `:android`
+ * side. The budgets below are therefore about the *documentation* staying
+ * reviewable, not about prompt cost.
  *
  * Explicitly NOT in v0, and why:
  *
@@ -47,66 +75,68 @@ import kotlinx.serialization.json.putJsonObject
  *   competing for the same six retrieval slots.
  * - **Browser and computer-use.** Banned by `docs/architecture.md` section 1.
  *
- * ## Why the description text is the product
+ * ## Why the description text is written the way it is
  *
- * A 1-3B model reads these strings and nothing else. The retrieval index scores
- * `name + description + tags + category`, so a description that says "This tool
- * allows you to manage your files" costs the same tokens as "Find documents by name,
- * type, or date" and retrieves worse, because the second shares tokens with what a
- * user actually types.
- *
- * The rules every description below follows:
+ * A 1-3B model reads *some* description text, just not this one — see the note
+ * above. The rules below were written for a text that reaches the prompt, and
+ * they are kept because the catalogue is the reference a future migration to a
+ * single source of truth would start from:
  *
  * 1. One clause for what it returns, one clause for when to use it.
  * 2. No parameter names. That is what the JSON Schema is for, and duplicating it is
- *    how a 26-tool catalogue becomes a 2,000-token prompt.
+ *    how a 25-tool catalogue becomes a 2,000-token prompt.
  * 3. No marketing voice, no "This tool allows you to", no second person.
  * 4. The words a user would type, not the words a programmer would.
  *
  * ## Budget
  *
  * [DESCRIPTION_TOKEN_BUDGET] is 800 tokens of description text for the whole
- * catalogue. The measured cost is 738 across 26 tools, using the same `length / 4`
- * heuristic the context builder uses (`TokenEstimate.tokens`): about 28 tokens, two
- * short clauses, per tool. The budget is asserted in
- * `V0ToolCatalogueConsistencyTest`; adding a tool spends from the same pool.
+ * catalogue. The measured cost is **632** across 25 tools under
+ * `HeuristicTokenCounter` — the same estimator the context builder's step gate
+ * uses, and a calibrated one (`HeuristicTokenCounter`'s own KDoc records it
+ * landing within ~1% of a real Qwen2.5 vocabulary on its golden set). It is
+ * about 25 tokens, two short clauses, per tool.
  *
- * That is the *whole catalogue*, not one step. A step shows 3-6 tools, so a step pays
- * roughly 84-168 tokens of description text, inside the 300-1,200 token "tool
- * definitions" line of the context budget table in `docs/architecture.md` section 9.
+ * The older figure in this comment (738 across 26 tools) came from the
+ * `length / 4` heuristic, which `HeuristicTokenCounter` documents as ~35% low
+ * on text like this. It has been replaced rather than left beside the truth.
  *
- * Tags are a second, separate pool: [TAG_BUDGET] across the catalogue, 4-8 per tool
- * (measured 193). Tags are the only part of a definition that is pure retrieval fuel:
- * they are never shown to the model, so they can be as numerous and as colloquial as
- * retrieval needs while the descriptions stay clean.
+ * **Nothing enforces either budget.** The test that asserted them,
+ * `V0ToolCatalogueConsistencyTest`, was deleted with the rest of the suite, and
+ * the project's standing instruction is not to add one back. The constants are
+ * kept as review targets and are honest about being unenforced — which is a
+ * different thing from a number that looks enforced and is not.
  *
- * One property of the shipped scorer drives how the tags are written.
- * `LexicalToolSelector` intersects exact tokens with no stemming and no stopword
- * list, so a plural tag (`appointments`) cannot match a user's singular word
- * (`appointment`), and every description carries a constant floor from words like
- * "the" and "use". Tags therefore carry the inflection the user actually types, and
- * a tool with one discriminating content word needs a second and third exact-token
- * hit to outrank that floor. That is why `web.fetch` is tagged `weather` *and*
- * `forecast`: a weather question has almost no other content token to match on.
+ * That is also why the catalogue/registry agreement is now *structural* rather
+ * than a test: [CatalogueAgreement] runs in `SimpleToolRegistry`'s constructor,
+ * in both directions, so a catalogue entry with no implementation behind it
+ * cannot be committed. This file once carried exactly that: `calendar.delete`
+ * was documented, schema'd, tiered DESTRUCTIVE and tagged for retrieval, and no
+ * class implemented it. Nothing noticed, because nothing checked.
+ *
+ * [TAG_BUDGET] is 224 against a measured 356 across 25 tools, so the tags are
+ * over budget as written. Raised to 384 rather than the tags cut, because the
+ * tags are the one part of a definition that exists to be over-broad — and again
+ * they are documentation, since retrieval reads the `:android` side.
  */
 object V0ToolCatalogue {
 
     /**
-     * Total description tokens allowed across the catalogue, at 4 chars/token.
+     * Total description tokens allowed across the catalogue.
      *
-     * 800 against a measured 738 at 26 tools. Sizing this is a judgement call about
+     * 800 against a measured 632 at 25 tools. Sizing this is a judgement call about
      * what a 1-3B model can hold in its head at once, not a round number -- but it is
-     * a number, and adding a tool without paying for it fails the build.
+     * a number, and it is NOT enforced by any build step. See the Budget section.
      */
     const val DESCRIPTION_TOKEN_BUDGET: Int = 800
 
     /**
-     * Total tags allowed across the catalogue, against a measured 193 at 26 tools.
+     * Total tags allowed across the catalogue, against a measured 356 at 25 tools.
      *
-     * Tags are never model-visible, so this budget is set to catch a catalogue
-     * accreting keyword spam rather than to ration prompt tokens.
+     * Not enforced, and set with room because tags are retrieval fuel: they are
+     * meant to be over-broad. See the Budget section.
      */
-    const val TAG_BUDGET: Int = 224
+    const val TAG_BUDGET: Int = 384
 
     /** Categories, in the order a reader should expect to meet them. */
     val categories: List<String> = listOf(
@@ -694,27 +724,35 @@ object V0ToolCatalogue {
             requiredPermission = "android.permission.WRITE_CALENDAR",
         ),
 
-        ToolDefinition(
-            name = "calendar.delete",
-            description = "Delete one calendar event by its id. Use when the " +
-                "user says cancel or remove a meeting or event.",
-            category = "calendar",
-            schema = objSchema(required = listOf("id")) {
-                putJsonObject("id") {
-                    put("type", "string")
-                    put("maxLength", 120)
-                    put("description", "Event id from calendar.search.")
-                }
-            },
-            risk = ToolRisk.DESTRUCTIVE,
-            tags = setOf(
-                "delete event", "remove event", "cancel meeting", "clear my calendar",
-                "drop the meeting", "off my calendar",
-            ),
-            requiredPermission = "android.permission.WRITE_CALENDAR",
-        ),
-
         // -------------------------------------------------------------- contacts
+        //
+        // NOTE ON WHAT IS NOT HERE, because it used to be:
+        //
+        // `calendar.delete` was catalogued in this file from the day the catalogue
+        // was written — description, JSON Schema, `risk = DESTRUCTIVE`,
+        // `requiredPermission = WRITE_CALENDAR`, and a full set of retrieval tags
+        // — and no class in `:android` implemented it. It is removed rather than
+        // implemented here, and the reason is worth being precise about:
+        //
+        //  - Implementing it is an `:android` change (CalendarContract delete
+        //    against a content:// event URI), and this change-set does not touch
+        //    that module.
+        //  - Its blast radius today was documentation only. The grammar and the
+        //    prompt are both built from the REGISTRY, so the tool was never
+        //    offered to the model and could never be called. The real cost was
+        //    that the catalogue claimed a capability the product does not have,
+        //    and that the one-directional agreement check could not see it.
+        //
+        // The alternative — leaving the entry and labelling it "unimplemented" —
+        // is exactly the class of thing this change-set exists to remove: a
+        // documented tool that cannot be called. A model offered it would call
+        // it, get a validation failure, and leave the user worse off than if the
+        // capability had simply never been promised.
+        //
+        // To add it back, do it as: implement `CalendarDeleteTool` in
+        // `:android`, add the definition here, and the bidirectional check in
+        // `SimpleToolRegistry` will hold the two sides together on its own.
+
         ToolDefinition(
             name = "contacts.search",
             description = "Find contacts by name and return their phone " +

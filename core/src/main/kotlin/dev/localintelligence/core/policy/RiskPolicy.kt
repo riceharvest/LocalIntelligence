@@ -23,6 +23,13 @@ import dev.localintelligence.core.tool.ToolRisk
  *  2. Unparseable or malformed arguments → BLOCK. We do not know what the call
  *     does, so we do not run it. A model that emits `{"count": "many"}` has
  *     not asked for permission, it has failed to state a request.
+ *  2b. A required argument the call left out → BLOCK. Same reasoning, and this
+ *     is the check that matters most for a 1-3B model specifically: such a model
+ *     emits `{}` far more often than a competent one, and an incomplete call to
+ *     a DESTRUCTIVE tool otherwise reaches a confirmation dialog describing an
+ *     action with no target. The user is asked to approve a call that cannot
+ *     mean anything, which is how a safety dialog trains people to click through
+ *     it.
  *  3. Permission not granted → REQUIRE_PERMISSION. Distinct from BLOCK
  *     because the remedy is a system dialog, not refusal.
  *  4. Path escape → REQUIRE_CONFIRMATION. Escalated even for tiers that would
@@ -81,7 +88,7 @@ class RiskPolicy(
             }
         }
 
-        val analysis = ArgumentInspector.analyze(args, config)
+        val analysis = ArgumentInspector.analyze(args, config, requiredArguments(definition))
 
         // (2) Malformed arguments. Null beats a guess: an argument we cannot
         //     read is an argument whose effect we cannot bound.
@@ -91,6 +98,26 @@ class RiskPolicy(
                 "${definition.name} was called with arguments this runtime cannot interpret " +
                     "(${analysis.malformed.joinToString()}). An action whose scope cannot be read " +
                     "will not be run.",
+            )
+        }
+
+        // (2b) A required argument the call did not supply. Checked here, and not
+        //      only in `ToolCallValidator`, because this is the LAST gate before
+        //      the action and the validator is a substitutable seam.
+        //
+        //      WHY BLOCK AND NOT A CONFIRMATION: the call cannot succeed, so a
+        //      dialog is asking the user to approve a no-op. And it is exactly the
+        //      destructive case that makes this worth a check — `files.write_text`
+        //      requires `content` and is DESTRUCTIVE, so without this the loop
+        //      would build a confirmation for "overwrite a file" with nothing to
+        //      overwrite and the user would be asked to say yes to a sentence
+        //      about an unspecified target.
+        if (analysis.missing.isNotEmpty()) {
+            return decide(
+                definition, args, PolicyOutcome.BLOCK, PolicyRule.MISSING_ARGUMENTS,
+                "${definition.name} was called without ${analysis.missing.joinToString()}, which " +
+                    "it requires, so it was not run. Call it again with those arguments. Do not " +
+                    "guess a value for one you were not given.",
             )
         }
 
@@ -214,6 +241,29 @@ class RiskPolicy(
             )
         }
         return base
+    }
+
+    /**
+     * The argument names [definition]'s own JSON Schema marks required.
+     *
+     * Read here, once, and passed down, because this is the only place in the
+     * package that holds a [ToolDefinition]. A tool that declares no `required`
+     * array contributes nothing, which is why `device.battery` and its siblings
+     * are unaffected: the check is about a tool that says it needs something.
+     *
+     * Defensive about shape rather than trusting it: `required` is an array per
+     * JSON Schema and `CatalogueSchema` documents that some early tool authors
+     * emitted it as an object. A `required` this function cannot read yields an
+     * empty set, which disables the check for that tool — the safe direction
+     * here, because the alternative (throwing from a risk evaluation) would
+     * take down a step over a malformed schema.
+     */
+    private fun requiredArguments(definition: ToolDefinition): Set<String> {
+        val required = definition.schema["required"] ?: return emptySet()
+        if (required !is kotlinx.serialization.json.JsonArray) return emptySet()
+        return required.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            .filter { it.isNotBlank() }
+            .toSet()
     }
 
     /**
