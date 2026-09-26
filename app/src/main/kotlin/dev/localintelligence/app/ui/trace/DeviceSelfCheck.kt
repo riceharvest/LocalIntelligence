@@ -20,7 +20,9 @@ import dev.localintelligence.core.metrics.DiagnosticAction
 import dev.localintelligence.core.metrics.DiagnosticCheck
 import dev.localintelligence.core.metrics.DiagnosticReport
 import dev.localintelligence.core.metrics.Finding
+import dev.localintelligence.core.metrics.ProcessMemoryCheck
 import dev.localintelligence.core.metrics.RamGateCrossCheck
+import dev.localintelligence.core.metrics.RunMemoryJournal
 import dev.localintelligence.core.metrics.RunMetricsCheck
 import dev.localintelligence.core.metrics.RunMetricsJournal
 import dev.localintelligence.core.metrics.RunPerformanceCheck
@@ -77,6 +79,10 @@ class DeviceSelfCheck(
             permissionCheck(),
             deviceMemoryCheck(),
             toolRegistryCheck(),
+            // The measured half of what RunPerformanceCheck says is unknown.
+            // Both read the same journals; this one is the one that will start
+            // returning numbers the first time a task runs on a real phone.
+            ProcessMemoryCheck.run(RunMemoryJournal.recent()),
             RunMetricsCheck.run(RunMetricsJournal.latest()),
             RunPerformanceCheck.unknown(),
         ),
