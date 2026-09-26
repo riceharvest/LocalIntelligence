@@ -115,8 +115,21 @@ object RetainedHistory {
         // bounded by cap rather than by the input.
         val keep = java.util.TreeSet<Int>()
 
-        // The anchor. Index 0 is the run's task for every session this has ever
-        // seen, and the loop's own foldWindow keeps the same element.
+        // The anchor: the session's OPENING turn, kept regardless of budget.
+        //
+        // The old comment here said "index 0 is the run's task for every session
+        // this has ever seen", which was true when each run got a fresh Session
+        // and false the moment the session became shared and multi-run. Index 0
+        // is now the FIRST-EVER task, which may be many turns old and unrelated
+        // to the run in progress.
+        //
+        // It is still protected, deliberately: a session's opening request is
+        // what identifies the conversation ("remind me about X"), and losing it
+        // leaves a reply with no referent. That is a worse failure than
+        // carrying one stale turn, and it costs exactly one message. The
+        // CURRENT run's instruction is protected separately, by the user-turn
+        // re-admission loop below, which is the protection that actually
+        // matters for the run in progress.
         keep.add(0)
 
         // Newest wins the budget. Scanning downwards means the most recent
