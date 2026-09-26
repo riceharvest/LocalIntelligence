@@ -54,7 +54,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(PIDROID_LLAMA_DIR "" CACHE PATH "Path to a llama.cpp source checkout")
 set(PIDROID_LLAMA_TAG "b4661" CACHE STRING "llama.cpp git tag to build against")
-option(PIDROID_LLAMA_FETCH "Fetch llama.cpp with FetchContent if not found locally" OFF)
+# WHY FETCH IS THE DEFAULT, NOT OPT-IN: it used to be OFF, so a fresh
+# `git clone` followed by `./gradlew :app:assembleDebug` failed with
+# "llama.cpp sources not found" and the error told the user to run
+# `git submodule update --init --recursive` - for a submodule that does not
+# exist. There is no .gitmodules in this repository. A first-time builder was
+# sent down a dead end by our own error message, and the one route that
+# actually worked (PIDROID_LLAMA_FETCH=1) was not discoverable from it.
+#
+# Fetching the pinned tag is slower than reusing a checkout, but it is the only
+# option that works on a clean machine with no setup at all. Local developers
+# keep the fast path by setting PIDROID_LLAMA_DIR, which is checked first.
+option(PIDROID_LLAMA_FETCH "Fetch llama.cpp with FetchContent if not found locally" ON)
 
 # AGP does not forward Gradle `-P` properties to CMake as -D defines, and
 # android/build.gradle.kts is owned by another workstream, so the supported way
@@ -111,11 +122,12 @@ endif()
 if(NOT _llama_src_dir)
     message(FATAL_ERROR
         "llama.cpp sources not found.\n"
-        "Run one of:\n"
-        "  git submodule update --init --recursive\n"
-        "  PIDROID_LLAMA_FETCH=1 ./gradlew :android:assembleDebug\n"
-        "or point CMake at a checkout:\n"
+        "This build fetches llama.cpp automatically, so this normally means the\n"
+        "fetch was disabled and no local checkout was given. Do either:\n"
+        "  PIDROID_LLAMA_FETCH=1 ./gradlew :android:assembleDebug   (fetch the pinned tag)\n"
         "  PIDROID_LLAMA_DIR=/path/to/llama.cpp ./gradlew :android:assembleDebug\n"
+        "The checkout must be at tag ${PIDROID_LLAMA_TAG}. There is no git submodule\n"
+        "in this repository; do not run 'git submodule update'.\n"
         "See android/src/main/cpp/CMakeLists.txt for details.")
 endif()
 

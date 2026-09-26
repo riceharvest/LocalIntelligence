@@ -265,7 +265,21 @@ class AgentController(
         malformedStreak = 0
         pending = null
         lastPrompt = emptyList()
-        sessions.clear()
+        // The session is NOT cleared here, and this is load-bearing.
+        //
+        // It used to be, three lines above sessions.start(task). That was
+        // correct while AppContainer handed every controller a fresh Session():
+        // clearing a throwaway object cost nothing. Once the container passed
+        // ONE long-lived session so a second message could carry the first,
+        // this line became the bug - it emptied the conversation eight lines
+        // before the new turn was appended to it, so every run started from
+        // nothing and the agent could never remember anything. The shared-session
+        // fix and this fix are the same fix; neither works alone.
+        //
+        // Per-run state that genuinely must reset lives above: trace, step,
+        // malformedStreak, pending, lastPrompt. Those are the controller's own
+        // fields, and they are what this method was cleaning up. The
+        // conversation was never per-run, it is per-container.
         loopDetector.reset()
         // Blast radius is per TASK, not per process. Without this reset the
         // 200-action and 20-destructive-action caps would carry over between

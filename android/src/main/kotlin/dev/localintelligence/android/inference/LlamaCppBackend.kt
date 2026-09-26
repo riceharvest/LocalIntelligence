@@ -86,11 +86,23 @@ class LlamaCppBackend(
         }
 
         val meta = opened.metadata
-        // ModelSpec is backend-neutral and carries no context length, so the
-        // trained length is the only honest input. The native side clamps
-        // further if the model reports something smaller at load time.
+        // Capped at the app's own context, NOT the model's trained length.
+        //
+        // This used to be meta.contextLength, on the reasoning that the trained
+        // length is the only honest input. It is the honest *maximum* and the
+        // wrong *allocation*. llama.cpp sizes the KV cache from this value, and
+        // KV is the dominant RAM term, so a model trained at 32K allocated a
+        // 32K cache while the RAM fit gate had priced a 4K one - an 8x
+        // under-count on exactly the models most likely to be picked. The gate
+        // said 'it fits' and the load then allocated roughly eight times what
+        // the gate had agreed to, which is an OOM on a phone.
+        //
+        // The app has no context control, so a trained length beyond what it
+        // will ever use is not capability - it is unallocated headroom nobody
+        // can reach. Capping also means this stays tied to the same constant
+        // the gate uses; they must not drift apart.
         val contextLength = (meta.contextLength ?: DEFAULT_CONTEXT_LENGTH)
-            .coerceAtLeast(MIN_CONTEXT_LENGTH)
+            .coerceIn(MIN_CONTEXT_LENGTH, MAX_CONTEXT_LENGTH)
 
         val loadError = LlamaBridge.loadModel(
             handle = bridgeHandle,
@@ -318,5 +330,20 @@ class LlamaCppBackend(
          * does not fit, and llama.cpp fails every decode.
          */
         private const val MIN_CONTEXT_LENGTH = 128
+
+        /**
+         * Hard ceiling on the context the app will ever allocate.
+         *
+         * WHY IT EQUALS [DEFAULT_CONTEXT_LENGTH]: the RAM fit gate
+         * (AppContainer.loadModel -> fitsOnDevice) prices the KV cache at
+         * DEFAULT_CONTEXT_LENGTH. If the loader allocated anything larger, the
+         * two would disagree and the gate's promise - this model fits - would
+         * be false before the first token. One number, two places, and a
+         * comment in each saying so.
+         *
+         * A model trained at 32K is not diminished by this: the app has no
+         * context control, so the extra 28K was never reachable.
+         */
+        private const val MAX_CONTEXT_LENGTH = DEFAULT_CONTEXT_LENGTH
     }
 }
