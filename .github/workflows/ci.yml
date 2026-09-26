@@ -232,10 +232,12 @@ jobs:
         # setting. With the cache on, a task can be restored from a previous
         # commit and this job would report success for a build that never ran.
         #
-        # MEASURED, cold, on a GitHub ubuntu-latest runner, from a fresh clone
-        # with no PIDROID_LLAMA_DIR: 102s, 111/111 tasks executed. See
-        # docs/ci/README.md for the full breakdown, and for why that is not
-        # comparable to a developer machine.
+        # MEASURED, cold, with --no-build-cache, 111/111 tasks executed:
+        #   253s on a GitHub ubuntu-latest runner (run 36208616566)
+        #   102s on a developer machine
+        # Both are real; the difference is hardware, not a different amount of
+        # work. See docs/ci/README.md, and note that this is not the same
+        # speed as a developer machine.
         run: |
           START=$(date +%s)
           ./gradlew --no-build-cache :core:assemble :android:assemble :app:assembleDebug --stacktrace

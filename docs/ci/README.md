@@ -17,20 +17,28 @@ There are three jobs. One of them is the reason this pipeline exists.
 
 | Job | What it proves | Observed duration |
 | --- | --- | --- |
-| `core (JVM compile)` | `:core` compiles on a JDK 21, and has no Android in it | 39s on a prior run; 66s on run `36207317459` |
-| `fresh clone (no PIDROID_LLAMA_DIR)` | **A stranger can clone this repository and build it** | **102s build**, measured cold, fresh clone, no build cache |
-| `android lint (ratcheted...)` | Lint runs, and no *new* error appears | ~2 min including SDK setup |
+| `core (JVM compile)` | `:core` compiles on a JDK 21, and has no Android in it | **1m27s** (run 36208616566) |
+| `fresh clone (no PIDROID_LLAMA_DIR)` | **A stranger can clone this repository and build it** | **4m52s** total, of which the build is **253s** (run 36208616566) |
+| `android lint (ratcheted...)` | Lint runs, and no *new* error appears | **3m04s** (run 36208616566) |
 
-**All durations were observed on a GitHub `ubuntu-latest` runner.** A developer
-machine is a different machine with a different filesystem cache, a different
-CPU and a different network. Treat these as CI numbers, not as "how long a build
-takes". In particular, the 102s figure is *with* a warm Gradle dependency cache
-(a GitHub runner has one) and *without* a warm build cache (the job passes
-`--no-build-cache` on purpose — see below).
+**All three durations were observed on a GitHub `ubuntu-latest` runner**, in run
+`36208616566`, on this branch. A developer machine is a different machine with a
+different filesystem cache, a different CPU and a different network. Treat
+these as CI numbers, not as "how long a build takes".
 
-The earlier note that the APK job takes "4m39s" is from a run that was
-installing and downloading an NDK that the build then did not use, plus a cold
-NDK fetch. The current number is lower because the job installs the NDK the
+The fresh-clone **build step** is 253s on the runner against 102s on the
+developer machine — the same `--no-build-cache` cold build, 111/111 tasks
+executed in both cases. The gap is hardware and cold page cache, not a
+different amount of work. That is the single most useful thing to know when
+reading these numbers: the difference between "fast laptop" and "CI" here is
+about 2.5x, and the *work* is identical.
+
+The job's 4m52s wall-clock includes ~30s of SDK/NDK discovery and install
+before the build starts, which is why it is longer than the build itself.
+
+The earlier note that the APK job takes "4m39s" is close to today's 4m52s, but
+for a different reason: that run was installing and downloading an NDK the build
+then did not use, plus a cold NDK fetch. Today's number installs the NDK the
 build actually declares.
 
 ## The fresh-clone job
@@ -85,17 +93,56 @@ Because the build cache can satisfy a task from a *previous commit*. If the
 cache is on, this job can report success for a build that never ran — which is
 exactly the failure mode it exists to prevent.
 
-It also changes what the number means. Measured on this machine, same fresh
-clone, same command:
+It also changes what the number means. Measured on a developer machine, same
+fresh clone, same command:
 
 | Run | Result |
 | --- | --- |
-| First run (cold) | `BUILD SUCCESSFUL in 47s`, `111 actionable tasks: 59 executed, 52 from cache` |
+| First run (cache on) | `BUILD SUCCESSFUL in 47s`, `111 actionable tasks: 59 executed, 52 from cache` |
 | `--no-build-cache`, cold | `BUILD SUCCESSFUL in 1m 40s`, `111 actionable tasks: 111 executed` |
 
-The 47-second figure is real but it is a *cache-hit* number. The honest
-cold number is **102 seconds, 111 of 111 tasks executed**, and that is the
-number quoted in the workflow.
+The 47-second figure is real but it is a *cache-hit* number. The honest cold
+number on the same machine is **102 seconds, 111 of 111 tasks executed**; on a
+GitHub runner it is **253 seconds, still 111 of 111 tasks executed** (run
+`36208616566`). Both are quoted in the workflow's own step comment, labelled by
+where they were measured.
+
+### The runner run, in full
+
+Run `36208616566`, on this branch, all three jobs green:
+
+```
+core (JVM compile)                              success  1m27s
+fresh clone (no PIDROID_LLAMA_DIR)              success  4m52s
+android lint (ratcheted, 3 known errors tracked) success  3m04s
+```
+
+From the fresh-clone log:
+
+```
+BUILD SUCCESSFUL in 4m 12s
+111 actionable tasks: 111 executed
+=== fresh-clone build: 253s (no PIDROID_LLAMA_DIR, no build cache) ===
+
+Fetched llama.cpp at android/.cxx/RelWithDebInfo/294v4e6u/x86_64/_deps/llama-src
+resolved commit: ec3bc8270bc67b58955748d40a3e558a05b2d8f2 (tag b4661, expected ec3bc82...)
+OK: PIDROID_LLAMA_DIR is unset
+OK: PIDROID_LLAMA_FETCH is unset
+OK: no .gitmodules, so nothing but FetchContent can supply llama.cpp
+OK: PIDROID_LLAMA_FETCH defaults to ON, so a fresh clone needs no setup
+OK: the build declares 27.1.12297006 and that is what is installed
+OK: the JNI library is named localintelligence_llama_jni in CMake, in Kotlin, and in the APK.
+OK: no NPU/accelerator library in the APK (CPU inference only, as claimed).
+OK: APK carries both 64-bit ABIs, the JNI library in each, and no NPU runtime.
+```
+
+Note what the `Fetched llama.cpp at ...` line is for: the build would succeed
+just as well if a checkout had appeared by some other route. That line is what
+makes "it built" mean "the FetchContent default worked".
+
+The runner's APK was 126,857,675 bytes with 51,015,960 bytes of arm64-v8a
+payload. Both are **debug** figures: unstripped `.so` files, one APK carrying
+both ABIs, while a device installs one ABI. Not shipping sizes.
 
 ### Reproducing it by hand
 

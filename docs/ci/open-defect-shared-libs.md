@@ -33,6 +33,24 @@ lib/arm64-v8a/libomp.so                              961,440 bytes
 Measured from two real builds of the same commit: a `PIDROID_LLAMA_DIR` build
 (run `36207317459`'s APK) and a fresh-clone FetchContent build of `8f71dad`.
 
+**Independently reproduced on a GitHub runner** in run `36208616566`, whose
+fresh-clone APK carries, per ABI:
+
+```
+liblocalintelligence_llama_jni.so    439,536
+libllama.so                       19,460,480
+libggml.so                          841,960
+libggml-base.so                   3,134,744
+libggml-cpu.so                     1,379,800
+libomp.so                          1,229,304
+```
+
+The runner's JNI library is 439 KB against the old CI path's 5,003,256 bytes,
+and the split libraries are all present. So this is not an artifact of one
+machine's toolchain: **every fresh clone since FetchContent became the default
+has produced this different APK**, and until this PR nothing was building that
+path at all.
+
 ## Why
 
 `BUILD_SHARED_LIBS` and `GGML_OPENMP` are forced **after** the fetched tree has
