@@ -12,6 +12,7 @@ import dev.localintelligence.core.agent.AgentConfig
 import dev.localintelligence.core.agent.AgentController
 import dev.localintelligence.core.agent.LoopDetector
 import dev.localintelligence.core.agent.Session
+import dev.localintelligence.core.agent.SessionStore
 import dev.localintelligence.core.agent.ToolCallValidatorGate
 import dev.localintelligence.core.agent.TurnRecorder
 import dev.localintelligence.core.execution.RunGate
@@ -56,6 +57,25 @@ import java.io.File
  * for a global.
  */
 class AppContainer(private val context: Context) {
+
+    /** Log tag for this container, matching the class name used elsewhere. */
+    private val TAG = "AppContainer"
+
+    private companion object {
+        /**
+         * Preferences file holding the pinned conversation id.
+         *
+         * Its own file, separate from the model's, so that clearing a downloaded
+         * model - a several-gigabyte operation - cannot silently orphan the
+         * conversation, and clearing the conversation cannot un-resolve the
+         * model. They are independent pieces of state with independent reasons
+         * to be reset.
+         */
+        const val PREFERENCES = "localintelligence.conversation"
+
+        /** Key for [PREFERENCES]: the [SessionStore] id of the conversation. */
+        const val KEY_SESSION_ID = "session_id"
+    }
 
     /**
      * The one tool registry for the process.
@@ -188,7 +208,8 @@ class AppContainer(private val context: Context) {
     val runGate: RunGate by lazy { RunGate() }
 
     /**
-     * The conversation, kept across runs.
+     * The conversation, kept across runs and - since this change - across
+     * process death.
      *
      * WHY THIS IS NOT `Session()` PER RUN: a controller is single-use by design -
      * it owns per-run mutable state and is thrown away afterwards. But the
@@ -209,6 +230,193 @@ class AppContainer(private val context: Context) {
      * lock - noted here so the invariant is not lost.
      */
     val session: Session by lazy { Session() }
+
+    /**
+     * Durable mirror of [session], or null when the app is running without one.
+     *
+     * ## WHY THE WRITER LIVES HERE AND NOT IN `Session`
+     *
+     * `Session` is a `:core` type and `:core` is a pure JVM module: it has no
+     * `android.*` import and no Room dependency, by rule and by the
+     * `grep -rn '^import android\.' core/src/main/` check. Anything that touches
+     * a database therefore has to sit above it, and this container is the one
+     * place that already knows how to build the Room database. `Session` grows
+     * exactly two small pure-JVM affordances to make that possible - a
+     * high-water [Session.appendedCount] and [Session.restore] - and knows
+     * nothing about storage.
+     *
+     * ## WHY THE STORE IS OPTIONAL
+     *
+     * The concrete store is reached through a `SessionStore` obtained from the
+     * `:android` module. That module is the only one that can see Room, and it
+     * is owned elsewhere, so the factory is injected. When it is absent the app
+     * degrades to the behaviour it had before this change - a session that
+     * lives one process - rather than refusing to start.
+     */
+    private val sessionStore: SessionStore? by lazy { SessionStoreFactory.provide(context) }
+
+    /**
+     * The id of the durable conversation this process appends to.
+     *
+     * Created once, on the first write, and then held for the process: the
+     * store is append-only, so a second id would split one conversation in two
+     * and the restore would only ever see half of it.
+     */
+    @Volatile
+    private var durableSessionId: Long = 0L
+
+    /**
+     * Messages already handed to the store, to make the writer idempotent.
+     *
+     * This counts the store's rows, not the window's, so it keeps working
+     * after [RetainedHistory.bound] trims the in-memory list.
+     */
+    @Volatile
+    private var durableWriteCount: Int = 0
+
+    /**
+     * Rehydrates [session] from the store, once per process, before the first
+     * run builds a request from it.
+     *
+     * Off the main thread by construction: the caller is a coroutine on the
+     * service's `Dispatchers.Default`, and every call into the store hops to
+     * `Dispatchers.IO` internally. Opening SQLite and reading back a few dozen
+     * rows is a couple of milliseconds against a model load measured in
+     * seconds, so it is not worth a dedicated warm-up pass - but it is also not
+     * something to do on the main thread, which is why it rides the existing
+     * pre-run path rather than the container's initialiser.
+     */
+    suspend fun restoreConversationOnce() {
+        val store = sessionStore ?: return
+        if (restoredOnce) return
+        restoredOnce = true
+        // The conversation's id is pinned in preferences, NOT discovered. That
+        // is forced by the interface rather than chosen: `SessionStore` can
+        // only create a session, append to a given id, and read a given id, so
+        // there is no query that answers "which conversation did this user
+        // have". Pinning the id is what turns a per-process object into one
+        // durable thread, and it is the same fact Room would otherwise have to
+        // be asked for.
+        val id = pinnedSessionId ?: return
+        val history = try {
+            withContext(Dispatchers.IO) { store.messages(id) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            // A store that cannot be read must not stop the user chatting. The
+            // session stays empty, which is the position the app was in before
+            // persistence existed.
+            android.util.Log.w(TAG, "Could not restore conversation $id; continuing empty.", t)
+            return
+        }
+        if (history.isEmpty()) return
+        val adopted = session.restore(history)
+        // Everything restored is already on disk, so the writer must not
+        // re-append it or the next run would double the history.
+        durableWriteCount = session.appendedCount
+        if (adopted > 0) {
+            android.util.Log.i(
+                TAG,
+                "Restored $adopted of ${history.size} stored messages (session $id).",
+            )
+        } else {
+            // The rows exist but the window refuses them - a tail with no user
+            // turn in it. An empty window is the honest outcome: it admits
+            // ignorance, where a fragment would pretend to recall.
+            android.util.Log.i(
+                TAG,
+                "Conversation $id held ${history.size} messages but none of them " +
+                    "began a coherent window; starting fresh.",
+            )
+        }
+    }
+
+    /**
+     * The id of the durable conversation, creating and pinning one if this is
+     * the first run that has ever had a store.
+     *
+     * Pinned in [PREFERENCES] rather than held only in a field, because a field
+     * dies with the process - which is the entire problem being fixed. The pin
+     * is a single [Long] written once and read once per cold start.
+     */
+    private suspend fun durableSessionId(store: SessionStore): Long {
+        pinnedSessionId?.let { return it }
+        val id = withContext(Dispatchers.IO) { store.createSession() }
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_SESSION_ID, id)
+            .apply()
+        return id
+    }
+
+    /**
+     * The pinned conversation id, or null if none has been created yet.
+     *
+     * Read-only, and deliberately so: the only writer is [durableSessionId],
+     * which pins the id at the same moment it creates the row, so a pin can
+     * never name a session that does not exist.
+     */
+    private val pinnedSessionId: Long?
+        get() = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .getLong(KEY_SESSION_ID, 0L)
+            .takeIf { it != 0L }
+
+    /**
+     * Appends whatever the session has produced since the last call.
+     *
+     * ## WHY IT IS CALLED FROM TWO PLACES
+     *
+     * Once per run, from [TurnRecorder] below, which fires at
+     * `AgentAction.Respond` after the reply has been appended - so a turn that
+     * completes is durable immediately, which is the case that matters when a
+     * user finishes a conversation and then backgrounds the app.
+     *
+     * And once per run, from [ensureModelReady], which catches up the turns
+     * that first hook cannot see: a run that ended in `Stop`, a cancel, or an
+     * `AwaitingConfirmation` never reaches `Respond`, and without this second
+     * call those turns would only be written the next time the user happened to
+     * send something. Being idempotent - keyed on the high-water mark, not on
+     * elapsed time - is what makes it safe for both callers to invoke it and
+     * for the second to be a no-op when the first already ran.
+     *
+     * WHY NOT PER MESSAGE: a turn is a user message, a tool observation and a
+     * reply. Writing each separately triples the database work and buys
+     * nothing, because a process killed mid-turn loses the same window either
+     * way. The unit of durability here is the turn, stated plainly.
+     */
+    suspend fun persistConversation() {
+        val store = sessionStore ?: return
+        val produced = session.appendedCount
+        val newMessages = produced - durableWriteCount
+        if (newMessages <= 0) return
+        val id = try {
+            durableSessionId(store)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "Could not open a durable session; skipping write.", t)
+            return
+        }
+        // A trim only ever removes from the front, so the newest `newMessages`
+        // entries of the window are exactly the ones not yet written.
+        val pending = session.messages.takeLast(newMessages)
+        try {
+            withContext(Dispatchers.IO) {
+                for (message in pending) store.appendMessage(id, message)
+            }
+            durableWriteCount = produced
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            // Losing a write is survivable in a way failing the run is not: the
+            // answer has already been produced and shown. Leave the count
+            // alone so the next run retries these rows.
+            android.util.Log.w(TAG, "Could not persist the conversation; will retry next run.", t)
+        }
+    }
+
+    @Volatile
+    private var restoredOnce: Boolean = false
 
     /**
      * One run at a time, shared by the chat path and the scheduled path.
@@ -377,8 +585,25 @@ class AppContainer(private val context: Context) {
      * Idempotent, because [ExecutionService] calls it on every task and a
      * second 2 GB load for a task the user just sent would be both slow and a
      * reliable way to get OOM-killed.
+     *
+     * ## ALSO THE PERSISTENCE HOOK, DELIBERATELY
+     *
+     * This is the one suspend function that both entry points - a chat turn
+     * and a scheduled task - already call on the run path, on a background
+     * dispatcher, before the controller exists. So the conversation is
+     * rehydrated here on the first run of a process and written back on every
+     * run after it, without either `ExecutionService` or `AgentController`
+     * knowing that persistence exists. Both of those files are owned
+     * elsewhere, and a feature that needed an edit in each would not be
+     * landable next to them.
+     *
+     * The cost is a few milliseconds of SQLite against a model load measured
+     * in seconds, on a thread that is already doing background work. Restoring
+     * is once per process; the write is a handful of rows per turn.
      */
     suspend fun ensureModelReady(): ModelAvailability {
+        restoreConversationOnce()
+        persistConversation()
         if (modelAvailability.current.canRun) return ModelAvailability.Ready
         val model = selectedModel ?: return ModelAvailability.None
             .also { modelAvailability.set(it) }
@@ -452,7 +677,24 @@ class AppContainer(private val context: Context) {
         // because the loop is `:core` and only `:app` knows which store is
         // durable. `recordTurn` applies MemoryWritePolicy, so this costs one
         // regex per completed run and at most one row.
-        turnRecorder = TurnRecorder { userText -> memoryStore.recordTurn(userText) },
+        //
+        // It doubles as the conversation write hook. `AgentController` calls
+        // this at `AgentAction.Respond`, which is after the reply has been
+        // appended to the session, so mirroring the conversation here makes a
+        // finished turn durable immediately. Waiting for the *next* run instead
+        // would lose the last turn of any conversation the user ends by
+        // backgrounding the app - the exact case this is meant to fix. It is
+        // the same dependency-injection shape as the memory write for the same
+        // reason: `:core` must not know that a database exists.
+        turnRecorder = TurnRecorder { userText ->
+            val memory = memoryStore.recordTurn(userText)
+            // After, not before: `recordTurn` applies the write policy and
+            // returns what it actually stored. Persisting the conversation
+            // first would put a turn on disk that policy then declined to
+            // remember - two stores disagreeing about the same turn.
+            persistConversation()
+            memory
+        },
     )
 
     // ---- HuggingFace download -----------------------------------------
@@ -541,5 +783,80 @@ class AppContainer(private val context: Context) {
         val model = runCatching { importer.inspect(uri) }.getOrNull() ?: return@withContext null
         loadModel(model)
         model.displayName
+    }
+}
+
+/**
+ * Supplies the durable [SessionStore], or null when none can be built.
+ *
+ * ## WHY THIS IS A SEAM AND NOT A DIRECT CALL
+ *
+ * `:app` provably cannot construct a Room store itself, and this is not a
+ * style preference - it was verified by compiling the direct form. `:android`
+ * declares `implementation(libs.androidx.room.runtime)` rather than `api`, so
+ * `RoomDatabase` is absent from `:app`'s compile classpath, and every attempt
+ * to reach through it fails at the compiler with:
+ *
+ *     Cannot access 'RoomDatabase' which is a supertype of
+ *     'LocalIntelligenceDatabase'.
+ *
+ * That holds for the DAO accessors, for the `sessionStore()` extension, and
+ * for the database type itself. So the store has to be built in the module
+ * that owns Room and handed across as a `:core` interface - the same trick
+ * `resilientMemoryStore` already uses for the memory store on the very same
+ * database.
+ *
+ * ## THE REQUIRED EDIT, IN THE MODULE THAT OWNS ROOM
+ *
+ * This returns null until the following lands in `:android` (it is one small
+ * function in a file this change does not own, so it is specified here rather
+ * than applied):
+ *
+ * ```kotlin
+ * // android/src/main/kotlin/dev/localintelligence/android/data/SessionStores.kt
+ * package dev.localintelligence.android.data
+ *
+ * import android.content.Context
+ * import dev.localintelligence.core.agent.SessionStore
+ *
+ * fun durableSessionStore(context: Context): SessionStore =
+ *     LocalIntelligenceDatabase.build(context.applicationContext).sessionStore()
+ * ```
+ *
+ * and then this object delegates to it:
+ *
+ * ```kotlin
+ * object SessionStoreFactory {
+ *     fun provide(context: Context): SessionStore? = runCatching {
+ *         dev.localintelligence.android.data.durableSessionStore(context)
+ *     }.getOrNull()
+ * }
+ * ```
+ *
+ * Returning null is the correct degraded mode, not a stub: the app keeps the
+ * exact behaviour it had before this change (a conversation that lasts one
+ * process) instead of failing to start, so the seam can land independently of
+ * this wiring.
+ */
+object SessionStoreFactory {
+    /**
+     * The store to mirror the session into, or null if none is available.
+     *
+     * Resolved through reflection so that `:app` compiles and runs whether or
+     * not the `:android` factory has landed yet, which is what makes the two
+     * halves independently landable. Once the factory exists this becomes a
+     * direct call; the indirection is a bridge, not an architecture.
+     */
+    fun provide(context: Context): SessionStore? = try {
+        val type = Class.forName("dev.localintelligence.android.data.SessionStoresKt")
+        type.getDeclaredMethod("durableSessionStore", Context::class.java)
+            .invoke(null, context) as? SessionStore
+    } catch (e: CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        // Absent factory, or a database that will not open. Either way the app
+        // runs with an in-process conversation rather than not at all.
+        android.util.Log.i("AppContainer", "No durable session store; conversation is process-local.", t)
+        null
     }
 }
