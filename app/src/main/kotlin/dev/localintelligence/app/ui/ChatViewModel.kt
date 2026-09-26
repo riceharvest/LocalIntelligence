@@ -14,6 +14,8 @@ import dev.localintelligence.app.isTerminal
 import dev.localintelligence.app.notice
 import dev.localintelligence.core.agent.StepTrace
 import dev.localintelligence.core.context.GenerationProse
+import dev.localintelligence.core.transcript.TranscriptRedaction
+import dev.localintelligence.core.transcript.TranscriptRedaction.RedactionState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -544,7 +546,7 @@ class ChatViewModel(
         // could do: the user would be looking at their own question and silence.
         if (blockedReason != null) return
         _input.value = ""
-        _messages.update { it + ChatMessage.User(task) }
+        appendUserTurn(task)
         gateway.start(task)
     }
 
@@ -552,8 +554,41 @@ class ChatViewModel(
     fun send(text: String) {
         if (text.isBlank() || !gateway.runState.value.isTerminal) return
         if (blockedReason != null) return
-        _messages.update { it + ChatMessage.User(text.trim()) }
+        appendUserTurn(text.trim())
         gateway.start(text.trim())
+    }
+
+    /**
+     * Draws the user's turn, and says so when part of it is about to be
+     * withheld from the saved conversation.
+     *
+     * ## WHY THE ROW SHOWS THE USER'S OWN WORDS, AND A NOTICE FOLLOWS IT
+     *
+     * The redaction happens where the message becomes a durable row
+     * ([dev.localintelligence.core.transcript.TranscriptRedaction] via
+     * `MessageMapping.toColumns`), so this transcript is showing text the app
+     * is NOT going to keep. Showing the redacted form here instead would be
+     * wrong in a different way: the user would watch their own sentence mutate
+     * under their thumb, and could not tell whether the filter had eaten their
+     * request or merely formatted it.
+     *
+     * So the row keeps what they typed - this turn really was answered with it
+     * - and the [ChatMessage.Notice] underneath is the honest statement that
+     * the saved copy will differ. Silence there is the failure this exists to
+     * prevent: a user who later reopens the conversation, finds `[redacted]`
+     * where their password was, and was never told, concludes the app lost
+     * their message.
+     *
+     * Predicted with the SAME function the write path uses, not with a second
+     * copy of the rule. A second copy would drift, and it would drift in the
+     * direction of promising redaction that never happened.
+     */
+    private fun appendUserTurn(text: String) {
+        _messages.update { it + ChatMessage.User(text) }
+        val outcome = TranscriptRedaction.redactForPersistence(text)
+        if (outcome.state != RedactionState.CLEAN) {
+            appendRows(listOf(ChatMessage.Notice(REDACTED_IN_TRANSCRIPT)))
+        }
     }
 
     /** The STOP button. Cooperative: the loop returns `Cancelled` when it can. */
@@ -691,6 +726,36 @@ private const val TRUNCATED_AT_LIMIT =
  */
 private const val CANCELLED_MID_ANSWER =
     "Stopped at your request. The text above is what the model had produced so far, and it is incomplete."
+
+/**
+ * Said under a turn that contained something credential-shaped.
+ *
+ * ## WHY THIS ROW EXISTS, AND WHAT IT IS NOT
+ *
+ * A user who pastes a password into the chat and is told nothing will reopen
+ * the conversation tomorrow, find `[redacted]` sitting where their value was,
+ * and conclude the app lost their message. This row is what stops that: it
+ * fires at the moment the turn is sent, while the user is still looking at the
+ * text they typed.
+ *
+ * It says the two things that are actually true and are easy to get backwards.
+ * The assistant had the real value FOR THIS TURN - the redaction is applied
+ * to the copy that gets saved, and the run in flight is untouched, so the
+ * answer above is not compromised. And the saved copy will differ. Neither
+ * half alone is honest: "we filtered it" without the first reads as a failure
+ * of the task, and the first without the second is a promise the database
+ * does not keep.
+ *
+ * Deliberately NOT shown: which category matched, how many spans, or any
+ * fragment of the value. The user already has the value - they just typed it -
+ * so naming it buys nothing and putting a fragment in a transcript row is the
+ * leak this feature exists to stop.
+ */
+private const val REDACTED_IN_TRANSCRIPT =
+    "Part of that message looked like a password, key or code, so it was " +
+        "replaced with a label in the saved conversation. The assistant used " +
+        "what you actually typed to answer this turn, but if you ask it to " +
+        "repeat that value back later it will tell you it was withheld."
 
 /**
  * One row of the transcript. A flat list, not a tree: the runtime is a loop.
