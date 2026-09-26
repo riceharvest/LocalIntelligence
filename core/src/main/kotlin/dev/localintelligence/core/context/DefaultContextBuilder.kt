@@ -186,7 +186,26 @@ class DefaultContextBuilder(
         val historyEnd = trimTrailingCurrentTask(history, start, task)
         if (start >= historyEnd) return emptyList()
         val from = maxOf(start, historyEnd - ContextLimits.MAX_HISTORY_SCAN)
-        return history.subList(from, historyEnd)
+        val window = history.subList(from, historyEnd)
+
+        // A repeat of the live task anywhere in the window, not just at either
+        // edge. This is the state the loop reaches as soon as history holds a
+        // PRIOR exchange, because the task turn then sits in the middle:
+        //
+        //   User(older) / Assistant(a) / User(task) / ToolObservation(o)
+        //
+        // The two edge cases above miss that entirely - it is not the leading
+        // turn and not the trailing run - so the builder emitted the live
+        // instruction twice, and the stale middle copy is the one the model
+        // sees with the strongest positional weight.
+        //
+        // The ANSWER that followed an identical earlier question is kept. Only
+        // the instruction itself is dropped: re-asking the same thing must not
+        // cost the user the reply they already received.
+        //
+        // Exact match only, so a merely similar request is never discarded.
+        val kept = window.filterNot { it is ChatMessage.User && it.text == task }
+        return if (kept.size == window.size) window else kept
     }
 
     /**

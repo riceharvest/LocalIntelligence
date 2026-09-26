@@ -6,7 +6,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -66,36 +65,33 @@ class ContextBuilderOrderingTest {
     }
 
     /**
-     * THE SAME BUG, ONE STEP LATER — AND IT IS STILL OPEN.
-     *
-     * `trimTrailingCurrentTask` only strips a TRAILING run of user turns equal
-     * to the task. That covers the last message of history. It does not cover
-     * the same task turn when something has been appended after it, which is
-     * the state the loop is in from the second step of any run that calls a
-     * tool:
+     * The case this file exists to prevent, on the sequence the loop actually
+     * produces rather than a single-message simplification.
      *
      *   run():        sessions.start(task)        -> User(task)
-     *   step 1:       buildRequest                -> task is trailing, deduped
-     *   tool call:    sessions.appendToolObservation -> ToolObservation
-     *   step 2:       buildRequest                -> User(task) is NO LONGER trailing
+     *   step 1:       buildRequest                -> task emitted once
+     *   tool call:    sessions.appendToolObservation -> ToolObservation follows
+     *   step 2:       buildRequest                -> task emitted once
+     *   ... and the same after an assistant reply and a second tool call.
      *
-     * Replaying exactly that sequence (see the probe this replaced) against the
-     * real builder gives 1 occurrence at step 1 and 2 at step 2. So on every
-     * step after the first tool call, the live instruction is in the prompt
-     * twice, and the stale copy is the one carrying the most recent positional
-     * weight — the precise failure the class KDoc says this file exists to
-     * prevent.
+     * An earlier draft of this file asserted 2 occurrences at step 2 and shipped
+     * the test as @Ignore("PRODUCTION BUG"), reasoning that trimTrailingCurrentTask
+     * only strips a TRAILING run, so once a tool result follows the task turn the
+     * dedup stops applying.
      *
-     * This is a PRODUCTION BUG, not a test defect, and it is asserted here
-     * rather than papered over: the test is @Ignored so the suite stays green
-     * and runnable, and it is the reproduction. Delete the @Ignore the moment
-     * `turnWindow` drops a user turn equal to [task] wherever it sits in the
-     * window, not only at the end.
+     * That was right, and the bug was fixed in DefaultContextBuilder.turnWindow
+     * rather than suppressed. Worth recording why the draft's reasoning looked
+     * wrong at first: a probe replaying the index-0 case reported 1 copy at
+     * every step, because turnWindow DOES skip a leading user turn equal to the
+     * task. Both were true - the leading case was already handled, and the
+     * middle one was not. The task turn is at index 0 only on the first run of
+     * a session; once any prior exchange exists it sits in the middle, where
+     * neither the leading check nor the trailing strip can see it.
      *
-     * The fix belongs in `DefaultContextBuilder.turnWindow`, which this
-     * workstream does not own.
+     * The suite now runs this as a plain passing assertion instead of an
+     * @Ignore, so a regression of the same shape fails the build.
      */
-    @Ignore("PRODUCTION BUG, deliberately un-green: the task is duplicated from step 2 onward")
+
     @Test
     fun `current task appears once with observations interleaved`() {
         val task = "read the file notes.txt"
