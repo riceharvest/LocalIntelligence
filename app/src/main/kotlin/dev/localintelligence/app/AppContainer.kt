@@ -41,6 +41,8 @@ import dev.localintelligence.android.hub.UrlConnectionTransport
 import dev.localintelligence.app.ui.HubViewModel
 import java.io.File
 import dev.localintelligence.core.tool.redaction.RedactingToolRegistry
+import dev.localintelligence.core.trace.DecisionTrace
+import dev.localintelligence.core.trace.TracePolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -565,6 +567,38 @@ class AppContainer(private val context: Context) {
     val modelAvailability: ModelAvailabilityHolder by lazy { ModelAvailabilityHolder() }
 
     /**
+     * The process-wide decision trace.
+     *
+     * ## WHY IT IS PROCESS-WIDE AND NOT PER-CONTROLLER
+     *
+     * A controller is single-use and is discarded the moment its run ends, so a
+     * per-controller trace would vanish at exactly the moment the user opens the
+     * screen to read it. The debug screen has to show the run that *just
+     * finished*, and a controller is gone by then. The same reasoning as
+     * [session]: some things outlive a run, and the container is what every
+     * entry point already shares.
+     *
+     * ## WHY IT IS `by lazy`
+     *
+     * The §16 RAM budget. It is a few hundred bytes of object header until the
+     * first run writes to it, but "a few hundred bytes" is the argument that
+     * justifies every other lazy in this file, and a debug feature is exactly
+     * the kind of thing that should not cost a cold start that never runs a
+     * task. Reading this property builds it; a chat screen that never opens the
+     * trace screen and never runs a task never does.
+     *
+     * ## THE POLICY IS THE DEFAULT, AND THE DEFAULT IS THE POINT
+     *
+     * [TracePolicy]'s `maxBodyChars` is zero, so this records structure and
+     * arithmetic and no prose. That is a product decision, not an oversight: the
+     * user's stated rule is that RAM is the metric that matters, and a trace that
+     * holds their messages and a fetched page in memory to help with a bug is
+     * spending the product's scarcest resource on its least important feature.
+     * A developer who needs the bodies changes one constant and pays knowingly.
+     */
+    val decisionTrace: DecisionTrace by lazy { DecisionTrace() }
+
+    /**
      * The model the agent should run, chosen by the user in the model manager.
      *
      * Null means "nothing imported", which is the state of a fresh install and
@@ -753,6 +787,15 @@ class AppContainer(private val context: Context) {
         loopDetector = LoopDetector(),
         contextBuilder = contextBuilder,
         memory = memoryStore,
+        // Per-step observability, ALWAYS on. Not behind a setting and not
+        // opt-in per run: the whole premise is that a wrong answer on a phone is
+        // diagnosable afterwards, and a trace that is off unless somebody
+        // remembered to switch it on is the trace that is off exactly when the
+        // run went wrong. What is bounded is the retention
+        // ([TracePolicy.maxTotalChars], 64 KB), not the recording - and the
+        // default records no prose at all, so "always on" costs structure and
+        // arithmetic rather than RAM.
+        decisions = decisionTrace,
         // The shared conversation, not a fresh one. See [session] for why this
         // used to silently discard everything the model had already been told.
         sessions = session,

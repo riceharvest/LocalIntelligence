@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The ONLY path this provider exposes.
+
+  WHY IT IS A SINGLE SUBDIRECTORY AND NOT `cacheDir` ITSELF: FileProvider maps
+  URIs from declared paths, so a broad declaration hands out authority over
+  every file the app caches. The trace exporter writes exactly one file into
+  `cacheDir/traces/`, so that is the only directory it needs, and granting
+  nothing else means a bug in the exporter cannot turn into a leak of something
+  else.
+
+  WHY `cache/` AND NOT `files/`: the trace is a debugging artifact, not app
+  state. It should be evictable by the system under storage pressure, and the
+  user regenerates it by running the agent again. Anything the user must keep
+  belongs in files/ and is a product decision, not a side effect of an export
+  button.
+-->
+<paths>
+    <cache-path name="traces" path="traces/" />
+</paths>
