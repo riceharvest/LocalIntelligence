@@ -80,13 +80,16 @@ fun ChatScreen(
     /**
      * Which model is answering, when the host knows.
      *
-     * Nullable and defaulted on purpose. `ModelAvailability` is
-     * `None | Failed | Ready` and carries no name, so no caller can supply this
-     * yet without a change to a file this change does not own. Defaulting to
-     * null keeps every existing call site compiling and keeps the screen honest
-     * in the meantime: [ModelIdentityLine] renders an explicit "name not
-     * reported" rather than nothing. The exact state change needed is written
-     * out in the PR description.
+     * Nullable and defaulted on purpose, but no longer because the state
+     * lacks a name — [ModelAvailability.Ready] carries one now. The screen
+     * treats this as a *claim that a model is resident*, not as a name to
+     * print unconditionally, and drops it in any state where that is not
+     * true.
+     *
+     * Pass the [ModelAvailability.Ready] the loader published, or null. Do
+     * not pass `AppContainer.selectedModel`: the model manager sets that the
+     * moment a row is tapped and *before* the load is attempted, so a load
+     * that then fails leaves it naming a file the backend never opened.
      */
     activeModel: ChatModelIdentity? = null,
 ) {
@@ -104,6 +107,25 @@ fun ChatScreen(
     // local instead of resting on a coincidence in another file.
     val busy = runState.isActive
     val blocked = modelState.blockingReason()
+
+    // The name is rendered as "this is the model answering you", so it is only
+    // ever shown in the state where that is literally true.
+    //
+    // WHY IT IS FILTERED RATHER THAN PASSED STRAIGHT THROUGH: a caller that
+    // hands this screen a name while the load has *failed* gets a name in the
+    // app bar and a failure reason nowhere. `ModelIdentityLine` gives a
+    // non-null identity precedence over every other state, so the two cannot
+    // both be shown. Dropping the name is what keeps "the model I picked would
+    // not load" and "a model is loaded and answering" from looking the same.
+    //
+    // The fallback to the state itself is what makes that guarantee local: if
+    // a host forgets to pass the name at all, the screen still names the
+    // resident model rather than falling back to the placeholder.
+    val activeIdentity: ChatModelIdentity? = if (modelState.canRun) {
+        activeModel ?: residentIdentity(modelState)
+    } else {
+        null
+    }
 
     val listState = rememberLazyListState()
     // The progress line participates in the count because it is a real row: the
@@ -194,7 +216,7 @@ fun ChatScreen(
                 title = {
                     ModelIdentityLine(
                         availability = modelState,
-                        identity = activeModel,
+                        identity = activeIdentity,
                         onOpenModels = onOpenModels,
                     )
                 },
@@ -276,6 +298,27 @@ fun ChatScreen(
  * wide.
  */
 private const val COMPACT_HEIGHT_DP = 560
+
+/**
+ * The identity [ModelAvailability.Ready] itself carries, or null when nothing
+ * is loaded.
+ *
+ * This exists so the name shown on a working chat cannot depend on a caller
+ * remembering to pass one. Before [ModelAvailability.Ready] carried a name
+ * there was nothing here to read and the host was the only possible source;
+ * now that the truth is in the state, the state is the default and a host
+ * argument is the thing that has to justify itself.
+ *
+ * The mapping is a copy, not a conversion of the same object, because the two
+ * types answer different questions: this one is what the app bar shows, and
+ * the state carries the provenance in its KDoc. `quantType` is carried across
+ * because a line that says "qwen 1.7b" without saying Q4_K_M is only half the
+ * answer to "which model".
+ */
+private fun residentIdentity(availability: ModelAvailability): ChatModelIdentity? =
+    (availability as? ModelAvailability.Ready)?.let { ready ->
+        ChatModelIdentity(displayName = ready.displayName, quantType = ready.quantType)
+    }
 
 @Composable
 private fun UserBubble(text: String) {

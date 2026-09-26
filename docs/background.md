@@ -239,9 +239,8 @@ The rules, as implemented in `BackgroundConsent`:
 
 ### What the old screen did wrong
 
-`NotificationAccessBanner` was rendered unconditionally on the chat route
-(`MainActivity.kt:125`) and its only condition was `if (granted) return`
-(`MainActivity.kt:380`). So:
+`NotificationAccessBanner` used to be rendered unconditionally on the chat route
+(`MainActivity.kt:125`) with `if (granted) return` as its only condition. So:
 
 - It showed to **every** user, on **every** launch, for the entire time the grant
   was absent — which is the default state of a fresh install.
@@ -250,9 +249,14 @@ The rules, as implemented in `BackgroundConsent`:
 - It conflated notification access with "background", implying the app needed it
   to run at all.
 
-The banner lives in `MainActivity.kt`, which this change does not own. The exact
-replacement is in the PR description. `BackgroundConsent.shouldAsk(...)` is the
-predicate that replaces `if (granted) return`.
+It is now gated on `BackgroundConsent.shouldAsk(context,
+BackgroundCapability.Notifications)` — the predicate that replaced
+`if (granted) return` — and both of its buttons ("Not now" and "Turn on")
+record a dismissal, so the rule in §"About consent" above holds for the chat
+route too. The consequence worth stating plainly: a user with no scheduled task
+and no recorded interest in background work is never asked on the chat screen at
+all. That is the intended outcome, not a lost prompt — the `notifications.*`
+tools still describe the settings path in prose at the moment a run calls them.
 
 ---
 
