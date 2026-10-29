@@ -53,6 +53,10 @@ enum class GgufFileType(val id: Int, val label: String, val representativeQuant:
     MOSTLY_Q4_0_8_8(35, "Q4_0_8_8", GgufQuantType.Q4_0_8_8),
     MOSTLY_TQ1_0(36, "TQ1_0", GgufQuantType.TQ1_0),
     MOSTLY_TQ2_0(37, "TQ2_0", GgufQuantType.TQ2_0),
+    MOSTLY_MXFP4_MOE(38, "MXFP4_MOE", GgufQuantType.MXFP4),
+    MOSTLY_NVFP4(39, "NVFP4", GgufQuantType.NVFP4),
+    MOSTLY_Q1_0(40, "Q1_0", GgufQuantType.Q1_0),
+    MOSTLY_Q2_0(41, "Q2_0", GgufQuantType.Q2_0),
     ;
 
     /** A sensible "bits per weight" for a file declaring this type, for display only. */
