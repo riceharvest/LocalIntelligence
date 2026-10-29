@@ -116,15 +116,19 @@ object LlamaBridge {
         grammar: String?,
         temperature: Float,
         topP: Float,
+        topK: Int,
         minP: Float,
         repeatPenalty: Float,
+        penaltyLastN: Int,
+        frequencyPenalty: Float,
+        presencePenalty: Float,
         seed: Int,
         maxTokens: Int,
         onToken: TokenSink?,
     ): String? = if (isAvailable) {
         nativeGenerate(
-            handle.ptr, prompt, grammar, temperature, topP, minP, repeatPenalty,
-            seed, maxTokens, onToken,
+            handle.ptr, prompt, grammar, temperature, topP, topK, minP, repeatPenalty,
+            penaltyLastN, frequencyPenalty, presencePenalty, seed, maxTokens, onToken,
         )
     } else {
         "the llama.cpp native library is not available on this device"
@@ -200,7 +204,9 @@ object LlamaBridge {
     @JvmStatic private external fun nativeCountTokens(ptr: Long, text: String): Int
     @JvmStatic private external fun nativeGenerate(
         ptr: Long, prompt: String, grammar: String?, temperature: Float, topP: Float,
-        minP: Float, repeatPenalty: Float, seed: Int, maxTokens: Int, sink: TokenSink?,
+        topK: Int, minP: Float, repeatPenalty: Float, penaltyLastN: Int,
+        frequencyPenalty: Float, presencePenalty: Float, seed: Int, maxTokens: Int,
+        sink: TokenSink?,
     ): String?
     @JvmStatic private external fun nativeTakeResult(ptr: Long): String?
     @JvmStatic private external fun nativeCancel(ptr: Long)
