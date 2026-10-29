@@ -234,6 +234,38 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+        <!-- Text-selection toolbar entry: "Ask LocalIntelligence".
+
+             Transparent and display-less: it forwards the selected text to
+             MainActivity through the same ACTION_SEND path a share uses, then
+             finishes. exported=true is required because the text-selection
+             toolbar of another app starts it. -->
+        <activity
+            android:name=".ProcessTextActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="Ask LocalIntelligence"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!-- Quick Settings tile. Opens the chat from the shade. The
+             BIND_QUICK_SETTINGS_TILE permission means only the system can bind
+             it; no other app can start the service. -->
+        <service
+            android:name=".AssistantTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_assistant"
+            android:label="LocalIntelligence"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>
