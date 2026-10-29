@@ -6,6 +6,7 @@ import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.RunOutcome
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.blockingReason
+import dev.localintelligence.app.data.ScheduledTask
 import dev.localintelligence.app.data.ScheduledTaskStore
 import dev.localintelligence.core.agent.StepTrace
 
@@ -86,6 +87,8 @@ internal object ScheduledRunReporter {
      *
      * Null id is a run the user started by hand from the chat screen, which has
      * no row to report into and is already visible in the transcript.
+     *
+     * @return the row as written, or null when nothing was written.
      */
     fun settle(
         context: Context,
@@ -93,22 +96,26 @@ internal object ScheduledRunReporter {
         state: RunState,
         trace: List<StepTrace>,
         readiness: ModelAvailability?,
-    ) {
-        val id = scheduledTaskId ?: return
-        val outcome = state as? RunState.Finished ?: return
+        approvalDeclined: Boolean,
+    ): ScheduledTask? {
+        val id = scheduledTaskId ?: return null
+        val outcome = state as? RunState.Finished ?: return null
         val store = ScheduledTaskStore(context.applicationContext)
 
         // Re-read, and write nothing when the row is gone. See the KDoc: a
         // task deleted mid-run stays deleted, and this is the only writer that
         // could otherwise put it back.
-        val current = store.byId(id) ?: return
-        val result = describe(outcome.outcome, trace, readiness)
+        val current = store.byId(id) ?: return null
+        // The run's own sentence stays: the answer may be exactly what the user
+        // scheduled it for. The skipped action is added to it, not put in its place.
+        val result = describe(outcome.outcome, trace, readiness) +
+            if (approvalDeclined) APPROVAL_SKIPPED else ""
 
-        store.upsert(
-            current.copy(
-                lastResult = carryScheduleWarning(current.lastResult, result),
-            ),
+        val written = current.copy(
+            lastResult = carryScheduleWarning(current.lastResult, result),
         )
+        store.upsert(written)
+        return written
     }
 
     /**
@@ -234,6 +241,9 @@ internal object ScheduledRunReporter {
     const val REFUSED_PREFIX = "Refused: "
     const val FAILED_PREFIX = "Failed: "
     const val NOT_RUN = "Did not run: "
+
+    /** Appended when a risky step was declined because no one was there to approve it. */
+    const val APPROVAL_SKIPPED = " An action that needed your approval was skipped."
 
     /**
      * Unreachable in practice — [blockingReason] is non-null for every

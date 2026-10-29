@@ -36,12 +36,33 @@ import kotlinx.serialization.json.JsonElement
  * So one of these is one run, and [ExecutionService] builds a fresh one per task.
  */
 class AgentViewModel(
-    private val controller: AgentController,
+    private val newController: () -> AgentController,
     private val scope: CoroutineScope,
     private val sinks: RunSinks = RunSinks(),
+    /**
+     * True for a run nobody is watching, such as a scheduled one. A risky tool it
+     * asks for is declined in place: the approval dialog only exists in the chat,
+     * so waiting for it would hold the service and block every later firing.
+     */
+    private val declineApprovals: Boolean = false,
 ) : AgentGateway {
 
     private var job: Job? = null
+
+    /**
+     * Made on the first start, not at construction: a controller takes the backend
+     * that is resident when it is made, and that is only known once the model is ready.
+     */
+    private var controller: AgentController? = null
+
+    /** A STOP pressed before the controller exists, for example during a model load. */
+    @Volatile
+    private var cancelRequested: Boolean = false
+
+    /** True once an unattended run has declined a risky tool. */
+    @Volatile
+    var approvalDeclined: Boolean = false
+        private set
 
     // ------------------------------------------------------------- AgentGateway
 
@@ -68,18 +89,27 @@ class AgentViewModel(
     private fun runTask(task: String) {
         sinks.state.value = RunState.Running
         sinks.streamingText.value = ""
-        job = scope.launch { runAndPublish { controller.run(task) } }
+        val runner = controller ?: newController().also {
+            controller = it
+            if (cancelRequested) it.cancel()
+        }
+        job = scope.launch { runAndPublish(runner) { runner.run(task) } }
     }
 
     override fun confirm(approved: Boolean) {
         // The previous coroutine has already returned (it returned the
         // AwaitingConfirmation), so a new one continues the same controller.
         if (job?.isActive == true) return
-        job = scope.launch { runAndPublish { controller.confirmAndResume(approved) } }
+        val runner = controller ?: return
+        // Leave the approval state now, as runTask does. Otherwise the dialog stays
+        // up for the whole resumed run, and every tap adds another row.
+        sinks.state.value = RunState.Running
+        job = scope.launch { runAndPublish(runner) { runner.confirmAndResume(approved) } }
     }
 
     override fun cancel() {
-        controller.cancel()
+        cancelRequested = true
+        controller?.cancel()
     }
 
     /**
@@ -165,8 +195,8 @@ class AgentViewModel(
     // ----------------------------------------------------------------- internal
 
     /**
-     * Runs one pass of the controller and guarantees a terminal state exists
-     * before this coroutine returns, however it ends.
+     * Runs the controller and guarantees a terminal state exists before this
+     * coroutine returns, however it ends.
      *
      * This wrapper exists because `AgentController.guarded` deliberately
      * rethrows `CancellationException` — which is correct for a suspending
@@ -186,9 +216,17 @@ class AgentViewModel(
      * this coroutine's own job has been cancelled — which is exactly when it
      * matters most.
      */
-    private suspend fun runAndPublish(block: suspend () -> AgentResult) {
+    private suspend fun runAndPublish(runner: AgentController, block: suspend () -> AgentResult) {
         try {
-            publish(block())
+            var result = block()
+            // Declined here, in this coroutine, and not from outside with confirm():
+            // confirm() refuses while this job is still active, and it still is for a
+            // moment after the staged call is published.
+            while (declineApprovals && result is AgentResult.AwaitingConfirmation) {
+                approvalDeclined = true
+                result = runner.confirmAndResume(approved = false)
+            }
+            publish(result)
         } catch (e: CancellationException) {
             publishCancelled()
             throw e
