@@ -233,6 +233,56 @@ multi-character group chat, a visual workflow builder, a messaging gateway.
 
 ---
 
+## Model test plan
+
+**Run once the feature list above is complete.** Every model is tested on the
+same phone with the same task list. For each model, record:
+
+- task success, pass or fail, for each task in one fixed list of real tasks
+  (tool calls, multi-step, memory, schedule);
+- prefill and decode tokens/s from the app's own run metrics;
+- peak RAM from `dumpsys meminfo`, following the procedure in
+  [`memory-model.md`](memory-model.md);
+- for multimodal models, whether the feature works: voice in/out, photo,
+  screenshot.
+
+That is the measurement the question at the bottom of this file asks for.
+
+Sizes are the Hugging Face file sizes, read 2026-10-29. Q4_K_M unless noted;
+`mmproj` is the separate vision/audio projector file. All load on llama.cpp
+`b11988` (architectures `lfm2`, `lfm3`, `spark2_5`, `gemma4`, `qwen35`,
+`granite`, `llama`, `minicpmv`, `gemma-embedding2`).
+
+**From the owner's list:**
+
+| Model | Params | Download | What it tests |
+|---|---:|---:|---|
+| [LFM3-1.7B](https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF) | 1.73B | 1.10 GB (QAD Q4_0: 1.05 GB) | the main small text agent: tool calls, multi-step |
+| [Spark-X2.6-4B](https://huggingface.co/XHToken/Spark-X2.6-4B-GGUF) | 4.11B | 3.54 GB | the upper bound: largest text model on the list |
+| [LFM3-Omni-2B](https://huggingface.co/LiquidAI/LFM3-Omni-2B-GGUF) | 2.17B | 1.10 GB + 0.29 GB mmproj | voice in and out, vision, video, voice with tool calls |
+| [LFM3-VL-2B](https://huggingface.co/LiquidAI/LFM3-VL-2B-GGUF) | 1.92B | 1.10 GB + 0.20 GB mmproj (Q8_0) | vision: photos, assistant screenshot |
+| [LFM3-Audio-2B](https://huggingface.co/LiquidAI/LFM3-Audio-2B-GGUF) | 2.00B | 1.10 GB + 0.17 GB mmproj | speech in and out without vision |
+| [Gemma 4 E2B-it](https://huggingface.co/google/gemma-4-E2B-it) | 5.12B total, 2B effective | 3.35 GB [GGUF QAT Q4_0](https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf); 2.59 GB [`.litertlm`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm) | the only model on both engines: llama.cpp vs LiteRT-LM |
+
+**Added: small and recent, picked from Hugging Face download counts on 2026-10-29:**
+
+| Model | Params | Released | Download | What it tests |
+|---|---:|---|---:|---|
+| [LFM2.5-230M](https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF) | 0.23B | 2026-06 | 0.15 GB | the floor: where the loop stops being reliable |
+| [Spark-X2.6-1.7B](https://huggingface.co/XHToken/Spark-X2.6-1.7B-GGUF) | 1.71B | 2026-10 | 1.77 GB | same family as Spark 4B, one size down |
+| [MiniCPM5-2B](https://huggingface.co/openbmb/MiniCPM5-2B-GGUF) | 2.52B | 2026-09 | 1.56 GB | most-downloaded new small text model (1.2M) |
+| [Granite 4.2 3B](https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF) | 3.66B | 2026-08 | 2.24 GB | a second text model around 3B |
+| [Qwen3.5-2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF) | 2.27B | 2026-02 | 1.28 GB (+0.67 GB mmproj) | the popular baseline (3.4M downloads); older than the rest |
+| [MiniCPM-V-4.7-1B](https://huggingface.co/openbmb/MiniCPM-V-4.7-1B-gguf) | 1.55B | 2026-10 | 0.67 GB + 0.90 GB mmproj | the smallest vision model |
+| [EmbeddingGemma 2](https://huggingface.co/ggml-org/embeddinggemma-2-GGUF) | 0.74B | 2026-09 | 0.31 GB (Q8_0) | embeddings for document chat; not a chat model |
+
+Considered and left out: Liquid's d1 models (they answer in one forward pass
+without generating tokens, so they are not chat models; perhaps for tool
+selection later), FunctionGemma 270M (October 2025, not recent), and
+Gemma 4 E4B (8B total, too large).
+
+---
+
 ## Explicitly deferred
 
 **v0.2+** — only after the baseline works:
