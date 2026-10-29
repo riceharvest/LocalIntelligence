@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Memory
@@ -61,7 +61,12 @@ import dev.localintelligence.app.ui.components.ChatComposer
 import dev.localintelligence.app.ui.components.ChatModelIdentity
 import dev.localintelligence.app.ui.components.ModelIdentityLine
 import dev.localintelligence.app.ui.components.ApprovalRow
+import dev.localintelligence.app.ui.components.PendingToolRow
+import dev.localintelligence.app.ui.components.TranscriptEntry
+import dev.localintelligence.app.ui.components.ToolCallGroup
 import dev.localintelligence.app.ui.components.ToolStepRow
+import dev.localintelligence.app.ui.components.groupToolCalls
+import dev.localintelligence.app.ui.components.rememberMotionEnabled
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -113,6 +118,14 @@ fun ChatScreen(
      * that then fails leaves it naming a file the backend never opened.
      */
     activeModel: ChatModelIdentity? = null,
+    /**
+     * Whether a finished run of tool calls folds itself to one header line.
+     *
+     * Passed in, not read here: the host reads it from the settings store
+     * (`CoreSettings.TOOL_CALLS_AUTO_COLLAPSE`), so this screen stays free of
+     * preferences and the default matches the setting's own default.
+     */
+    toolCallsAutoCollapse: Boolean = true,
 ) {
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
@@ -174,10 +187,16 @@ fun ChatScreen(
     // The progress line participates in the count because it is a real row: the
     // auto-scroll has to reach it, or a run that is waiting on a model load
     // scrolls the user's own question off the top of the screen.
-    val progress = progressLine(runState)
+    // While the runtime waits on an approval, the call's own row (with its
+    // shield) says so, so the progress line stays silent to avoid saying it twice.
+    val awaiting = runState as? RunState.AwaitingApproval
+    val progress = if (awaiting != null) null else progressLine(runState)
+    val entries = remember(messages) { groupToolCalls(messages) }
+    val animate = rememberMotionEnabled()
     val rowCount = messages.size +
         (if (streaming.isNotEmpty()) 1 else 0) +
-        (if (progress != null) 1 else 0)
+        (if (progress != null) 1 else 0) +
+        (if (awaiting != null) 1 else 0)
 
     // Whether the transcript is parked at the newest row.
     //
@@ -225,10 +244,9 @@ fun ChatScreen(
     val configuration = LocalConfiguration.current
     val compactComposer = configuration.screenHeightDp < COMPACT_HEIGHT_DP
 
-    val pending = runState as? RunState.AwaitingApproval
-    if (pending != null) {
+    if (awaiting != null) {
         ConfirmationDialog(
-            pending = pending,
+            pending = awaiting,
             onApprove = { viewModel.resolveConfirmation(approved = true) },
             onDecline = { viewModel.resolveConfirmation(approved = false) },
         )
@@ -345,14 +363,32 @@ fun ChatScreen(
                     )
                 }
             }
-            itemsIndexed(messages, key = { index, message -> "$index:${message::class.simpleName}" }) { _, message ->
-                when (message) {
-                    is ChatMessage.User -> UserBubble(message.text)
-                    is ChatMessage.Assistant -> AssistantBubble(message.text)
-                    is ChatMessage.Notice -> NoticeLine(message.text)
-                    is ChatMessage.ToolStep -> ToolStepRow(message)
-                    is ChatMessage.Approval -> ApprovalRow(message)
+            items(entries, key = { entry -> entry.key }) { entry ->
+                when (entry) {
+                    is TranscriptEntry.Single -> when (val message = entry.message) {
+                        is ChatMessage.User -> UserBubble(message.text)
+                        is ChatMessage.Assistant -> AssistantBubble(message.text)
+                        is ChatMessage.Notice -> NoticeLine(message.text)
+                        is ChatMessage.Approval -> ApprovalRow(message)
+                        is ChatMessage.ToolStep -> ToolStepRow(message, animate)
+                    }
+                    is TranscriptEntry.Group -> if (entry.steps.size == 1) {
+                        ToolStepRow(entry.steps.first(), animate)
+                    } else {
+                        // Live only while it is the last thing in the transcript
+                        // and the run is still going; an approval pending row is
+                        // also "after" it, so the group is not live then.
+                        ToolCallGroup(
+                            steps = entry.steps,
+                            live = busy && awaiting == null && entry.lastIndex == messages.lastIndex,
+                            autoCollapse = toolCallsAutoCollapse,
+                            animate = animate,
+                        )
+                    }
                 }
+            }
+            if (awaiting != null) {
+                item("pending") { PendingToolRow(awaiting, animate) }
             }
             if (progress != null) {
                 item("progress") { ProgressLine(progress) }
