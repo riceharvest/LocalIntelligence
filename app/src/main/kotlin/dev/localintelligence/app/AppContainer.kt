@@ -576,12 +576,22 @@ class AppContainer(private val context: Context) {
         )
     }
 
-    /** The runtime that can actually load [model], decided from its file. */
+    /**
+     * The runtime that can actually load [model], decided from its file.
+     *
+     * WHY a LiteRT-LM model that cannot be routed is an error and not a fall back
+     * to llama.cpp: llama.cpp cannot open a `.litertlm`, and the failure would come
+     * from native code with no reason attached. The fall back stays for models
+     * that list llama.cpp as a supported backend, which is every GGUF.
+     */
     fun backendFor(model: ImportedModel): ModelBackend {
         val file = model.uri.path?.let { java.io.File(it) }
-            ?: return modelBackend
-        if (!file.isFile) return modelBackend
-        return runCatching { backendRouter.route(file) }.getOrElse { modelBackend }
+        val routed = file?.takeIf { it.isFile }?.let { runCatching { backendRouter.route(it) }.getOrNull() }
+        if (routed != null) return routed
+        if (ModelImporter.BACKEND_LLAMA_CPP in model.supportedBackends) return modelBackend
+        throw IllegalStateException(
+            "cannot find a runtime for ${model.displayName}: it is not a file this app can open by path",
+        )
     }
 
     val importer: ModelImporter by lazy { ModelImporter(context.contentResolver) }

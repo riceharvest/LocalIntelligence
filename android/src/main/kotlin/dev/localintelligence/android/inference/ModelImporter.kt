@@ -14,6 +14,8 @@ import dev.localintelligence.core.model.gguf.GgufWarning
 import dev.localintelligence.core.model.gguf.KvCacheType
 import dev.localintelligence.core.model.gguf.MemoryEstimate
 import dev.localintelligence.core.model.gguf.ModelMemoryEstimator
+import dev.localintelligence.inference.litertlm.LiteRtLmBackend
+import dev.localintelligence.inference.litertlm.LiteRtLmContainer
 import java.io.FileNotFoundException
 
 /**
@@ -78,6 +80,10 @@ class ModelImporter(private val contentResolver: ContentResolver) {
         val afd = openAsset(uri)
         try {
             val size = lengthOf(afd, uri)
+            // A LiteRT-LM file has no GGUF header to parse, so it is recognised
+            // by its identifier and described from its size alone. The GGUF
+            // branch below is unchanged and still the default.
+            if (isLiteRtLm(uri)) return describeLiteRtLm(uri, size)
             afd.createInputStream().use { input ->
                 val header = readHeader(input, size)
                 return describe(header, uri, size, contextLength)
@@ -153,6 +159,62 @@ class ModelImporter(private val contentResolver: ContentResolver) {
         )
     }
 
+    /**
+     * True when [uri] starts with the LiteRT-LM identifier.
+     *
+     * Reads through its own descriptor, as [openForLoad] does, so the caller's
+     * descriptor is never handed to a stream that closes it.
+     */
+    private fun isLiteRtLm(uri: Uri): Boolean {
+        val head = openAsset(uri).use { afd ->
+            afd.createInputStream().use { input ->
+                val buffer = ByteArray(LiteRtLmContainer.SNIFF_BYTES)
+                var read = 0
+                while (read < buffer.size) {
+                    val n = input.read(buffer, read, buffer.size - read)
+                    if (n < 0) break
+                    read += n
+                }
+                buffer.copyOf(read)
+            }
+        }
+        return LiteRtLmContainer.matches(head)
+    }
+
+    /**
+     * Describes a LiteRT-LM file without parsing it.
+     *
+     * WHY no header: the KV-cache geometry and the tensor table that a GGUF
+     * estimate needs are not in a `.litertlm` header this app can read, so the
+     * only fact used for memory is the file size. [LiteRtLmFootprint] says so.
+     *
+     * WHY the name is the only source of quant and display name: the file carries
+     * neither in a form this app reads, so a name that says `int4` is used and
+     * anything else is left unknown rather than guessed.
+     */
+    private fun describeLiteRtLm(uri: Uri, fileSizeBytes: Long): ImportedModel {
+        // A size of -1 means the provider would not say. Without a size there is
+        // no weight figure, and a made-up one would tell the load gate the file
+        // fits. Refusing the import is the safe outcome.
+        check(fileSizeBytes > 0) { "the size of this LiteRT-LM file is not known, so it cannot be priced" }
+        val fileName = displayNameFromUri(uri)
+        return ImportedModel(
+            uri = uri,
+            displayName = fileName.substringBeforeLast('.').ifBlank { fileName },
+            fileSizeBytes = fileSizeBytes,
+            architecture = LITERTLM_ARCHITECTURE,
+            quantType = quantFromName(fileName),
+            trainedContextLength = null,
+            parameterCount = null,
+            hasChatTemplate = true,
+            supportedBackends = setOf(LiteRtLmBackend.BACKEND_LITERTLM),
+            estimate = LiteRtLmFootprint(fileSizeBytes),
+        )
+    }
+
+    private fun quantFromName(fileName: String): String? =
+        QUANT_IN_NAME.find(fileName)?.value?.uppercase()
+
     private fun GgufHeader.hasChatTemplate(): Boolean =
         metadata.fields["tokenizer.chat_template"]?.let {
             (it as? GgufValue.Text)?.value?.isNotBlank() == true
@@ -202,6 +264,12 @@ class ModelImporter(private val contentResolver: ContentResolver) {
     companion object {
         const val BACKEND_LLAMA_CPP = "llamacpp"
         const val DEFAULT_CONTEXT_LENGTH = 4096
+
+        /** The architecture label for a LiteRT-LM file; there is no GGUF architecture key to read. */
+        const val LITERTLM_ARCHITECTURE = "litertlm"
+
+        /** A quant tag that appears as a whole word in the file name, e.g. `-int4.`. */
+        private val QUANT_IN_NAME = Regex("""(?i)(?<![a-z0-9])(int4|int8|fp16|bf16|fp32)(?![a-z0-9])""")
     }
 }
 
@@ -242,7 +310,7 @@ data class ImportedModel(
     val parameterCount: Long?,
     val hasChatTemplate: Boolean,
     val supportedBackends: Set<String>,
-    val estimate: RamEstimate,
+    val estimate: ModelFootprint,
 ) {
     /** True when this device has enough headroom to load it at the given context. */
     fun fitsOnDevice(contextLength: Int = ModelImporter.DEFAULT_CONTEXT_LENGTH): Boolean =
@@ -323,6 +391,52 @@ class LoadedModel internal constructor(
 }
 
 /**
+ * What a model is expected to cost in native memory, whatever its format.
+ *
+ * Two implementations exist, and they are not equally strong. [RamEstimate] is
+ * computed from a GGUF tensor table and KV geometry. [LiteRtLmFootprint] has only
+ * the file size, so it cannot say how much of the cost is KV cache.
+ */
+interface ModelFootprint {
+    /** Bytes of weights. */
+    val weightBytes: Long
+
+    /** Total native bytes at [contextLength]. */
+    fun totalBytes(contextLength: Int): Long
+
+    /** KV-cache bytes at [contextLength], or null when the format does not expose them. */
+    fun kvBytes(contextLength: Int): Long?
+}
+
+/**
+ * Footprint of a LiteRT-LM file from its size alone.
+ *
+ * WHY weights = file size: a `.litertlm` is a bundle of graphs and weights with
+ * little else in it, so the file size is a fair stand-in for the weights.
+ *
+ * WHY a fixed overhead: runtime buffers and the engine's own state exist, but the
+ * file does not say how big they are. [OVERHEAD_BYTES] is a deliberately generous
+ * constant, so the load gate errs toward refusing rather than toward an OOM kill.
+ * It is NOT measured. No `.litertlm` has been loaded on a phone in this project.
+ *
+ * WHY no KV term: the KV cache depends on layer count, head geometry and context,
+ * and none of those are read from a `.litertlm` here. Reporting a KV figure would
+ * be a number with no source, so [kvBytes] is null.
+ */
+class LiteRtLmFootprint(private val fileSizeBytes: Long) : ModelFootprint {
+    override val weightBytes: Long get() = fileSizeBytes
+
+    override fun totalBytes(contextLength: Int): Long = fileSizeBytes + OVERHEAD_BYTES
+
+    override fun kvBytes(contextLength: Int): Long? = null
+
+    companion object {
+        /** 512 MiB. Unmeasured; chosen to make the load gate conservative. */
+        const val OVERHEAD_BYTES: Long = 512L * 1024 * 1024
+    }
+}
+
+/**
  * Native-memory cost of holding a model, in bytes.
  *
  * The model is loaded into **native** memory, never onto the JVM heap, so this
@@ -383,7 +497,7 @@ data class RamEstimate(
     /** The header this estimate is derived from. Kept so a context change can re-evaluate. */
     val header: GgufHeader,
     private val estimator: ModelMemoryEstimator = ModelMemoryEstimator(),
-) {
+) : ModelFootprint {
     private fun at(contextLength: Int): MemoryEstimate =
         estimator.estimate(header, contextLengthOverride = contextLength.toLong())
 
@@ -393,14 +507,14 @@ data class RamEstimate(
      * This is a property of the file, not of the context, so evaluating at any
      * context gives the same figure; the UI reads it as "Weights in RAM".
      */
-    val weightBytes: Long get() = at(ModelImporter.DEFAULT_CONTEXT_LENGTH).weightsBytes
+    override val weightBytes: Long get() = at(ModelImporter.DEFAULT_CONTEXT_LENGTH).weightsBytes
 
     /** The estimate backing the last call, for callers that want the inputs and warnings. */
     fun estimate(contextLength: Int = ModelImporter.DEFAULT_CONTEXT_LENGTH): MemoryEstimate =
         at(contextLength)
 
     /** KV cache bytes at [contextLength]. Independent of the weights; scales linearly with context. */
-    fun kvBytes(contextLength: Int): Long = at(contextLength).kvCacheBytes
+    override fun kvBytes(contextLength: Int): Long = at(contextLength).kvCacheBytes
 
     /**
      * The KV cache type this estimate assumes.
@@ -411,7 +525,7 @@ data class RamEstimate(
     val kvCacheType: KvCacheType get() = KvCacheType.F16
 
     /** Total native bytes at [contextLength]. */
-    fun totalBytes(contextLength: Int): Long = at(contextLength).totalBytes
+    override fun totalBytes(contextLength: Int): Long = at(contextLength).totalBytes
 
     /**
      * Ceiling on the context length that fits in [available] bytes, 0 if none does.
