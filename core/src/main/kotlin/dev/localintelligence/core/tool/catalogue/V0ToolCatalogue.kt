@@ -35,7 +35,7 @@ import kotlinx.serialization.json.putJsonObject
  * | `calendar`      |     2 | "what is on my calendar", "block out 16:00"              |
  * | `contacts`      |     2 | resolve a person to a phone number                       |
  * | `notifications` |     3 | read the shade, reply in it, clear it                    |
- * | `web`           |     1 | the one tool that reaches the internet                   |
+ * | `web`           |     2 | fetch a page, or search the web and fetch a result       |
  *
  * ## WHAT THIS FILE IS NOT, stated because it was previously misstated
  *
@@ -921,6 +921,35 @@ object V0ToolCatalogue {
             tags = setOf(
                 "web", "internet", "online", "look up",
                 "website", "weather", "forecast", "right now",
+            ),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "web.search",
+            description = "Searches the web and returns the top results as numbered titles, links and " +
+                "short snippets. Use web.fetch on a link to read the page.",
+            category = "web",
+            schema = objSchema(required = listOf("query")) {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "The search words, for example \"weather amsterdam\".")
+                }
+                putJsonObject("max_results") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 10)
+                    put("description", "How many results to return, 5 by default, at most 10.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            // MUST match `WebSearchTool.definition`. Same reason as web.fetch: a
+            // mismatch here is a hard failure at composition, not a degraded tool.
+            // Search phrases lead the tags, since "search for" and "look up" are what
+            // a user types. "google" is included on purpose: it is the verb people use.
+            tags = setOf(
+                "search", "search for", "look up", "google",
+                "search the web", "web search", "find online",
             ),
             requiredPermission = null,
         ),
