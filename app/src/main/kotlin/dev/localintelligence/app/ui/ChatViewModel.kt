@@ -14,6 +14,7 @@ import dev.localintelligence.app.isTerminal
 import dev.localintelligence.app.notice
 import dev.localintelligence.core.agent.StepTrace
 import dev.localintelligence.core.context.GenerationProse
+import dev.localintelligence.core.model.ChatMessage as CoreChatMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -125,6 +126,9 @@ class ChatViewModel(
      * answer would appear twice in the transcript.
      */
     private val narratedRows = java.util.IdentityHashMap<StepTrace, Int>()
+
+    /** Whether [seedRestored] has run. Guarded by [transcriptLock]. */
+    private var transcriptSeeded = false
 
     val runState: StateFlow<RunState> get() = gateway.runState
     val trace: StateFlow<List<StepTrace>> get() = gateway.trace
@@ -607,6 +611,31 @@ class ChatViewModel(
         // written here and read by no screen at all, which is the same missing
         // row in a place nobody was looking.
         appendRows(listOf(ChatMessage.Approval(toolName = pending.toolName, approved = approved)))
+    }
+
+    /**
+     * Shows the conversation restored at launch, in an empty transcript.
+     *
+     * The turns are already in the session, so the model answers from them; without
+     * this the user sees an empty chat and answers built on history they cannot see.
+     * Only User and Assistant turns have a row. Idempotent: the screen that calls this
+     * is recomposed on rotation, while this object survives it.
+     */
+    fun seedRestored(turns: List<CoreChatMessage>) {
+        synchronized(transcriptLock) {
+            if (transcriptSeeded) return
+            transcriptSeeded = true
+            // Never over rows already drawn: those belong to a run, and the indices
+            // recorded for them address this list.
+            if (_messages.value.isNotEmpty()) return
+            _messages.value = turns.mapNotNull { turn ->
+                when (turn) {
+                    is CoreChatMessage.User -> ChatMessage.User(turn.text)
+                    is CoreChatMessage.Assistant -> ChatMessage.Assistant(turn.text)
+                    else -> null
+                }
+            }.takeLast(MAX_TRANSCRIPT_ROWS)
+        }
     }
 
     fun clear() {

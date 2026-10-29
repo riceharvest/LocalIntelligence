@@ -67,9 +67,10 @@ import kotlinx.coroutines.withContext
  *     filter ("share this to LocalIntelligence"), and an intent filter that goes
  *     nowhere is a bug a user finds. A shared payload becomes the first task.
  *
- * Note what is *not* here: no permission requests on launch, and no model
- * loading. Both are gated on a tool actually being invoked
- * ([dev.localintelligence.app.ui.PermissionScreen]) or an explicit user action
+ * Note what is *not* here: no permission requests on launch, which are gated on
+ * a tool actually being invoked ([dev.localintelligence.app.ui.PermissionScreen]).
+ * The one model load at launch is the saved one, restored so the chat works
+ * without a first send. Any other load waits for a run or an explicit user action
  * ([dev.localintelligence.app.ui.ModelManagerScreen]).
  */
 class MainActivity : ComponentActivity() {
@@ -104,6 +105,15 @@ class MainActivity : ComponentActivity() {
                 // not with this screen.
                 val models = container.models
                 val scope = rememberCoroutineScope()
+
+                // What the app had at its last exit comes back before the chat is
+                // read: the stored turns are shown, and the saved model is loaded so
+                // the composer works without a first send. The work runs on the
+                // container's scope, so a rotation cannot cancel a native load
+                // halfway, and seeding does nothing on later compositions.
+                LaunchedEffect(Unit) {
+                    chat.seedRestored(container.launchRestore.await())
+                }
 
                 // A SEND intent arrives on cold start or warm via onNewIntent.
                 // Keyed on deliveredIntent so new arrivals re-run, and consumed

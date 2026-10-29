@@ -44,8 +44,12 @@ import dev.localintelligence.app.ui.HubViewModel
 import java.io.File
 import dev.localintelligence.core.tool.redaction.RedactingToolRegistry
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * The DI system. `docs/architecture.md` §3: *"If you need a dependency injected,
@@ -69,18 +73,18 @@ class AppContainer(private val context: Context) {
 
     private companion object {
         /**
-         * Preferences file holding the pinned conversation id.
-         *
-         * Its own file, separate from the model's, so that clearing a downloaded
-         * model - a several-gigabyte operation - cannot silently orphan the
-         * conversation, and clearing the conversation cannot un-resolve the
-         * model. They are independent pieces of state with independent reasons
-         * to be reset.
+         * Preferences file holding the pinned conversation id and the URI of the
+         * model last loaded, so both survive the process. Separate keys, so
+         * forgetting the model cannot orphan the conversation or the other way
+         * round.
          */
         const val PREFERENCES = "localintelligence.conversation"
 
         /** Key for [PREFERENCES]: the [SessionStore] id of the conversation. */
         const val KEY_SESSION_ID = "session_id"
+
+        /** Key for [PREFERENCES]: the URI string of the model last selected. */
+        const val KEY_MODEL_URI = "model_uri"
     }
 
     /**
@@ -327,6 +331,7 @@ class AppContainer(private val context: Context) {
         // those exact message objects as already written, rather than setting a
         // count that the next trim could invalidate.
         session.markAllWritten()
+        restoredTurns = session.messages.toList()
         if (adopted > 0) {
             android.util.Log.i(
                 TAG,
@@ -452,6 +457,14 @@ class AppContainer(private val context: Context) {
 
     @Volatile
     private var restoredOnce: Boolean = false
+
+    /**
+     * The turns [restoreConversationOnce] put into [session], captured at that
+     * moment. The chat shows these at launch and reads them from here, not from
+     * [session], which a run may already be appending to.
+     */
+    @Volatile
+    private var restoredTurns: List<ChatMessage> = emptyList()
 
     /**
      * One run at a time, shared by the chat path and the scheduled path.
@@ -585,9 +598,24 @@ class AppContainer(private val context: Context) {
      * Null means "nothing imported", which is the state of a fresh install and
      * a legitimate thing for the UI to render — it is not an error, and it is
      * not a reason to crash on first send.
+     *
+     * Written through to [PREFERENCES], so the choice survives a restart. Setting
+     * it to null (a delete) clears the saved copy too; otherwise the model would
+     * come back on the next launch.
      */
     @Volatile
     var selectedModel: ImportedModel? = null
+        set(value) {
+            field = value
+            context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
+                .putString(KEY_MODEL_URI, value?.uri?.toString())
+                .apply()
+        }
+
+    /** The URI of the model last selected, or null. Read from disk on each call. */
+    private val savedModelUri: String?
+        get() = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .getString(KEY_MODEL_URI, null)
 
     /**
      * Loads [model] into the inference backend and records the outcome.
@@ -600,7 +628,11 @@ class AppContainer(private val context: Context) {
      * Loading on the calling coroutine's dispatcher is deliberate: this runs
      * 2 GB of native allocation and must never sit on the main thread.
      */
-    suspend fun loadModel(model: ImportedModel): ModelAvailability {
+    suspend fun loadModel(model: ImportedModel): ModelAvailability =
+        readinessLock.withLock { loadModelLocked(model) }
+
+    /** [loadModel] without the lock, for callers that already hold it. */
+    private suspend fun loadModelLocked(model: ImportedModel): ModelAvailability {
         return try {
         // Refuse before the native load, not after. A model that needs more RAM
         // than this device has is an OOM kill: on Android the process dies and
@@ -622,10 +654,14 @@ class AppContainer(private val context: Context) {
         // a GGUF needs llama.cpp, and loadModel is the only place that knows
         // which file it was handed.
         val backend = backendFor(model)
-        // Recorded HERE, at the only place the decision is made, and read by
-        // newController. Previously the decision lived and died in this
-        // function, so generation silently fell back to llama.cpp.
-        loadedBackend = backend
+        // A file-path model gets a new backend on every load, and a backend only
+        // releases the model it holds itself. Without this the previous model
+        // stays resident while the RAM gate above priced only the new one.
+        val previous = loadedBackend
+        if (previous != null && previous !== backend) {
+            loadedBackend = null
+            previous.unload()
+        }
         backend.load(
             ModelSpec(
                 // The backend opens this as a URI; see LlamaCppBackend.load.
@@ -637,6 +673,12 @@ class AppContainer(private val context: Context) {
                 supportedBackends = model.supportedBackends,
             ),
         )
+        // Recorded HERE, at the only place the decision is made, and read by
+        // newController. Previously the decision lived and died in this
+        // function, so generation silently fell back to llama.cpp. Set only after
+        // the load succeeds, so a failed load cannot leave it pointing at a
+        // backend with nothing in it.
+        loadedBackend = backend
         selectedModel = model
         // The name is the model's OWN `general.name` when the GGUF header has
         // one, falling back to a name derived from the file. For many real GGUFs
@@ -668,8 +710,9 @@ class AppContainer(private val context: Context) {
      * This is the one suspend function that both entry points - a chat turn
      * and a scheduled task - already call on the run path, on a background
      * dispatcher, before the controller exists. So the conversation is
-     * rehydrated here on the first run of a process and written back on every
-     * run after it, without either `ExecutionService` or `AgentController`
+     * rehydrated here on the first run of a process (unless the launch restore got
+     * there first) and written back on every run after it, without either
+     * `ExecutionService` or `AgentController`
      * knowing that persistence exists. Both of those files are owned
      * elsewhere, and a feature that needed an edit in each would not be
      * landable next to them.
@@ -678,17 +721,80 @@ class AppContainer(private val context: Context) {
      * in seconds, on a thread that is already doing background work. Restoring
      * is once per process; the write is a handful of rows per turn.
      */
-    suspend fun ensureModelReady(): ModelAvailability {
+    suspend fun ensureModelReady(): ModelAvailability = readinessLock.withLock {
         restoreConversationOnce()
         persistConversation()
         // Reuse the RESIDENT identity, not a bare Ready: the early return is the
         // common path (every run after the first) and returning a nameless Ready
         // here would blank the model name out of the UI precisely when the model
         // is warm and running.
-        if (modelAvailability.current.canRun) return modelAvailability.current
-        val model = selectedModel ?: return ModelAvailability.None
-            .also { modelAvailability.set(it) }
-        return loadModel(model)
+        if (modelAvailability.current.canRun) return@withLock modelAvailability.current
+        loadSelectedModel()
+    }
+
+    /**
+     * Serialises every model load and the readiness decisions around them. Not
+     * reentrant: a function holding it calls the private helpers, never the public
+     * functions that take it again.
+     */
+    private val readinessLock = Mutex()
+
+    /**
+     * Brings back what the app had at its last exit, before the chat is read:
+     * the stored conversation, and the model the user last loaded.
+     *
+     * Without this the transcript starts empty, and the composer refuses to send
+     * (`None` reads as "import a model") until the user picks the model again,
+     * even though both are on disk. Returns the restored turns for the transcript.
+     */
+    suspend fun restoreOnLaunch(): List<ChatMessage> = readinessLock.withLock {
+        restoreConversationOnce()
+        if (!modelAvailability.current.canRun) loadSelectedModel()
+        restoredTurns
+    }
+
+    /**
+     * The launch restore, started once per process on [appScope] and shared by
+     * every caller.
+     *
+     * WHY NOT A CALL FROM THE SCREEN: the screen's coroutine ends with its
+     * composition, and a rotation during the native load would cancel it halfway.
+     * The load belongs to the process, as a run does, so it runs on the scope that
+     * outlives the screen and the screen only awaits it.
+     */
+    val launchRestore: Deferred<List<ChatMessage>> by lazy {
+        appScope.async(Dispatchers.IO) { restoreOnLaunch() }
+    }
+
+    /**
+     * Loads [selectedModel], or the model saved when it last loaded. The caller
+     * holds [readinessLock].
+     *
+     * After a process death [selectedModel] is null and only the saved URI is
+     * left, so the file is inspected again. If it can no longer be read the state
+     * is [ModelAvailability.Failed] with the reason, not `None`: `None` would tell
+     * the user to import a model they did import.
+     */
+    private suspend fun loadSelectedModel(): ModelAvailability {
+        val model = selectedModel ?: run {
+            val saved = savedModelUri
+                ?: return ModelAvailability.None.also { modelAvailability.set(it) }
+            val restored = try {
+                withContext(Dispatchers.IO) { importer.inspect(android.net.Uri.parse(saved)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                return ModelAvailability.Failed(describeLoadFailure(t))
+                    .also { modelAvailability.set(it) }
+            }
+            // Listed too, so the model screen names the model the chat is about to use.
+            withContext(Dispatchers.Main) {
+                models.removeAll { it.uri == restored.uri }
+                models.add(restored)
+            }
+            restored
+        }
+        return loadModelLocked(model)
     }
 
     /**
