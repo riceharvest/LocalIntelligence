@@ -94,8 +94,15 @@ class StepEnforcer(
                 proposed.observationCandidate.takeIf { it.isNotEmpty() },
             ),
         )
-        val reduce = budget.plan(stateAfter, counter)
+        val effectiveLimit = budget.promptTokens - reply - arguments
+        val reduce = if (effectiveLimit > 0) {
+            ContextBudget(limitTokens = effectiveLimit, reserveForOutputTokens = 0)
+                .plan(stateAfter, counter)
+        } else {
+            null
+        }
         val adjustments = when (reduce) {
+            null -> emptyList()
             is BudgetPlan.Fits -> emptyList()
             // The step alone overflows, before any trimming of the existing
             // context could help. The reply and the tool arguments are not

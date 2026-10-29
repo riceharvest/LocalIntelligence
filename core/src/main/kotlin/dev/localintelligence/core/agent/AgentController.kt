@@ -342,7 +342,9 @@ class AgentController(
         // leave the list untrimmed until the next one, which is deliberate -
         // a finally block here would trim a session whose run is still being
         // unwound and whose messages are still being read by the trace.
-        RetainedHistory.bound(sessions.messages)
+        if (outcome !is AgentResult.AwaitingConfirmation) {
+            RetainedHistory.bound(sessions.messages)
+        }
         outcome
     }
 
@@ -358,6 +360,7 @@ class AgentController(
         if (cancelled) return@measured AgentResult.Cancelled
         if (call == null) return@measured Stop("no confirmation is pending", trace.toList())
 
+        var early: AgentResult? = null
         if (approved) {
             // No session means nothing was ever parked, so nothing was ever
             // shown to the user. "Approved" over a call nobody saw is not an
@@ -374,43 +377,43 @@ class AgentController(
                     "${call.name} was not run. It was never put to the user for approval, so it " +
                         "cannot be treated as approved. Do something else, or answer without it.",
                 )
-                return@measured loop()
-            }
-            // The approval is spent against the arguments the user was shown, and
-            // `claim` hands back the session's OWN frozen copy — never the
-            // caller's. If anything about the proposed call changed while the
-            // dialog was up, `claim` returns null and nothing runs. That is the
-            // whole point: a Boolean approval cannot be bound to a payload, so
-            // "approve sending to Alice" and "execute sending to a stranger"
-            // would otherwise be indistinguishable to the runtime.
-            when (val outcome = session.resolve(true)) {
-                is ConfirmationOutcome.Approved -> {
-                    val claimed = outcome.approval.claim(call.name, call.args)
-                    if (claimed == null) {
-                        // TOCTOU: the proposal no longer matches what was approved.
-                        trace += StepTrace(
-                            step, StepTrace.Kind.TOOL_CALL,
-                            "refused ${call.name}: the call changed after it was approved",
-                            success = false,
-                        )
-                        sessions.observe(
-                            "${call.name} could not be run: the call changed after the user " +
-                                "approved it, so it was refused. Say what happened, or make the " +
-                                "call again with the exact arguments you want.",
-                        )
-                        return@measured loop()
+            } else {
+                // The approval is spent against the arguments the user was shown, and
+                // `claim` hands back the session's OWN frozen copy — never the
+                // caller's. If anything about the proposed call changed while the
+                // dialog was up, `claim` returns null and nothing runs. That is the
+                // whole point: a Boolean approval cannot be bound to a payload, so
+                // "approve sending to Alice" and "execute sending to a stranger"
+                // would otherwise be indistinguishable to the runtime.
+                when (val outcome = session.resolve(true)) {
+                    is ConfirmationOutcome.Approved -> {
+                        val claimed = outcome.approval.claim(call.name, call.args)
+                        if (claimed == null) {
+                            // TOCTOU: the proposal no longer matches what was approved.
+                            trace += StepTrace(
+                                step, StepTrace.Kind.TOOL_CALL,
+                                "refused ${call.name}: the call changed after it was approved",
+                                success = false,
+                            )
+                            sessions.observe(
+                                "${call.name} could not be run: the call changed after the user " +
+                                    "approved it, so it was refused. Say what happened, or make the " +
+                                    "call again with the exact arguments you want.",
+                            )
+                        } else {
+                            // A human approved this one, so it counts against the
+                            // destructive quota even though it never went through
+                            // `recordExecuted` as an automatic call.
+                            riskPolicy.recordConfirmed(call.tool.definition.risk)
+                            early = execute(call.copy(args = claimed, userConfirmed = true))
+                        }
                     }
-                    // A human approved this one, so it counts against the
-                    // destructive quota even though it never went through
-                    // `recordExecuted` as an automatic call.
-                    riskPolicy.recordConfirmed(call.tool.definition.risk)
-                    execute(call.copy(args = claimed, userConfirmed = true))?.let { return@measured it }
+
+                    is ConfirmationOutcome.Denied ->
+                        sessions.observe(outcome.reason)
+
+                    is ConfirmationOutcome.AlreadyResolved -> sessions.observe(outcome.reason)
                 }
-
-                is ConfirmationOutcome.Denied ->
-                    sessions.observe(outcome.reason)
-
-                is ConfirmationOutcome.AlreadyResolved -> sessions.observe(outcome.reason)
             }
         } else {
             // The loop's own wording, not `ConfirmationSession.Denied.reason`.
@@ -428,7 +431,11 @@ class AgentController(
                     "Do something else, or answer without it.",
             )
         }
-        loop()
+        val outcome = early ?: loop()
+        if (outcome !is AgentResult.AwaitingConfirmation) {
+            RetainedHistory.bound(sessions.messages)
+        }
+        outcome
     }
 
     /**
@@ -1245,6 +1252,7 @@ class AgentController(
         // fold would summarise a transcript that is already gone.
         val state: CompactedState =
             compactor.compact(sessions.messages, sessions.workingSummary, model)
+                .copy(task = truncateTask(task))
         sessions.workingSummary = state
         foldWindow(keep)
 
@@ -1255,6 +1263,12 @@ class AgentController(
                 "${state.knownFacts.size} facts, ${state.remainingWork.size} remaining " +
                 "(limit $limit)",
         )
+    }
+
+    private fun truncateTask(text: String, limit: Int = ContextCompactor.MAX_ENTRY_CHARS): String {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return ContextCompactor.UNKNOWN
+        return if (trimmed.length <= limit) trimmed else trimmed.take(limit - 1).trimEnd() + "…"
     }
 
     /**
@@ -1273,8 +1287,12 @@ class AgentController(
      */
     private fun foldWindow(keep: Int) {
         val messages = sessions.messages
-        val head = messages.first()
-        val tail = messages.subList(messages.size - keep, messages.size).toList()
+        val tailStart = messages.size - keep
+        // The current run's task turn, unless it is already in the kept tail;
+        // then the session's opening turn, so nothing is kept twice.
+        val taskIndex = messages.indexOfLast { it is ChatMessage.User && it.text == task }
+        val head = messages[if (taskIndex in 1 until tailStart) taskIndex else 0]
+        val tail = messages.subList(tailStart, messages.size).toList()
         // A MIDDLE trim, not a front trim: everything between the head and the
         // kept tail is removed, which is why durable persistence keys on message
         // identity (Session.writtenIds) rather than on a count of what is new.
