@@ -223,7 +223,11 @@ in this file.
 [ ] document generation (PDF, Markdown) + chat export
 [ ] per-phone model picks + backend speed test   Off Grid
 [ ] MCP client for remote servers                opt-in
-[ ] LiteRT-LM 0.13.1 -> current
+[?] LiteRT-LM 0.13.1 -> 0.17.1 + Tensor NPU      builds; not run on a device
+      Gemma 4 E2B Tensor G5 build on the NPU     see acceleration.md
+[ ] .litertlm download from the in-app hub       today: adb push or file import
+[ ] LFM3 on the Tensor NPU                       needs a Tensor-compiled build;
+      none is published, compiling one needs Google's Tensor SDK (beta)
 [ ] KV estimate for hybrid models                per-layer head_count_kv (LFM3)
 ```
 
@@ -236,7 +240,7 @@ multi-character group chat, a visual workflow builder, a messaging gateway.
 ## Model test plan
 
 **Run once the feature list above is complete.** Every model is tested on the
-same phone with the same task list. For each model, record:
+same phone with the same task list: the owner's Pixel 10 Pro (Tensor G5). For each model, record:
 
 - task success, pass or fail, for each task in one fixed list of real tasks
   (tool calls, multi-step, memory, schedule);
@@ -262,7 +266,7 @@ Sizes are the Hugging Face file sizes, read 2026-10-29. Q4_K_M unless noted;
 | [LFM3-Omni-2B](https://huggingface.co/LiquidAI/LFM3-Omni-2B-GGUF) | 2.17B | 1.10 GB + 0.29 GB mmproj | voice in and out, vision, video, voice with tool calls |
 | [LFM3-VL-2B](https://huggingface.co/LiquidAI/LFM3-VL-2B-GGUF) | 1.92B | 1.10 GB + 0.20 GB mmproj (Q8_0) | vision: photos, assistant screenshot |
 | [LFM3-Audio-2B](https://huggingface.co/LiquidAI/LFM3-Audio-2B-GGUF) | 2.00B | 1.10 GB + 0.17 GB mmproj | speech in and out without vision |
-| [Gemma 4 E2B-it](https://huggingface.co/google/gemma-4-E2B-it) | 5.12B total, 2B effective | 3.35 GB [GGUF QAT Q4_0](https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf); 2.59 GB [`.litertlm`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm) | the only model on both engines: llama.cpp vs LiteRT-LM |
+| [Gemma 4 E2B-it](https://huggingface.co/google/gemma-4-E2B-it) | 5.12B total, 2B effective | 3.35 GB [GGUF QAT Q4_0](https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf); 2.59 GB [`.litertlm`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm); 3.11 GB `_Google_Tensor_G5.litertlm` | the only model on all three paths: llama.cpp CPU, LiteRT-LM CPU, and the Tensor NPU (Pixel 10) |
 
 **Added: small and recent, picked from Hugging Face download counts on 2026-10-29:**
 

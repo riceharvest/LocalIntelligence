@@ -1,5 +1,6 @@
 package dev.localintelligence.inference.litertlm
 
+import android.os.Build
 import dev.localintelligence.core.model.AcceleratorKind
 import dev.localintelligence.core.model.AcceleratorProbe
 import dev.localintelligence.core.model.AcceleratorStatus
@@ -77,6 +78,10 @@ class LiteRtLmCapabilityProbe(
      * the resolution the runtime itself gets.
      */
     private val libraryLoadable: (String) -> Boolean = ::canLoadBySoname,
+    /** This phone's Google Tensor generation, or null. See [TensorNpu.generation]. */
+    private val tensorGeneration: Int? = TensorNpu.deviceGeneration(),
+    private val sdkInt: Int = Build.VERSION.SDK_INT,
+    private val buildId: String = Build.ID.orEmpty(),
 ) : AcceleratorProbe {
 
     /**
@@ -222,35 +227,62 @@ class LiteRtLmCapabilityProbe(
                 missingLibraries = listOf(dir),
             )
         }
-        // The AAR's own payload is a known, fixed set. Anything else .so in the
-        // dir is something the integrator added, and for this runtime the only
-        // thing an integrator adds is an NPU delegate.
-        val delegates = root.listFiles()
-            ?.filter { it.isFile && it.name.endsWith(SO_SUFFIX) }
+        // A dispatch library, by name. Not "any .so the AAR did not ship": native
+        // libraries are extracted to this directory, so the app's own llama.cpp
+        // and C++ runtime libraries sit here too and would read as an NPU.
+        val dispatch = root.listFiles()
+            ?.filter { it.isFile && it.name.startsWith(DISPATCH_PREFIX) && it.name.endsWith(SO_SUFFIX) }
             ?.map { it.name }
-            ?.filterNot { it in LITERTLM_SHIPPED_LIBRARIES }
             ?.sorted()
             .orEmpty()
 
-        return if (delegates.isNotEmpty()) {
-            AcceleratorStatus(
-                kind = AcceleratorKind.NPU,
-                available = true,
-                detail = "NPU delegate libraries found in $dir: " +
-                    delegates.joinToString(),
-                missingLibraries = emptyList(),
-            )
-        } else {
-            AcceleratorStatus(
+        if (dispatch.isEmpty()) {
+            return AcceleratorStatus(
                 kind = AcceleratorKind.NPU,
                 available = false,
-                detail = "NPU unavailable: no NPU delegate library in $dir. " +
-                    "litertlm-android ships no NPU library, so the chip vendor's " +
-                    "delegate (Qualcomm AI Engine Direct, Intel OpenVINO) has to be " +
-                    "packaged into the app for this to ever succeed",
-                missingLibraries = listOf("$dir/<vendor NPU delegate>.so"),
+                detail = "NPU unavailable: no LiteRT dispatch library in $dir. " +
+                    "The app packages only Google Tensor's; another chip vendor's " +
+                    "has to be added for this to ever succeed",
+                missingLibraries = listOf("$dir/${TensorNpu.DISPATCH_LIB}"),
             )
         }
+        if (dispatch == listOf(TensorNpu.DISPATCH_LIB)) {
+            val errors = mutableListOf<String>()
+            val reason = TensorNpu.unsupportedReason(
+                generation = tensorGeneration,
+                sdkInt = sdkInt,
+                buildId = buildId,
+                vendorLibLoads = tensorGeneration != null &&
+                    tryLoad(TensorNpu.VENDOR_LIB, errors),
+            )
+            return if (reason == null) {
+                AcceleratorStatus(
+                    kind = AcceleratorKind.NPU,
+                    available = true,
+                    detail = "NPU is available: Google Tensor G$tensorGeneration with " +
+                        "${TensorNpu.DISPATCH_LIB}. It runs only models compiled for " +
+                        "this generation",
+                    missingLibraries = emptyList(),
+                )
+            } else {
+                AcceleratorStatus(
+                    kind = AcceleratorKind.NPU,
+                    available = false,
+                    detail = "NPU unavailable: $reason" + errorsSuffix(errors),
+                    missingLibraries = if (errors.isEmpty()) emptyList() else
+                        listOf(System.mapLibraryName(TensorNpu.VENDOR_LIB)),
+                    probeFailed = errors.isNotEmpty(),
+                )
+            }
+        }
+        // Another vendor's dispatch library, added by an integrator. A file on
+        // disk is necessary but not sufficient; the load path confirms it.
+        return AcceleratorStatus(
+            kind = AcceleratorKind.NPU,
+            available = true,
+            detail = "NPU dispatch libraries found in $dir: " + dispatch.joinToString(),
+            missingLibraries = emptyList(),
+        )
     }
 
     /**
@@ -275,6 +307,9 @@ class LiteRtLmCapabilityProbe(
     private companion object {
         const val SO_SUFFIX = ".so"
 
+        /** LiteRT names every vendor's NPU dispatch library `libLiteRtDispatch_<Vendor>.so`. */
+        const val DISPATCH_PREFIX = "libLiteRtDispatch_"
+
         /**
          * Platform OpenCL sonames, in the order the runtime tries them.
          *
@@ -287,27 +322,6 @@ class LiteRtLmCapabilityProbe(
 
         /** Needed for the OpenGL/OpenCL shared context the GPU path builds. */
         const val VNSDK_SUPPORT = "vndksupport"
-
-        /**
-         * Everything the LiteRT-LM AAR puts in the APK's native library dir.
-         *
-         * Excluded from the NPU delegate search so that LiteRT-LM's own payload
-         * cannot be mistaken for a vendor delegate — otherwise NPU would report
-         * available on every install, which is the failure this whole file exists
-         * to prevent.
-         */
-        val LITERTLM_SHIPPED_LIBRARIES = setOf(
-            "liblitertlm_jni.so",
-            "libLiteRt.so",
-            "libLiteRtClGlAccelerator.so",
-            // Present in 0.13.1's own strings but not shipped in the AAR. Listed
-            // anyway so that an integrator who adds one for its own reasons does
-            // not accidentally flip the NPU probe on.
-            "libLiteRtGpuAccelerator.so",
-            "libLiteRtOpenClAccelerator.so",
-            "libLiteRtVulkanAccelerator.so",
-            "libLiteRtWebGpuAccelerator.so",
-        )
     }
 }
 
@@ -325,7 +339,10 @@ class LiteRtLmCapabilityProbe(
  * is safe to repeat.
  */
 private fun canLoadBySoname(soname: String): Boolean {
-    System.loadLibrary(soname)
+    // Callers pass file names (`libOpenCL.so`), but System.loadLibrary wants the
+    // bare name and maps it itself: given `libOpenCL.so` it looks for
+    // `liblibOpenCL.so.so`, so the GPU probe failed on every device.
+    System.loadLibrary(soname.removePrefix("lib").removeSuffix(".so"))
     return true
 }
 

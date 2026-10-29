@@ -1,7 +1,7 @@
 [versions]
 agp = "8.13.2"
-kotlin = "2.2.20"
-ksp = "2.2.20-2.0.4"
+kotlin = "2.4.21"
+ksp = "2.3.12"
 coroutines = "1.10.2"
 serialization = "1.9.0"
 room = "2.7.2"
@@ -21,7 +21,13 @@ androidxTestJunit = "1.2.1"
 #   curl -s -o /dev/null -w "%{http_code}" \
 #     https://dl.google.com/dl/android/maven2/com/google/ai/edge/litertlm/litertlm-android/0.13.1/litertlm-android-0.13.1.pom
 # The repo's `google()` repository already covers this group.
-litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version = "0.13.1" }
+litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version = "0.17.1" }
+# Google Tensor NPU dispatch library (libLiteRtDispatch_GoogleTensor.so), which
+# litertlm-android does not ship. Its version must match the LiteRT runtime
+# embedded in litertlm-android: a mismatched pair fails at dispatch init
+# (google-ai-edge/LiteRT#7787). 0.17.1 + 2.3.0 is the pair that has run on a
+# Pixel 10 Pro (off-grid-ai/OGAM#702). Change both together.
+litert-npu-google-tensor = { module = "com.google.ai.edge.litert:litert-npu-runtime-google-tensor", version = "2.3.0" }
 
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }

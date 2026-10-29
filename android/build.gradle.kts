@@ -85,4 +85,7 @@ dependencies {
     // a JDK 17 JVM. That is why every LiteRT-LM type is reached only through
     // `LiteRtLmEngine`. See LiteRtLmEngine's KDoc.
     implementation(libs.litertlm.android)
+    // Only the Tensor dispatch .so. Not transitive: a second LiteRT runtime next
+    // to the one inside litertlm-android is exactly the version mismatch to avoid.
+    implementation(libs.litert.npu.google.tensor) { isTransitive = false }
 }

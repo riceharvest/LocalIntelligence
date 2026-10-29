@@ -52,7 +52,14 @@ android {
     }
 
     packaging {
-        jniLibs.useLegacyPackaging = false
+        // Extracted, not stored in the APK: LiteRT-LM's NPU backend loads the
+        // dispatch library by path from nativeLibraryDir, and that directory is
+        // empty when libraries stay inside the APK.
+        jniLibs.useLegacyPackaging = true
+        // Only models compiled ahead of time for the Tensor NPU are loaded, so
+        // the on-device compiler plugin is dead weight.
+        jniLibs.excludes += "**/libLiteRtCompilerPlugin_google_tensor.so"
+        jniLibs.pickFirsts += "**/libLiteRtDispatch_GoogleTensor.so"
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }

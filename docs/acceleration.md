@@ -92,6 +92,52 @@ that forgot them got a backend reporting every accelerator unavailable — an
 honest-sounding "no device probe was supplied" on a device that has a perfectly
 good GPU. The router constructs the backend in one place with both supplied.
 
+## Google Tensor NPU: reachable since LiteRT-LM 0.17.1
+
+**Status: implemented and builds. Not run on a device.** Everything below this
+section that says the NPU is unreachable describes the old `0.13.1` pin.
+
+What changed:
+
+- **`litertlm-android` 0.13.1 → 0.17.1, plus
+  `litert-npu-runtime-google-tensor` 2.3.0.** The second artifact is only
+  `libLiteRtDispatch_GoogleTensor.so`, the dispatch library `Backend.NPU`
+  loads from `nativeLibraryDir`. The two versions must match the LiteRT runtime
+  embedded in LiteRT-LM; a mismatched pair fails at dispatch init
+  ([LiteRT#7787](https://github.com/google-ai-edge/LiteRT/issues/7787)). 0.17.1
+  with 2.3.0 is the pair that has run on a Pixel 10 Pro
+  ([off-grid-ai/OGAM#702](https://github.com/off-grid-ai/OGAM/pull/702)). The
+  runtime's on-device compiler plugin is excluded from the APK.
+- **Native libraries are extracted** (`useLegacyPackaging = true`). The
+  dispatch library is loaded by path, and `nativeLibraryDir` is empty when
+  libraries stay inside the APK.
+- **Four Pixel vendor libraries are declared** in the manifest
+  (`libedgetpu_litert.so` and the three it opens). Undeclared, the linker
+  namespace refuses them.
+- **The probe looks for a dispatch library by name** and, for Tensor, runs the
+  same gate LiteRT does: SOC_MANUFACTURER "Google" with SOC_MODEL "Tensor G<n>",
+  Android 16 or later, not a `BP2A` build, and `libedgetpu_litert.so` loads.
+- **Only files compiled for the phone's Tensor generation run on the NPU.** The
+  generation comes from the file name (`*_Google_Tensor_G5.litertlm`). Such a
+  file loads on the NPU or not at all: it is NPU bytecode, so there is no
+  GPU/CPU fallback. Its context is fixed in the file at 4096. Any other
+  `.litertlm` skips the NPU, since the compiler plugin that could compile it on
+  the device is not shipped.
+- **A crash guard.** A broken NPU or GPU runtime can abort the process instead
+  of throwing, and the saved model loads at launch. Each engine load leaves a
+  marker in the cache dir until it returns; after two loads in a row that killed
+  the app, that accelerator is skipped. Clearing the app's cache resets it.
+
+The model that runs on the Pixel 10's NPU today is
+[`gemma-4-E2B-it_Google_Tensor_G5.litertlm`](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm)
+(3.11 GB). No LFM3 model has a Tensor build: Liquid's LiteRT repos have generic
+int8/f16 files only, so LFM3 runs on llama.cpp on the CPU. The LiteRT path has
+no grammar constraint, so tool calls on the NPU rely on the action parser alone.
+
+Also fixed while here: the GPU probe passed file names (`libOpenCL.so`) to
+`System.loadLibrary`, which wants bare names, so it reported "GPU unavailable"
+on every device.
+
 ## Hardware acceleration on Android
 
 **Status: selection, probing and fallback are implemented and compile. No
@@ -103,7 +149,7 @@ Read the two sections above before quoting any of this. The short version: the
 selection logic is implemented, the hardware is not, and the model format is a
 bigger obstacle than either.
 
-## The honest headline
+## The honest headline (LiteRT-LM 0.13.1; superseded, see above)
 
 `litertlm-android:0.13.1` ships exactly three native libraries, and **none of
 them is an NPU delegate**. Verified by listing the AAR payload for `arm64-v8a`:
@@ -378,10 +424,10 @@ the evidence supports.
   there, so "by other means" means `adb push` and a source edit to the scan.
 
 **What does not work:**
-- **The NPU, on this Pixel and every other phone.** The Tensor NPU is not
-  reachable with `litertlm-android:0.13.1`, on any chip, because the AAR ships
-  no NPU library. Google Tensor's NPU access is a separate experimental-access
-  path, not something an app can opt into from a public artifact.
+- **The NPU, before LiteRT-LM 0.17.1.** The Tensor NPU was not reachable with
+  `litertlm-android:0.13.1`, because the AAR ships no NPU library. See the
+  Google Tensor section at the top for what changed; it is unverified on a
+  device.
 - **Any model the app downloads.** The hub serves GGUF; a GGUF cannot be run by
   LiteRT-LM; there is no converter. So a user who has never sideloaded a
   `.litertlm` cannot reach the LiteRT-LM backend by any route the app offers.

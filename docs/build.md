@@ -21,7 +21,7 @@ The APK lands at `app/build/outputs/apk/debug/app-debug.apk`.
 
 | Requirement | Version | How it is set | Why |
 |---|---|---|---|
-| JDK | **21** | `JAVA_HOME` | every module declares `kotlin { jvmToolchain(21) }`. LiteRT-LM 0.13.1 ships Java 21 bytecode (class file major 65); a JDK 17 toolchain cannot read it at all. |
+| JDK | **21** | `JAVA_HOME` | every module declares `kotlin { jvmToolchain(21) }`. LiteRT-LM ships Java 21 bytecode (class file major 65); a JDK 17 toolchain cannot read it at all. LiteRT-LM 0.17.1 is also compiled with Kotlin 2.4, which is why the project is on Kotlin 2.4.21. |
 | Android platform | `android-36` | SDK | `compileSdk = 36` in both Android modules |
 | NDK | **27.1.12297006** | declared in `android/build.gradle.kts` | pinned via `ndkVersion` (see §2) |
 | CMake | `3.22.1` | SDK | declared in `android/build.gradle.kts` `externalNativeBuild.cmake.version` |
@@ -80,44 +80,43 @@ The tag resolves to that exact commit.
 
 ## 4. Measured build output
 
-**MEASURED** 2026-10-29, from `./gradlew :app:assembleDebug` locally at
-llama.cpp `b11988`:
+**MEASURED** 2026-10-30, from `./gradlew :app:assembleDebug` locally at
+llama.cpp `b11988` and LiteRT-LM `0.17.1`:
 
 | | bytes | |
 |---|---:|---|
-| `app-debug.apk` | 127,485,666 | 121.6 MiB, **debug**, both ABIs |
+| `app-debug.apk` | 51,343,857 | 49.0 MiB, **debug**, both ABIs |
 
-The previous figure, 83,920,165 bytes, was measured on 2026-09-26 (`e7f12be`)
-at llama.cpp `b4661`. Most of the difference is Kotlin code added since then
-(the debug dex is ~65 MB uncompressed); the llama.cpp library grew from about
-5.0 MB to 12.8 MB per ABI.
+Native libraries are now **extracted at install** (`useLegacyPackaging = true`,
+needed by the Tensor NPU path; see [`acceleration.md`](acceleration.md)), so
+they are stored compressed in the APK. That is why the APK shrank from
+127,485,666 bytes (2026-10-29, libraries stored uncompressed); the installed
+footprint is the APK plus the extracted libraries of one ABI.
 
-Native payload, as packaged in the APK (stripped):
+Native payload, uncompressed (stripped):
 
 | `.so` | arm64-v8a | x86_64 |
 |---|---:|---:|
-| `liblitertlm_jni.so` | 14,882,976 | 18,047,160 |
+| `liblitertlm_jni.so` | 21,802,952 | 25,968,000 |
 | `liblocalintelligence_llama_jni.so` | 12,752,696 | 12,918,376 |
-| `libLiteRt.so` | 5,064,136 | 6,997,656 |
-| `libLiteRtClGlAccelerator.so` | 2,778,128 | 3,466,440 |
 | `libc++_shared.so` | 1,292,904 | 1,252,080 |
+| `libLiteRtDispatch_GoogleTensor.so` | 579,016 | — |
 | `libandroidx.graphics.path.so` | 10,096 | 10,760 |
-| **one ABI's total** | **36,780,936** | **42,692,472** |
+| **one ABI's total** | **36,437,664** | **40,149,216** |
 
-arm64-v8a one-ABI total is **35.1 MiB**.
+From LiteRT-LM 0.17.1 the runtime and its GPU accelerator are one library,
+`liblitertlm_jni.so` (0.13.1 shipped `libLiteRt.so` and
+`libLiteRtClGlAccelerator.so` separately). The Tensor dispatch library is
+arm64 only.
 
 **The native libraries are stripped only because `:app` pins the same NDK as
 `:android`.** Packaging strips with the app module's NDK. Without `ndkVersion`
 in `app/build.gradle.kts`, AGP falls back to its default NDK (27.0.12077973),
 which is not installed. It then logs "Unable to strip" and ships every `.so` with
-its debug info (a 211 MB debug APK).
+its debug info.
 
 **These are debug numbers.** The APK carries both ABIs and unminified dex. A
-device installs one ABI, and release builds are smaller. Do not quote 121.6 MiB
-as the app's download size.
-
-Note `libLiteRtClGlAccelerator.so` — the LiteRT-LM **OpenCL** GPU path, not
-Vulkan. See [`acceleration.md`](acceleration.md).
+device installs one ABI, and release builds are smaller.
 
 ---
 

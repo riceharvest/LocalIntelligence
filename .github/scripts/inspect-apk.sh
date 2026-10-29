@@ -56,6 +56,10 @@ done
 # ---------------------------------------------------------------------------
 # GATE 2 — NO NPU / ACCELERATOR LIBRARY.
 #
+# EXCEPTION, on purpose: libLiteRtDispatch_GoogleTensor.so (the Google Tensor
+# NPU dispatch library, docs/acceleration.md) is shipped since LiteRT-LM 0.17.1
+# and is not matched by the pattern below. Everything else still applies.
+#
 # THE DEFECT THIS CATCHES — this project claims CPU inference only, and the
 # documentation is careful never to claim a hardware accelerator it does not
 # use. That claim has nothing holding it up: LiteRT-LM 0.13.1

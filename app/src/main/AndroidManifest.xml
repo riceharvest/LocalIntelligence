@@ -66,6 +66,23 @@
             android:name="libOpenCL.so"
             android:required="false" />
 
+        <!-- Google Tensor NPU (Pixel). LiteRT's Tensor dispatch library dlopen()s
+             libedgetpu_litert.so, which loads the other three; Pixel 10 firmware
+             lists all four in /vendor/etc/public.libraries.txt. Undeclared, the
+             app's linker namespace refuses them and the NPU is unreachable. -->
+        <uses-native-library
+            android:name="libedgetpu_litert.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libedgetpu_util.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libedgetpu_client.google.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libedgetpu_tachyon.google.so"
+            android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

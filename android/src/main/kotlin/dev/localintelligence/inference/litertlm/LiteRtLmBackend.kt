@@ -19,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
@@ -147,6 +148,11 @@ class LiteRtLmBackend(
      * `Backend.NPU("")`.
      */
     private val nativeLibraryDir: String? = null,
+    /**
+     * This phone's Google Tensor generation, or null. A model compiled for the
+     * Tensor NPU runs only on that exact generation; see [TensorNpu].
+     */
+    private val tensorGeneration: Int? = null,
 ) : StreamingModelBackend, AcceleratorAware {
 
     override val id: String = BACKEND_LITERTLM
@@ -172,6 +178,9 @@ class LiteRtLmBackend(
     override val capabilities: ModelCapabilities
         get() = currentCapabilities
 
+    /** Skips an accelerator whose engine load killed the app twice in a row. */
+    private val initGuard = InitCrashGuard(cacheDir)
+
     /** Serializes generations. A load in flight makes [load] fail fast. */
     private val generationLock = Any()
     private val loadInProgress = AtomicBoolean(false)
@@ -186,12 +195,19 @@ class LiteRtLmBackend(
         // Resolve and validate BEFORE claiming the load slot: a bad path should
         // not make a concurrent load look busy, and it costs nothing to check.
         val resolved = modelSource.resolve(model)
+        val compiledFor = TensorNpu.compiledFor(resolved.name)
+        // Clamped here rather than trusting the caller: below the minimum
+        // nothing fits, and above the ceiling a typo asks for an allocation
+        // that never returns and takes the app down with it. A Tensor-compiled
+        // file has its context fixed inside it.
+        val clampedContext = contextLength.coerceIn(MIN_CONTEXT_LENGTH, MAX_CONTEXT_LENGTH)
         val baseConfig = LiteRtLmEngineConfig(
             modelPath = resolved.absolutePath,
-            // Clamped here rather than trusting the caller: below the minimum
-            // nothing fits, and above the ceiling a typo asks for an allocation
-            // that never returns and takes the app down with it.
-            contextLength = contextLength.coerceIn(MIN_CONTEXT_LENGTH, MAX_CONTEXT_LENGTH),
+            contextLength = if (compiledFor != null) {
+                minOf(clampedContext, TensorNpu.COMPILED_CONTEXT)
+            } else {
+                clampedContext
+            },
             numThreads = numThreads,
             cacheDir = cacheDir,
             enableBenchmark = true,
@@ -207,7 +223,11 @@ class LiteRtLmBackend(
             // Drop the previous engine only once the new one is known good. A
             // failed load must leave a working model working -- tearing down first
             // and failing second would turn a bad path into a lost model.
-            val outcome = loadWithAcceleratorFallback(resolved.absolutePath, baseConfig)
+            val outcome = if (compiledFor != null) {
+                loadOnTensorNpu(resolved.absolutePath, baseConfig, compiledFor)
+            } else {
+                loadWithAcceleratorFallback(resolved.absolutePath, baseConfig)
+            }
             synchronized(generationLock) {
                 val previous = engine
                 engine = outcome.engine
@@ -262,12 +282,30 @@ class LiteRtLmBackend(
         val failures = mutableListOf<String>()
 
         for (kind in ladder) {
+            if (kind == AcceleratorKind.NPU) {
+                // The only NPU path packaged is Google Tensor's, and it runs only
+                // files compiled for it ahead of time (see loadOnTensorNpu).
+                failures += "NPU: skipped, ${File(modelPath).name} is not compiled for " +
+                    "an NPU; only *_Google_Tensor_G<n>.litertlm files run there"
+                continue
+            }
+            // CPU is never skipped: it is the last tier, and an out-of-memory kill
+            // on a large model is not a broken runtime.
+            if (kind != AcceleratorKind.CPU && initGuard.crashedRepeatedly(kind)) {
+                failures += "${kind.name}: skipped, the last ${InitCrashGuard.LIMIT} loads " +
+                    "on it killed the app (clear the app's cache to try it again)"
+                continue
+            }
             val config = baseConfig.copy(
                 accelerator = kind,
                 nativeLibraryDir = nativeLibraryDir.takeIf { kind == AcceleratorKind.NPU },
             )
             try {
-                val created = engineFactory.create(config)
+                val created = if (kind == AcceleratorKind.CPU) {
+                    engineFactory.create(config)
+                } else {
+                    initGuard.around(kind) { engineFactory.create(config) }
+                }
                 if (!created.isAlive) {
                     created.close()
                     throw LiteRtLmEngineException(
@@ -292,6 +330,64 @@ class LiteRtLmBackend(
             "LiteRT-LM could not load $modelPath on any accelerator " +
                 "(${failures.joinToString("; ")})",
             lastError,
+        )
+    }
+
+    /**
+     * Loads a file compiled for one Tensor generation's NPU, on that NPU only.
+     *
+     * No fallback: the file is NPU bytecode that no CPU, GPU or other Tensor
+     * generation can run, so a failure here is reported as it is rather than
+     * turned into a slow or broken run somewhere else.
+     */
+    private fun loadOnTensorNpu(
+        modelPath: String,
+        baseConfig: LiteRtLmEngineConfig,
+        fileGeneration: Int,
+    ): LoadOutcome {
+        val name = File(modelPath).name
+        if (tensorGeneration != fileGeneration) {
+            throw LiteRtLmModelException(
+                "$name is compiled for the Tensor G$fileGeneration NPU and runs nowhere " +
+                    "else; this phone " +
+                    (tensorGeneration?.let { "has a Tensor G$it" } ?: "has no Google Tensor chip"),
+            )
+        }
+        val status = capabilityProbe.probe(AcceleratorKind.NPU)
+        if (status?.available != true) {
+            throw LiteRtLmModelException(
+                "$name needs the Tensor NPU, which is unavailable: " +
+                    (status?.detail ?: "no device probe was supplied"),
+            )
+        }
+        if (initGuard.crashedRepeatedly(AcceleratorKind.NPU)) {
+            throw LiteRtLmModelException(
+                "$name was not loaded: the last ${InitCrashGuard.LIMIT} NPU loads killed " +
+                    "the app. Clear the app's cache to try again",
+            )
+        }
+        val config = baseConfig.copy(
+            accelerator = AcceleratorKind.NPU,
+            nativeLibraryDir = nativeLibraryDir,
+        )
+        val created = initGuard.around(AcceleratorKind.NPU) { engineFactory.create(config) }
+        if (!created.isAlive) {
+            created.close()
+            throw LiteRtLmEngineException("the LiteRT-LM engine reported a dead model at $modelPath on NPU")
+        }
+        val pinned = acceleratorPreference.idealKind != AcceleratorKind.NPU
+        return LoadOutcome(
+            engine = created,
+            report = AcceleratorReport(
+                requested = acceleratorPreference,
+                active = AcceleratorKind.NPU,
+                fallbackReason = if (pinned) {
+                    "$name runs only on the Tensor NPU, whatever accelerator is selected"
+                } else {
+                    null
+                },
+                statuses = mapOf(AcceleratorKind.NPU to status),
+            ),
         )
     }
 
