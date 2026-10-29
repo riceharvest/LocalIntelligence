@@ -111,14 +111,14 @@ Requires **JDK 21** and an Android SDK (platform 36, an NDK, CMake 3.22.1).
 export JAVA_HOME=/path/to/jdk-21
 export ANDROID_HOME=/path/to/android-sdk
 
-# llama.cpp is pinned to tag b4661 and is not vendored.
-git clone --depth 1 --branch b4661 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
+# llama.cpp is pinned to tag b11988 and is not vendored.
+git clone --depth 1 --branch b11988 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
 
 PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assembleDebug
 ```
 
 Output: `app/build/outputs/apk/debug/app-debug.apk` — **MEASURED** at
-~83.9 MB (80.0 MiB, debug, unstripped, both ABIs).
+~127.5 MB (121.6 MiB, debug, both ABIs).
 
 Full instructions, required SDK components, and two traps that will
 otherwise cost you an hour: [docs/build.md](docs/build.md).
@@ -135,8 +135,8 @@ Do not redesign architecture.
 Do not add dependencies unless it is genuinely necessary.
 Do not create abstractions for hypothetical future use.
 Do not modify interfaces owned by another workstream.
-Do not add cloud dependencies or telemetry.
-Do not introduce MCP.
+Do not add telemetry.
+Cloud features and MCP are opt-in: off by default, no key or server means no network call.
 Prefer Android/Kotlin platform APIs over wrappers.
 Keep model-visible outputs extremely compact.
 ```

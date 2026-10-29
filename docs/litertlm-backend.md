@@ -118,7 +118,7 @@ the backend enforces the budget itself and cancels when it is exceeded.
 **MEASURED, re-run on this branch:**
 
 - `:app:assembleDebug` succeeds from a clean checkout with llama.cpp pinned at
-  tag b4661.
+  tag b4661 (the pin at the time).
 - The three LiteRT-LM native libraries package into the APK for both ABIs:
 
   | `.so` | arm64-v8a | x86_64 |

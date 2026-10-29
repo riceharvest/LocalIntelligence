@@ -116,7 +116,7 @@ Do not redesign architecture.
 Do not add dependencies unless it is genuinely necessary.
 Do not create abstractions for hypothetical future use.
 Do not modify files outside your assignment — report the need instead.
-Do not add cloud dependencies. Do not add telemetry. Do not introduce MCP.
+Do not add telemetry. Cloud features and MCP are opt-in: off by default, no key or server means no network call.
 Prefer Android/Kotlin platform APIs over wrappers.
 Keep model-visible outputs extremely compact.
 Never import android.* in :core.

@@ -61,7 +61,11 @@ enum class GgufQuantType(
     Q4_0_8_8(33, "Q4_0_8_8", 32, 24),
     TQ1_0(34, "TQ1_0", 256, 54),
     TQ2_0(35, "TQ2_0", 256, 66),
-    MXFP4(36, "MXFP4", 32, 17),
+    // 36-38 were IQ4_NL_4_4/4_8/8_8, removed upstream and never written to a GGUF.
+    MXFP4(39, "MXFP4", 32, 17),
+    NVFP4(40, "NVFP4", 64, 36),
+    Q1_0(41, "Q1_0", 128, 18),
+    Q2_0(42, "Q2_0", 64, 18),
     ;
 
     /**

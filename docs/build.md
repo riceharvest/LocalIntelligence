@@ -9,7 +9,7 @@ The short version:
 export JAVA_HOME=/path/to/jdk-21
 export ANDROID_HOME=/path/to/android-sdk
 
-git clone --depth 1 --branch b4661 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
+git clone --depth 1 --branch b11988 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
 PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assembleDebug
 ```
 
@@ -26,7 +26,7 @@ The APK lands at `app/build/outputs/apk/debug/app-debug.apk`.
 | NDK | **27.1.12297006** | declared in `android/build.gradle.kts` | pinned via `ndkVersion` (see §2) |
 | CMake | `3.22.1` | SDK | declared in `android/build.gradle.kts` `externalNativeBuild.cmake.version` |
 | build-tools | 35.0.x or 36.x | SDK | not pinned; AGP picks a default |
-| llama.cpp | tag **b4661** | `PIDROID_LLAMA_DIR` or CMake FetchContent | see §3 |
+| llama.cpp | tag **b11988** | `PIDROID_LLAMA_DIR` or CMake FetchContent | see §3 |
 
 ---
 
@@ -50,25 +50,28 @@ Install `ndk;27.1.12297006` via the SDK manager.
 2. `<repo>/llama.cpp` — a checkout placed at the repo root. It is not a git submodule; the repository has none
 3. `PIDROID_LLAMA_FETCH` — CMake `FetchContent` (default is `ON`)
 
-`FetchContent` fetches the pinned tag `b4661` when no local path or checkout is found. The second `add_subdirectory` is guarded by `if(NOT _llama_src_dir_from_fetchcontent)`, so `FetchContent` works out of the box on a fresh clone.
+`FetchContent` fetches the pinned tag `b11988` when no local path or checkout is found. The second `add_subdirectory` is guarded by `if(NOT _llama_src_dir_from_fetchcontent)`, so `FetchContent` works out of the box on a fresh clone.
 
 For local development or faster builds, use route 1:
 
 ```bash
-git clone --depth 1 --branch b4661 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
+git clone --depth 1 --branch b11988 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
 export PIDROID_LLAMA_DIR=/tmp/llama.cpp
 ```
 
 ### Why the tag is pinned
 
-The JNI sets `use_mmap` on `llama_model_params`, and `logits_all` and `flash_attn`
-on `llama_context_params`. A newer llama.cpp **removed all three**, so building
-against `main` does not compile. `b4661` is a fixed point that works:
+llama.cpp's C API moves, so the JNI is written against one tag. It uses
+`load_mode` on `llama_model_params`, `flash_attn_type` on
+`llama_context_params`, and `llama_memory_clear()`. The previous pin, `b4661`
+(February 2025), predates all three, and it predates the models people run
+now: it has no Gemma 3 or 4, no Qwen 3, and no LFM3. `b11988` is the fixed
+point the JNI builds against:
 
 ```
-$ git clone --depth 1 --branch b4661 https://github.com/ggml-org/llama.cpp /tmp/llama-b4661
-$ git -C /tmp/llama-b4661 rev-parse HEAD
-ec3bc8270bc67b58955748d40a3e558a05b2d8f2
+$ git clone --depth 1 --branch b11988 https://github.com/ggml-org/llama.cpp /tmp/llama-b11988
+$ git -C /tmp/llama-b11988 rev-parse HEAD
+abb76ab380c7f3f731e365a859fb4cc64e939bb8
 ```
 
 The tag resolves to that exact commit.
@@ -77,35 +80,41 @@ The tag resolves to that exact commit.
 
 ## 4. Measured build output
 
-**MEASURED**, from `./gradlew :app:assembleDebug` locally (and historically on a
-GitHub runner in run 36196368752, PR #43):
+**MEASURED** 2026-10-29, from `./gradlew :app:assembleDebug` locally at
+llama.cpp `b11988`:
 
-| | local bytes | runner bytes | |
-|---|---:|---:|---|
-| `app-debug.apk` | 83,920,165 | 83,920,725 | 80.0 MiB, **debug, unstripped** |
+| | bytes | |
+|---|---:|---|
+| `app-debug.apk` | 127,485,666 | 121.6 MiB, **debug**, both ABIs |
 
-The 560-byte difference between the two builds is normal APK variance (build
-timestamps, zip alignment) and is the reason to quote a size as approximate.
-The per-library figures below are from the local build; the runner's
-`liblitertlm_jni.so` and `libLiteRt*.so` sizes matched them exactly.
+The previous figure, 83,920,165 bytes, was measured on 2026-09-26 (`e7f12be`)
+at llama.cpp `b4661`. Most of the difference is Kotlin code added since then
+(the debug dex is ~65 MB uncompressed); the llama.cpp library grew from about
+5.0 MB to 12.8 MB per ABI.
 
-Native payload, as packaged in the APK:
+Native payload, as packaged in the APK (stripped):
 
 | `.so` | arm64-v8a | x86_64 |
 |---|---:|---:|
 | `liblitertlm_jni.so` | 14,882,976 | 18,047,160 |
+| `liblocalintelligence_llama_jni.so` | 12,752,696 | 12,918,376 |
 | `libLiteRt.so` | 5,064,136 | 6,997,656 |
-| `liblocalintelligence_llama_jni.so` | 5,001,336 | 4,948,472 |
 | `libLiteRtClGlAccelerator.so` | 2,778,128 | 3,466,440 |
-| `libc++_shared.so` | 1,292,896 | 1,252,080 |
+| `libc++_shared.so` | 1,292,904 | 1,252,080 |
 | `libandroidx.graphics.path.so` | 10,096 | 10,760 |
-| **one ABI's total** | **29,029,568** | **34,722,568** |
+| **one ABI's total** | **36,780,936** | **42,692,472** |
 
-arm64-v8a one-ABI total is **27.7 MiB**.
+arm64-v8a one-ABI total is **35.1 MiB**.
 
-**These are debug numbers.** The `.so` files are unstripped, and the APK carries
-both ABIs. A device installs one ABI, and release builds are smaller. Do not quote
-27.7 MiB as a shipping figure, and do not quote 80 MiB as the app's download size.
+**The native libraries are stripped only because `:app` pins the same NDK as
+`:android`.** Packaging strips with the app module's NDK. Without `ndkVersion`
+in `app/build.gradle.kts`, AGP falls back to its default NDK (27.0.12077973),
+which is not installed. It then logs "Unable to strip" and ships every `.so` with
+its debug info (a 211 MB debug APK).
+
+**These are debug numbers.** The APK carries both ABIs and unminified dex. A
+device installs one ABI, and release builds are smaller. Do not quote 121.6 MiB
+as the app's download size.
 
 Note `libLiteRtClGlAccelerator.so` — the LiteRT-LM **OpenCL** GPU path, not
 Vulkan. See [`acceleration.md`](acceleration.md).

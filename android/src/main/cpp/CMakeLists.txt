@@ -53,7 +53,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # is far more expensive to diagnose than a build error naming the fix.
 
 set(PIDROID_LLAMA_DIR "" CACHE PATH "Path to a llama.cpp source checkout")
-set(PIDROID_LLAMA_TAG "b4661" CACHE STRING "llama.cpp git tag to build against")
+# FORCE: without it a build directory configured against an older pin keeps
+# that tag in CMakeCache.txt and compiles the JNI against stale headers. The
+# JNI is written against this one tag's API, so overriding it is never useful.
+set(PIDROID_LLAMA_TAG "b11988" CACHE STRING "llama.cpp git tag to build against" FORCE)
 # WHY FETCH IS THE DEFAULT, NOT OPT-IN: it used to be OFF, so a fresh
 # `git clone` followed by `./gradlew :app:assembleDebug` failed with
 # "llama.cpp sources not found" and the error told the user to run
@@ -152,14 +155,16 @@ endif()
 #                               the win is a few percent of tokens/sec for 3x
 #                               the build time and 3x the binary size. Turn it
 #                               on if you want the last 10%.
-#   LLAMA_CURL          OFF  - no network in the inference path.
-#   tests/examples/server OFF - none of them ship inside an APK.
+#   LLAMA_OPENSSL       OFF  - no network in the inference path.
+#   tests/examples/server/tools/app OFF - none of them ship inside an APK.
 
 set(LLAMA_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_TOOLS    OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_APP      OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_COMMON   OFF CACHE BOOL "" FORCE)
-set(LLAMA_CURL           OFF CACHE BOOL "" FORCE)
+set(LLAMA_OPENSSL        OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)
 
 set(GGML_NATIVE          OFF CACHE BOOL "" FORCE)
