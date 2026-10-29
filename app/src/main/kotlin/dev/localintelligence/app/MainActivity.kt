@@ -73,8 +73,13 @@ import kotlinx.coroutines.withContext
  */
 class MainActivity : ComponentActivity() {
 
+    private var deliveredIntent by mutableStateOf<Intent?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) {
+            deliveredIntent = intent
+        }
         val container = (application as LocalIntelligenceApp).container
 
         setContent {
@@ -98,16 +103,14 @@ class MainActivity : ComponentActivity() {
                 val models = remember { mutableStateListOf<ImportedModel>() }
                 val scope = rememberCoroutineScope()
 
-                // A SEND intent arrives before the first frame on a cold start.
-                // `LaunchedEffect(Unit)` makes this run exactly once after
-                // composition rather than on every recomposition.
-                LaunchedEffect(Unit) {
-                    sharedText(intent)?.let { chat.send(it) }
-                    // The launcher shortcut's destination. Also read on a warm
-                    // launch via onNewIntent, so long-pressing the icon while
-                    // the app is already open does not land the user back on
-                    // the chat screen they left.
-                    destination(intent)?.let { nav.navigate(it) }
+                // A SEND intent arrives on cold start or warm via onNewIntent.
+                // Keyed on deliveredIntent so new arrivals re-run, and consumed
+                // once so recomposition or rotation does not repeat the action.
+                LaunchedEffect(deliveredIntent) {
+                    val incoming = deliveredIntent ?: return@LaunchedEffect
+                    sharedText(incoming)?.let { chat.send(it) }
+                    destination(incoming)?.let { nav.navigate(it) }
+                    deliveredIntent = null
                 }
 
                 // One hub ViewModel per navigation, created here rather than
@@ -366,10 +369,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // `setIntent` rather than leaving the Activity's own intent stale: the
-        // LaunchedEffect above reads `intent`, the Activity property, and a new
-        // delivery that is not recorded there is simply lost.
         setIntent(intent)
+        deliveredIntent = intent
     }
 
     private companion object {

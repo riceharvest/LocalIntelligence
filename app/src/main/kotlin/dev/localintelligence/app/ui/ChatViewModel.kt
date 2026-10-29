@@ -470,34 +470,49 @@ class ChatViewModel(
         synchronized(transcriptLock) {
             val current = _messages.value
             val grown = current + rows
-            val kept = trim(grown)
-            val dropped = grown.size - kept.size
-            _messages.value = kept
+            val result = trim(grown)
+            _messages.value = result.kept
 
-            // Every recorded index shifts left by however many rows left the
-            // front. An entry whose own row was dropped is forgotten rather than
-            // left pointing at a neighbour.
-            if (dropped > 0) {
-                val keys = ArrayList<StepTrace>(toolRows.size + narratedRows.size)
-                keys += toolRows.keys
-                keys += narratedRows.keys
-                for (key in keys) {
-                    val at = toolRows[key] ?: narratedRows[key] ?: continue
-                    if (at < dropped) {
-                        toolRows.remove(key)
-                        narratedRows.remove(key)
-                    } else {
-                        val moved = at - dropped
-                        if (toolRows.containsKey(key)) toolRows[key] = moved
-                        if (narratedRows.containsKey(key)) narratedRows[key] = moved
-                    }
+            // Remap recorded indices to their new positions after trim.
+            // Rows dropped from the transcript are forgotten rather than left
+            // pointing at an unrelated row.
+            val remap = result.remap
+            if (remap != null) {
+                remapIndices(toolRows, remap)
+                remapIndices(narratedRows, remap)
+                for ((entry, provisional) in toolPlacements) {
+                    val at = if (provisional in remap.indices) remap[provisional] else -1
+                    if (at >= 0) toolRows[entry] = at
                 }
+                for ((entry, provisional) in narrationPlacements) {
+                    val at = if (provisional in remap.indices) remap[provisional] else -1
+                    if (at >= 0) narratedRows[entry] = at
+                }
+            } else {
+                for ((entry, provisional) in toolPlacements) toolRows[entry] = provisional
+                for ((entry, provisional) in narrationPlacements) narratedRows[entry] = provisional
             }
-
-            for ((entry, provisional) in toolPlacements) toolRows[entry] = provisional - dropped
-            for ((entry, provisional) in narrationPlacements) narratedRows[entry] = provisional - dropped
         }
     }
+
+    private fun remapIndices(map: java.util.IdentityHashMap<StepTrace, Int>, remap: IntArray) {
+        val iterator = map.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            val oldIndex = entry.value
+            val newIndex = if (oldIndex in remap.indices) remap[oldIndex] else -1
+            if (newIndex >= 0) {
+                entry.setValue(newIndex)
+            } else {
+                iterator.remove()
+            }
+        }
+    }
+
+    private class TrimResult(
+        val kept: List<ChatMessage>,
+        val remap: IntArray?,
+    )
 
     /**
      * Enforces [MAX_TRANSCRIPT_ROWS], dropping from the front.
@@ -511,9 +526,9 @@ class ChatViewModel(
      * is the user's own record and there is no second copy of it anywhere. So a
      * `User` row is only ever dropped when there is nothing else left to drop.
      */
-    private fun trim(rows: List<ChatMessage>): List<ChatMessage> {
+    private fun trim(rows: List<ChatMessage>): TrimResult {
         var excess = rows.size - MAX_TRANSCRIPT_ROWS
-        if (excess <= 0) return rows
+        if (excess <= 0) return TrimResult(rows, null)
         val doomed = BooleanArray(rows.size)
         for (index in rows.indices) {
             if (excess <= 0) break
@@ -527,7 +542,15 @@ class ChatViewModel(
             doomed[index] = true
             excess -= 1
         }
-        return rows.filterIndexed { index, _ -> !doomed[index] }
+        val kept = ArrayList<ChatMessage>(MAX_TRANSCRIPT_ROWS)
+        val remap = IntArray(rows.size) { -1 }
+        for (index in rows.indices) {
+            if (!doomed[index]) {
+                remap[index] = kept.size
+                kept.add(rows[index])
+            }
+        }
+        return TrimResult(kept, remap)
     }
 
     // ------------------------------------------------------------------- intents
