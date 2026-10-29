@@ -729,11 +729,11 @@ class HubViewModel(
         }
         val note = runCatching { registrar.register(local) }.getOrNull()
         if (note != null) return note
-        // WHY a LiteRT-LM file gets its own line: the registrar reads a GGUF
-        // header, so a `.litertlm` is not registered, and "Open Models to load
-        // it" would send the user to a list that does not contain the file.
+        // WHY a LiteRT-LM file gets its own line: a null from the registrar means
+        // the file was saved but did not load, so "Open Models to load it" would
+        // point the user at a file that is not usable there.
         return if (file.isLiteRtLm) {
-            "Saved to ${local.name}. Models cannot load LiteRT-LM files yet."
+            "Saved to ${local.name}, but it did not load."
         } else {
             "Saved to ${local.name}. Open Models to load it."
         }

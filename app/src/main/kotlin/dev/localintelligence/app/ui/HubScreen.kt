@@ -404,8 +404,8 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                     // sentences and saves the user a search.
                     Text(
                         text = "LiteRT-LM (.litertlm) files in a repository are " +
-                            "listed with their size and can be downloaded. They " +
-                            "have no memory estimate, and Models cannot load them yet.",
+                            "listed with their size and can be downloaded and " +
+                            "added to Models.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),

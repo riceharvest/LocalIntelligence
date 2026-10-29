@@ -217,8 +217,9 @@ the disk check. The screen shows the size and no memory figure.
 - Name-based label only: `TensorNpu.compiledFor` reads `_Google_Tensor_G<n>`, so
   G5 reads "Runs on the Tensor G5 NPU (Pixel 10) only" and other generations
   read "Runs on the Tensor G<n> NPU only".
-- Adoption calls the same `DownloadedModelRegistrar`. The registrar reads a GGUF
-  header, so a `.litertlm` is not registered and the screen says Models cannot
-  load it yet. Making it loadable needs `ImportedModel` and the load path to
-  accept a non-GGUF container. That is not done.
+- Adoption calls the same `DownloadedModelRegistrar` (`AppContainer.adoptDownloaded`).
+  `ModelImporter.inspect` recognises a `.litertlm` by its identifier and describes
+  it from its size alone (`LiteRtLmFootprint`), so it is registered and loaded
+  through the LiteRT-LM backend like a scanned file. If the load fails the screen
+  says the file did not load.
 - Not verified on a device or against a live repository.
