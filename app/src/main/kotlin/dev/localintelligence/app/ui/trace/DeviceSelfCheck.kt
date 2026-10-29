@@ -889,14 +889,12 @@ class DeviceSelfCheck(
 fun DiagnosticAction.intentFor(context: Context): Intent? = when (this) {
     DiagnosticAction.OpenModels -> null // an in-app route, not a system screen
 
-    // The three that coincide with a TaskAction are resolved by that enum's own
-    // function. Duplicating the system actions here would mean a scheduled task
-    // and a diagnostic could send a user to two different Settings screens for
-    // the same underlying permission, and neither would be wrong enough to be
-    // caught in review.
-    DiagnosticAction.OpenNotificationAccess -> intentForTaskAction(
-        context, TaskAction.OpenNotificationAccess,
-    )
+    // Battery and exact alarm settings are resolved by TaskAction's own function.
+    // Notification access resolves to the notification listener screen, rather than
+    // TaskAction.OpenNotificationAccess (which is for posting notifications).
+    DiagnosticAction.OpenNotificationAccess -> LocalNotificationListenerService
+        .settingsIntent(context)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     DiagnosticAction.OpenBatterySettings -> intentForTaskAction(
         context, TaskAction.OpenBatterySettings,
     )

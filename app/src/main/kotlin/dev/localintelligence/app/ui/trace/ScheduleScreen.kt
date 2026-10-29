@@ -151,6 +151,7 @@ fun ScheduleScreen(
             ScheduleForm(
                 canCreate = state.canCreate,
                 onCreate = viewModel::create,
+                onPromptChanged = viewModel::clearNotice,
             )
 
             state.notice?.let { notice ->
@@ -209,6 +210,7 @@ fun ScheduleScreen(
 private fun ScheduleForm(
     canCreate: Boolean,
     onCreate: (String, TaskCadence) -> Unit,
+    onPromptChanged: () -> Unit,
 ) {
     var prompt by remember { mutableStateOf("") }
     var cadence by remember { mutableStateOf<CadenceChoice>(CadenceChoice.EveryHour) }
@@ -216,7 +218,10 @@ private fun ScheduleForm(
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         OutlinedTextField(
             value = prompt,
-            onValueChange = { prompt = it },
+            onValueChange = {
+                prompt = it
+                onPromptChanged()
+            },
             label = { Text("What should the assistant do?") },
             placeholder = { Text("Check my notifications and summarise anything urgent") },
             modifier = Modifier.fillMaxWidth(),
