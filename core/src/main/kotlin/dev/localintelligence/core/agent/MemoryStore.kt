@@ -106,5 +106,5 @@ class InMemoryMemoryStore : MemoryStore {
     }
 
     override suspend fun forget(id: Long): Boolean = items.removeIf { it.id == id }
-    override suspend fun all(limit: Int): List<Memory> = items.take(limit)
+    override suspend fun all(limit: Int): List<Memory> = items.asReversed().take(limit)
 }
