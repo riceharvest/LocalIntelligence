@@ -62,6 +62,43 @@ class RiskPolicy(
      * non-blank justification. Callers in the agent loop can rely on that.
      */
     fun evaluate(definition: ToolDefinition, args: ToolArgs): Decision {
+        val gated = evaluateGates(definition, args)
+        val decision = autoAccepted(definition, gated) ?: gated
+        // (3) Permission, judged LAST and only for a call that would run
+        //     unattended. It used to be step 3 and returned early, which made
+        //     every tool declaring a permission skip the confirmation steps
+        //     below it (the controller runs REQUIRE_PERMISSION calls directly).
+        val permission = definition.requiredPermission
+        if (decision.outcome == PolicyOutcome.EXECUTE && permission != null &&
+            permission !in config.grantedPermissions
+        ) {
+            return decide(
+                definition, args, PolicyOutcome.REQUIRE_PERMISSION, PolicyRule.PERMISSION_NOT_GRANTED,
+                "${definition.name} needs the $permission permission, which has not been granted. " +
+                    "Grant it to let this run.",
+            )
+        }
+        return decision
+    }
+
+    /**
+     * A confirmation the user chose to skip, turned into a run, or null.
+     *
+     * Only confirmations that exist because of the tier itself can be skipped:
+     * blocks, bulk changes, paths outside app storage and bare-link messages
+     * always ask, whatever the settings say.
+     */
+    private fun autoAccepted(definition: ToolDefinition, gated: Decision): Decision? {
+        if (gated.outcome != PolicyOutcome.REQUIRE_CONFIRMATION) return null
+        if (definition.risk !in config.autoAcceptTiers) return null
+        if (gated.rule !in AUTO_ACCEPTABLE_RULES) return null
+        return gated.copy(
+            outcome = PolicyOutcome.EXECUTE,
+            justification = gated.justification + " Run without asking, as set in Approvals.",
+        )
+    }
+
+    private fun evaluateGates(definition: ToolDefinition, args: ToolArgs): Decision {
         // (1) Privileged is unconditional and comes first so that no later
         //     step — including a permissive caller rule — can reach it.
         if (definition.risk == ToolRisk.PRIVILEGED) {
@@ -125,17 +162,6 @@ class RiskPolicy(
                 "${definition.name} was called without ${analysis.missing.joinToString()}, which " +
                     "it requires, so it was not run. Call it again with those arguments. Do not " +
                     "guess a value for one you were not given.",
-            )
-        }
-
-        // (3) Permission. A tool that names a permission the host has not
-        //     granted gets told so, rather than failing opaquely mid-call.
-        val permission = definition.requiredPermission
-        if (permission != null && permission !in config.grantedPermissions) {
-            return decide(
-                definition, args, PolicyOutcome.REQUIRE_PERMISSION, PolicyRule.PERMISSION_NOT_GRANTED,
-                "${definition.name} needs the $permission permission, which has not been granted. " +
-                    "Grant it to let this run.",
             )
         }
 
@@ -440,3 +466,10 @@ class RiskPolicy(
     /** The tracker, exposed for assertions and for a debug trace view. */
     val blastRadius: BlastRadiusTracker get() = tracker
 }
+
+/** The confirmations an Approvals setting may skip: the ones the tier alone causes. */
+private val AUTO_ACCEPTABLE_RULES = setOf(
+    PolicyRule.RISK_TIER,
+    PolicyRule.EXTERNAL_TO_UNKNOWN_TARGET,
+    PolicyRule.NETWORK_EGRESS,
+)

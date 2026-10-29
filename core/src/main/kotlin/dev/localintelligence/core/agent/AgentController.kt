@@ -10,6 +10,9 @@ import dev.localintelligence.core.model.GrammarBuilder
 import dev.localintelligence.core.model.StreamingModelBackend
 import dev.localintelligence.core.agent.AgentResult.Stop
 import dev.localintelligence.core.model.GenerationRequest
+import dev.localintelligence.core.model.SamplingParams
+import dev.localintelligence.core.plugin.PluginHooks
+import dev.localintelligence.core.plugin.ToolGate
 import dev.localintelligence.core.model.ModelBackend
 import dev.localintelligence.core.model.StopReason
 import dev.localintelligence.core.metrics.RunMetrics
@@ -217,6 +220,15 @@ class AgentController(
      * the seam and `AppContainer.newController` for the one place that passes it.
      */
     private val turnRecorder: TurnRecorder? = null,
+    /** Sampling for every model request in this run, from the user's settings. */
+    private val sampling: SamplingParams = SamplingParams(),
+    /** Hooks of the plugins switched on for this run. See [PluginHooks]. */
+    private val hooks: PluginHooks = PluginHooks.NONE,
+    /**
+     * Whether a grammar-capable backend is handed the action grammar. On by
+     * default; off is a user choice in Technical settings.
+     */
+    private val constrainOutput: Boolean = true,
 ) {
     /**
      * Run state. It outlives a single call because
@@ -570,6 +582,19 @@ class AgentController(
             is ValidationOutcome.Ok -> outcome.tool
         }
 
+        // A plugin may veto a call before the policy sees it. A veto is a
+        // refusal the model can act on, never a stop.
+        val gate = hooks.beforeTool(action.name, action.arguments)
+        if (gate is ToolGate.Deny) {
+            trace += StepTrace(
+                step, StepTrace.Kind.TOOL_CALL, "refused ${action.name} by a plugin — ${gate.reason}",
+                success = false,
+                toolName = action.name,
+            )
+            sessions.observe("${action.name} did not run. ${gate.reason} Do something else, or answer without it.")
+            return null
+        }
+
         // Counted the moment the call is well-formed, before any gate decides
         // its fate. Counting only executed calls would make "the model tried
         // fourteen times" invisible, which is the failure this metric exists
@@ -729,7 +754,7 @@ class AgentController(
         }
         val durationMs = (System.nanoTime() - startedAt) / 1_000_000
 
-        val observation = truncate(result.observation)
+        val observation = truncate(hooks.afterTool(call.name, call.args, result.observation, result.success))
         loopDetector.recordResult(call.name, observation, result.success, result.error)
         sessions.appendToolObservation(call.tool, observation, result.success)
         // Charge the call to the task's blast radius. This happens on the
@@ -1166,7 +1191,7 @@ class AgentController(
         // without it the compacted state is built, stored, counted by the
         // trigger — and never shown to the model.
         val history = withWorkingSummary(sessions.messages)
-        val prompt = try {
+        val built = try {
             contextBuilder.build(task, history, memories, visible.map { it.definition })
         } catch (t: Throwable) {
             // The fallback keeps the summary, because losing the working state
@@ -1174,11 +1199,13 @@ class AgentController(
             // prompt.
             history
         }
+        val prompt = withPluginContext(built)
         // Retained so the step gate prices the context the model is about to be
         // given rather than a reconstruction of it. See [lastPrompt].
         lastPrompt = prompt
         return GenerationRequest(
             messages = prompt,
+            params = sampling,
             // Constrained generation, and this is the line that was the P0.
             //
             // WHY IT IS NOT NULL ON A GRAMMAR BACKEND: a 1.1B base model asked to "reply
@@ -1194,13 +1221,29 @@ class AgentController(
             //
             // WHY IT IS NULL OTHERWISE: LiteRT-LM refuses any request that carries a
             // grammar, so a backend that cannot enforce one gets none.
-            grammar = if (model.capabilities.supportsGrammar) {
+            grammar = if (constrainOutput && model.capabilities.supportsGrammar) {
                 GrammarBuilder.forActions(visible.map { it.definition })
             } else {
                 null
             },
             allowedToolNames = visible.map { it.definition.name },
         )
+    }
+
+    /**
+     * Folds plugin context into the system message, not a message of its own:
+     * small models handle one system prompt far better than several.
+     */
+    private fun withPluginContext(prompt: List<ChatMessage>): List<ChatMessage> {
+        val lines = hooks.contextForStep(task).filter { it.isNotBlank() }
+        if (lines.isEmpty()) return prompt
+        val extra = lines.joinToString("\n")
+        val first = prompt.firstOrNull()
+        return if (first is ChatMessage.System) {
+            listOf(ChatMessage.System(first.text + "\n\n" + extra)) + prompt.drop(1)
+        } else {
+            listOf(ChatMessage.System(extra)) + prompt
+        }
     }
 
     private fun parse(raw: String, visible: List<AgentTool>): ActionParseResult = try {
@@ -1363,6 +1406,7 @@ class AgentController(
     private suspend fun measured(body: suspend () -> AgentResult): AgentResult {
         val result = guarded { body() }
         lastRunMetrics = metrics?.finish(result is AgentResult.Success)
+        hooks.onRunEnd(result)
         return result
     }
 

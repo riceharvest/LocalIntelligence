@@ -204,6 +204,13 @@ in this file.
 
 ```
 [?] llama.cpp b4661 -> b11988                   builds; not run on a device
+[?] settings schema, Simple/Technical modes, plugin seam, approvals
+      auto-accept per tier; tool families as plugins      builds; not run
+[ ] tool-call rows in the uiarc style (verb title, shape-coded status,
+      folding input/output, "Used N tools" group, inline Allow/Deny, Retry)
+[ ] llama.cpp sampler: top-k, penalty window, frequency/presence penalties
+[ ] external plugins: SKILL.md skills and sandboxed scripts (DeepSeek Harness
+      style: tools + hooks + settings rows, switchable)
 [ ] the vertical slice on a real device          (see "Now" above)
 [ ] voice: omni model through libmtmd            LFM3-Omni-2B: audio in, speech out
       fallback: a text model + PocketTTS/Soprano through the same libmtmd API

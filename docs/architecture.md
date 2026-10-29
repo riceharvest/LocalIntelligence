@@ -558,6 +558,48 @@ an explicit documented exemption.
 
 ---
 
+## 18b. Plugins and settings
+
+Added 2026-10-30, when the owner asked for everything to be switchable, a
+Simple and a Technical settings mode, and a plugin model like DeepSeek
+Harness's. The loop is still the same `while` loop; plugins hook into it, they
+do not replace it.
+
+**Plugins** (`:core` `plugin/AgentPlugin.kt`). A plugin has an id, a title, a
+summary, an on/off default, settings rows, tools, and hooks. The hooks, in loop
+order:
+
+| Hook | Where the loop calls it | What it can do |
+|---|---|---|
+| `contextForStep` | building each request | add lines to the system prompt |
+| `beforeTool` | after validation, before the risk policy | deny the call with a reason |
+| `afterTool` | after the tool returns, before truncation | rewrite the observation |
+| `onRunEnd` | when the run has a result | observe it |
+
+`PluginSet` is built per run from the plugins switched on, so a toggle applies
+from the next message. A hook that throws is skipped for that call; it never
+ends a run. The nine built-in tool families are plugins (`androidToolPlugins`),
+and the catalogue agreement check still runs over all of them before any is
+switched off.
+
+Nothing loads code at runtime. External plugins (`SKILL.md` skills, sandboxed
+scripts) adapt to this interface.
+
+**Settings** (`:core` `settings/`). Every option is a `SettingDef` row: key,
+type, default, range, section, whether Simple mode shows it, and when it takes
+effect. The settings screen is generated from the rows, so a feature adds a
+toggle by declaring a row, never by adding its own preferences file.
+`SettingsStore` in `:app` is the only store. In Simple mode a row that is not
+marked simple reads as the value `SimpleSetup` picks for the phone, or its
+default; the user's Technical value is kept for when they switch back. A run
+reads a frozen snapshot.
+
+**Approvals.** Auto-accept is per risk tier, off by default, and only skips
+the confirmation the tier itself causes: bulk changes, paths outside app
+storage, bare-link messages and blocks always ask. Scheduled runs use it only
+when "Also in scheduled tasks" is on. The permission check now runs after the
+confirmation gates; before, a tool declaring a permission skipped them.
+
 ## 19. Rules for every change
 
 ```
@@ -567,6 +609,7 @@ Do not create abstractions for hypothetical future use.
 Do not modify interfaces owned by another workstream.
 Do not add telemetry.
 Cloud features and MCP are opt-in: off by default, no key or server means no network call.
+A new capability is a plugin; a new option is a SettingDef row. No private preference files.
 Do not implement features outside the assigned issue.
 Prefer Android/Kotlin platform APIs over wrappers.
 Keep model-visible outputs extremely compact.

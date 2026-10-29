@@ -1,6 +1,7 @@
 package dev.localintelligence.android.tools
 
 import android.content.Context
+import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.android.tools.alarm.alarmTools
 import dev.localintelligence.android.tools.apps.appTools
 import dev.localintelligence.android.tools.calendar.calendarTools
@@ -62,6 +63,45 @@ fun androidTools(context: Context): List<AgentTool> {
         addAll(webTools(grant))
     }
     return requireCatalogueAgreement(tools)
+}
+
+/**
+ * The same tools as [androidTools], grouped into one switchable plugin per
+ * family. Turning a family off removes its tools from the next run.
+ *
+ * Catalogue agreement is checked over all of them at once, before any is
+ * switched off, so a disabled family cannot hide a drifted risk tier.
+ */
+fun androidToolPlugins(context: Context): List<AgentPlugin> {
+    val app = context.applicationContext
+    val grant = AndroidPlatformGrant(app)
+    val families = listOf(
+        ToolFamily("tools.device", "Device", "Battery, device info, settings shortcuts, vibration") {
+            deviceTools(app, grant)
+        },
+        ToolFamily("tools.files", "Files", "List, search, read, write and delete files") { fileTools(app, grant) },
+        ToolFamily("tools.apps", "Apps", "List and open apps, share to them") { appTools(app) },
+        ToolFamily("tools.clipboard", "Clipboard", "Read and write the clipboard") { clipboardTools(app) },
+        ToolFamily("tools.alarms", "Alarms", "Set, list and cancel alarms") { alarmTools(app, grant) },
+        ToolFamily("tools.calendar", "Calendar", "Search and create events") { calendarTools(app, grant) },
+        ToolFamily("tools.contacts", "Contacts", "Look up contacts") { contactsTools(app, grant) },
+        ToolFamily("tools.notifications", "Notifications", "Read, dismiss and reply to notifications") {
+            notificationTools(grant)
+        },
+        ToolFamily("tools.web", "Web", "Fetch web pages") { webTools(grant) },
+    )
+    requireCatalogueAgreement(families.flatMap { it.tools() })
+    return families
+}
+
+private class ToolFamily(
+    override val id: String,
+    override val title: String,
+    override val summary: String,
+    build: () -> List<AgentTool>,
+) : AgentPlugin {
+    private val built: List<AgentTool> by lazy(build)
+    override fun tools(): List<AgentTool> = built
 }
 
 /**
