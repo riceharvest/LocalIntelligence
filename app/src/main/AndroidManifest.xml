@@ -7,6 +7,8 @@
     <!-- Tool permissions. Each is requested lazily, only when a tool that needs
          it is actually invoked. See docs/tool-contract.md. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- location.get: coarse only, so the GPS provider stays refused and network/fused answer. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
