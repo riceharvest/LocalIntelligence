@@ -37,9 +37,9 @@ import dev.localintelligence.core.tool.ToolRisk
  *     user's Documents folder are not the same request.
  *  5. Blast radius / rate limit → BLOCK. One task cannot quietly delete thirty
  *     files one at a time.
- *  6. Bulk → BLOCK for DESTRUCTIVE, REQUIRE_CONFIRMATION otherwise. The cost of
- *     a wrong bulk call scales with the count, so the threshold is stricter
- *     than for a single item.
+ *  6. Bulk → BLOCK for DESTRUCTIVE, REQUIRE_CONFIRMATION otherwise, except
+ *     READ_ONLY, which is never bulk. The cost of a wrong bulk call scales with
+ *     the count, so the threshold is stricter than for a single item.
  *  7. External-comms argument analysis → REQUIRE_CONFIRMATION, with a bare-link
  *     body called out explicitly.
  *  7b. Network egress → REQUIRE_CONFIRMATION naming destination host.
@@ -154,7 +154,8 @@ class RiskPolicy(
 
         // (6) Bulk. Destructive bulk is blocked outright: a single mistaken
         //     "delete these 500 files" is not recoverable by confirming it.
-        if (analysis.isBulk) {
+        //     Reads are exempt: listing twenty notifications changes nothing.
+        if (analysis.isBulk && definition.risk != ToolRisk.READ_ONLY) {
             val destructive = definition.risk == ToolRisk.DESTRUCTIVE
             val tooManyForBlock = analysis.affectedCount >= config.destructiveBulkBlockThreshold
             return when {
@@ -279,8 +280,8 @@ class RiskPolicy(
     }
 
     /**
-     * The first privileged marker found in any argument key or scalar value, or
-     * null.
+     * The first privileged marker found in any argument key, or in any scalar
+     * value that is not free text, or null.
      *
      * WHY keys as well as values: `settings.write{key: "enabled", value:
      * "com.evil.AccessibilityService"}` puts the capability in the value, and
@@ -295,6 +296,8 @@ class RiskPolicy(
         }
         for ((key, value) in args) {
             scan(key)?.let { return it }
+            // Free text names no capability, so only its key is scanned.
+            if (key in config.bodyArgumentNames || key in config.freeTextArgumentNames) continue
             when (value) {
                 is kotlinx.serialization.json.JsonPrimitive -> scan(value.content)?.let { return it }
                 is kotlinx.serialization.json.JsonArray -> {
