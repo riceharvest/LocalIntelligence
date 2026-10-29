@@ -1,5 +1,7 @@
 package dev.localintelligence.android.inference
 
+import java.io.File
+
 import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.GenerationRequest
 import dev.localintelligence.core.model.GenerationResult
@@ -118,12 +120,26 @@ class LlamaCppBackend(
             error("could not load the model: $loadError")
         }
 
+        // A projector next to the model gives it eyes and/or ears. Optional: a
+        // model without one is text-only, and a projector that fails to load
+        // leaves the text model working.
+        val projectorCaps = findProjector(uri)?.let { projector ->
+            if (LlamaBridge.loadProjector(bridgeHandle, projector.absolutePath) == null) {
+                LlamaBridge.projectorCaps(bridgeHandle)
+            } else {
+                0
+            }
+        } ?: 0
+
         synchronized(lock) {
             // One model resident at a time.
             releaseLocked()
             handle = bridgeHandle
             loaded = opened
-            currentCapabilities = deriveCapabilities(meta, contextLength)
+            currentCapabilities = deriveCapabilities(meta, contextLength).copy(
+                supportsVision = projectorCaps and LlamaBridge.CAP_IMAGE != 0,
+                supportsAudioInput = projectorCaps and LlamaBridge.CAP_AUDIO != 0,
+            )
         }
         cancelRequested.set(false)
     }
@@ -158,6 +174,9 @@ class LlamaCppBackend(
             }
 
             val prompt = buildPrompt(request)
+            // Attachments travel next to the prompt; buildPrompt put one marker
+            // per attachment where they belong.
+            LlamaBridge.setMedia(h, request.media.map { it.bytes })
             val sink = onToken?.let { cb ->
                 LlamaBridge.TokenSink { piece -> cb(piece) }
             }
@@ -280,6 +299,25 @@ class LlamaCppBackend(
     }
 
     /**
+     * The `mmproj-*.gguf` beside a model file, or null.
+     *
+     * Matched by name stem: `LFM3-Omni-2B-Q4_K_M.gguf` pairs with
+     * `mmproj-LFM3-Omni-2B-Q8_0.gguf`. Only plain files are searched; a model
+     * opened through the document picker has no directory to look in.
+     */
+    private fun findProjector(modelUri: android.net.Uri): java.io.File? {
+        val modelFile = modelUri.path?.let(::File)?.takeIf { modelUri.scheme == "file" && it.isFile }
+            ?: return null
+        val stem = stemOf(modelFile.name)
+        return modelFile.parentFile
+            ?.listFiles { f -> f.isFile && f.name.startsWith("mmproj", ignoreCase = true) && f.name.endsWith(".gguf", true) }
+            ?.firstOrNull { stemOf(it.name.removePrefix("mmproj-").removePrefix("mmproj_")).equals(stem, ignoreCase = true) }
+    }
+
+    private fun stemOf(fileName: String): String =
+        fileName.removeSuffix(".gguf").removeSuffix(".GGUF").replace(QUANT_SUFFIX, "")
+
+    /**
      * Capabilities from the GGUF header.
      *
      * `supportsGrammar` is true because llama.cpp's sampler chain enforces GBNF
@@ -325,10 +363,18 @@ class LlamaCppBackend(
      * second one that forgets the fence.
      */
     internal fun buildPrompt(request: GenerationRequest): String = buildString {
+        val lastUser = request.messages.lastOrNull { it is ChatMessage.User }
         for (m in request.messages) {
             when (m) {
                 is ChatMessage.System -> append("### System\n").append(m.text).append("\n\n")
-                is ChatMessage.User -> append("### User\n").append(m.text).append("\n\n")
+                is ChatMessage.User -> {
+                    append("### User\n")
+                    // The attachments belong to the message being answered: the last user turn.
+                    if (m === lastUser) {
+                        repeat(request.media.size) { append(LlamaBridge.mediaMarker).append('\n') }
+                    }
+                    append(m.text).append("\n\n")
+                }
                 is ChatMessage.Assistant -> append("### Assistant\n").append(m.text).append("\n\n")
                 is ChatMessage.ToolObservation ->
                     append("### Observation (")
@@ -344,6 +390,9 @@ class LlamaCppBackend(
 
     companion object {
         const val DEFAULT_CONTEXT_LENGTH = 4096
+
+        /** `-Q4_K_M`, `-QAD-Q4_0`, `-IQ3_XS`, `-F16`, `-BF16`, `-MXFP4_MOE`... at the end of a file stem. */
+        private val QUANT_SUFFIX = Regex("""(?i)[-_.](QAD-)?(IQ\d\w*|Q\d\w*|BF16|F16|F32|MXFP4\w*|NVFP4)$""")
 
         /**
          * Smallest context worth creating: below this a prompt plus an answer

@@ -354,6 +354,9 @@ class AgentController(
         this.task = task
         this.media = media
         trace.clear()
+        // An attachment the model cannot read would be silently dropped and the
+        // answer would pretend it had seen it. Say so instead.
+        unreadableMedia()?.let { return@measured Stop(it, trace.toList()) }
         step = 0
         malformedStreak = 0
         pending = null
@@ -1276,6 +1279,20 @@ class AgentController(
             },
             allowedToolNames = visible.map { it.definition.name },
         )
+    }
+
+    /** Why the loaded model cannot read this run's attachments, or null. */
+    private fun unreadableMedia(): String? {
+        val caps = model.capabilities
+        return when {
+            media.any { it.isImage } && !caps.supportsVision ->
+                "The loaded model cannot see images. Load a vision model with its projector " +
+                    "(an mmproj file next to it in the models folder)."
+            media.any { it.isAudio } && !caps.supportsAudioInput ->
+                "The loaded model cannot hear audio. Load a model with an audio projector " +
+                    "(an mmproj file next to it in the models folder)."
+            else -> null
+        }
     }
 
     /**
