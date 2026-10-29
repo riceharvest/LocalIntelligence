@@ -192,7 +192,7 @@ invent a capability. The three that exist in this build:
 2. **No `GOOGLE_TENSOR`.** The backend type is not in the published artifact;
    `javap` on `classes.jar` lists only `Backend$CPU`, `Backend$GPU` and
    `Backend$NPU`. It is not selectable, and wiring it would produce a build
-   that compiles on CI and fails on a Pixel.
+   that compiles but fails on a Pixel.
 3. **GPU is OpenCL, not Vulkan.** The GPU path `dlopen`s `libOpenCL.so`,
    `libOpenCL-car.so` or `libOpenCL-pixel.so` plus `libvndksupport.so`. Do not
    describe it as a Vulkan path.

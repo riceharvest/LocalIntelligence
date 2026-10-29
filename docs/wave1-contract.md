@@ -201,7 +201,7 @@ Agent D must NOT define its own `Session`; if they collide, integration will pic
 
 ---
 
-## Build commands (verbatim — CI runs exactly these)
+## Build commands
 
 ```bash
 export JAVA_HOME=$HOME/jdk21        # 21, not 17 — see below
@@ -219,6 +219,6 @@ project. See docs/build.md.
 `:core:assemble` replaced `:core:test`: the test sources were deleted at the
 owner's explicit instruction, so there is nothing for `:core:test` to run.
 
-`:core` must never import `android.*`. CI fails the build if it does. Full build
-instructions and the two traps that will cost you an hour are in
-docs/build.md.
+`:core` must never import `android.*`. `bash .github/scripts/check-core-purity.sh`
+enforces this. Full build instructions and the two traps that will cost you an
+hour are in docs/build.md.

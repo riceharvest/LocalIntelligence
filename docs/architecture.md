@@ -556,7 +556,7 @@ Keep model-visible outputs extremely compact.
 "Do not restore the deleted test suite" replaced "All functionality requires
 tests". That rule described a suite that no longer exists, and left in place it
 reads as an instruction to rebuild one. The deletion was deliberate; see
-docs/evals.md. A pure-JVM `:core` unit-test suite is being restored separately.
+docs/evals.md.
 
 If you believe an interface is wrong, open an issue. Do not change it in your PR.
 A swarm that can redesign the contracts is not a swarm, it is 20 authors.

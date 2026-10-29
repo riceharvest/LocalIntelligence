@@ -146,7 +146,7 @@ Two details that are easy to get wrong and expensive to debug:
 `Backend.GOOGLE_TENSOR` exists in the LiteRT-LM sources but is **not in the
 published 0.13.1 artifact** — `javap` lists only `Backend$CPU`, `Backend$GPU` and
 `Backend$NPU`. It is therefore not selectable here. Wiring it would mean a build
-that compiles on CI and fails on a Pixel.
+that compiles but fails on a Pixel.
 
 ## How the GPU path actually reaches the GPU
 

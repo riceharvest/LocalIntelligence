@@ -13,10 +13,7 @@ The agent loop, the tool registry, the llama.cpp backend, the LiteRT-LM backend,
 Room persistence, the Hugging Face download, and the Compose UI are all written
 and **compile**. The app assembles into an installable debug APK.
 
-Automated verification now exists but is thin: 20 pure-JVM JUnit tests over
-three shipped bugs, wired as a required CI job. That is enough to stop the
-specific regressions they pin, and **not** enough to call the harness verified.
-There is still no eval suite, no measured performance or RAM number, and no
+There are no tests, no CI, no eval suite, no measured performance or RAM number, and no
 physical-device observation of any kind. See [`evals.md`](evals.md) and
 [`build.md`](build.md).
 
@@ -66,11 +63,11 @@ x86_64 AVD, but the tool-call round trip has not been recorded.
 ```
 
 **These were not lost. They were deleted at the owner's explicit instruction**,
-together with every test-only CI job. `core/build.gradle.kts` records the
+together with CI. `core/build.gradle.kts` records the
 reason: the harness ran against fakes rather than a real model, reported 50/50,
 and "verified" an app that could not answer a single question.
 
-**Do not propose restoring them as a goal, and do not add a test job to CI.**
+**Do not propose restoring them as a goal, and do not add CI workflows.**
 Anyone quoting a test count or pass rate from this repository is quoting a
 deleted suite.
 
