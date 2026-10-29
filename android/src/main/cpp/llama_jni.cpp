@@ -254,7 +254,8 @@ llama_sampler * build_chain(const llama_vocab * vocab, const std::string & gramm
     }
     if (repeat_penalty > 0.0f) {
         llama_sampler_chain_add(
-            chain, llama_sampler_init_penalties(/*penalty_last_n=*/64, repeat_penalty, 0.0f, 0.0f));
+            chain, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab),
+                                                /*penalty_last_n=*/64, repeat_penalty, 0.0f, 0.0f));
     }
     if (top_p > 0.0f && top_p < 1.0f) {
         llama_sampler_chain_add(chain, llama_sampler_init_top_p(top_p, /*min_keep=*/1));
@@ -340,10 +341,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
 
     llama_model_params mparams = llama_model_default_params();
     mparams.n_gpu_layers = 0;  // no GPU backend in this Android build
-    mparams.use_mmap = use_mmap == JNI_TRUE;
-    // use_mlock would pin ~2 GB for the model's whole life, which on Android
-    // makes the process an immediate low-memory-killer target. Leave it off.
-    mparams.use_mlock = false;
+    // mlock would pin ~2 GB for the model's whole life, which on Android
+    // makes the process an immediate low-memory-killer target. Leave it off:
+    // MMAP, never MMAP_MLOCK.
+    mparams.load_mode = use_mmap == JNI_TRUE ? LLAMA_LOAD_MODE_MMAP : LLAMA_LOAD_MODE_NONE;
     mparams.vocab_only = false;
 
     const int32_t threads = pick_threads(n_threads);
@@ -372,10 +373,12 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     cparams.n_threads = threads;
     cparams.n_threads_batch = threads;
     // Only the last token of each decode needs logits: it is the row we sample
-    // the next token from. Everything else would be dead weight.
-    cparams.logits_all = false;
+    // the next token from. The batch's per-token logits flags say so; there is
+    // no context-wide switch any more.
     cparams.embeddings = false;
-    cparams.flash_attn = true;
+    // AUTO, not ENABLED: an architecture without flash-attention support falls
+    // back instead of failing the context.
+    cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
     cparams.offload_kqv = false;
     // f16 KV cache, which is what RamEstimate assumes.
     cparams.type_k = GGML_TYPE_F16;
@@ -679,7 +682,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     }
 
     // ---- prefill --------------------------------------------------------------
-    llama_kv_cache_clear(ctx);
+    llama_memory_clear(llama_get_memory(ctx), true);
     const int32_t batch_limit = std::max(1, std::min(n_ctx, kDefaultBatch));
     for (int32_t off = 0; off < prompt_tokens; off += batch_limit) {
         if (h->cancelled.load()) {
