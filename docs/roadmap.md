@@ -174,20 +174,76 @@ are not currently measurable.
 
 ---
 
+## Next: feature parity
+
+**Goal: more features than every popular Android local-AI app, while staying
+light.** A small core with capabilities added on demand, in the spirit of pi;
+a companion that remembers and grows, in the spirit of Hermes Agent, without
+Hermes's 64K-context harness.
+
+Compared against, as of 2026-10-29:
+
+| App | Why it is on the list |
+|---|---|
+| AnythingLLM Mobile | Closest positioning: "OpenClaw or Hermes, but on-device first". Default-assistant overlay, text-selection toolbar, on-device document chat, document generation, message/email drafts, scheduled jobs, bring-your-own provider. |
+| Google AI Edge Gallery | `SKILL.md` agent skills, MCP client, FunctionGemma mobile actions, on-device speech in/out, LiteRT only. |
+| PocketPal AI | The mainstream GGUF app: personas, web search, parallel tool calls, Whisper voice. |
+| Off Grid | Vision, voice, image generation, knowledge base, per-phone model picks, backend speed test. |
+| MNN Chat, ChatterUI, Maid | Plain model runners: the baseline for model load and speed. |
+| Operit | The heavy end (terminal, screen control, browser agent). Mined for single features, not chased on count. |
+
+OpenClaw for Android is a remote control for a server, not an on-device agent,
+so it is not compared.
+
+Grammar-constrained tool calls on any small GGUF model stay the differentiator.
+Google bets on fine-tuning a 270M model for mobile actions instead; none of
+the apps above constrains generation.
+
+Build order. A box is ticked only with an observation behind it, as everywhere
+in this file.
+
+```
+[?] llama.cpp b4661 -> b11988                   builds; not run on a device
+[ ] the vertical slice on a real device          (see "Now" above)
+[ ] voice: omni model through libmtmd            LFM3-Omni-2B: audio in, speech out
+      fallback: a text model + PocketTTS/Soprano through the same libmtmd API
+      last resort: Android SpeechRecognizer / TextToSpeech
+[ ] vision input (photo, camera)                 libmtmd
+[ ] default-assistant overlay + screenshot       AnythingLLM
+[ ] text-selection toolbar (PROCESS_TEXT)        AnythingLLM
+[x] share-sheet entry                            already ships
+[ ] quick-settings tile, "reply done" notification
+[ ] OpenRouter key: image.generate, video.generate (async job + notification),
+      speech, optional remote chat model         opt-in; no key = no network call
+[ ] web.search                                   PocketPal, Off Grid, AnythingLLM
+[ ] location, timers/reminders, message/email drafts
+[ ] skills (SKILL.md, also personas) + "save as skill" after a successful run
+[ ] user profile memory + past-chat search       Hermes
+[ ] document chat on device                      embedding GGUF, vectors in Room
+[ ] document generation (PDF, Markdown) + chat export
+[ ] per-phone model picks + backend speed test   Off Grid
+[ ] MCP client for remote servers                opt-in
+[ ] LiteRT-LM 0.13.1 -> current
+[ ] KV estimate for hybrid models                per-layer head_count_kv (LFM3)
+```
+
+Not chased, even though a competitor has it: a Linux terminal, Accessibility or
+Shizuku screen control, a browser agent, on-device image generation,
+multi-character group chat, a visual workflow builder, a messaging gateway.
+
+---
+
 ## Explicitly deferred
 
 **v0.2+** — only after the baseline works:
 
 ```
-MCP client          Shizuku              Accessibility automation
-Home Assistant      model downloading    vision
-widgets             share-sheet entry
-voice               LAN inference
+Shizuku             Accessibility automation    Home Assistant
 ```
 
-Two of these have since shipped and belong in "also shipped" above: **model
-downloading** (Hugging Face hub) and **scheduled tasks**. They were removed from
-this list.
+Voice, vision, MCP, widgets, the share-sheet entry and LAN inference used to be
+listed here. They are now part of the feature-parity plan below, or already
+shipped (the share-sheet entry, model downloading, scheduled tasks).
 
 **Considerably later, and only with a reason:**
 
