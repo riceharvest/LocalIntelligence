@@ -398,8 +398,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         PermissionEntry(
             requirement = ToolPermissions.CALENDAR_WRITE,
             title = "Calendar, writing",
-            why = "Lets the assistant add an event when you ask it to. The assistant still " +
-                "has to approve the specific tool call before anything is written.",
+            why = "Lets the assistant add an event when you ask it to. Events are added " +
+                "without a separate approval step.",
             grant = Grant.Dialog(ToolPermissions.WRITE_CALENDAR),
         ),
     )

@@ -126,7 +126,6 @@ internal object CalendarArgs {
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mmXXX", Locale.US),
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss Z", Locale.US),
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm Z", Locale.US),
-        DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm", Locale.US),
     )
 
     private val LOCAL_FORMATS: List<DateTimeFormatter> = listOf(
@@ -140,6 +139,7 @@ internal object CalendarArgs {
         DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm", Locale.US),
         DateTimeFormatter.ofPattern("yyyy-MM-dd h:mm:ss a", Locale.US),
         DateTimeFormatter.ofPattern("yyyy-MM-dd h:mm a", Locale.US),
+        DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm", Locale.US),
     )
 
     private val DATE_FORMATS: List<DateTimeFormatter> = listOf(
@@ -182,9 +182,13 @@ internal object CalendarArgs {
             val numeric = normalised.trimStart('+').toLongOrNull()
             if (numeric != null) {
                 // 10 digits is seconds, 13 is millis. Anything else is a mistake, not a date.
-                val millis = when {
-                    numeric in -99_999_999_999L..99_999_999_999L -> numeric * 1000L
-                    else -> numeric
+                val millis = when (normalised.count { it.isDigit() }) {
+                    10 -> numeric * 1000L
+                    13 -> numeric
+                    else -> return ParsedInstant.Invalid(
+                        "'$text' is neither epoch seconds (10 digits) nor millis (13 digits); " +
+                            "use an ISO date such as 2026-10-30",
+                    )
                 }
                 return if (millis in 0L..MAX_PLAUSIBLE_MILLIS) {
                     ParsedInstant.At(millis)
@@ -245,6 +249,20 @@ internal object CalendarArgs {
             ParsedInstant.Invalid("'$key' is unusable: ${parsed.message}")
         } else {
             parsed
+        }
+    }
+
+    /** True when a raw value names a whole day (a day word or a plain date), not an instant. */
+    fun isDayOnly(raw: String?): Boolean {
+        val text = raw?.trim().orEmpty()
+        if (text.lowercase(Locale.US) in setOf("today", "tomorrow", "yesterday")) return true
+        return DATE_FORMATS.any { format ->
+            try {
+                LocalDate.parse(text, format)
+                true
+            } catch (_: DateTimeParseException) {
+                false
+            }
         }
     }
 
@@ -615,7 +633,9 @@ class CalendarSearchTool internal constructor(
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "calendar.search",
-        description = "Return the calendar events in a time window, optionally filtered by title or location text.",
+        description = "Return the calendar events in a time window, optionally filtered by title or " +
+            "location text. from and to are local times like 2026-10-30T15:00, or days like " +
+            "2026-10-30, today, tomorrow; a day as to includes that whole day.",
         category = "calendar",
         schema = buildJsonObject {
             put("type", "object")
@@ -669,10 +689,20 @@ class CalendarSearchTool internal constructor(
             val to = CalendarArgs.requiredInstant(args, "to", zone, now)
             if (to is ParsedInstant.Invalid) return@withContext invalid(to.message)
 
-            val window = CalendarArgs.resolveWindow(
-                (from as ParsedInstant.At).epochMillis,
-                (to as ParsedInstant.At).epochMillis,
-            )
+            val fromMillis = (from as ParsedInstant.At).epochMillis
+            val toMillis = (to as ParsedInstant.At).epochMillis
+            // A day named as the end is whole: the window runs to the next midnight, so the day is
+            // included. Not when it falls before 'from', since a reversed window is swapped instead.
+            val nextMidnight = Instant.ofEpochMilli(toMillis).atZone(zone).toLocalDate()
+                .plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            val endMillis = if (
+                CalendarArgs.isDayOnly(primitive(args, "to")?.content) && nextMidnight > fromMillis
+            ) {
+                nextMidnight
+            } else {
+                toMillis
+            }
+            val window = CalendarArgs.resolveWindow(fromMillis, endMillis)
             if (window is ResolvedWindow.Invalid) return@withContext invalid(window.message)
             val resolved = window as ResolvedWindow.Ok
 
@@ -826,7 +856,8 @@ class CalendarCreateTool internal constructor(
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "calendar.create",
-        description = "Create a calendar event at a given start time and return the new event's id and start time.",
+        description = "Create a calendar event at a given start time and return the new event's id " +
+            "and start time. start and end are local times like 2026-10-30T15:00 (no offset).",
         category = "calendar",
         schema = buildJsonObject {
             put("type", "object")
