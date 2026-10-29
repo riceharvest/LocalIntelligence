@@ -190,11 +190,11 @@ class ConfirmationSession internal constructor(
                 is JsonNull -> "null"
                 is JsonObject -> element.entries
                     .sortedBy { it.key }
-                    .joinToString(",", "{", "}") { (k, v) -> "\"$k\":${canonical(v, depth + 1)}" }
+                    .joinToString(",", "{", "}") { (k, v) -> "${JsonPrimitive(k)}:${canonical(v, depth + 1)}" }
 
                 is JsonArray -> element.joinToString(",", "[", "]") { canonical(it, depth + 1) }
                 is JsonPrimitive -> if (element.isString) {
-                    "\"${element.content}\""
+                    element.toString()
                 } else {
                     // Distinguishes numbers, booleans, and the string "8" from 8.
                     element.content

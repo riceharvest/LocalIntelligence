@@ -12,8 +12,12 @@ import dev.localintelligence.core.tool.ToolDefinition
  *  1. system message — the tiny base prompt plus ONLY the currently selected tools
  *  2. the compacted working summary, if the loop supplied one (see [SummaryWriter])
  *  3. memories, as short labelled lines, capped and truncated
- *  4. the current task, as the current user message
- *  5. recent turns, oldest-first, trimmed to fit what is left of the budget
+ *  4. earlier conversation, oldest-first, trimmed first when the budget runs out
+ *  5. the current task, as the current user message
+ *  6. this run's own turns, oldest-first, budgeted before the earlier conversation
+ *
+ * The history is one long-lived session shared by every run, so earlier
+ * conversation comes before the task and this run's own steps after it.
  *
  * The budget is the point. A routine Android action must never need a 20K prefill
  * (docs/architecture.md section 9): prefill is latency, prefill is battery.
@@ -47,7 +51,7 @@ import dev.localintelligence.core.tool.ToolDefinition
  *
  *  - the output list: 4 fixed + at most [MAX_HISTORY_SCAN] turns = 68 refs
  *  - the history window: a [java.util.List.subList] VIEW, zero copy
- *  - the newest-first accumulation buffer: at most 64 refs
+ *  - the earlier conversation without repeats of the task: at most 64 refs
  *  - generated strings: system prompt (bounded by the caller's tool set, which
  *    architecture section 11 hard-caps at 8 tools), memories <= ~1 KB
  *
@@ -69,7 +73,19 @@ class DefaultContextBuilder(
         val limit = workingLimit.coerceAtLeast(0)
 
         val summary = summaryOf(history)
-        val turns = turnWindow(history, summary != null, task)
+        val window = turnWindow(history, summary != null)
+
+        // The live task turn is the newest user turn equal to the task. What came
+        // before it is earlier conversation; what came after it is this run's own
+        // steps. Other exact copies of the task in the earlier conversation are
+        // dropped, and the answers that followed them stay.
+        val live = window.indexOfLast { it is ChatMessage.User && it.text == task }
+        val prior: List<ChatMessage> = if (live < 0) {
+            emptyList()
+        } else {
+            window.subList(0, live).filterNot { it is ChatMessage.User && it.text == task }
+        }
+        val current: List<ChatMessage> = if (live < 0) window else window.subList(live + 1, window.size)
 
         // Capacity: 4 fixed slots + the window. Never grows beyond the scan cap.
         val out = ArrayList<ChatMessage>(4 + ContextLimits.MAX_HISTORY_SCAN)
@@ -96,38 +112,35 @@ class DefaultContextBuilder(
 
         // 4. The current task. A blank task is not a task; spending 4 tokens on
         //    an empty user turn helps nobody.
-        val taskIndex = if (task.isBlank()) -1 else {
-            val message = ChatMessage.User(task)
-            out.add(message)
-            used += TokenEstimate.tokens(message)
-            out.size - 1
-        }
+        val taskMessage = if (task.isBlank()) null else ChatMessage.User(task)
+        if (taskMessage != null) used += TokenEstimate.tokens(taskMessage)
 
-        // 5. Recent turns, oldest-first. Accumulate newest-first so the kept set
-        //    is always a contiguous suffix, then reverse to restore the order.
-        val kept = ArrayList<ChatMessage>(ContextLimits.MAX_HISTORY_SCAN)
-        for (i in turns.indices.reversed()) {
-            val cost = TokenEstimate.tokens(turns[i])
-            if (used + cost > limit) break
-            kept.add(turns[i])
-            used += cost
+        // 5. Turns. This run's own turns are budgeted first, then the earlier
+        //    conversation gets what is left. Each kept set is a contiguous suffix.
+        val currentFrom = newestFitFrom(current, limit - used)
+        used += TokenEstimate.tokens(current.subList(currentFrom, current.size))
+        val priorFrom = newestFitFrom(prior, limit - used)
+        used += TokenEstimate.tokens(prior.subList(priorFrom, prior.size))
+
+        // Emitted in conversation order: earlier conversation, the task, this run.
+        out.addAll(prior.subList(priorFrom, prior.size))
+        var taskIndex = -1
+        if (taskMessage != null) {
+            taskIndex = out.size
+            out.add(taskMessage)
         }
-        kept.reverse()
-        out.addAll(kept)
+        out.addAll(current.subList(currentFrom, current.size))
 
         // 6. Still over budget even with zero turns kept. That can only mean the
         //    fixed slots alone exceed the limit, so drop the oldest remaining
         //    non-system message and re-check. Removable range is index 1 up to
         //    (not including) the task; the system message and the task survive.
         if (used > limit) {
-            val removableEnd = if (taskIndex >= 0) taskIndex else out.size
-            var i = 1
-            while (used > limit && i < removableEnd) {
-                used -= TokenEstimate.tokens(out[i])
-                out.removeAt(i)
-                // Dropping one message can only shrink `out`, so the protected
-                // task's index moves down with it.
-                i++
+            var end = if (taskIndex >= 0) taskIndex else out.size
+            while (used > limit && end > 1) {
+                used -= TokenEstimate.tokens(out[1])
+                out.removeAt(1)
+                end--
             }
         }
 
@@ -148,84 +161,27 @@ class DefaultContextBuilder(
      * The candidate turn window: the newest [ContextLimits.MAX_HISTORY_SCAN]
      * messages, minus a leading summary. A subList VIEW, not a copy, so scanning
      * a 10,000-message session allocates nothing.
-     *
-     * Also drops a leading user turn that is byte-identical to [task]. The loop
-     * re-sends the current task as its own message, and the session's opening
-     * turn is usually that same text. Emitting it twice costs tokens and, worse,
-     * makes a 3B model read the request as two separate instructions. Exact
-     * match only — never a fuzzy one, because dropping a merely similar message
-     * would silently discard a real instruction.
      */
-    private fun turnWindow(
-        history: List<ChatMessage>,
-        hasSummary: Boolean,
-        task: String,
-    ): List<ChatMessage> {
-        var start = if (hasSummary) 1 else 0
-        if (start < history.size) {
-            val first = history[start]
-            if (first is ChatMessage.User && first.text == task) start++
-        }
-        // The current task is ALSO appended to the shared session, so it is
-        // normally the LAST user turn in history, not the first one. The check
-        // above only ever examined index `start`, which under a shared session
-        // is the first-ever turn — so from run 2 onward the builder emitted:
-        //
-        //     User(task)      <- added explicitly, as the live instruction
-        //     User(task 1) / Assistant(a1) / User(task 2)   <- history
-        //
-        // i.e. the live instruction appeared TWICE, once first and once last.
-        // For a 1-4B model that is not a token-budget nuisance: the duplicated
-        // instruction is the most recent thing in the context and gets the
-        // strongest positional weight, so the model follows the older copy.
-        //
-        // Drop the trailing run of user messages equal to the current task —
-        // `Session.start` appends exactly one, but matching a trailing block
-        // costs nothing and is robust to a future that appends the preamble
-        // before it.
-        val historyEnd = trimTrailingCurrentTask(history, start, task)
-        if (start >= historyEnd) return emptyList()
-        val from = maxOf(start, historyEnd - ContextLimits.MAX_HISTORY_SCAN)
-        val window = history.subList(from, historyEnd)
-
-        // A repeat of the live task anywhere in the window, not just at either
-        // edge. This is the state the loop reaches as soon as history holds a
-        // PRIOR exchange, because the task turn then sits in the middle:
-        //
-        //   User(older) / Assistant(a) / User(task) / ToolObservation(o)
-        //
-        // The two edge cases above miss that entirely - it is not the leading
-        // turn and not the trailing run - so the builder emitted the live
-        // instruction twice, and the stale middle copy is the one the model
-        // sees with the strongest positional weight.
-        //
-        // The ANSWER that followed an identical earlier question is kept. Only
-        // the instruction itself is dropped: re-asking the same thing must not
-        // cost the user the reply they already received.
-        //
-        // Exact match only, so a merely similar request is never discarded.
-        val kept = window.filterNot { it is ChatMessage.User && it.text == task }
-        return if (kept.size == window.size) window else kept
+    private fun turnWindow(history: List<ChatMessage>, hasSummary: Boolean): List<ChatMessage> {
+        val start = if (hasSummary) 1 else 0
+        return history.subList(maxOf(start, history.size - ContextLimits.MAX_HISTORY_SCAN), history.size)
     }
 
     /**
-     * Index one past the last historical message that is not a repeat of the
-     * current task, scanning back from the end of history.
-     *
-     * Never scans past [floor]: a summary or genuine earlier turn with the same
-     * text is history worth keeping.
+     * Where the kept part of [turns] starts: the newest whole turns that fit in
+     * [budget] tokens, as one contiguous run that ends at the newest turn.
+     * Returns `turns.size` when not even the newest turn fits.
      */
-    private fun trimTrailingCurrentTask(
-        history: List<ChatMessage>,
-        floor: Int,
-        task: String,
-    ): Int {
-        var end = history.size
-        while (end > floor) {
-            val message = history[end - 1]
-            if (message is ChatMessage.User && message.text == task) end-- else break
+    private fun newestFitFrom(turns: List<ChatMessage>, budget: Int): Int {
+        var spent = 0
+        var from = turns.size
+        while (from > 0) {
+            val cost = TokenEstimate.tokens(turns[from - 1])
+            if (spent + cost > budget) break
+            spent += cost
+            from--
         }
-        return end
+        return from
     }
 
     /**
@@ -275,9 +231,8 @@ internal object TokenEstimate {
         is ChatMessage.System -> tokens(message.text) + MESSAGE_OVERHEAD_TOKENS
         is ChatMessage.User -> tokens(message.text) + MESSAGE_OVERHEAD_TOKENS
         is ChatMessage.Assistant -> tokens(message.text) + MESSAGE_OVERHEAD_TOKENS
-        // The model sees the tool name and the observation, so both are paid for.
         is ChatMessage.ToolObservation ->
-            tokens(message.toolName) + tokens(message.observation) + MESSAGE_OVERHEAD_TOKENS
+            tokens(message.modelFacing()) + MESSAGE_OVERHEAD_TOKENS
     }
 
     fun tokens(messages: List<ChatMessage>): Int = messages.sumOf { tokens(it) }

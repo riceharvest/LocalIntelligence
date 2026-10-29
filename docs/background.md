@@ -80,6 +80,10 @@ The path, end to end:
    (`app/.../execution/ScheduledRunReporter.kt:124`) re-reads the row and writes
    `lastResult`. Five outcomes, each with a distinct prefix:
    `Answered: `, `Refused: `, `Cancelled: `, `Failed: `, `Did not run: `.
+   Nobody is watching a scheduled run, so an action that needs approval is declined
+   rather than waited for (`ExecutionService`, `declineApprovals`). The result then
+   gets the sentence "An action that needed your approval was skipped."
+   (`ScheduledRunReporter.APPROVAL_SKIPPED`).
 
 ### The three "not scheduled" outcomes are different facts
 
@@ -194,7 +198,10 @@ lines with a live region so a screen-reader user learns the outcome without
 navigating to it (`ScheduleScreen.kt:328-348`). The stored string is itself
 capped at 400 characters on a word boundary with an explicit ellipsis
 (`ScheduledRunReporter.kt:245-252`), so a truncated answer cannot be mistaken
-for a complete one.
+for a complete one. The same text is also posted as a notification on the
+"Scheduled task results" channel, if notifications are enabled
+(`ExecutionService.notifyScheduledResult`). With notifications off, the task row is
+the only place the result lands.
 
 ### Before you schedule anything
 
@@ -267,14 +274,14 @@ except where noted.
 
 | Permission | Used by | Runtime prompt? |
 |---|---|---|
-| `INTERNET` | `web.fetch` only. Model inference is on-device. | Install-time |
+| `INTERNET` | `web.fetch`, and model downloads from the Hugging Face Hub. Model inference is on-device. | Install-time |
 | `SCHEDULE_EXACT_ALARM` | `alarm.create`, scheduled tasks | Special access on API 31+ |
 | `RECEIVE_BOOT_COMPLETED` | `AlarmBootReceiver`, `ScheduledTaskFireReceiver` | Install-time |
 | `POST_NOTIFICATIONS` | The foreground-service notification and the scheduled-task result | Runtime, API 33+ |
 | `FOREGROUND_SERVICE` + `_DATA_SYNC` | `ExecutionService` | Install-time |
 | `READ_CONTACTS` / `READ_CALENDAR` / `WRITE_CALENDAR` | The matching tools | Runtime, on first use |
-| `READ_MEDIA_IMAGES` / `_VIDEO` / `_AUDIO` | Media tools | Runtime, on first use |
-| `VIBRATE` | `alarm.create` | Install-time, not revocable |
+| `READ_MEDIA_IMAGES` / `_VIDEO` / `_AUDIO` | None. No tool requests them | Not requested |
+| `VIBRATE` | `device.vibrate` | Install-time, not revocable |
 
 There is **no** `BIND_NOTIFICATION_LISTENER_SERVICE` in this table because it is
 not a permission you request: it is the `android:permission` attribute on the

@@ -262,6 +262,7 @@ fun PermissionScreen(
                     status = status,
                     onAsk = { entry.grant.permissionOrNull()?.let { ask(listOf(it)) } },
                     onOpenSettings = { openAppSettings(context) },
+                    onOpenScreen = { (entry.grant as? Grant.Screen)?.open(context) },
                 )
             }
         }
@@ -397,8 +398,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         PermissionEntry(
             requirement = ToolPermissions.CALENDAR_WRITE,
             title = "Calendar, writing",
-            why = "Lets the assistant add an event when you ask it to. The assistant still " +
-                "has to approve the specific tool call before anything is written.",
+            why = "Lets the assistant add an event when you ask it to. Events are added " +
+                "without a separate approval step.",
             grant = Grant.Dialog(ToolPermissions.WRITE_CALENDAR),
         ),
     )
@@ -591,6 +592,11 @@ enum class PermissionStatus {
      * from the requirement's own [PlatformRequirement.grantInstructions].
      */
     NOT_A_PERMISSION,
+
+    /**
+     * Needs a system screen rather than a runtime dialog, and is currently off.
+     */
+    REQUIRES_SCREEN,
     ;
 
     val isSatisfied: Boolean get() = this == GRANTED || this == NOT_A_PERMISSION
@@ -626,10 +632,10 @@ private fun statusOf(
     activity: Activity?,
 ): PermissionStatus {
     val permission = entry.grant.permissionOrNull()
-        ?: return if (probeSatisfied(context, entry)) {
-            PermissionStatus.GRANTED
-        } else {
-            PermissionStatus.NOT_A_PERMISSION
+        ?: return when {
+            probeSatisfied(context, entry) -> PermissionStatus.GRANTED
+            entry.grant is Grant.Screen -> PermissionStatus.REQUIRES_SCREEN
+            else -> PermissionStatus.NOT_A_PERMISSION
         }
     if (isPermissionHeld(context, permission)) return PermissionStatus.GRANTED
     if (activity == null) return PermissionStatus.DENIED
@@ -718,6 +724,7 @@ private fun PermissionCard(
     status: PermissionStatus,
     onAsk: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenScreen: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -747,8 +754,10 @@ private fun PermissionCard(
                         -> MaterialTheme.colorScheme.onSurfaceVariant
 
                         PermissionStatus.DENIED_FOREVER -> MaterialTheme.colorScheme.error
-                        PermissionStatus.NOT_ASKED, PermissionStatus.DENIED ->
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                        PermissionStatus.NOT_ASKED,
+                        PermissionStatus.DENIED,
+                        PermissionStatus.REQUIRES_SCREEN,
+                        -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
             }
@@ -770,6 +779,17 @@ private fun PermissionCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                PermissionStatus.REQUIRES_SCREEN -> {
+                    Text(
+                        text = entry.requirement.grantInstructions,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(onClick = onOpenScreen) {
+                        Text("Open settings")
+                    }
+                }
 
                 PermissionStatus.NOT_ASKED -> {
                     Text(
@@ -815,6 +835,7 @@ private val PermissionStatus.label: String
         PermissionStatus.DENIED -> "Off"
         PermissionStatus.DENIED_FOREVER -> "Blocked"
         PermissionStatus.NOT_A_PERMISSION -> "Nothing to grant"
+        PermissionStatus.REQUIRES_SCREEN -> "Off"
     }
 
 /**

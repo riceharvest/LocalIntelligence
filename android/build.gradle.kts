@@ -82,12 +82,7 @@ dependencies {
     // Its classes are Java 21 bytecode (class file v65). That is fine to COMPILE
     // against from a jvmToolchain(21) build -- Kotlin reads the higher class
     // version without complaint -- but it means these classes cannot be LOADED by
-    // a JDK 17 unit-test JVM. That is precisely why every LiteRT-LM type is
-    // reached only through `LiteRtLmEngine`, and why the whole test suite runs
-    // against a fake engine. See LiteRtLmEngine's KDoc.
+    // a JDK 17 JVM. That is why every LiteRT-LM type is reached only through
+    // `LiteRtLmEngine`. See LiteRtLmEngine's KDoc.
     implementation(libs.litertlm.android)
-
-    androidTestImplementation(libs.androidx.test.runner)
-    androidTestImplementation(libs.androidx.test.junit)
-    androidTestImplementation(libs.androidx.test.espresso)
 }

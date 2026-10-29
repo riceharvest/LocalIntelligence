@@ -231,6 +231,19 @@ object AppArgs {
 /** Filtering and ranking a launchable-app list, as a pure function. */
 object AppQuery {
 
+    fun tokens(query: String?): List<String> {
+        val q = query?.trim()?.lowercase(Locale.ROOT) ?: return emptyList()
+        if (q.isEmpty()) return emptyList()
+        return q.split(Regex("\\s+")).filter { it.isNotEmpty() }
+    }
+
+    fun matches(app: AppEntry, tokens: List<String>): Boolean {
+        if (tokens.isEmpty()) return true
+        val label = app.label.lowercase(Locale.ROOT)
+        val pkg = app.packageName.lowercase(Locale.ROOT)
+        return tokens.any { label.contains(it) || pkg.contains(it) }
+    }
+
     /**
      * Filters [apps] by a free-text [query] and caps the result.
      *
@@ -249,13 +262,9 @@ object AppQuery {
             return apps.sortedWith(compareBy({ it.label.lowercase(Locale.ROOT) }, { it.packageName }))
                 .take(cap)
         }
-        val tokens = q.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val tokenList = tokens(q)
         return apps.asSequence()
-            .filter { app ->
-                val label = app.label.lowercase(Locale.ROOT)
-                val pkg = app.packageName.lowercase(Locale.ROOT)
-                tokens.any { label.contains(it) || pkg.contains(it) }
-            }
+            .filter { matches(it, tokenList) }
             .sortedWith(
                 compareByDescending<AppEntry> { rank(it, q) }
                     .thenBy { it.label.lowercase(Locale.ROOT) }
@@ -398,8 +407,10 @@ private fun PackageManager.launchableApps(): List<AppEntry> {
         return emptyList()
     }
     val out = ArrayList<AppEntry>(resolved.size)
+    val seen = HashSet<String>()
     for (info in resolved) {
         val pkg = info.activityInfo?.packageName ?: continue
+        if (!seen.add(pkg)) continue
         val label = try {
             info.loadLabel(this).toString().trim().ifEmpty { pkg }
         } catch (t: RuntimeException) {
@@ -502,7 +513,8 @@ class AppsListTool(private val appContext: Context) : AgentTool {
                     ToolError.Unavailable("PackageManager returned no launchable activities"),
                 )
             }
-            val matched = if (query == null) all else all.filter { AppQuery.rank(it, query.lowercase(Locale.ROOT)) > 0 || it.label.lowercase(Locale.ROOT).contains(query.lowercase(Locale.ROOT)) }
+            val tokens = AppQuery.tokens(query)
+            val matched = if (tokens.isEmpty()) all else all.filter { AppQuery.matches(it, tokens) }
             val shown = AppQuery.filter(matched, query, limit)
             ok(
                 AppQuery.format(shown, (matched.size - shown.size).coerceAtLeast(0), "app" + if (query != null) " matching '$query'" else "s"),

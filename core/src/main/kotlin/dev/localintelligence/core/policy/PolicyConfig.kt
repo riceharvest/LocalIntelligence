@@ -56,7 +56,8 @@ data class PolicyConfig(
 
     /**
      * How many items one call may affect before it counts as bulk. A bulk call
-     * is never auto-executed and never silently confirmed.
+     * is never auto-executed and never silently confirmed, except READ_ONLY
+     * calls: reading twenty items changes nothing.
      */
     val bulkThreshold: Int = DEFAULT_BULK_THRESHOLD,
 
@@ -95,6 +96,14 @@ data class PolicyConfig(
 
     /** Arguments holding a count or list that defines the call's blast radius. */
     val countArgumentNames: Set<String> = DEFAULT_COUNT_ARGS,
+
+    /**
+     * Arguments whose value is text a person reads or writes, in addition to
+     * [bodyArgumentNames]. Their values are not scanned for
+     * [privilegedArgumentMarkers], so a reply saying "rooting for you" is not
+     * refused. Their keys still are.
+     */
+    val freeTextArgumentNames: Set<String> = DEFAULT_FREE_TEXT_ARGS,
 
     /**
      * Argument keys and values that indicate a privileged capability, whatever
@@ -153,6 +162,8 @@ data class PolicyConfig(
         val DEFAULT_BODY_ARGS: Set<String> = setOf("body", "text", "message", "content", "note")
         val DEFAULT_TARGET_ARGS: Set<String> = setOf("to", "recipient", "contact", "address", "phone", "number", "email")
         val DEFAULT_COUNT_ARGS: Set<String> = setOf("count", "limit", "ids", "items", "paths", "recipients", "numbers")
+        val DEFAULT_FREE_TEXT_ARGS: Set<String> =
+            setOf("title", "label", "description", "location", "query", "name")
 
         /**
          * Substrings that mark a privileged capability in an argument key or

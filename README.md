@@ -27,9 +27,9 @@ use the network, both of them opt-in and neither silent:
   that does and does not protect against.
 
 Nothing else in the app opens a socket, and no conversation content, memory,
-file, contact, or calendar entry is transmitted by the app itself. If you do
-not want the model making outbound requests at all, do not install a model that
-has the `web.fetch` tool available.
+file, contact, or calendar entry is transmitted by the app itself. Every
+`web.fetch` call asks you to confirm first, and the confirmation names the host;
+decline those confirmations if you do not want outbound requests.
 
 ---
 
@@ -40,10 +40,11 @@ with a large context, many tools, or a complicated protocol. Most agent framewor
 assume a frontier model on a server. LocalIntelligence assumes the opposite and optimizes
 everything for that assumption:
 
-- **Constrained output.** Grammar-constrained generation means the model physically
-  cannot emit a malformed action or hallucinate a tool it was not offered.
-- **Small tool surface.** 3-6 tools visible per turn out of a registry of 25, chosen
-  by lexical scoring. Not a second LLM call.
+- **Constrained output.** On the llama.cpp backend, grammar-constrained generation
+  means the model cannot emit a malformed action or a tool it was not offered. The
+  LiteRT-LM backend takes no grammar, so there the parser rejects both instead.
+- **Small tool surface.** Up to 6 tools visible per turn (`AgentConfig.maxVisibleTools`)
+  out of a registry of 25, chosen by lexical scoring. Not a second LLM call.
 - **Deterministic reliability.** Loop detection, argument validation, risk gating and
   context budgeting are plain Kotlin. The model is used only where language
   understanding is actually required.
@@ -56,13 +57,11 @@ everything for that assumption:
 
 **It builds. Almost nothing about it is measured.**
 
-`:app:assembleDebug` produces an installable debug APK from a clean checkout,
-and CI proves it on every push — green as of run
-[36196368752](https://github.com/riceharvest/LocalIntelligence/actions/runs/36196368752).
+`:app:assembleDebug` produces an installable debug APK from a clean checkout.
 See [docs/build.md](docs/build.md). Beyond that:
 
-- **There are no tests.** The test suite and the fake-backed eval harness were
-  deleted at the owner's explicit instruction, along with all test-only CI jobs.
+- **There are no tests and no CI.** The test suite and the fake-backed eval harness
+  were deleted at the owner's explicit instruction, and CI was removed.
   Do not propose restoring them as a goal.
 - **There is no eval runner**, so the project's central question — how small
   can the model get before the loop stops being reliable — is unanswered.
@@ -93,7 +92,7 @@ Full detail: [docs/architecture.md](docs/architecture.md).
 
 | Document | What it is |
 |---|---|
-| [docs/build.md](docs/build.md) | **Start here.** How to build, what the native build needs, why CI was red, what is measured. |
+| [docs/build.md](docs/build.md) | **Start here.** How to build, what the native build needs, what is measured. |
 | [docs/architecture.md](docs/architecture.md) | North star, module map, loop, budgets. |
 | [docs/tool-contract.md](docs/tool-contract.md) | The frozen tool contract. Implement, do not redesign. |
 | [docs/agent-loop.md](docs/agent-loop.md) | The loop, step by step, with failure paths. |
@@ -119,10 +118,9 @@ PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assembleDebug
 ```
 
 Output: `app/build/outputs/apk/debug/app-debug.apk` — **MEASURED** at
-~83.9 MB (80.0 MiB, debug, unstripped, both ABIs). CI builds this on every push
-and uploads it as an artifact, so you can install exactly what CI built.
+~83.9 MB (80.0 MiB, debug, unstripped, both ABIs).
 
-Full instructions, the SDK components CI installs, and two traps that will
+Full instructions, required SDK components, and two traps that will
 otherwise cost you an hour: [docs/build.md](docs/build.md).
 
 ## Contributing
@@ -145,7 +143,7 @@ Keep model-visible outputs extremely compact.
 
 Two rules that are easy to get wrong here:
 
-- **Do not restore the test suite or add a test CI job.** The deletion was
+- **Do not restore the test suite or add CI workflows.** The deletion was
   deliberate. Verification means running a real model on a real device.
 - **Do not quote a performance or RAM number that was not measured.** There are
   none. Write "unmeasured" and say how to measure it.

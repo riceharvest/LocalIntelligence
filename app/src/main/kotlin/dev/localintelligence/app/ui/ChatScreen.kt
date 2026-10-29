@@ -105,7 +105,10 @@ fun ChatScreen(
     // should not keep recomposing a chat transcript nobody is looking at.
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val runState by viewModel.runState.collectAsStateWithLifecycle()
-    val streaming by viewModel.streamingText.collectAsStateWithLifecycle()
+    val rawStreaming by viewModel.streamingText.collectAsStateWithLifecycle()
+    // What the live bubble shows. Everything below reads this, so the bubble,
+    // its row in the count and the empty state cannot disagree about it.
+    val streaming = remember(rawStreaming) { liveBubbleText(rawStreaming) }
     val input by viewModel.input.collectAsStateWithLifecycle()
     val modelState by viewModel.modelState.collectAsStateWithLifecycle()
     // Derived from the collected `runState` rather than read from
@@ -363,6 +366,55 @@ private fun AssistantBubble(text: String) {
     }
 }
 
+private val TOOL_OPENER = Regex("""<tool(?=[\s>]|$)""", RegexOption.IGNORE_CASE)
+private val RESPOND_OPENER = Regex("""<respond\s*>""", RegexOption.IGNORE_CASE)
+private val RESPOND_CLOSER = Regex("""</respond\s*>""", RegexOption.IGNORE_CASE)
+private const val TOOL_CLOSER = "</tool>"
+
+/** Tags a stream can be cut off inside. A whole `<tool` is an opener, not a partial. */
+private val PARTIAL_TAGS = listOf("<tool", "<respond>", "</tool>", "</respond>")
+
+/**
+ * The part of the live stream to show while the run is going.
+ *
+ * The stream is every token of every step, concatenated, because nothing clears
+ * it between steps. So it holds the protocol as well as the answer: a
+ * `<tool name="device.battery">{}</tool>` followed by the `<respond>` that uses
+ * its result. Shown raw, the user watches the markup arrive. This picks the text
+ * a person should read, and it is applied only to what is drawn.
+ *
+ * - The last `<tool` has no `</tool>` after it: the call is being made, so
+ *   nothing. The transcript shows the call once the run has recorded it.
+ * - Otherwise the text after the last `<respond>`, up to `</respond>`.
+ * - A closed tool call, or no action tag at all (unconstrained prose): the text
+ *   after the last `</tool>`, or the whole text.
+ */
+private fun liveBubbleText(stream: String): String {
+    val text = stream.withoutPartialTagAtEnd()
+    val tool = TOOL_OPENER.findAll(text).lastOrNull()?.range?.first ?: -1
+    val respond = RESPOND_OPENER.findAll(text).lastOrNull()
+    val toolClose = text.lastIndexOf(TOOL_CLOSER, ignoreCase = true)
+    return when {
+        respond != null && respond.range.first > tool -> {
+            val body = text.substring(respond.range.last + 1)
+            val close = RESPOND_CLOSER.find(body)
+            (if (close != null) body.substring(0, close.range.first) else body).trim()
+        }
+        tool >= 0 && toolClose < tool -> ""
+        toolClose >= 0 -> text.substring(toolClose + TOOL_CLOSER.length).trim()
+        else -> text.trim()
+    }
+}
+
+/** Drops a tag still arriving at the end of the stream, such as `<res`, so it never flashes. */
+private fun String.withoutPartialTagAtEnd(): String {
+    val start = lastIndexOf('<')
+    if (start < 0) return this
+    val fragment = substring(start)
+    val partial = PARTIAL_TAGS.any { it.length > fragment.length && it.startsWith(fragment, ignoreCase = true) }
+    return if (partial) substring(0, start) else this
+}
+
 /**
  * Streamed text, shown as it arrives.
  *
@@ -429,11 +481,10 @@ private fun NoticeLine(text: String) {
  * `RunState.progressLabel` is null for `Running` on purpose: it is right not to
  * put "Working…" next to a finished answer, where it would describe work that
  * is not happening. But that left the *longest* phase of a run with no indicator
- * whatsoever. A decode on a phone takes seconds to minutes, `streamingText` is
- * never fed (`AgentController` calls `generate`, not `generateStreaming`), and
- * so the screen the user had just typed into sat showing their own question and
- * nothing else — the exact "the app is not wired in" impression this state is
- * supposed to avoid.
+ * whatsoever. A decode on a phone takes seconds to minutes, the live bubble is
+ * empty while the model is writing a tool call, and so the screen the user had
+ * just typed into sat showing their own question and nothing else — the exact
+ * "the app is not wired in" impression this state is supposed to avoid.
  *
  * So `Running` gets the same treatment `LoadingModel` already had. The wording
  * claims work and says where it happens; it does not narrate reasoning, because

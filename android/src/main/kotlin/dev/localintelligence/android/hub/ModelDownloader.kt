@@ -91,7 +91,7 @@ class ModelDownloader(
      */
     fun download(file: HubGgufFile, plan: DownloadPlan): Flow<DownloadProgress> = flow {
         val rejection = plan.reject
-        if (rejection != null) {
+        if (rejection != null && rejection !is HubError.InsufficientStorage) {
             emit(DownloadProgress.Stopped(rejection, partialBytesKept = 0L))
             return@flow
         }
@@ -117,7 +117,8 @@ class ModelDownloader(
         }
 
         val totalBytes = file.sizeBytes
-        val startOffset = when (val decision = ResumePolicy.decide(localBytes, totalBytes)) {
+        val decision = ResumePolicy.decide(localBytes, totalBytes)
+        val startOffset = when (decision) {
             is ResumeDecision.Restart -> {
                 partial.discard()
                 0L
@@ -127,6 +128,7 @@ class ModelDownloader(
                 partial.discard()
                 0L
             }
+            ResumeDecision.Complete -> 0L
         }
 
         var response: HubResponse? = null
@@ -141,59 +143,61 @@ class ModelDownloader(
         // to check `context.signal`.
         var cancelHandle: DisposableHandle? = null
         try {
-            val request = HubRequest(
-                url = url,
-                rangeFrom = startOffset.takeIf { it > 0 },
-                authToken = token,
-            )
-            response = transport.open(request)
-
-            if (response.status !in 200..299) {
-                val error = HubError.fromStatus(
-                    status = response.status,
-                    repo = file.repo.id,
-                    file = file.fileName,
-                    errorCode = response.header("X-Error-Code"),
-                    retryAfterSeconds = response.header("Retry-After")?.toLongOrNull(),
+            if (decision !is ResumeDecision.Complete) {
+                val request = HubRequest(
+                    url = url,
+                    rangeFrom = startOffset.takeIf { it > 0 },
+                    authToken = token,
                 )
-                emit(DownloadProgress.Stopped(error, partialBytesKept = localBytes))
-                return@flow
-            }
+                response = transport.open(request)
 
-            val writeFrom = resolveWriteOffset(response, startOffset, partial)
-            if (writeFrom == null) {
-                // The server answered with a body that does not line up with
-                // what is on disk. Appending would produce a file of exactly
-                // the right length that is entirely wrong, so the only safe
-                // move is to start over and tell the user.
-                partial.discard()
-                emit(
-                    DownloadProgress.Stopped(
-                        HubError.ConnectionLost("server returned an unusable range; restarted"),
-                        partialBytesKept = 0L,
-                    ),
-                )
-                return@flow
-            }
-
-            val body = response.body
-            if (body != null) {
-                cancelHandle = currentCoroutineContext()[Job]?.invokeOnCompletion { cause ->
-                    if (cause is CancellationException) runCatching { body.close() }
-                }
-            }
-            val copyOutcome = copyToFile(response, partial, writeFrom, totalBytes, file, emitProgress = { emit(it) })
-
-            when (copyOutcome) {
-                is CopyOutcome.Cancelled -> {
-                    emit(DownloadProgress.Stopped(HubError.Cancelled, partialBytesKept = writeFrom))
+                if (response.status !in 200..299) {
+                    val error = HubError.fromStatus(
+                        status = response.status,
+                        repo = file.repo.id,
+                        file = file.fileName,
+                        errorCode = response.header("X-Error-Code"),
+                        retryAfterSeconds = response.header("Retry-After")?.toLongOrNull(),
+                    )
+                    emit(DownloadProgress.Stopped(error, partialBytesKept = localBytes))
                     return@flow
                 }
-                is CopyOutcome.Failed -> {
-                    emit(DownloadProgress.Stopped(copyOutcome.error, partialBytesKept = writeFrom))
+
+                val writeFrom = resolveWriteOffset(response, startOffset, partial)
+                if (writeFrom == null) {
+                    // The server answered with a body that does not line up with
+                    // what is on disk. Appending would produce a file of exactly
+                    // the right length that is entirely wrong, so the only safe
+                    // move is to start over and tell the user.
+                    partial.discard()
+                    emit(
+                        DownloadProgress.Stopped(
+                            HubError.ConnectionLost("server returned an unusable range; restarted"),
+                            partialBytesKept = 0L,
+                        ),
+                    )
                     return@flow
                 }
-                CopyOutcome.Complete -> Unit
+
+                val body = response.body
+                if (body != null) {
+                    cancelHandle = currentCoroutineContext()[Job]?.invokeOnCompletion { cause ->
+                        if (cause is CancellationException) runCatching { body.close() }
+                    }
+                }
+                val copyOutcome = copyToFile(response, partial, writeFrom, totalBytes, file, emitProgress = { emit(it) })
+
+                when (copyOutcome) {
+                    is CopyOutcome.Cancelled -> {
+                        emit(DownloadProgress.Stopped(HubError.Cancelled, partialBytesKept = partial.localBytes()))
+                        return@flow
+                    }
+                    is CopyOutcome.Failed -> {
+                        emit(DownloadProgress.Stopped(copyOutcome.error, partialBytesKept = partial.localBytes()))
+                        return@flow
+                    }
+                    CopyOutcome.Complete -> Unit
+                }
             }
 
             val expectedBytes = totalBytes
@@ -221,7 +225,12 @@ class ModelDownloader(
 
             val promoteProblem = partial.promote(expectedBytes)
             if (promoteProblem != null) {
-                emit(DownloadProgress.Stopped(HubError.NoNetwork, partialBytesKept = partial.localBytes()))
+                emit(
+                    DownloadProgress.Stopped(
+                        HubError.InvalidInput("Could not save the downloaded file: $promoteProblem"),
+                        partialBytesKept = partial.localBytes(),
+                    ),
+                )
                 return@flow
             }
 
@@ -393,7 +402,7 @@ class ModelDownloader(
      * them distinct without creating directories, which keeps
      * [modelsDir] a single directory the storage UI can show and delete from.
      */
-    internal fun partialFileFor(file: HubGgufFile): PartialFile {
+    fun partialFileFor(file: HubGgufFile): PartialFile {
         val localName = file.localFileName()
         // Defence in depth: HubRepoId and HubFilePath already restricted every
         // character, but this is the last point before a File is constructed,

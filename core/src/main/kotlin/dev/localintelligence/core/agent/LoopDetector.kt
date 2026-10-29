@@ -1,6 +1,7 @@
 package dev.localintelligence.core.agent
 
 import dev.localintelligence.core.model.ToolArgs
+import dev.localintelligence.core.tool.ToolError
 
 /**
  * Deterministic loop protection. No LLM involved — this is pure Kotlin
@@ -59,13 +60,14 @@ class LoopDetector(
     }
 
     /** Record a tool outcome so repeat-failure detection works. */
-    fun recordResult(toolName: String, observation: String, success: Boolean) {
+    fun recordResult(toolName: String, observation: String, success: Boolean, error: ToolError? = null) {
         if (observation == lastObservation) noProgressStreak++ else noProgressStreak = 0
         lastObservation = observation
 
         if (success) {
             errorsByTool.remove(toolName)
-        } else {
+        } else if (error !is ToolError.InvalidArguments) {
+            // Bad arguments are the model's own fixable input, not a broken tool.
             val n = (errorsByTool[toolName] ?: 0) + 1
             errorsByTool[toolName] = n
             if (n >= 2) unavailable += toolName

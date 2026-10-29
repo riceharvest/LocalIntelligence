@@ -171,7 +171,7 @@ class Session(
 
     /** [observation] must already be truncated to the model-visible budget. */
     fun appendToolObservation(tool: AgentTool, observation: String, success: Boolean) =
-        record(ChatMessage.ToolObservation(tool.definition.name, observation, success))
+        record(ChatMessage.ToolObservation(tool.definition.name, observation, success, origin = tool.definition.observationOrigin))
 
     /**
      * Retrieval keywords for tool selection: the task plus the two most recent
@@ -347,7 +347,7 @@ class Session(
         is ChatMessage.System -> message.text
         is ChatMessage.User -> message.text
         is ChatMessage.Assistant -> message.text
-        is ChatMessage.ToolObservation -> "${message.toolName}: ${message.observation}"
+        is ChatMessage.ToolObservation -> message.modelFacing()
     }
 
     private companion object {

@@ -5,6 +5,7 @@ import android.content.res.AssetFileDescriptor
 import android.database.Cursor
 import android.net.Uri
 import android.provider.OpenableColumns
+import dev.localintelligence.android.hub.AndroidDeviceBudget
 import dev.localintelligence.core.model.gguf.GgufByteSource
 import dev.localintelligence.core.model.gguf.GgufHeader
 import dev.localintelligence.core.model.gguf.GgufParser
@@ -459,14 +460,9 @@ data class RamEstimate(
          * something a pure-JVM module may touch.
          */
         fun usableDeviceBytes(): Long {
-            val runtime = Runtime.getRuntime()
-            val systemMax = runtime.maxMemory()          // the JVM heap ceiling
-            val systemTotal = systemTotalBytes()          // the device's RAM
-            // 55% of physical RAM, and never more than 6x the heap ceiling, so
-            // the estimate does not go absurd on a 16 GB tablet.
-            val physical = (systemTotal * 0.55).toLong()
-            val heapCeiling = systemMax * 6
-            return if (physical > 0 && physical < heapCeiling) physical else heapCeiling
+            val physical = systemTotalBytes()
+            if (physical <= 0L) return AndroidDeviceBudget.FALLBACK_RAM_BYTES
+            return (physical * AndroidDeviceBudget.USABLE_FRACTION).toLong()
         }
 
         private fun systemTotalBytes(): Long = try {

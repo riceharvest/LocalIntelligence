@@ -37,11 +37,12 @@ import dev.localintelligence.core.tool.ToolRisk
  *     user's Documents folder are not the same request.
  *  5. Blast radius / rate limit → BLOCK. One task cannot quietly delete thirty
  *     files one at a time.
- *  6. Bulk → BLOCK for DESTRUCTIVE, REQUIRE_CONFIRMATION otherwise. The cost of
- *     a wrong bulk call scales with the count, so the threshold is stricter
- *     than for a single item.
+ *  6. Bulk → BLOCK for DESTRUCTIVE, REQUIRE_CONFIRMATION otherwise, except
+ *     READ_ONLY, which is never bulk. The cost of a wrong bulk call scales with
+ *     the count, so the threshold is stricter than for a single item.
  *  7. External-comms argument analysis → REQUIRE_CONFIRMATION, with a bare-link
  *     body called out explicitly.
+ *  7b. Network egress → REQUIRE_CONFIRMATION naming destination host.
  *  8. Caller rules → used only to restrict further, never to lift 1–7.
  *  9. Risk tier → the documented fallback. Anything not explicitly safe and
  *     not matched above is UNCLASSIFIED → BLOCK.
@@ -91,8 +92,14 @@ class RiskPolicy(
         val analysis = ArgumentInspector.analyze(args, config, requiredArguments(definition))
 
         // (2) Malformed arguments. Null beats a guess: an argument we cannot
-        //     read is an argument whose effect we cannot bound.
-        if (analysis.malformed.isNotEmpty()) {
+        //     read is an argument whose effect we cannot bound. The exception is
+        //     a READ_ONLY call whose only unreadable arguments are counts: the
+        //     tools fall back to their default, and a read changes nothing.
+        //     Path names are excluded, because a path that cannot be read is an
+        //     escape we cannot see.
+        val onlyUnreadableCounts = definition.risk == ToolRisk.READ_ONLY &&
+            analysis.malformed.all { it in config.countArgumentNames && it !in config.pathArgumentNames }
+        if (analysis.malformed.isNotEmpty() && !onlyUnreadableCounts) {
             return decide(
                 definition, args, PolicyOutcome.BLOCK, PolicyRule.MALFORMED_ARGUMENTS,
                 "${definition.name} was called with arguments this runtime cannot interpret " +
@@ -153,7 +160,8 @@ class RiskPolicy(
 
         // (6) Bulk. Destructive bulk is blocked outright: a single mistaken
         //     "delete these 500 files" is not recoverable by confirming it.
-        if (analysis.isBulk) {
+        //     Reads are exempt: listing twenty notifications changes nothing.
+        if (analysis.isBulk && definition.risk != ToolRisk.READ_ONLY) {
             val destructive = definition.risk == ToolRisk.DESTRUCTIVE
             val tooManyForBlock = analysis.affectedCount >= config.destructiveBulkBlockThreshold
             return when {
@@ -208,6 +216,17 @@ class RiskPolicy(
                 definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.RISK_TIER,
                 "${definition.name} sends a message to $target on behalf of someone else. " +
                     "It cannot be unsent once it lands.",
+            )
+        }
+
+        // (7b) Network egress, judged by destination host.
+        if (definition.risk == ToolRisk.NETWORK_EGRESS) {
+            val host = ArgumentInspector.hostOf(args)
+            val destination = host ?: "an external host"
+            return decide(
+                definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.NETWORK_EGRESS,
+                "${definition.name} contacts $destination over the network. " +
+                    "Confirm only if you recognise this site.",
             )
         }
 
@@ -267,8 +286,8 @@ class RiskPolicy(
     }
 
     /**
-     * The first privileged marker found in any argument key or scalar value, or
-     * null.
+     * The first privileged marker found in any argument key, or in any scalar
+     * value that is not free text, or null.
      *
      * WHY keys as well as values: `settings.write{key: "enabled", value:
      * "com.evil.AccessibilityService"}` puts the capability in the value, and
@@ -283,6 +302,8 @@ class RiskPolicy(
         }
         for ((key, value) in args) {
             scan(key)?.let { return it }
+            // Free text names no capability, so only its key is scanned.
+            if (key in config.bodyArgumentNames || key in config.freeTextArgumentNames) continue
             when (value) {
                 is kotlinx.serialization.json.JsonPrimitive -> scan(value.content)?.let { return it }
                 is kotlinx.serialization.json.JsonArray -> {
@@ -362,6 +383,7 @@ class RiskPolicy(
         ToolRisk.PRIVILEGED -> PolicyOutcome.BLOCK
         ToolRisk.DESTRUCTIVE -> PolicyOutcome.REQUIRE_CONFIRMATION
         ToolRisk.EXTERNAL_COMMUNICATION -> PolicyOutcome.REQUIRE_CONFIRMATION
+        ToolRisk.NETWORK_EGRESS -> PolicyOutcome.REQUIRE_CONFIRMATION
         else -> PolicyOutcome.EXECUTE
     }
 

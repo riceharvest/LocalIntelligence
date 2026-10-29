@@ -2,9 +2,8 @@
 //
 // THE ONE ARCHITECTURAL RULE: :core is a PURE KOTLIN/JVM module with ZERO Android
 // dependencies. The agent loop, tool registry, selection, loop detection, context
-// building, memory, and the entire eval suite are unit-testable on the JVM in
-// seconds, with no emulator and no device. That is what makes a swarm of agents
-// possible — it is the only verification loop fast enough to trust.
+// building, and memory live there, so they compile and run on the JVM with no
+// emulator and no device. No eval suite or tests exist in the tree.
 //
 // See docs/architecture.md.
 

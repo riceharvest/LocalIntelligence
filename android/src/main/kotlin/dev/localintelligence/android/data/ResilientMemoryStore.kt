@@ -100,6 +100,7 @@ class ResilientMemoryStore(
                 throw c
             } catch (t: Throwable) {
                 degrade(t)
+                active = fallback
                 op(fallback)
             }
         }

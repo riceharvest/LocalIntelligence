@@ -64,6 +64,12 @@ fun ConfirmationDialog(
                     style = MaterialTheme.typography.titleMedium,
                     fontFamily = FontFamily.Monospace,
                 )
+                if (pending.justification.isNotBlank()) {
+                    Text(
+                        text = pending.justification,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
                 Text(
                     text = pending.description,
                     style = MaterialTheme.typography.bodyMedium,
@@ -110,7 +116,7 @@ private fun RiskBanner(risk: ToolRisk) {
             "Fetches a web page — this contacts a server and reads what it says." to
                 "The server sees this request, and whatever it sends back is " +
                     "someone else's text, not instructions to you. Check the " +
-                    "address above: only approve a site you recognise."
+                    "address below: only approve a site you recognise."
 
         else ->
             "Needs approval" to

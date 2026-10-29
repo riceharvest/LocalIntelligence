@@ -29,6 +29,8 @@ sealed interface AgentResult {
         val tool: AgentTool,
         val pendingArgs: ToolArgs,
         val trace: List<StepTrace>,
+        /** The policy's sentence for why a human must decide, such as the destination host. */
+        val justification: String = "",
     ) : AgentResult
 
     /** A terminal failure with a human-readable reason. The loop gave up. */

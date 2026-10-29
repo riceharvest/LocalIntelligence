@@ -49,6 +49,7 @@ import dev.localintelligence.app.ui.components.ChatModelIdentity
 import dev.localintelligence.app.ui.trace.RedactionScreen
 import dev.localintelligence.app.ui.trace.ScheduleScreen
 import dev.localintelligence.app.ui.trace.ScheduleViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -66,15 +67,21 @@ import kotlinx.coroutines.withContext
  *     filter ("share this to LocalIntelligence"), and an intent filter that goes
  *     nowhere is a bug a user finds. A shared payload becomes the first task.
  *
- * Note what is *not* here: no permission requests on launch, and no model
- * loading. Both are gated on a tool actually being invoked
- * ([dev.localintelligence.app.ui.PermissionScreen]) or an explicit user action
+ * Note what is *not* here: no permission requests on launch, which are gated on
+ * a tool actually being invoked ([dev.localintelligence.app.ui.PermissionScreen]).
+ * The one model load at launch is the saved one, restored so the chat works
+ * without a first send. Any other load waits for a run or an explicit user action
  * ([dev.localintelligence.app.ui.ModelManagerScreen]).
  */
 class MainActivity : ComponentActivity() {
 
+    private var deliveredIntent by mutableStateOf<Intent?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) {
+            deliveredIntent = intent
+        }
         val container = (application as LocalIntelligenceApp).container
 
         setContent {
@@ -83,7 +90,7 @@ class MainActivity : ComponentActivity() {
                 // The gateway is the screen's whole handle on the agent. It holds
                 // no state of its own — it reads the process-scoped RunSinks the
                 // service writes to — so a rotation cannot desync UI from run.
-                val gateway = remember { ServiceAgentGateway(this, container.runSinks) }
+                val gateway = remember { ServiceAgentGateway(applicationContext, container.runSinks) }
                 val chat: ChatViewModel = viewModel(
                     factory = remember(gateway, container) {
                         ChatViewModel.Factory(
@@ -92,22 +99,30 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                 )
-                // Survives rotation. The model list is a UI concern: `:android`
-                // has no model table, and adding one is a schema change that
-                // belongs with the database, not with this screen.
-                val models = remember { mutableStateListOf<ImportedModel>() }
+                // Survives rotation: held in the application-scoped AppContainer.
+                // The model list is a UI concern: `:android` has no model table,
+                // and adding one is a schema change that belongs with the database,
+                // not with this screen.
+                val models = container.models
                 val scope = rememberCoroutineScope()
 
-                // A SEND intent arrives before the first frame on a cold start.
-                // `LaunchedEffect(Unit)` makes this run exactly once after
-                // composition rather than on every recomposition.
+                // What the app had at its last exit comes back before the chat is
+                // read: the stored turns are shown, and the saved model is loaded so
+                // the composer works without a first send. The work runs on the
+                // container's scope, so a rotation cannot cancel a native load
+                // halfway, and seeding does nothing on later compositions.
                 LaunchedEffect(Unit) {
-                    sharedText(intent)?.let { chat.send(it) }
-                    // The launcher shortcut's destination. Also read on a warm
-                    // launch via onNewIntent, so long-pressing the icon while
-                    // the app is already open does not land the user back on
-                    // the chat screen they left.
-                    destination(intent)?.let { nav.navigate(it) }
+                    chat.seedRestored(container.launchRestore.await())
+                }
+
+                // A SEND intent arrives on cold start or warm via onNewIntent.
+                // Keyed on deliveredIntent so new arrivals re-run, and consumed
+                // once so recomposition or rotation does not repeat the action.
+                LaunchedEffect(deliveredIntent) {
+                    val incoming = deliveredIntent ?: return@LaunchedEffect
+                    sharedText(incoming)?.let { chat.send(it) }
+                    destination(incoming)?.let { nav.navigate(it) }
+                    deliveredIntent = null
                 }
 
                 // One hub ViewModel per navigation, created here rather than
@@ -191,48 +206,48 @@ class MainActivity : ComponentActivity() {
                                 // screen catches them and shows a banner; the
                                 // previous `.onSuccess{}`-only chain dropped them,
                                 // so a non-GGUF file produced no feedback at all.
-                                withContext(Dispatchers.IO) { container.importer.inspect(uri) }
-                                    .also { model ->
-                                        models.removeAll { it.uri == model.uri }
-                                        models.add(model)
-                                        // NOT `selectedModel = model` here. It
-                                        // used to be set on this line, one step
-                                        // before the load, which meant a file
-                                        // that then failed to load left the
-                                        // selection naming a model the backend
-                                        // never opened: the model screen showed
-                                        // B as chosen while the chat was still
-                                        // answering from A. "Would not load" and
-                                        // "loaded something else" are different
-                                        // problems and the two screens were
-                                        // rendering them as one.
-                                        //
-                                        // `loadModel` assigns `selectedModel`
-                                        // itself, after the backend has the
-                                        // file, so dropping the line here makes
-                                        // selection mean "resident" everywhere
-                                        // it is read.
-                                        //
-                                        // It has to be LOADED here, not just
-                                        // selected. ModelAvailability is
-                                        // None|Ready|Failed and the chat composer
-                                        // reads that holder, not selectedModel, so
-                                        // setting the field alone left the chat
-                                        // still saying "import a model" with a
-                                        // perfectly good model on disk. The scan
-                                        // path below already did this; import did
-                                        // not, which is why picking a file from
-                                        // Files did nothing visible.
-                                        //
-                                        // loadModel is suspend and does the native
-                                        // load plus the RAM gate, so it is awaited
-                                        // off the main thread here rather than
-                                        // deferred to the service - and a model too
-                                        // big for this device comes back as Failed
-                                        // with the reason, which the screen shows,
-                                        // instead of failing later as an OOM kill.
-                                        container.loadModel(model)
-                                    }
+                                val model = withContext(Dispatchers.IO) { container.importer.inspect(uri) }
+                                models.removeAll { it.uri == model.uri }
+                                models.add(model)
+                                // NOT `selectedModel = model` here. It
+                                // used to be set on this line, one step
+                                // before the load, which meant a file
+                                // that then failed to load left the
+                                // selection naming a model the backend
+                                // never opened: the model screen showed
+                                // B as chosen while the chat was still
+                                // answering from A. "Would not load" and
+                                // "loaded something else" are different
+                                // problems and the two screens were
+                                // rendering them as one.
+                                //
+                                // `loadModel` assigns `selectedModel`
+                                // itself, after the backend has the
+                                // file, so dropping the line here makes
+                                // selection mean "resident" everywhere
+                                // it is read.
+                                //
+                                // It has to be LOADED here, not just
+                                // selected. ModelAvailability is
+                                // None|Ready|Failed and the chat composer
+                                // reads that holder, not selectedModel, so
+                                // setting the field alone left the chat
+                                // still saying "import a model" with a
+                                // perfectly good model on disk. The scan
+                                // path below already did this; import did
+                                // not, which is why picking a file from
+                                // Files did nothing visible.
+                                //
+                                // loadModel is suspend and does the native
+                                // load plus the RAM gate, so it is awaited
+                                // off the main thread here rather than
+                                // deferred to the service - and a model too
+                                // big for this device comes back as Failed
+                                // with the reason, which the screen shows,
+                                // instead of failing later as an OOM kill.
+                                withContext(Dispatchers.IO) {
+                                    container.loadModel(model)
+                                }
                             },
                             onScanLocal = {
                                 // Adopt GGUF files already in app storage. A model
@@ -240,7 +255,7 @@ class MainActivity : ComponentActivity() {
                                 // over adb, or restored from a backup, and none of
                                 // those need the SAF picker — the app already owns
                                 // the bytes, so it can just read the header.
-                                withContext(Dispatchers.IO) {
+                                val files = withContext(Dispatchers.IO) {
                                     container.modelsDir.listFiles()
                                         ?.filter { file ->
                                             file.isFile && (
@@ -248,36 +263,47 @@ class MainActivity : ComponentActivity() {
                                                     file.name.endsWith(".litertlm", ignoreCase = true)
                                                 )
                                         }
-                                        ?.forEach { file ->
-                                            val uri = android.net.Uri.fromFile(file)
-                                            val model = container.importer.inspect(uri)
-                                            models.removeAll { it.uri == model.uri }
-                                            models.add(model)
-                                            // Same as onImport: no
-                                            // `selectedModel` write before the
-                                            // load. A scan that adopts ten
-                                            // files would otherwise leave the
-                                            // selection on the last one in
-                                            // directory order whether or not
-                                            // it loaded — and with a bad file
-                                            // in that directory, on a model
-                                            // that is not the one resident.
-                                            // `loadModel` sets it on success.
-                                            //
-                                            // Load it for real rather than pretending
-                                            // a "selected" state exists. ModelAvailability
-                                            // only has None/Ready/Failed, and Ready
-                                            // means RESIDENT, so anything less is a
-                                            // lie — and the chat composer reads this
-                                            // holder, so a model on disk that was never
-                                            // loaded still reads as "import a model".
-                                            // The load is 2 GB of native work, hence
-                                            // the IO dispatcher and the honest failure
-                                            // path: a bad model surfaces as Failed with
-                                            // the reason, not as a silent no-op.
-                                            container.loadModel(model)
-                                        }
+                                } ?: emptyList()
+                                var firstFailure: Throwable? = null
+                                for (file in files) {
+                                    val uri = android.net.Uri.fromFile(file)
+                                    val model = try {
+                                        withContext(Dispatchers.IO) { container.importer.inspect(uri) }
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (t: Throwable) {
+                                        if (firstFailure == null) firstFailure = t
+                                        continue
+                                    }
+                                    models.removeAll { it.uri == model.uri }
+                                    models.add(model)
+                                    // Same as onImport: no
+                                    // `selectedModel` write before the
+                                    // load. A scan that adopts ten
+                                    // files would otherwise leave the
+                                    // selection on the last one in
+                                    // directory order whether or not
+                                    // it loaded — and with a bad file
+                                    // in that directory, on a model
+                                    // that is not the one resident.
+                                    // `loadModel` sets it on success.
+                                    //
+                                    // Load it for real rather than pretending
+                                    // a "selected" state exists. ModelAvailability
+                                    // only has None/Ready/Failed, and Ready
+                                    // means RESIDENT, so anything less is a
+                                    // lie — and the chat composer reads this
+                                    // holder, so a model on disk that was never
+                                    // loaded still reads as "import a model".
+                                    // The load is 2 GB of native work, hence
+                                    // the IO dispatcher and the honest failure
+                                    // path: a bad model surfaces as Failed with
+                                    // the reason, not as a silent no-op.
+                                    withContext(Dispatchers.IO) {
+                                        container.loadModel(model)
+                                    }
                                 }
+                                firstFailure?.let { throw it }
                             },
                             onDelete = { model ->
                                 models.remove(model)
@@ -366,10 +392,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // `setIntent` rather than leaving the Activity's own intent stale: the
-        // LaunchedEffect above reads `intent`, the Activity property, and a new
-        // delivery that is not recorded there is simply lost.
         setIntent(intent)
+        deliveredIntent = intent
     }
 
     private companion object {

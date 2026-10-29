@@ -399,6 +399,11 @@ private fun BackgroundAccessScreen() {
                     // the recurring prompt. See the parameter's KDoc for why
                     // "Turn on" counts as well as "Not now".
                     BackgroundConsent.dismiss(context, capability)
+                    tick++
+                },
+                onAskAgain = {
+                    BackgroundConsent.forget(context, capability)
+                    tick++
                 },
             )
         }
@@ -451,7 +456,10 @@ private fun BackgroundAccessScreen() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Button(
-                onClick = { BackgroundConsent.noteBackgroundInterest(context) },
+                onClick = {
+                    BackgroundConsent.noteBackgroundInterest(context)
+                    tick++
+                },
                 modifier = Modifier.padding(top = 8.dp),
             ) {
                 Text("Offer these when I need them")
@@ -525,6 +533,7 @@ private fun CapabilityCard(
      * the bug this whole file is about.
      */
     onEngage: () -> Unit,
+    onAskAgain: () -> Unit,
 ) {
     val context = LocalContext.current
     val dismissed = answer == BackgroundConsent.Answer.Dismissed
@@ -583,7 +592,7 @@ private fun CapabilityCard(
                             liveRegion = LiveRegionMode.Polite
                         },
                     )
-                    TextButton(onClick = { BackgroundConsent.forget(context, capability) }) {
+                    TextButton(onClick = onAskAgain) {
                         Text("Ask me again")
                     }
                 }

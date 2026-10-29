@@ -148,16 +148,20 @@ object LlamaBridge {
 
     /**
      * Parses the wire format from `nativeTakeResult`:
-     * `stop|prompt|completion|prefillMs|decodeMs|[E<error>\n]<text>`.
+     * `stop|prompt|completion|prefillMs|decodeMs|error|<text>`.
      *
-     * Split on the first five separators only, so a newline or pipe inside the
+     * Split on the first six separators only, so a newline or pipe inside the
      * generated text survives intact.
      */
     internal fun parseOutcome(raw: String): GenerationOutcome {
         var idx = 0
         fun next(): String {
             val end = raw.indexOf('|', idx)
-            if (end < 0) return raw.substring(idx)
+            if (end < 0) {
+                val s = if (idx <= raw.length) raw.substring(idx) else ""
+                idx = raw.length + 1
+                return s
+            }
             val s = raw.substring(idx, end)
             idx = end + 1
             return s
@@ -167,18 +171,9 @@ object LlamaBridge {
         val completionTokens = next().toIntOrNull() ?: 0
         val prefillMs = next().toLongOrNull() ?: 0L
         val decodeMs = next().toLongOrNull() ?: 0L
-        // `next()` consumed the 6th separator; everything left is error+text.
-        val rest = if (idx <= raw.length) raw.substring(idx) else ""
-        val nl = rest.indexOf('\n')
-        val error: String?
-        val text: String
-        if (rest.startsWith("E") && nl >= 0) {
-            error = rest.substring(1, nl)
-            text = rest.substring(nl + 1)
-        } else {
-            error = null
-            text = rest
-        }
+        val rawError = next()
+        val error = rawError.ifEmpty { null }
+        val text = if (idx <= raw.length) raw.substring(idx) else ""
         return GenerationOutcome(
             text = text,
             promptTokens = promptTokens,

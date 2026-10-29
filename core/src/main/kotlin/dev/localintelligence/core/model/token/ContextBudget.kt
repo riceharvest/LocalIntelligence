@@ -148,7 +148,7 @@ class ContextBudget(
             // actions and the caller would try to remove a message that is not
             // there.
             var available = usage.remainingIn(from)
-            val one = usage.costOf(from)
+            val one = if (available <= 0) 0 else (usage.costOf(from) + available - 1) / available
             while (remaining > 0 && available > 0) {
                 out += BudgetAction.DropOne(
                     component = from,
@@ -460,7 +460,7 @@ fun renderMessage(message: ChatMessage): String = when (message) {
     is ChatMessage.System -> message.text
     is ChatMessage.User -> message.text
     is ChatMessage.Assistant -> message.text
-    is ChatMessage.ToolObservation -> message.observation
+    is ChatMessage.ToolObservation -> message.modelFacing()
 }
 
 /**

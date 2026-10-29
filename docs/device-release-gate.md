@@ -1,11 +1,11 @@
 # Device release gate
 
 This is the gate that matters. Everything else in this repository — the build,
-the lint ratchet, the pure-JVM unit tests — verifies that the parts are correct
+the manual verification scripts — verifies that the parts compile
 and fit together. None of it verifies that the app does anything on a phone.
 
 This gate is **manual on purpose.** It is not an instrumented test, not an
-emulator script, and not in CI. An automated agent test that fabricates a model
+emulator script, and there is no CI. An automated agent test that fabricates a model
 and asserts a coin flip is worse than no test, because it reports coverage
 without providing evidence. So this is a checklist a human walks, with the
 resulting numbers recorded by hand.

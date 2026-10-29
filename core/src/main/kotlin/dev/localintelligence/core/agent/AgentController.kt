@@ -259,6 +259,10 @@ class AgentController(
     var lastRunMetrics: RunMetrics? = null
         private set
 
+    /** The steps of this run so far, copied, for a caller that reads them after the run has returned. */
+    val traceSnapshot: List<StepTrace>
+        get() = trace.toList()
+
     /** Sticky: a cancelled controller stays cancelled. Reuse means a new controller. */
     private var cancelled: Boolean = false
 
@@ -321,6 +325,7 @@ class AgentController(
         // malformedStreak, pending, lastPrompt, loopDetector.
         lastPrompt = emptyList()
         loopDetector.reset()
+        noProgress.reset()
         // Blast radius is per TASK, not per process. Without this reset the
         // 200-action and 20-destructive-action caps would carry over between
         // conversations, so a user who legitimately deleted 19 things today
@@ -342,7 +347,9 @@ class AgentController(
         // leave the list untrimmed until the next one, which is deliberate -
         // a finally block here would trim a session whose run is still being
         // unwound and whose messages are still being read by the trace.
-        RetainedHistory.bound(sessions.messages)
+        if (outcome !is AgentResult.AwaitingConfirmation) {
+            RetainedHistory.bound(sessions.messages)
+        }
         outcome
     }
 
@@ -358,6 +365,7 @@ class AgentController(
         if (cancelled) return@measured AgentResult.Cancelled
         if (call == null) return@measured Stop("no confirmation is pending", trace.toList())
 
+        var early: AgentResult? = null
         if (approved) {
             // No session means nothing was ever parked, so nothing was ever
             // shown to the user. "Approved" over a call nobody saw is not an
@@ -374,43 +382,43 @@ class AgentController(
                     "${call.name} was not run. It was never put to the user for approval, so it " +
                         "cannot be treated as approved. Do something else, or answer without it.",
                 )
-                return@measured loop()
-            }
-            // The approval is spent against the arguments the user was shown, and
-            // `claim` hands back the session's OWN frozen copy — never the
-            // caller's. If anything about the proposed call changed while the
-            // dialog was up, `claim` returns null and nothing runs. That is the
-            // whole point: a Boolean approval cannot be bound to a payload, so
-            // "approve sending to Alice" and "execute sending to a stranger"
-            // would otherwise be indistinguishable to the runtime.
-            when (val outcome = session.resolve(true)) {
-                is ConfirmationOutcome.Approved -> {
-                    val claimed = outcome.approval.claim(call.name, call.args)
-                    if (claimed == null) {
-                        // TOCTOU: the proposal no longer matches what was approved.
-                        trace += StepTrace(
-                            step, StepTrace.Kind.TOOL_CALL,
-                            "refused ${call.name}: the call changed after it was approved",
-                            success = false,
-                        )
-                        sessions.observe(
-                            "${call.name} could not be run: the call changed after the user " +
-                                "approved it, so it was refused. Say what happened, or make the " +
-                                "call again with the exact arguments you want.",
-                        )
-                        return@measured loop()
+            } else {
+                // The approval is spent against the arguments the user was shown, and
+                // `claim` hands back the session's OWN frozen copy — never the
+                // caller's. If anything about the proposed call changed while the
+                // dialog was up, `claim` returns null and nothing runs. That is the
+                // whole point: a Boolean approval cannot be bound to a payload, so
+                // "approve sending to Alice" and "execute sending to a stranger"
+                // would otherwise be indistinguishable to the runtime.
+                when (val outcome = session.resolve(true)) {
+                    is ConfirmationOutcome.Approved -> {
+                        val claimed = outcome.approval.claim(call.name, call.args)
+                        if (claimed == null) {
+                            // TOCTOU: the proposal no longer matches what was approved.
+                            trace += StepTrace(
+                                step, StepTrace.Kind.TOOL_CALL,
+                                "refused ${call.name}: the call changed after it was approved",
+                                success = false,
+                            )
+                            sessions.observe(
+                                "${call.name} could not be run: the call changed after the user " +
+                                    "approved it, so it was refused. Say what happened, or make the " +
+                                    "call again with the exact arguments you want.",
+                            )
+                        } else {
+                            // A human approved this one, so it counts against the
+                            // destructive quota even though it never went through
+                            // `recordExecuted` as an automatic call.
+                            riskPolicy.recordConfirmed(call.tool.definition.risk)
+                            early = execute(call.copy(args = claimed, userConfirmed = true))
+                        }
                     }
-                    // A human approved this one, so it counts against the
-                    // destructive quota even though it never went through
-                    // `recordExecuted` as an automatic call.
-                    riskPolicy.recordConfirmed(call.tool.definition.risk)
-                    execute(call.copy(args = claimed, userConfirmed = true))?.let { return@measured it }
+
+                    is ConfirmationOutcome.Denied ->
+                        sessions.observe(outcome.reason)
+
+                    is ConfirmationOutcome.AlreadyResolved -> sessions.observe(outcome.reason)
                 }
-
-                is ConfirmationOutcome.Denied ->
-                    sessions.observe(outcome.reason)
-
-                is ConfirmationOutcome.AlreadyResolved -> sessions.observe(outcome.reason)
             }
         } else {
             // The loop's own wording, not `ConfirmationSession.Denied.reason`.
@@ -428,7 +436,11 @@ class AgentController(
                     "Do something else, or answer without it.",
             )
         }
-        loop()
+        val outcome = early ?: loop()
+        if (outcome !is AgentResult.AwaitingConfirmation) {
+            RetainedHistory.bound(sessions.messages)
+        }
+        outcome
     }
 
     /**
@@ -473,9 +485,13 @@ class AgentController(
             }
             metrics?.recordGeneration(generation)
             metrics?.endPhase(StepTrace.Kind.GENERATION, generation.stopReason == StopReason.COMPLETED)
+            val completed = generation.stopReason == StopReason.COMPLETED
             trace += StepTrace(
-                step, StepTrace.Kind.GENERATION, generation.text.take(TRACE_DETAIL_CHARS),
-                generation.prefillMs + generation.decodeMs, generation.stopReason == StopReason.COMPLETED,
+                step, StepTrace.Kind.GENERATION,
+                // An unfinished generation is kept whole: it is bounded by the output limit,
+                // and it is the partial answer the user was reading when they stopped.
+                if (completed) generation.text.take(TRACE_DETAIL_CHARS) else generation.text,
+                generation.prefillMs + generation.decodeMs, completed,
             )
 
             when (generation.stopReason) {
@@ -483,6 +499,8 @@ class AgentController(
                 StopReason.ERROR -> return Stop("model failed: ${generation.text.take(120)}", trace.toList())
                 else -> Unit
             }
+            // A Stop that landed before the generation began is not reported as CANCELLED.
+            if (cancelled) return AgentResult.Cancelled
 
             when (val parsed = parse(generation.text, visible)) {
                 is ActionParseResult.Malformed -> {
@@ -492,8 +510,7 @@ class AgentController(
                         return Stop("no valid action in $malformedStreak attempts", trace.toList())
                     }
                     sessions.observe(
-                        "That was not a valid action (${parsed.reason}). " +
-                            "Reply with exactly one of: ${actionHint(visible)}",
+                        "That was not a valid action (${parsed.reason}). ${actionHint(visible)}",
                     )
                 }
 
@@ -621,6 +638,7 @@ class AgentController(
                     // the justification the dialog renders.
                     AgentResult.AwaitingConfirmation(
                         action.name, tool, session.proposedArguments, trace.toList(),
+                        justification = session.justification,
                     )
                 }
 
@@ -712,7 +730,7 @@ class AgentController(
         val durationMs = (System.nanoTime() - startedAt) / 1_000_000
 
         val observation = truncate(result.observation)
-        loopDetector.recordResult(call.name, observation, result.success)
+        loopDetector.recordResult(call.name, observation, result.success, result.error)
         sessions.appendToolObservation(call.tool, observation, result.success)
         // Charge the call to the task's blast radius. This happens on the
         // EXECUTE path only, and a denied call never reaches it, which is what
@@ -1163,7 +1181,7 @@ class AgentController(
             messages = prompt,
             // Constrained generation, and this is the line that was the P0.
             //
-            // WHY IT CANNOT BE NULL ANY MORE: a 1.1B base model asked to "reply
+            // WHY IT IS NOT NULL ON A GRAMMAR BACKEND: a 1.1B base model asked to "reply
             // with JSON" will not reply with JSON. It continues the prompt instead,
             // so every run came back Malformed and the agent could never call a
             // tool no matter how many were wired up. GBNF makes the only
@@ -1173,7 +1191,14 @@ class AgentController(
             // JNI sampler chain treats an empty grammar string as "no constraint"
             // rather than a sampler that accepts nothing. A plain question with
             // nothing selected therefore still answers in prose.
-            grammar = GrammarBuilder.forActions(visible.map { it.definition }),
+            //
+            // WHY IT IS NULL OTHERWISE: LiteRT-LM refuses any request that carries a
+            // grammar, so a backend that cannot enforce one gets none.
+            grammar = if (model.capabilities.supportsGrammar) {
+                GrammarBuilder.forActions(visible.map { it.definition })
+            } else {
+                null
+            },
             allowedToolNames = visible.map { it.definition.name },
         )
     }
@@ -1185,18 +1210,9 @@ class AgentController(
         ActionParseResult.Malformed("parser failed: ${t::class.java.simpleName}", raw)
     }
 
-    /**
-     * What the model is told it may reply with. Mirrors the shape of
-     * `GrammarBuilder.hint` from `docs/wave1-contract.md`; swapped for the real
-     * call when the parser workstream lands.
-     */
+    /** What the model is told it may reply with: the wire format the parser accepts. */
     private fun actionHint(visible: List<AgentTool>): String =
-        if (visible.isEmpty()) {
-            "a plain answer."
-        } else {
-            "Respond(text) — or — CallTool(name, arguments), where name is one of: " +
-                visible.joinToString(", ") { it.definition.name } + "."
-        }
+        GrammarBuilder.hint(visible.map { it.definition })
 
     private fun truncate(observation: String): String {
         val budget = config.observationBudgetChars
@@ -1245,6 +1261,7 @@ class AgentController(
         // fold would summarise a transcript that is already gone.
         val state: CompactedState =
             compactor.compact(sessions.messages, sessions.workingSummary, model)
+                .copy(task = truncateTask(task))
         sessions.workingSummary = state
         foldWindow(keep)
 
@@ -1255,6 +1272,12 @@ class AgentController(
                 "${state.knownFacts.size} facts, ${state.remainingWork.size} remaining " +
                 "(limit $limit)",
         )
+    }
+
+    private fun truncateTask(text: String, limit: Int = ContextCompactor.MAX_ENTRY_CHARS): String {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return ContextCompactor.UNKNOWN
+        return if (trimmed.length <= limit) trimmed else trimmed.take(limit - 1).trimEnd() + "…"
     }
 
     /**
@@ -1273,8 +1296,12 @@ class AgentController(
      */
     private fun foldWindow(keep: Int) {
         val messages = sessions.messages
-        val head = messages.first()
-        val tail = messages.subList(messages.size - keep, messages.size).toList()
+        val tailStart = messages.size - keep
+        // The current run's task turn, unless it is already in the kept tail;
+        // then the session's opening turn, so nothing is kept twice.
+        val taskIndex = messages.indexOfLast { it is ChatMessage.User && it.text == task }
+        val head = messages[if (taskIndex in 1 until tailStart) taskIndex else 0]
+        val tail = messages.subList(tailStart, messages.size).toList()
         // A MIDDLE trim, not a front trim: everything between the head and the
         // kept tail is removed, which is why durable persistence keys on message
         // identity (Session.writtenIds) rather than on a count of what is new.

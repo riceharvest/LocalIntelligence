@@ -47,7 +47,7 @@ wave to finish in.
 Wave 1 was planned with six agents. **Agent B's entire output — the
 FakeModelBackend, ScriptedTool, the 50-task dataset and the eval runner — was
 deleted at the owner's explicit instruction**, along with the rest of the test
-sources and every test-only CI job. `core/build.gradle.kts` records why: the
+sources and CI. `core/build.gradle.kts` records why: the
 harness ran against fakes rather than a real loop and a real model, reported
 50/50, and the app it "verified" could not answer a single question.
 
@@ -85,7 +85,7 @@ has been verified against real Android APIs through the agent loop.
 weeks of Android boilerplate. That is a trap:
 
 - it is 53 modules and 145 tools, most of which v0 will never expose
-- it drags JitPack into the build, which is a CI reliability risk for a public repo
+- it drags JitPack into the build, which is a build reliability risk for a public repo
 - its tool surface is designed for MCP, so the adapter is not free
 - a swarm agent debugging a JitPack resolution failure is a swarm agent burning its
   whole run on someone else's release cadence

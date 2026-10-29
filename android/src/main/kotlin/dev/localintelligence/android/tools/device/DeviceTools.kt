@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.BatteryManager
 import android.os.Build
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -263,7 +264,7 @@ object BatteryFacts {
         BatteryConstants.STATUS_FULL -> ChargeState.FULL
         BatteryConstants.STATUS_DISCHARGING -> ChargeState.ON_BATTERY
         BatteryConstants.STATUS_NOT_CHARGING ->
-            if (plugged == BatteryConstants.PLUGGED_NONE) ChargeState.NOT_CHARGING else ChargeState.CHARGING
+            if (plugged == BatteryConstants.PLUGGED_NONE) ChargeState.ON_BATTERY else ChargeState.NOT_CHARGING
 
         BatteryConstants.STATUS_UNKNOWN ->
             if (plugged == BatteryConstants.PLUGGED_NONE) ChargeState.UNPLUGGED else ChargeState.CHARGING
@@ -296,7 +297,10 @@ object BatteryFacts {
         }
 
         val state = when (chargeStateOf(snapshot.status, snapshot.plugged)) {
-            ChargeState.CHARGING -> "Charging" + plugDescriptionOf(snapshot.plugged).let { " on the $it." }
+            ChargeState.CHARGING -> {
+                val plug = plugDescriptionOf(snapshot.plugged)
+                if (plug.isNotEmpty()) "Charging on the $plug." else "Charging."
+            }
             ChargeState.FULL -> "Fully charged and plugged in."
             ChargeState.ON_BATTERY -> "Running on battery."
             ChargeState.NOT_CHARGING -> "Plugged in but not charging."
@@ -305,7 +309,7 @@ object BatteryFacts {
         }
 
         val chargeState = chargeStateOf(snapshot.status, snapshot.plugged)
-        // Time-to-full is a real platform reading (API 28+, EXTRA_TIME_TO_FULL).
+        // Time-to-full is a real platform reading (API 28+, BatteryManager.computeChargeTimeRemaining).
         // Time-to-EMPTY is not: Android has never exposed one. Deriving one from the
         // percentage would be a guess, and a model quotes a guess back to the user as
         // fact ("about 4 hours left"). So the absence is stated instead of filled in.
@@ -1012,7 +1016,14 @@ class AndroidDevicePlatform(private val context: Context) : DevicePlatform {
         // told 97% because of a rounding surprise, and level*100 can overflow on a
         // pathological scale, hence the Long.
         val rawPercent = if (level >= 0 && scale > 0) (level * 100L) / scale else -1L
-        val timeToFull = intent.getLongExtra(EXTRA_TIME_TO_FULL, -1L)
+        val timeToFull = if (Build.VERSION.SDK_INT >= API_P) {
+            val batteryManager = appContext.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+            val remainingMs = batteryManager?.computeChargeTimeRemaining() ?: -1L
+            if (remainingMs >= 0L) remainingMs / 1000L else -1L
+        } else {
+            -1L
+        }
+        val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
 
         return BatterySnapshot(
             levelPercent = rawPercent.coerceIn(-1L, 100L).toInt(),
@@ -1021,7 +1032,7 @@ class AndroidDevicePlatform(private val context: Context) : DevicePlatform {
             timeToFullSeconds = timeToFull,
             temperatureCelsius = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) / 10f,
             health = intent.getIntExtra(BatteryManager.EXTRA_HEALTH, BatteryConstants.HEALTH_UNKNOWN),
-            screenOn = intent.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true),
+            screenOn = powerManager?.isInteractive,
         )
     }
 
@@ -1142,15 +1153,13 @@ class AndroidDevicePlatform(private val context: Context) : DevicePlatform {
     }
 
     private companion object {
-        /** `BatteryManager.EXTRA_TIME_TO_FULL`, API 28+, seconds remaining. */
-        const val EXTRA_TIME_TO_FULL = "android.os.extra.TIME_TO_FULL"
-
         /** `NotificationManager.EXTRA_INTERRUPTION_FILTER`, API 23+. */
         const val EXTRA_INTERRUPTION_FILTER = "android.app.extra.INTERRUPTION_FILTER"
 
         /** `Settings.Global.ZEN_MODE`, the DND switch itself: 0 is off. */
         const val KEY_ZEN_MODE = "zen_mode"
 
+        const val API_P = 28
         const val API_S = 31
         const val API_TIRAMISU = 33
     }

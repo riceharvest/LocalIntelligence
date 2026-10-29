@@ -13,7 +13,7 @@ $ ls core/src/
 main
 $ ls android/src/
 main
-$ find . -path ./.git -prune -o -type d -name test -print
+$ find . -path ./.git -prune -o -type d \( -name test -o -name androidTest \) -print
 ./app/src/androidTest          # DeviceModelProbe.kt — a manual probe, not a suite
 
 $ grep -rn 'evals' core/build.gradle.kts build.gradle.kts
@@ -173,6 +173,6 @@ would report 50/50 again.
 
 ## Related
 
-- [`build.md`](build.md) — the no-test-suite fact, and why there is no test CI job
+- [`build.md`](build.md) — the no-test-suite fact, and no-CI policy
 - [`memory-model.md`](memory-model.md) — what *is* measured, and the RAM procedure
 - [`roadmap.md`](roadmap.md) — what remains to be built and measured

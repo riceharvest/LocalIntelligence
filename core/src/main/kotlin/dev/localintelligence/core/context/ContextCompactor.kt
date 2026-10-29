@@ -232,6 +232,19 @@ class ContextCompactor(
      * multi-line entry would read as several slots to a model scanning labels.
      */
     private fun observationLine(message: ChatMessage.ToolObservation): String {
+        // Network text keeps its fence here: the summary outlives the fenced
+        // original. The marker leads, so the cut lands on the body, never the marker.
+        if (message.origin.isExternallyAuthored) {
+            return truncate(
+                UntrustedContent.fenceInline(
+                    message.toolName,
+                    collapse(message.observation),
+                    message.success,
+                    message.origin,
+                ),
+                MAX_ENTRY_CHARS,
+            )
+        }
         val body = collapse(message.observation)
         return if (message.success) {
             // Cap the WHOLE line, prefix included: "x FAILED: " must not be able
@@ -271,8 +284,8 @@ class ContextCompactor(
             if (line.isEmpty() || !seen.add(line)) return
             lines.add(line)
             if (lines.size > cap) {
-                lines.removeAt(0)
-                seen.remove(lines.first())
+                val evicted = lines.removeAt(0)
+                seen.remove(evicted)
             }
         }
 

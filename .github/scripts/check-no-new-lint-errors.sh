@@ -33,13 +33,9 @@ REPORTS=(
   app/build/reports/lint-results-debug.txt
 )
 
-# The three errors that exist right now, each with why it is here.
+# Known errors ratchet.
 # Format: <file-basename>:<line>:<IssueId>  — reason
-KNOWN_ERRORS=(
-  "DeviceTools.kt:1089:MissingPermission"
-  "DeviceTools.kt:1097:MissingPermission"
-  "FileTools.kt:1580:NewApi"
-)
+KNOWN_ERRORS=()
 
 existing=0
 for r in "${REPORTS[@]}"; do
@@ -80,9 +76,11 @@ for r in "${REPORTS[@]}"; do
 
   for f in "${found[@]}"; do
     known=0
-    for k in "${KNOWN_ERRORS[@]}"; do
-      [ "$f" = "$k" ] && known=1 && break
-    done
+    if [ "${#KNOWN_ERRORS[@]}" -gt 0 ]; then
+      for k in "${KNOWN_ERRORS[@]}"; do
+        [ -n "$k" ] && [ "$f" = "$k" ] && known=1 && break
+      done
+    fi
     if [ "$known" -eq 1 ]; then
       echo "  known: $f"
     else
@@ -112,27 +110,30 @@ done
 # the ISSUE ID against the LINE NUMBER and so reported every known error as
 # missing, every single run.
 all_present=1
-for k in "${KNOWN_ERRORS[@]}"; do
-  found_it=0
-  for r in "${REPORTS[@]}"; do
-    [ -f "$r" ] || continue
-    if grep -E ':[0-9]+: Error: ' "$r" \
-        | sed -E 's#^.*/([^/]+\.kt):([0-9]+): Error: .*\[([^]]+)\]$#\1:\2:\3#' \
-        | grep -qxF "$k"; then
-      found_it=1
-      break
+if [ "${#KNOWN_ERRORS[@]}" -gt 0 ]; then
+  for k in "${KNOWN_ERRORS[@]}"; do
+    [ -z "$k" ] && continue
+    found_it=0
+    for r in "${REPORTS[@]}"; do
+      [ -f "$r" ] || continue
+      if grep -E ':[0-9]+: Error: ' "$r" \
+          | sed -E 's#^.*/([^/]+\.kt):([0-9]+): Error: .*\[([^]]+)\]$#\1:\2:\3#' \
+          | grep -qxF "$k"; then
+        found_it=1
+        break
+      fi
+    done
+    if [ "$found_it" -eq 0 ]; then
+      echo "note: no longer reported: $k"
+      all_present=0
     fi
   done
-  if [ "$found_it" -eq 0 ]; then
-    echo "note: no longer reported: $k"
-    all_present=0
+  if [ "$all_present" -eq 0 ]; then
+    echo
+    echo "note: at least one documented error is no longer reported. If that is because"
+    echo "      it was fixed, delete its line from KNOWN_ERRORS in this script so the"
+    echo "      ratchet tightens. If it is because the file moved, update the line number."
   fi
-done
-if [ "$all_present" -eq 0 ]; then
-  echo
-  echo "note: at least one documented error is no longer reported. If that is because"
-  echo "      it was fixed, delete its line from KNOWN_ERRORS in this script so the"
-  echo "      ratchet tightens. If it is because the file moved, update the line number."
 fi
 
 if [ "$fail" -ne 0 ]; then
@@ -142,5 +143,9 @@ if [ "$fail" -ne 0 ]; then
 fi
 
 echo
-echo "OK: no new Android Lint errors. The 3 documented ones are unchanged."
-echo "    See docs/ci/lint.md for why each is still open and what would clear it."
+if [ "${#KNOWN_ERRORS[@]}" -gt 0 ]; then
+  echo "OK: no new Android Lint errors. The ${#KNOWN_ERRORS[@]} documented ones are unchanged."
+  echo "    See docs/ci/lint.md for why each is still open and what would clear it."
+else
+  echo "OK: no new Android Lint errors."
+fi

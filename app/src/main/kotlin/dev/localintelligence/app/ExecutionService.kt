@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import dev.localintelligence.core.execution.RunGate
 import dev.localintelligence.core.execution.RUN_ALREADY_ACTIVE_REASON
+import dev.localintelligence.app.data.ScheduledTask
 import dev.localintelligence.app.data.ScheduledTaskStore
 import android.util.Log
 
@@ -202,6 +203,9 @@ class ExecutionService : Service() {
             watcher = serviceScope.launch {
                 try {
                     val terminal = sinks.state.filter { it.isTerminal }.first()
+                    // A run that ends without an answer has no later point at which its turns
+                    // are written, so they are written now. This service stops below.
+                    container.persistRunEnd()
                     // The result is written HERE, from the same terminal state
                     // that stops the service, so the two can never disagree
                     // about whether a run finished. A run that does not settle
@@ -318,24 +322,31 @@ class ExecutionService : Service() {
         scheduledTaskIdInFlight = scheduledTaskId
         readinessInFlight = null
         val agent = AgentViewModel(
-            // Streaming, wired at last. Every layer below already existed -
-            // generateStreaming on the backend, the per-token JNI callback,
-            // RunSinks.streamingText, appendStreamToken - and the loop called the
-            // non-streaming generate(), so the sink was never fed. On a phone CPU
-            // a small model needs tens of seconds for an answer, and the user
-            // watched a blank composer for all of it.
-            controller = container.newController(
-                // The same guard AgentViewModel.appendStreamToken applies: only
-                // append while the run is live, so a token decoded just after a
-                // cancel does not resurrect a finished transcript.
-                onToken = { token ->
-                    if (sinks.state.value.isActive) {
-                        sinks.streamingText.value += token
-                    }
-                },
-            ),
+            // Called by AgentViewModel only after the model is ready, so the
+            // controller binds to the backend that is actually loaded.
+            newController = {
+                container.newController(
+                    // Streaming, wired at last. Every layer below already existed -
+                    // generateStreaming on the backend, the per-token JNI callback,
+                    // RunSinks.streamingText, appendStreamToken - and the loop called the
+                    // non-streaming generate(), so the sink was never fed. On a phone CPU
+                    // a small model needs tens of seconds for an answer, and the user
+                    // watched a blank composer for all of it.
+                    //
+                    // The same guard AgentViewModel.appendStreamToken applies: only
+                    // append while the run is live, so a token decoded just after a
+                    // cancel does not resurrect a finished transcript.
+                    onToken = { token ->
+                        if (sinks.state.value.isActive) {
+                            sinks.streamingText.value += token
+                        }
+                    },
+                )
+            },
             scope = serviceScope,
             sinks = sinks,
+            // Nobody is watching a scheduled run, so it cannot wait for an approval.
+            declineApprovals = scheduledTaskId != null,
         )
         this.agent = agent
         agent.prepareThenStart(task) {
@@ -444,7 +455,8 @@ class ExecutionService : Service() {
                 state = outcome,
                 trace = sinks.trace.value,
                 readiness = readinessInFlight,
-            )
+                approvalDeclined = agent?.approvalDeclined == true,
+            )?.let { notifyScheduledResult(it) }
         } catch (e: CancellationException) {
             // Not a run outcome. See the KDoc: logged, not rethrown, not
             // recorded. The flag stands, so nothing retries it.
@@ -516,6 +528,32 @@ class ExecutionService : Service() {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
+    /**
+     * Tells the user a scheduled run finished. The task row is the only other place
+     * the result lands, and nothing else says a run happened while the app is closed.
+     */
+    private fun notifyScheduledResult(task: ScheduledTask) {
+        val result = task.lastResult ?: return
+        val manager = getSystemService(NotificationManager::class.java)
+        // Off when the user has disabled notifications or never granted
+        // POST_NOTIFICATIONS. The result is still in the task row.
+        if (!manager.areNotificationsEnabled()) return
+        val notification = NotificationCompat.Builder(this, RESULT_CHANNEL_ID)
+            .setContentTitle(shortTitle(task.prompt))
+            .setContentText(result)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(result))
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setAutoCancel(true)
+            .setContentIntent(mainActivityIntent())
+            .build()
+        manager.notify(task.id.hashCode(), notification)
+    }
+
+    private fun shortTitle(prompt: String): String {
+        val line = prompt.lineSequence().first().trim()
+        return if (line.length <= TITLE_CHARS) line else line.take(TITLE_CHARS).trimEnd() + "…"
+    }
+
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
@@ -524,7 +562,15 @@ class ExecutionService : Service() {
             // LOW: this is a progress indicator, not something to interrupt for.
             NotificationManager.IMPORTANCE_LOW,
         ).apply { setShowBadge(false) }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        // DEFAULT: a finished scheduled run is news the user asked to hear about.
+        val results = NotificationChannel(
+            RESULT_CHANNEL_ID,
+            RESULT_CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(channel)
+        manager.createNotificationChannel(results)
     }
 
     /**
@@ -619,6 +665,13 @@ class ExecutionService : Service() {
         private const val CHANNEL_ID = "execution"
         private const val CHANNEL_NAME = "Running task"
         private const val NOTIFICATION_ID = 41
+
+        /** Its own channel, so results can be silenced without silencing progress. */
+        private const val RESULT_CHANNEL_ID = "scheduled_results"
+        private const val RESULT_CHANNEL_NAME = "Scheduled task results"
+
+        /** Longest prompt shown as a result notification's title. */
+        private const val TITLE_CHARS = 60
 
         /**
          * Hardcoded rather than a string resource. A real string lands with the

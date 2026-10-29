@@ -66,14 +66,14 @@ interface MemoryDao {
     suspend fun count(): Int
 
     /**
-     * Insertion order, matching `InMemoryMemoryStore.all()`.
+     * Newest first, matching `InMemoryMemoryStore.all()`.
      *
      * The LIMIT is bound, not interpolated, and the caller has already clamped it to
      * `MemoryQueries.coerceAllLimit`. A bounded query is the RAM budget of
      * docs/architecture.md section 16 expressed in SQL: we never materialise more
      * rows than we are willing to hold.
      */
-    @Query("SELECT * FROM memories ORDER BY id ASC LIMIT :limit")
+    @Query("SELECT * FROM memories ORDER BY id DESC LIMIT :limit")
     suspend fun allRows(limit: Int): List<MemoryEntity>
 
     /**

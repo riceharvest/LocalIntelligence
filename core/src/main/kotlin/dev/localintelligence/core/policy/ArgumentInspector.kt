@@ -26,7 +26,10 @@ data class ArgumentAnalysis(
     /** Every filesystem path the call names, from any path-like argument. */
     val paths: List<String>,
 
-    /** Paths that resolve outside [PolicyConfig.appStorageRoots]. */
+    /**
+     * Paths that resolve outside [PolicyConfig.appStorageRoots]. Provider URIs
+     * (`content://`) are not filesystem paths and are never listed here.
+     */
     val escapingPaths: List<String>,
 
     /** The recipient/target the call is addressed to, if one is present. */
@@ -107,6 +110,9 @@ object ArgumentInspector {
      * with this so a custom name is honoured too.
      */
     private val IMPLICIT_PATH_ARGS = setOf("path", "paths", "filePath", "file_path", "dir", "directory", "filename")
+
+    /** Provider URIs are opened through a ContentResolver, so they never resolve to a filesystem path. */
+    private const val PROVIDER_URI_PREFIX = "content://"
 
     /**
      * Reads [args] against [config].
@@ -224,7 +230,9 @@ object ArgumentInspector {
 
         return ArgumentAnalysis(
             paths = paths,
-            escapingPaths = paths.filterNot { isInsideAppStorage(it, config) },
+            escapingPaths = paths.filterNot {
+                it.trim().startsWith(PROVIDER_URI_PREFIX) || isInsideAppStorage(it, config)
+            },
             target = target,
             targetIsKnown = target != null && target in config.knownTargets,
             body = body,
@@ -262,7 +270,10 @@ object ArgumentInspector {
         // both cases are escalated.
         if (hasTraversalSegment(path)) return false
         val normalized = normalizeLexically(path)
-        return config.appStorageRoots.any { root -> normalized.startsWith(normalizeLexically(root)) }
+        return config.appStorageRoots.any { root ->
+            val normRoot = normalizeLexically(root)
+            normalized == normRoot || normalized.startsWith("$normRoot/")
+        }
     }
 
     /** True when any path segment is a `..` traversal. */
@@ -331,10 +342,15 @@ object ArgumentInspector {
     private const val MAX_HOST_CHARS = 253
 
     private fun hostFrom(raw: String): String? {
-        val match = URL_LIKE.find(raw) ?: return null
+        // A scheme-less `host.tld/path` is fetched as https by WebTools, so it names
+        // that host. It is tested first because URL_LIKE is unanchored and would read
+        // the host out of a query value such as `example.com/r?to=https://evil.example`.
+        val trimmed = raw.trim()
+        val text = if (BARE_DOMAIN.matches(trimmed)) "https://$trimmed" else raw
+        val match = URL_LIKE.find(text) ?: return null
         val scheme = match.groupValues[1].lowercase()
         if (scheme != "http" && scheme != "https") return null
-        val authority = raw.substringAfter("//", "")
+        val authority = text.substringAfter("//", "")
             .substringBefore('/').substringBefore('?').substringBefore('#')
         if (authority.isEmpty()) return null
         // Userinfo is stripped BEFORE the port is split off, and the split has
@@ -389,7 +405,7 @@ object ArgumentInspector {
         }
         // Any prose alongside the link disqualifies it.
         return trimmed.split(Regex("\\s+")).none { token ->
-            token.isNotEmpty() && !token.startsWith("http://") && !token.startsWith("https://")
+            token.isNotEmpty() && !token.startsWith("http://") && !token.startsWith("https://") && !token.matches(BARE_DOMAIN)
         }
     }
 

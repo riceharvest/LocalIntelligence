@@ -1,18 +1,16 @@
-# An open defect the fresh-clone job has just exposed
+# An open defect: split shared libraries on FetchContent
 
-**Status: reported, not fixed. The file that needs the change is
-`android/src/main/cpp/CMakeLists.txt`, which the CI workstream does not own.**
+**Status: reported, not fixed.**
 
-Adding the fresh-clone job to CI made this visible for the first time. It is
-worth writing down rather than leaving in a PR comment, because the next person
-to look at the APK sizes will hit it.
+The two llama.cpp source-resolution paths produce different native payloads.
+It is worth writing down because the next person to look at the APK sizes will hit it.
 
 ## What was found
 
 The two llama.cpp source-resolution paths produce **different APKs**. Not
 different builds of the same thing — different native payloads.
 
-`PIDROID_LLAMA_DIR` (what CI used to do, and what a local developer with a
+`PIDROID_LLAMA_DIR` (what historical CI used to do, and what a local developer with a
 llama.cpp checkout still does):
 
 ```
@@ -33,7 +31,7 @@ lib/arm64-v8a/libomp.so                              961,440 bytes
 Measured from two real builds of the same commit: a `PIDROID_LLAMA_DIR` build
 (run `36207317459`'s APK) and a fresh-clone FetchContent build of `8f71dad`.
 
-**Independently reproduced on a GitHub runner** in run `36208616566`, whose
+**Historically reproduced on a GitHub runner** in run `36208616566`, whose
 fresh-clone APK carries, per ABI:
 
 ```
@@ -45,11 +43,10 @@ libggml-cpu.so                     1,379,800
 libomp.so                          1,229,304
 ```
 
-The runner's JNI library is 439 KB against the old CI path's 5,003,256 bytes,
+The runner's JNI library is 439 KB against the old path's 5,003,256 bytes,
 and the split libraries are all present. So this is not an artifact of one
 machine's toolchain: **every fresh clone since FetchContent became the default
-has produced this different APK**, and until this PR nothing was building that
-path at all.
+has produced this different APK.**
 
 ## Why
 
@@ -96,9 +93,8 @@ What it *is*: a different artifact than the one that was being tested, with
 should not exist, an OpenMP runtime that the build file explicitly says should
 be off, and a change to the linking strategy that nobody chose and nobody
 reviewed. A 1–4B model dwarfs 6.5 MB, so the size argument is weak on its own.
-The argument that matters is that **the thing CI validates is no longer the
-thing most users get** — which is the entire reason the fresh-clone job exists,
-one level up.
+The argument that matters is that the build produces different native payloads
+depending on how llama.cpp was resolved.
 
 ## The fix
 
@@ -138,12 +134,9 @@ PIDROID_LLAMA_DIR=/path/to/llama.cpp ./gradlew :app:assembleDebug
 unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'libllama|libggml|libomp|liblocalintelligence'
 ```
 
-## What CI does about it *today*
+## Verification impact
 
-Nothing, deliberately — this branch cannot edit that file. The fresh-clone job
-reports the full library inventory on every run
-("Report what was actually built"), so a change in either direction is visible
-in the log rather than silent. The `inspect-apk.sh` gate deliberately does **not**
-assert an exact library set, because pinning the current (wrong) set would turn
-a known bug into a hard-failing gate that blocks every PR until the CMake file
-is fixed — and a gate that blocks all work gets deleted rather than fixed.
+Nothing, deliberately. The `inspect-apk.sh` script reports the full library
+inventory when run, so changes are visible. The `inspect-apk.sh` gate deliberately
+does **not** assert an exact library set, because pinning the split set would turn
+a known issue into a hard-failing check.

@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * The UI's whole view of the agent, in one file.
@@ -36,12 +37,36 @@ import kotlinx.serialization.json.JsonElement
  * So one of these is one run, and [ExecutionService] builds a fresh one per task.
  */
 class AgentViewModel(
-    private val controller: AgentController,
+    private val newController: () -> AgentController,
     private val scope: CoroutineScope,
     private val sinks: RunSinks = RunSinks(),
+    /**
+     * True for a run nobody is watching, such as a scheduled one. A risky tool it
+     * asks for is declined in place: the approval dialog only exists in the chat,
+     * so waiting for it would hold the service and block every later firing.
+     */
+    private val declineApprovals: Boolean = false,
 ) : AgentGateway {
 
     private var job: Job? = null
+
+    /**
+     * Made on the first start, not at construction: a controller takes the backend
+     * that is resident when it is made, and that is only known once the model is ready.
+     */
+    private var controller: AgentController? = null
+
+    /** A STOP pressed before the controller exists, for example during a model load. */
+    @Volatile
+    private var cancelRequested: Boolean = false
+
+    /** Set once a STOP that arrived before the controller existed has been published. */
+    private val stopAnswered = AtomicBoolean(false)
+
+    /** True once an unattended run has declined a risky tool. */
+    @Volatile
+    var approvalDeclined: Boolean = false
+        private set
 
     // ------------------------------------------------------------- AgentGateway
 
@@ -68,18 +93,30 @@ class AgentViewModel(
     private fun runTask(task: String) {
         sinks.state.value = RunState.Running
         sinks.streamingText.value = ""
-        job = scope.launch { runAndPublish { controller.run(task) } }
+        val runner = controller ?: newController().also {
+            controller = it
+            if (cancelRequested) it.cancel()
+        }
+        job = scope.launch { runAndPublish(runner) { runner.run(task) } }
     }
 
     override fun confirm(approved: Boolean) {
         // The previous coroutine has already returned (it returned the
         // AwaitingConfirmation), so a new one continues the same controller.
         if (job?.isActive == true) return
-        job = scope.launch { runAndPublish { controller.confirmAndResume(approved) } }
+        val runner = controller ?: return
+        // Leave the approval state now, as runTask does. Otherwise the dialog stays
+        // up for the whole resumed run, and every tap adds another row.
+        sinks.state.value = RunState.Running
+        job = scope.launch { runAndPublish(runner) { runner.confirmAndResume(approved) } }
     }
 
     override fun cancel() {
-        controller.cancel()
+        cancelRequested = true
+        controller?.cancel()
+        // A load has no controller to cancel, and the load itself cannot be interrupted from
+        // here, so the STOP is answered now rather than when the load ends.
+        if (controller == null && sinks.state.value == RunState.LoadingModel) answerStopBeforeRun()
     }
 
     /**
@@ -103,8 +140,8 @@ class AgentViewModel(
         ensureReady: suspend () -> ModelAvailability,
     ) {
         if (job?.isActive == true) return
+        sinks.state.value = RunState.LoadingModel
         job = scope.launch {
-            sinks.state.value = RunState.LoadingModel
             val readiness = try {
                 ensureReady()
             } catch (e: CancellationException) {
@@ -112,6 +149,12 @@ class AgentViewModel(
                 throw e
             } catch (t: Throwable) {
                 ModelAvailability.Failed(describeLoadFailure(t))
+            }
+            // Before the blocking reason, so a load that failed after the STOP cannot replace
+            // the cancelled outcome with its own failure.
+            if (cancelRequested) {
+                answerStopBeforeRun()
+                return@launch
             }
             val blocked = readiness.blockingReason()
             if (blocked != null) {
@@ -152,11 +195,10 @@ class AgentViewModel(
     /**
      * Appends one streamed token.
      *
-     * Honesty about what is wired: `AgentController` calls
-     * `ModelBackend.generate`, not `generateStreaming`, so on the current core
-     * this never fires. The sink exists so the UI contract ("show tokens as they
-     * arrive") is real the moment the loop calls `generateStreaming`, rather than
-     * being a spinner pretending to be a stream.
+     * `AgentController` streams through `generateStreaming` whenever a token
+     * sink is attached and the backend supports it, so tokens of every step
+     * arrive here, protocol markup included; the chat screen filters what it
+     * draws.
      */
     fun appendStreamToken(token: String) {
         if (sinks.state.value != RunState.Running) return
@@ -166,8 +208,8 @@ class AgentViewModel(
     // ----------------------------------------------------------------- internal
 
     /**
-     * Runs one pass of the controller and guarantees a terminal state exists
-     * before this coroutine returns, however it ends.
+     * Runs the controller and guarantees a terminal state exists before this
+     * coroutine returns, however it ends.
      *
      * This wrapper exists because `AgentController.guarded` deliberately
      * rethrows `CancellationException` — which is correct for a suspending
@@ -187,9 +229,21 @@ class AgentViewModel(
      * this coroutine's own job has been cancelled — which is exactly when it
      * matters most.
      */
-    private suspend fun runAndPublish(block: suspend () -> AgentResult) {
+    private suspend fun runAndPublish(runner: AgentController, block: suspend () -> AgentResult) {
         try {
-            publish(block())
+            var result = block()
+            // Declined here, in this coroutine, and not from outside with confirm():
+            // confirm() refuses while this job is still active, and it still is for a
+            // moment after the staged call is published.
+            while (declineApprovals && result is AgentResult.AwaitingConfirmation) {
+                approvalDeclined = true
+                result = runner.confirmAndResume(approved = false)
+            }
+            // Neither result carries a trace, so the controller's own copy of this run is the one to show.
+            if (result is AgentResult.Cancelled || result is AgentResult.StepLimitReached) {
+                sinks.trace.value = runner.traceSnapshot
+            }
+            publish(result)
         } catch (e: CancellationException) {
             publishCancelled()
             throw e
@@ -220,6 +274,8 @@ class AgentViewModel(
      * a spinner with no way to stop it.
      */
     private fun publishCancelled() {
+        // A STOP answered during the load already holds this run's terminal state.
+        if (stopAnswered.get()) return
         publish(
             AgentResult.Stop(
                 reason = CANCELLED_REASON,
@@ -227,6 +283,20 @@ class AgentViewModel(
             ),
         )
         sinks.streamingText.value = ""
+    }
+
+    /**
+     * Publishes the terminal state for a STOP that arrived before the controller existed.
+     *
+     * Reached from [cancel] during a load and from the preparation coroutine after it. The
+     * flag makes whichever gets there first the only publication.
+     */
+    private fun answerStopBeforeRun() {
+        if (!stopAnswered.compareAndSet(false, true)) return
+        // This run has no steps of its own. Without the reset the sink still holds the
+        // previous run's, and the chat would draw them under this cancelled one.
+        sinks.trace.value = emptyList()
+        publish(AgentResult.Cancelled)
     }
 
     /**
@@ -261,11 +331,12 @@ class AgentViewModel(
                         result.pendingArgs,
                     ),
                     requiredPermission = definition.requiredPermission,
+                    justification = result.justification,
                 )
             }
 
-            // These two carry no trace (pinned wave-1 signature), so the last
-            // known trace stays on screen rather than blanking.
+            // These two carry no trace (pinned wave-1 signature). runAndPublish sets
+            // the trace from the controller before they reach this point.
             AgentResult.StepLimitReached ->
                 sinks.state.value = RunState.Finished(RunOutcome.StepLimitReached)
 
@@ -356,9 +427,10 @@ sealed interface RunState {
      * Non-terminal and non-`Running` on purpose. A first run on a 3B model spends
      * tens of seconds in `ModelBackend.load` with no decode in flight, and a UI
      * that reported nothing during that window is indistinguishable from a
-     * crash. It is also *not* cancellable through the controller — `cancel()`
-     * flips a flag the loop has not entered yet — so the service must keep
-     * running through it, exactly as it does for [AwaitingApproval].
+     * crash. It is also *not* cancellable through the controller, which does not
+     * exist yet: `cancel()` answers a STOP here directly. Until one arrives, the
+     * service must keep running through the load, exactly as it does for
+     * [AwaitingApproval].
      */
     data object LoadingModel : RunState
 
@@ -374,6 +446,8 @@ sealed interface RunState {
         /** Already formatted as indented JSON, ready to display. */
         val arguments: String,
         val requiredPermission: String? = null,
+        /** Why the policy wants a human to decide, such as the destination host. Empty if none. */
+        val justification: String = "",
     ) : RunState
 
     data class Finished(val outcome: RunOutcome) : RunState

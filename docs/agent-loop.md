@@ -1,68 +1,47 @@
 # The agent loop
 
-One file. Under 300 meaningful lines. In `:core`.
+One file, `AgentController.kt`, in `:core`, with one `while` loop. The 300-line
+target in `docs/architecture.md` §6 is not met: the file is about 1,500 lines.
 
 If this document and `AgentController.kt` ever disagree, the code is right and this
 document is stale — fix the document.
 
 ## The shape
 
+Condensed from `AgentController.loop()` and `handleCall()`:
+
 ```kotlin
-suspend fun run(task: String): AgentResult {
-    val session = sessions.current()
+suspend fun run(task: String): AgentResult {     // loop() runs while step < config.maxSteps
+    val visible = toolSelector.select(task, sessions.currentKeywords(), tools.all(), config.maxVisibleTools)
+    val reply   = model.generate(buildRequest(task, visible))  // grammar only if supportsGrammar
+    if (reply.stopReason == CANCELLED) return Cancelled
+    if (reply.stopReason == ERROR) return Stop("model failed: ...")
 
-    repeat(config.maxSteps) {
-        val tools  = toolSelector.select(task, session, maxTools = config.maxVisibleTools)
-        val prompt = contextBuilder.build(task, session, memory.search(task), tools)
-
-        val result = model.generate(prompt)
-        if (result.stopReason == CANCELLED) return Cancelled
-
-        when (val action = parser.parse(result.text, tools.map { it.name }.toSet())) {
-            is Malformed -> {
-                session.observe(
-                    "Your last message was not a valid action. " +
-                        "Reply with either a plain answer, or ${grammarHint(tools)}."
-                )
-            }
-
-            is Parsed -> when (val a = action.action) {
-                is Respond -> {
-                    session.appendAssistant(a.text)
-                    memoryProcessor.onTaskComplete(session)
-                    return Success(a.text, session.trace)
-                }
-
-                is CallTool -> {
-                    when (val v = validator.validate(a.name, a.arguments, tools, registry)) {
-                        is Rejected -> session.observe(v.observation)
-
-                        is Valid -> when (loopDetector.check(a.name, a.arguments)) {
-                            BLOCK -> return Stop(reason = "Repeated identical call: ${a.name}")
-                            WARN  -> session.observe(
-                                "You already ran $${a.name} with those exact arguments. " +
-                                    "Do something different, or answer the user."
-                            )
-                            ALLOW -> {
-                                if (needsConfirmation(v.tool) && !alreadyConfirmed(a, session)) {
-                                    return AwaitingConfirmation(a, v.tool)
-                                }
-                                val toolResult = v.tool.execute(a.arguments, context)
-                                loopDetector.recordResult(a.name, toolResult.observation, toolResult.success)
-                                session.appendToolObservation(v.tool, toolResult, durationMs)
-                                if (needsConfirmation(v.tool)) session.markConfirmed(a)
-                            }
-                        }
-                    }
-                }
-            }
+    when (val parsed = parser.parse(reply.text, visible.names)) {
+        is Malformed -> {
+            malformedStreak++
+            if (malformedStreak >= config.maxMalformedRetries) return Stop("no valid action in N attempts")
+            sessions.observe("That was not a valid action (${parsed.reason}). ${GrammarBuilder.hint(visible)}")
         }
-
-        contextManager.compactIfNeeded(session)
+        is Parsed -> when (val action = parsed.action) {
+            is Respond  -> { sessions.appendAssistant(action.text); rememberTurn(); return Success(action.text) }
+            is CallTool -> handleCall(action, visible)   // a non-null return ends the run
+        }
     }
+    compactIfNeeded()
+}                                                 // step limit: StepLimitReached
 
-    return StepLimitReached
-}
+// handleCall
+//   validator.validate(name, args, visible)  Rejected -> observe the reason, next step
+//   riskPolicy.evaluate(tool, args)          decision for this exact call
+//   loopDetector.check(name, args)
+//     BLOCK -> Stop("loop detected: ...") or Stop("... is unavailable after repeated failures")
+//     WARN  -> observe("You already ran ... with those exact arguments ...")
+//     ALLOW -> per PolicyOutcome:
+//                EXECUTE / REQUIRE_PERMISSION -> execute the tool
+//                REQUIRE_CONFIRMATION         -> return AwaitingConfirmation
+//                BLOCK                        -> observe the policy's justification, next step
+// execute: tool.execute(args, context) -> observation (truncated) -> no-progress check
 ```
 
 ## Why it looks like this
@@ -91,17 +70,18 @@ Every one of these is a *return*, not a crash and not a silent retry.
 | Model says `Respond` | `Success` |
 | `maxSteps` exhausted | `StepLimitReached` |
 | Model cancelled mid-generation | `Cancelled` |
-| Output unparseable N times in a row | `Stop(reason = "model could not produce a valid action")` |
-| Same call 3x | `Stop(reason = "loop detected")` |
-| N observations with no state change | `Stop(reason = "no progress")` |
-| Risky tool, no confirmation yet | `AwaitingConfirmation` (resumes via `confirm()`) |
+| Output unparseable `maxMalformedRetries` (3) times in a row | `Stop(reason = "no valid action in 3 attempts")` |
+| Same call 3x (the second identical call only gets a warning) | `Stop(reason = "loop detected: NAME repeated with identical arguments")` |
+| The same observation returned three times in a row after the first | `Stop(reason = "no progress: NAME kept returning the same result")` |
+| Risky tool, no confirmation yet | `AwaitingConfirmation`, resumed with `confirmAndResume(approved)` |
+| Policy blocks a call | refusal and its justification go to the model; the run continues |
 | Tool throws | caught, becomes a failed `ToolResult`, model observes the failure |
 
 Malformed output is worth spelling out. A 1B model WILL emit prose where a tool call
 belongs. The loop does not abort on the first malformed response — it tells the model
-exactly what shape it wanted and lets it try again. It aborts only after N consecutive
-malformeds, because a model that cannot produce valid output after three corrections
-will not produce it on the fourth attempt either.
+exactly what shape it wanted and lets it try again. It aborts when the streak reaches
+`maxMalformedRetries`: three attempts and two corrections. A model that is still
+malformed after two corrections is not going to be fixed by a third.
 
 ## Configuration
 
@@ -110,7 +90,7 @@ data class AgentConfig(
     val maxSteps: Int = 8,                 // 2-10 reliable actions is the v0 target
     val maxVisibleTools: Int = 6,          // hard ceiling 8
     val maxMalformedRetries: Int = 3,
-    val workingTokenLimit: Int = 6000,     // compaction trigger
+    val workingTokenLimit: Int = 6000,     // upper bound of the compaction trigger
     val memoryResults: Int = 5,            // hard ceiling 5
     val observationBudgetChars: Int = 2048,
 )

@@ -31,6 +31,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
@@ -125,7 +126,6 @@ internal object CalendarArgs {
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mmXXX", Locale.US),
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss Z", Locale.US),
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm Z", Locale.US),
-        DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm", Locale.US),
     )
 
     private val LOCAL_FORMATS: List<DateTimeFormatter> = listOf(
@@ -139,6 +139,7 @@ internal object CalendarArgs {
         DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm", Locale.US),
         DateTimeFormatter.ofPattern("yyyy-MM-dd h:mm:ss a", Locale.US),
         DateTimeFormatter.ofPattern("yyyy-MM-dd h:mm a", Locale.US),
+        DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm", Locale.US),
     )
 
     private val DATE_FORMATS: List<DateTimeFormatter> = listOf(
@@ -181,9 +182,13 @@ internal object CalendarArgs {
             val numeric = normalised.trimStart('+').toLongOrNull()
             if (numeric != null) {
                 // 10 digits is seconds, 13 is millis. Anything else is a mistake, not a date.
-                val millis = when {
-                    numeric in -99_999_999_999L..99_999_999_999L -> numeric * 1000L
-                    else -> numeric
+                val millis = when (normalised.count { it.isDigit() }) {
+                    10 -> numeric * 1000L
+                    13 -> numeric
+                    else -> return ParsedInstant.Invalid(
+                        "'$text' is neither epoch seconds (10 digits) nor millis (13 digits); " +
+                            "use an ISO date such as 2026-10-30",
+                    )
                 }
                 return if (millis in 0L..MAX_PLAUSIBLE_MILLIS) {
                     ParsedInstant.At(millis)
@@ -244,6 +249,20 @@ internal object CalendarArgs {
             ParsedInstant.Invalid("'$key' is unusable: ${parsed.message}")
         } else {
             parsed
+        }
+    }
+
+    /** True when a raw value names a whole day (a day word or a plain date), not an instant. */
+    fun isDayOnly(raw: String?): Boolean {
+        val text = raw?.trim().orEmpty()
+        if (text.lowercase(Locale.US) in setOf("today", "tomorrow", "yesterday")) return true
+        return DATE_FORMATS.any { format ->
+            try {
+                LocalDate.parse(text, format)
+                true
+            } catch (_: DateTimeParseException) {
+                false
+            }
         }
     }
 
@@ -469,8 +488,12 @@ internal interface CalendarProvider {
         pattern: String?,
     ): Cursor?
 
+    /** Returns the id of a writable calendar, preferring primary, or null if none exists. */
+    fun findWritableCalendarId(): Long?
+
     /** Returns the new event's id, or null when the insert was refused. */
     fun insert(
+        calendarId: Long,
         title: String,
         startMillis: Long,
         endMillis: Long,
@@ -509,7 +532,35 @@ internal class ResolverCalendarProvider(private val resolver: ContentResolver) :
         )
     }
 
+    override fun findWritableCalendarId(): Long? {
+        val cursor = resolver.query(
+            CalendarContract.Calendars.CONTENT_URI,
+            CALENDARS_PROJECTION,
+            "${CalendarContract.Calendars.VISIBLE} = 1 AND " +
+                "${CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL} >= ?",
+            arrayOf(CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR.toString()),
+            null,
+        ) ?: return null
+
+        var firstWritableId: Long? = null
+        try {
+            while (cursor.moveToNext()) {
+                val id = cursor.longOrNull(CalendarContract.Calendars._ID) ?: continue
+                if (firstWritableId == null) {
+                    firstWritableId = id
+                }
+                if (cursor.intOrNull(CalendarContract.Calendars.IS_PRIMARY) == 1) {
+                    return id
+                }
+            }
+        } finally {
+            cursor.close()
+        }
+        return firstWritableId
+    }
+
     override fun insert(
+        calendarId: Long,
         title: String,
         startMillis: Long,
         endMillis: Long,
@@ -518,12 +569,23 @@ internal class ResolverCalendarProvider(private val resolver: ContentResolver) :
         description: String?,
         zone: ZoneId,
     ): Long? {
+        val (dtStart, dtEnd) = if (allDay) {
+            val startDate = Instant.ofEpochMilli(startMillis).atZone(zone).toLocalDate()
+            val endDate = Instant.ofEpochMilli(endMillis).atZone(zone).toLocalDate()
+            val dayAfterLast = if (endDate > startDate) endDate else startDate.plusDays(1)
+            val s = startDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+            val e = dayAfterLast.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+            s to e
+        } else {
+            startMillis to endMillis
+        }
         val values = ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, calendarId)
             put(CalendarContract.Events.TITLE, title)
-            put(CalendarContract.Events.DTSTART, startMillis)
-            put(CalendarContract.Events.DTEND, endMillis)
+            put(CalendarContract.Events.DTSTART, dtStart)
+            put(CalendarContract.Events.DTEND, dtEnd)
             put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
-            put(CalendarContract.Events.EVENT_TIMEZONE, zone.id)
+            put(CalendarContract.Events.EVENT_TIMEZONE, if (allDay) "UTC" else zone.id)
             put(CalendarContract.Events.HAS_ALARM, 0)
             put(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY)
             location?.let { put(CalendarContract.Events.EVENT_LOCATION, it) }
@@ -542,6 +604,10 @@ internal class ResolverCalendarProvider(private val resolver: ContentResolver) :
             CalendarContract.Instances.END,
             CalendarContract.Instances.ALL_DAY,
             CalendarContract.Instances.EVENT_LOCATION,
+        )
+        val CALENDARS_PROJECTION = arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.IS_PRIMARY,
         )
     }
 }
@@ -567,7 +633,9 @@ class CalendarSearchTool internal constructor(
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "calendar.search",
-        description = "Return the calendar events in a time window, optionally filtered by title or location text.",
+        description = "Return the calendar events in a time window, optionally filtered by title or " +
+            "location text. from and to are local times like 2026-10-30T15:00, or days like " +
+            "2026-10-30, today, tomorrow; a day as to includes that whole day.",
         category = "calendar",
         schema = buildJsonObject {
             put("type", "object")
@@ -621,10 +689,20 @@ class CalendarSearchTool internal constructor(
             val to = CalendarArgs.requiredInstant(args, "to", zone, now)
             if (to is ParsedInstant.Invalid) return@withContext invalid(to.message)
 
-            val window = CalendarArgs.resolveWindow(
-                (from as ParsedInstant.At).epochMillis,
-                (to as ParsedInstant.At).epochMillis,
-            )
+            val fromMillis = (from as ParsedInstant.At).epochMillis
+            val toMillis = (to as ParsedInstant.At).epochMillis
+            // A day named as the end is whole: the window runs to the next midnight, so the day is
+            // included. Not when it falls before 'from', since a reversed window is swapped instead.
+            val nextMidnight = Instant.ofEpochMilli(toMillis).atZone(zone).toLocalDate()
+                .plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            val endMillis = if (
+                CalendarArgs.isDayOnly(primitive(args, "to")?.content) && nextMidnight > fromMillis
+            ) {
+                nextMidnight
+            } else {
+                toMillis
+            }
+            val window = CalendarArgs.resolveWindow(fromMillis, endMillis)
             if (window is ResolvedWindow.Invalid) return@withContext invalid(window.message)
             val resolved = window as ResolvedWindow.Ok
 
@@ -729,22 +807,33 @@ class CalendarSearchTool internal constructor(
         location = string(CalendarContract.Instances.EVENT_LOCATION),
     )
 
-    private fun Cursor.indexOf(column: String): Int = getColumnIndex(column)
+}
 
-    private fun Cursor.string(column: String): String? {
-        val index = indexOf(column)
-        return if (index < 0 || isNull(index)) null else getString(index)?.trim()
-    }
+private fun Cursor.indexOf(column: String): Int = getColumnIndex(column)
 
-    private fun Cursor.longOrZero(column: String): Long {
-        val index = indexOf(column)
-        return if (index < 0 || isNull(index)) 0L else getLong(index)
-    }
+private fun Cursor.string(column: String): String? {
+    val index = indexOf(column)
+    return if (index < 0 || isNull(index)) null else getString(index)?.trim()
+}
 
-    private fun Cursor.intOrZero(column: String): Int {
-        val index = indexOf(column)
-        return if (index < 0 || isNull(index)) 0 else getInt(index)
-    }
+private fun Cursor.longOrZero(column: String): Long {
+    val index = indexOf(column)
+    return if (index < 0 || isNull(index)) 0L else getLong(index)
+}
+
+private fun Cursor.intOrZero(column: String): Int {
+    val index = indexOf(column)
+    return if (index < 0 || isNull(index)) 0 else getInt(index)
+}
+
+private fun Cursor.longOrNull(column: String): Long? {
+    val index = indexOf(column)
+    return if (index < 0 || isNull(index)) null else getLong(index)
+}
+
+private fun Cursor.intOrNull(column: String): Int? {
+    val index = indexOf(column)
+    return if (index < 0 || isNull(index)) null else getInt(index)
 }
 
 /**
@@ -767,7 +856,8 @@ class CalendarCreateTool internal constructor(
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "calendar.create",
-        description = "Create a calendar event at a given start time and return the new event's id and start time.",
+        description = "Create a calendar event at a given start time and return the new event's id " +
+            "and start time. start and end are local times like 2026-10-30T15:00 (no offset).",
         category = "calendar",
         schema = buildJsonObject {
             put("type", "object")
@@ -867,7 +957,25 @@ class CalendarCreateTool internal constructor(
             val description = optionalString(args, "description", CalendarArgs.MAX_DESCRIPTION_CHARS)
 
             try {
+                // Choosing the calendar to write to is a read of the calendar list.
+                val calendarId = try {
+                    provider.findWritableCalendarId()
+                } catch (e: SecurityException) {
+                    return@withContext ToolResult(
+                        success = false,
+                        observation = PermissionDenial.observation("calendar.create", ToolPermissions.CALENDAR_READ),
+                        error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.CALENDAR_READ)),
+                    )
+                }
+                if (calendarId == null) {
+                    return@withContext ToolResult(
+                        success = false,
+                        observation = "No writable calendar on this device.",
+                        error = ToolError.Unavailable("no writable calendar on this device"),
+                    )
+                }
                 val id = provider.insert(
+                    calendarId = calendarId,
                     title = title,
                     startMillis = startMillis,
                     endMillis = end,

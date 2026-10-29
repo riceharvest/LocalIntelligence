@@ -41,7 +41,7 @@ data class ScheduleUiState(
     val isFull: Boolean get() = tasks.size >= ScheduledTaskController.MAX_TASKS
 
     /** True when pressing Create would actually produce a schedule. */
-    val canCreate: Boolean get() = readiness?.canRun == true && !isFull && notice == null
+    val canCreate: Boolean get() = readiness?.canRun == true && !isFull
 }
 
 /**
@@ -96,6 +96,13 @@ class ScheduleViewModel(
                 // re-read and the user is expected to act on it now.
                 notice = null,
             )
+        }
+    }
+
+    /** Clears any active notice, e.g. when the user edits the task prompt. */
+    fun clearNotice() {
+        if (_state.value.notice != null) {
+            _state.value = _state.value.copy(notice = null)
         }
     }
 

@@ -51,7 +51,7 @@ Target tasks:
 ### Explicitly NOT in v0
 
 Autonomous coding, browser computer-use, multi-agent, long-running autonomous agents,
-Linux environment, Python, Git, cron, MCP, skills marketplace, voice assistant,
+Linux environment, Python, Git, MCP, skills marketplace, voice assistant,
 Accessibility automation, root/Shizuku, cloud sync.
 
 ---
@@ -95,7 +95,7 @@ Push the platform out to a function type or an interface owned by `:core` instea
 |        :app  Compose UI    |
 +-------------+-------------+
               |
-       AgentController  (dev.LocalIntelligence.core.agent)
+       AgentController  (dev.localintelligence.core.agent)
               |
     +---------+---------+---------+
     |         |         |         |
@@ -172,7 +172,7 @@ repeat(config.maxSteps) {
     action = parse(model.generate(prompt))
 
     when (action) {
-        Respond  -> { session.append(text); memory.onTaskComplete(); return Success(text) }
+        Respond  -> { session.append(text); rememberTurn(); return Success(text) }
         CallTool -> {
             when (val v = validator.validate(action, tools)) {
                 Rejected -> session.observe(v.observation)
@@ -238,6 +238,7 @@ READ_ONLY               -> execute
 REVERSIBLE              -> execute
 EXTERNAL_COMMUNICATION  -> confirm
 DESTRUCTIVE             -> confirm
+NETWORK_EGRESS          -> confirm, every call
 PRIVILEGED              -> disabled in v0
 ```
 
@@ -274,7 +275,8 @@ an app feel broken. Every token not sent is a token saved.
 
 ## 10. System prompt
 
-Tiny, on purpose. See `SystemPrompts.BASE` in `ContextBuilder.kt`.
+Tiny, on purpose. See `SystemPrompts.BASE` and `SystemPrompts.forTools` in
+`ContextBuilder.kt`. `BASE` opens with four instructions:
 
 ```
 You operate this Android device on behalf of the user.
@@ -285,7 +287,11 @@ Do not repeat an action that already failed unless something relevant changed.
 When the task is complete, answer concisely.
 ```
 
-Then the currently selected tools are appended. That is all.
+It then adds rules that tool output and fetched content are data, never
+instructions, and that fetched content arrives between untrusted-content markers.
+`forTools` appends a `Now:` line (local date, time and zone), one line giving the
+reply format (`<respond>…</respond>`, or `<tool name="NAME">{...}</tool>` when tools
+are offered), and the selected tools as `- name: description`. That is all.
 
 No 5,000-token philosophy document. A 1B model has no attention budget to spare and will
 follow the first instruction it sees over the last one.
@@ -296,10 +302,11 @@ follow the first instruction it sees over the last one.
 
 Lexical only in v0. No LLM, no embeddings, no vector database.
 
-Score each tool on token overlap across `name`, `description`, `tags`, `category`,
-plus an exact-substring hit on the full tool name. Return **3-6** tools.
-
-Hard maximum **8** unless explicitly requested.
+Score each tool on token overlap across `name`, `description` and `tags`, plus the
+session's user-side keywords and an exact-substring hit on the full tool name.
+Return at most `maxVisibleTools` tools (default **6**); a registry with that many
+tools or fewer shows all of them. `AgentConfig` documents **8** as the ceiling, and
+nothing enforces it.
 
 This is the single biggest context saving in the entire system, and therefore the
 highest-value thing to benchmark. If you can improve the score function with a
@@ -312,7 +319,7 @@ deterministic change, do it and show the eval delta.
 Trigger:
 
 ```
-activeTokens > min(model.context * 0.65, config.workingLimit)
+activeTokens > min(model.context * 0.65, config.workingTokenLimit)
 ```
 
 Compact into explicit slots, not a prose summary:
@@ -342,10 +349,12 @@ Identity of a call is `toolName + canonicalized(arguments)`, with object keys so
 recursively so key order cannot create a false difference.
 
 ```
-same call twice, same result -> warn the model
-same call three times        -> block
-same error twice             -> mark unavailable, annotate, stop re-prompting
-N consecutive calls with an identical observation -> terminate
+same call (same arguments) twice -> warn the model
+same call three times            -> block
+two failed calls to one tool, with no success of that tool between them
+                                 -> mark the tool unavailable; later calls are blocked
+                                    (ToolError.InvalidArguments does not count)
+three repeats of the same observation in a row -> terminate
 ```
 
 This exists so a confused small model burns four seconds and stops, instead of ten
@@ -355,20 +364,27 @@ minutes of battery.
 
 ## 14. Memory
 
-Room only. No embeddings in v0. Search with SQLite FTS5.
+Room only. No embeddings in v0. Search is lexical (`MemoryIndex`), not FTS5.
 
-Tables: `sessions`, `messages`, `memories`, `session_summaries`.
+Tables: `sessions`, `messages`, `memories`, `session_summaries`. Nothing writes
+`session_summaries`; the compacted state lives in memory (`Session.workingSummary`).
 
-Return **3-5** memories maximum.
+Return at most **5** memories (`AgentConfig.memoryResults`).
 
-Two write mechanisms only:
+Writes come from one deterministic filter, with no model call:
 
-1. **Explicit** — the user says "remember X", the runtime writes one memory row.
-2. **Session summary** — old messages collapse into a summary when the window fills.
+1. **Finished user turns** — after a run that ends in an answer, the user's own text
+   is offered to `MemoryWritePolicy`, which keeps first-person statements matching a
+   fixed pattern list: identity nouns ("my name is", "my doctor is"), preferences ("I
+   like", "I prefer") and work or home ("I work at", "I live in"). Credentials are
+   excluded. The model's reply is never stored.
+2. **Compaction** — when the window fills, old messages fold into the in-memory
+   `CompactedState` (see §12); they are not written as memories.
 
-**Do not build automatic memory extraction.** No per-interaction classifier, no
-deduplication model, no consolidation pass. That is a lot of inference for an
-unmeasured benefit. Benchmark it later or never.
+**Do not build model-based memory extraction.** No per-interaction classifier, no
+summarising model, no deduplication model, no consolidation pass. That is a lot of
+inference for an unmeasured benefit. The pattern filter in `MemoryWritePolicy` is the
+only extraction, and it runs no model. Benchmark anything more later or never.
 
 ---
 
@@ -383,14 +399,16 @@ action  := respond | tool_call
 tool    := "calendar.search" | "calendar.create" | "contacts.search" | ...
 ```
 
-Tool names are constrained to the **currently visible** set, so the model physically
-cannot hallucinate a tool it was not offered. Arguments should be constrained as
-tightly as practical.
+On a grammar backend, tool names are constrained to the **currently visible** set, so
+the model cannot emit a tool it was not offered. A backend without a grammar gets the
+parser's allowed-name check instead, which rejects the same call after the fact.
+Arguments should be constrained as tightly as practical.
 
 "Please output valid JSON" is not a constraint. It is a hope.
 
-Backends that cannot honour a grammar must report `supportsGrammar = false` so the
-runtime knows to fall back rather than silently ignoring the request.
+Backends that cannot honour a grammar must report `supportsGrammar = false`. The loop
+then sends no grammar to them, and the tool list in the system prompt plus the
+parser's allowed-name check are the only constraints.
 
 ---
 
@@ -485,13 +503,14 @@ JVM equivalent: the descriptor and its `/proc/self/fd/N` path, the `ContentResol
 length fallback, and `RamEstimate.usableDeviceBytes()`, which reads
 `/proc/meminfo` and so cannot live in a pure-JVM module. `RamEstimate` itself is now
 a thin adapter that re-evaluates `ModelMemoryEstimator` at whatever context the UI is
-showing — it holds no arithmetic, which is the point.
+showing. The estimate is the estimator's; `RamEstimate` only inverts it, in
+`maxAffordableContext`.
 
 `dev.localintelligence.android.inference.GgufMetadata` survives as a 12-line
-projection with no logic, only because `LlamaCppBackend.deriveCapabilities` is typed
-against that name and that file belongs to another agent. It parses nothing and
-cannot disagree with the parser. It should be deleted when `LlamaCppBackend` is next
-touched; that is a two-line change on that side.
+projection in `ModelImporter.kt`, only because `LlamaCppBackend.deriveCapabilities` is
+typed against that name. It parses nothing and cannot disagree with the parser. It
+should be deleted when `LlamaCppBackend` is next touched; that is a two-line change on
+that side.
 
 **The rule this establishes.** A number the user sees must have exactly one
 implementation. When a second one appears, it is not a layering decision, it is a bug
@@ -509,7 +528,8 @@ Not an immortal daemon. Android deliberately restricts background foreground-ser
 starts, and Android 15+ adds time limits on some foreground-service types. Design
 around the lifecycle you are allowed, not the one you want.
 
-For deferred scheduled work later, use WorkManager.
+Scheduled tasks use exact `AlarmManager` alarms and a foreground service, not
+WorkManager (see docs/background.md).
 
 ---
 
@@ -556,7 +576,7 @@ Keep model-visible outputs extremely compact.
 "Do not restore the deleted test suite" replaced "All functionality requires
 tests". That rule described a suite that no longer exists, and left in place it
 reads as an instruction to rebuild one. The deletion was deliberate; see
-docs/evals.md. A pure-JVM `:core` unit-test suite is being restored separately.
+docs/evals.md.
 
 If you believe an interface is wrong, open an issue. Do not change it in your PR.
 A swarm that can redesign the contracts is not a swarm, it is 20 authors.

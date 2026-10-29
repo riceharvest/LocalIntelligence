@@ -20,6 +20,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
+        // For the manual device probe in src/androidTest (DeviceModelProbe).
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -78,5 +79,4 @@ dependencies {
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.junit)
-    androidTestImplementation(platform(libs.compose.bom))
 }

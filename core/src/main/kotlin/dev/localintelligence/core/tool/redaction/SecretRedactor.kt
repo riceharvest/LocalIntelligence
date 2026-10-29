@@ -135,37 +135,34 @@ object SecretRedactor {
         val source = if (text.length > MAX_SCAN_CHARS) text.take(MAX_SCAN_CHARS) else text
 
         val result = StringBuilder(source.length)
-        // The half-open region of `source` not yet copied into `result`, and the
-        // region of `result` that is not yet copied back into `source`. Redacted
-        // span accumulates in the second and are copied out in the first, so a
-        // marker is never itself a scan target. See the note on markers in the
-        // KDoc above for why that is only half of the fixed-point property.
-        var scanFrom = 0
-        var writeBackFrom = 0
+        var cursor = 0
         val fired = LinkedHashSet<SecretCategory>()
         var count = 0
 
-        for (rule in RULES) {
-            // A local `found` per iteration rather than a `var` declared above
-            // the loop: Kotlin will not smart-cast a captured `var` back to
-            // non-null after the `while` assigns to it, and a do/while with a
-            // nullable cursor needs the cast suppressed. Declaring it here
-            // keeps the non-null type visible to the compiler with no assertion
-            // in the source.
-            var found = rule.pattern.find(source, scanFrom) ?: continue
-            while (true) {
-                result.append(source, writeBackFrom, found.range.first)
-                result.append(rule.marker(found))
-                fired += rule.category
-                count++
-                scanFrom = found.range.last + 1
-                writeBackFrom = scanFrom
-                if (source.length - scanFrom < MIN_SCAN_CHARS) break
-                found = rule.pattern.find(source, scanFrom) ?: break
+        while (source.length - cursor >= MIN_SCAN_CHARS) {
+            var earliestMatch: MatchResult? = null
+            var winningRule: Rule? = null
+
+            for (rule in RULES) {
+                val m = rule.pattern.find(source, cursor) ?: continue
+                if (earliestMatch == null || m.range.first < earliestMatch.range.first) {
+                    earliestMatch = m
+                    winningRule = rule
+                    if (m.range.first == cursor) break
+                }
             }
+
+            if (earliestMatch == null || winningRule == null) break
+
+            result.append(source, cursor, earliestMatch.range.first)
+            result.append(winningRule.marker(earliestMatch))
+            fired += winningRule.category
+            count++
+            cursor = earliestMatch.range.last + 1
         }
+
         // Whatever is left after the last redaction, verbatim.
-        if (scanFrom < source.length) result.append(source, writeBackFrom, source.length)
+        if (cursor < source.length) result.append(source, cursor, source.length)
 
         return RedactionResult(result.toString(), fired, count)
     }
@@ -281,13 +278,17 @@ object SecretRedactor {
         ),
 
         // ---- 3. Authorization / Bearer headers -----------------------
-        // Structural: the scheme word is the marker. Basic is included
-        // because base64 of user:pass is exactly as bad as the bearer token
-        // next to it, and it is the same keyword.
+        // Structural when the Authorization: name is there. Without it the
+        // value must look like a token (a digit, or token punctuation inside
+        // it), so "Basic Insurance" is left alone. Basic is included because
+        // base64 of user:pass is exactly as bad as the bearer token next to
+        // it, and it is the same keyword.
         Rule(
             category = SecretCategory.BEARER_TOKEN,
             pattern = Regex(
-                "(?i)\\b(authorization\\s*[:=]\\s*)?\\b(bearer|basic)\\s+[A-Za-z0-9._~+/=-]{8,}",
+                "(?i)(?=authorization\\s*[:=]|" +
+                    "\\b(?:bearer|basic)\\s+[A-Za-z0-9._~+/=-]*(?:[0-9]|[._~+/=-][A-Za-z0-9._~+/=-]))" +
+                    "\\b(authorization\\s*[:=]\\s*)?\\b(bearer|basic)\\s+[A-Za-z0-9._~+/=-]{8,}",
             ),
             // The scheme word survives so the model knows a header was there.
             // `m.groupValues[2]` is the scheme, matched case-insensitively.

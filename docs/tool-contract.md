@@ -4,7 +4,7 @@ The interfaces in this document are **frozen**. Implement them; do not redesign 
 If one looks wrong, open an issue. A change to anything here needs sign-off because
 every workstream compiles against it.
 
-The canonical definitions live in `core/src/main/kotlin/dev/LocalIntelligence/core/`. This
+The canonical definitions live in `core/src/main/kotlin/dev/localintelligence/core/`. This
 document is the human-readable contract; the code is the enforcement.
 
 ---
@@ -46,6 +46,7 @@ data class ToolDefinition(
     val risk: ToolRisk,
     val tags: Set<String>,       // extra retrieval keywords, lowercase
     val requiredPermission: String?,  // documentation + UI only
+    val observationOrigin: ObservationOrigin = ObservationOrigin.NETWORK,  // how far the observation can be trusted
 )
 ```
 
@@ -132,15 +133,16 @@ data class ToolContext(
 
 ```kotlin
 enum class ToolRisk {
-    READ_ONLY,               // battery.read, contacts.search
+    READ_ONLY,               // device.battery, contacts.search
     REVERSIBLE,              // clipboard.write, calendar.create, alarm.create
-    EXTERNAL_COMMUNICATION,  // sms.send, email.send, web.post
-    DESTRUCTIVE,             // file.delete, calendar.delete
+    DESTRUCTIVE,             // files.delete
+    EXTERNAL_COMMUNICATION,  // notifications.reply
+    NETWORK_EGRESS,          // web.fetch: the call leaves the device
     PRIVILEGED,              // disabled in v0
 }
 ```
 
-`requiresConfirmation` is **derived**: `DESTRUCTIVE || EXTERNAL_COMMUNICATION`.
+`requiresConfirmation` is **derived**: `DESTRUCTIVE || EXTERNAL_COMMUNICATION || NETWORK_EGRESS`.
 It is not a field you set. The runtime decides, not the model, and not the tool.
 
 ---

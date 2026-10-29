@@ -369,7 +369,7 @@ class LiteRtLmBackend(
 
             val prepared = prepare(request)
             if (prepared.failure != null) {
-                return@withContext GenerationResult(text = "", stopReason = StopReason.ERROR)
+                return@withContext GenerationResult(text = prepared.failure, stopReason = StopReason.ERROR)
             }
             val plan = prepared.plan!!
 
@@ -515,12 +515,12 @@ class LiteRtLmBackend(
             return PreparedRequest(failure = "the request has no non-system messages")
         }
         val last = turns.last()
-        if (last.role != LiteRtLmRole.USER) {
-            // A conversation must end on a user turn. Handing the engine a
+        if (last.role != LiteRtLmRole.USER && last.role != LiteRtLmRole.TOOL) {
+            // A conversation must end on a user or tool turn. Handing the engine a
             // history that ends on the model's own output asks it to continue its
             // own answer, which is a different request than the caller made.
             return PreparedRequest(
-                failure = "the transcript ends on a ${last.role} turn; it must end on a user turn",
+                failure = "the transcript ends on a ${last.role} turn; it must end on a user or tool turn",
             )
         }
 

@@ -119,7 +119,7 @@ class HuggingFaceClient(
         // (verified live for google/gemma-7b and meta-llama/Llama-3.2-1B-Instruct).
         // Refusing here names the real fix — accept the licence, add a token —
         // instead of letting the user start a 34 GB download that dies at byte 0.
-        if (parsed.isGated) throw HubError.GatedRepo(repo.id)
+        if (parsed.isGated && tokenOrNull(token) == null) throw HubError.GatedRepo(repo.id)
         return toGgufFiles(repo, parsed)
     }
 
