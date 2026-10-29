@@ -1,6 +1,8 @@
 package dev.localintelligence.app.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,10 +17,13 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -34,10 +39,12 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -49,12 +56,16 @@ import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.blockingReason
 import dev.localintelligence.app.isActive
+import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.ui.components.ChatComposer
 import dev.localintelligence.app.ui.components.ChatModelIdentity
 import dev.localintelligence.app.ui.components.ModelIdentityLine
 import dev.localintelligence.app.ui.components.ApprovalRow
 import dev.localintelligence.app.ui.components.ToolStepRow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The chat. A message list, a text field, a send button, and a STOP button while
@@ -141,6 +152,25 @@ fun ChatScreen(
     }
 
     val listState = rememberLazyListState()
+
+    // The overflow menu's state and the export work. Export is file IO, so it
+    // runs on IO and only the share sheet is started from here.
+    var exportMenuOpen by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val export: (ChatExporter.Format) -> Unit = { format ->
+        exportMenuOpen = false
+        scope.launch {
+            try {
+                val file = withContext(Dispatchers.IO) {
+                    ChatExporter.write(context, messages, format)
+                }
+                ChatExporter.share(context, file, format)
+            } catch (e: Exception) {
+                Toast.makeText(context, "Export failed", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     // The progress line participates in the count because it is a real row: the
     // auto-scroll has to reach it, or a run that is waiting on a model load
     // scrolls the user's own question off the top of the screen.
@@ -253,6 +283,26 @@ fun ChatScreen(
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                    }
+                    // Appended last, so the four icons above keep their places.
+                    // The menu holds the export formats; an empty transcript has
+                    // nothing to export, so the items are disabled.
+                    Box {
+                        IconButton(onClick = { exportMenuOpen = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(
+                            expanded = exportMenuOpen,
+                            onDismissRequest = { exportMenuOpen = false },
+                        ) {
+                            ChatExporter.Format.entries.forEach { format ->
+                                DropdownMenuItem(
+                                    text = { Text(format.label) },
+                                    enabled = messages.isNotEmpty(),
+                                    onClick = { export(format) },
+                                )
+                            }
+                        }
                     }
                 },
             )
