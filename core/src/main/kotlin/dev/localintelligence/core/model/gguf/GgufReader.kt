@@ -133,6 +133,7 @@ internal class GgufReader(
                 offset,
             )
         }
+        if (declared == 0L) return ""
         val bytes = readBytes(declared.toInt())
         return String(bytes, Charsets.UTF_8)
     }

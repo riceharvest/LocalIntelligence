@@ -96,16 +96,6 @@ internal class NativeLiteRtLmEngine(
         }
     }
 
-    private fun LiteRtLmTurn.toNativeMessage(): Message = when (role) {
-        LiteRtLmRole.SYSTEM -> Message.system(Contents.of(text))
-        LiteRtLmRole.USER -> Message.user(Contents.of(text))
-        LiteRtLmRole.MODEL -> Message.model(Contents.of(text))
-        // LiteRT-LM models a tool result as a named response. Passing the name
-        // through matters: without it the model cannot tell which tool answered,
-        // and a two-tool conversation becomes guesswork.
-        LiteRtLmRole.TOOL -> Message.tool(Contents.of(Content.ToolResponse(toolName.orEmpty(), text)))
-    }
-
     companion object {
         private const val TAG = "LiteRtLmEngine"
 
@@ -301,7 +291,7 @@ internal class NativeLiteRtLmConversation(
         }
 
         try {
-            conversation.sendMessageAsync(Contents.of(turn.text), callback)
+            conversation.sendMessageAsync(turn.toNativeMessage(), callback)
         } catch (e: Throwable) {
             // Thrown synchronously for a closed conversation or empty content.
             failed.set(e)
@@ -397,3 +387,13 @@ internal class NativeLiteRtLmConversation(
 /** The default [LiteRtLmEngineFactory]: real LiteRT-LM, on a device. */
 internal val LiteRtLmEngineFactoryProvider: LiteRtLmEngineFactory =
     LiteRtLmEngineFactory { config -> NativeLiteRtLmEngine.build(config) }
+
+internal fun LiteRtLmTurn.toNativeMessage(): Message = when (role) {
+    LiteRtLmRole.SYSTEM -> Message.system(Contents.of(text))
+    LiteRtLmRole.USER -> Message.user(Contents.of(text))
+    LiteRtLmRole.MODEL -> Message.model(Contents.of(text))
+    // LiteRT-LM models a tool result as a named response. Passing the name
+    // through matters: without it the model cannot tell which tool answered,
+    // and a two-tool conversation becomes guesswork.
+    LiteRtLmRole.TOOL -> Message.tool(Contents.of(Content.ToolResponse(toolName.orEmpty(), text)))
+}
