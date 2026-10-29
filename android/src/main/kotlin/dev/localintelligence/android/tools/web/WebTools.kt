@@ -312,6 +312,11 @@ internal object WebUrls {
         if (host.isEmpty()) {
             return UrlVerdict.Rejected("That url has an empty host name, so there is nothing to fetch.")
         }
+        if (hostAndPort.startsWith("[") || host.contains(':')) {
+            return UrlVerdict.Rejected(
+                "\"$host\" is an IPv6 literal. Use a public host name instead.",
+            )
+        }
         if (!host.contains('.') && !host.equals("localhost", ignoreCase = true)) {
             // A single-label host is a LAN name or a typo. It is also the shape
             // an SSRF attempt takes when it is probing the local network, and
@@ -592,7 +597,10 @@ internal object BodyReader {
                 buffer.write(chunk, 0, take)
                 kept += take
             }
-            if (read > room) truncated = true
+            if (read > room) {
+                truncated = true
+                break
+            }
         }
         return BodyRead(buffer.toByteArray(), truncated, kept.toLong(), cancelled = false)
     }
@@ -677,9 +685,9 @@ internal object HtmlText {
      */
     private val CONTROL = Regex("[\\p{Cc}\\p{Cf}&&[^\\n\\t]]")
 
-    fun toPlainText(source: String, maxChars: Int): PlainText {
+    fun toPlainText(source: String, maxChars: Int, contentType: String? = null): PlainText {
         val budget = maxChars.coerceAtLeast(MIN_MAX_CHARS)
-        val looksHtml = WebFetchContent.looksHtml(null, source)
+        val looksHtml = WebFetchContent.looksHtml(contentType, source)
 
         if (!looksHtml) {
             return finish(source, budget, fromHtml = false)
@@ -759,7 +767,7 @@ internal object WebFetchContent {
         val type = contentType?.lowercase()
         if (type != null && (type.contains("html") || type.contains("xml"))) return true
         if (type != null && (type.startsWith("text/") && !type.contains("html"))) return false
-        val head = sample?.trimStart()?.take(512) ?: return false
+        val head = sample?.removePrefix("\uFEFF")?.trimStart()?.take(512) ?: return false
         return head.startsWith("<")
     }
 
@@ -987,7 +995,7 @@ internal class WebFetcher(
                 )
                 val bodyBudget = (budget - header.length - NEWLINE_SECTION.length)
                     .coerceIn(MIN_MAX_CHARS, budget)
-                val text = HtmlText.toPlainText(raw, bodyBudget)
+                val text = HtmlText.toPlainText(raw, bodyBudget, response?.contentType)
                 val observation = ObservationTruncator.truncate(
                     buildString {
                         append(header)
