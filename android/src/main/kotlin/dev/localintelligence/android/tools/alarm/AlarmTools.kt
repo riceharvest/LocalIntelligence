@@ -265,8 +265,8 @@ object AlarmCancel {
             }
         }
 
-        val wantedHour = hour?.coerceIn(AlarmTimes.MIN_HOUR, AlarmTimes.MAX_HOUR)
-        val wantedMinute = minute?.coerceIn(AlarmTimes.MIN_MINUTE, AlarmTimes.MAX_MINUTE)
+        val wantedHour = hour
+        val wantedMinute = minute
         val wantedLabel = label?.trim()?.takeIf { it.isNotEmpty() }
 
         if (wantedHour == null && wantedMinute == null && wantedLabel == null) {
@@ -309,7 +309,7 @@ object AlarmCancel {
         val ordered = candidates.sortedWith(compareBy({ it.hour }, { it.minute }))
         val shown = ordered.take(MAX_LISTED_CANDIDATES)
             .joinToString("; ") { "${it.timeLabel()} ${it.label} (id ${it.id})" }
-        val more = ordered.size - shown.count { s -> s in shown }
+        val more = ordered.size - minOf(ordered.size, MAX_LISTED_CANDIDATES)
         return "$shown${if (more > 0) " (+$more more)" else ""}."
     }
 
@@ -937,10 +937,25 @@ class AlarmCancelTool(private val platform: AlarmPlatform) : AgentTool {
             OptionalInt.Absent -> null
             is OptionalInt.Malformed -> return malformedIntMessage("hour", parsed.got)
         }
+        if (hour != null && hour !in AlarmTimes.MIN_HOUR..AlarmTimes.MAX_HOUR) {
+            return ToolResult(
+                success = false,
+                observation = "hour must be from 0 to 23, but was $hour. " +
+                    "Use 24-hour time, so 7 means 07:00 and 19 means 19:00.",
+                error = ToolError.InvalidArguments("hour $hour out of range"),
+            )
+        }
         val minute = when (val parsed = optionalInt(args, "minute")) {
             is OptionalInt.Given -> parsed.value
             OptionalInt.Absent -> null
             is OptionalInt.Malformed -> return malformedIntMessage("minute", parsed.got)
+        }
+        if (minute != null && minute !in AlarmTimes.MIN_MINUTE..AlarmTimes.MAX_MINUTE) {
+            return ToolResult(
+                success = false,
+                observation = "minute must be from 0 to 59, but was $minute.",
+                error = ToolError.InvalidArguments("minute $minute out of range"),
+            )
         }
 
         val candidates = AlarmRegistry.all()
@@ -1143,6 +1158,7 @@ class AlarmFireReceiver : BroadcastReceiver() {
 
         // Remove first: a fired alarm is no longer cancellable, and leaving it in
         // the registry means `alarm.list` reports an alarm that already happened.
+        AlarmRegistry.ensureAttached(context)
         AlarmRegistry.remove(id)
 
         val posted = postNotification(context, id, label, time)

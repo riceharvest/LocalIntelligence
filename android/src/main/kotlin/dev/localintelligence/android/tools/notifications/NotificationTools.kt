@@ -219,15 +219,23 @@ internal object Notifications {
      */
     fun shortKey(key: String): String {
         val parts = key.split('|')
-        return if (parts.size >= 2) "${parts[1]}#${parts.last()}" else key.take(40)
+        if (parts.size < 3) return key.take(40)
+        val pkg = parts[1]
+        val id = parts[2]
+        val tag = parts.getOrNull(3)
+        return if (!tag.isNullOrEmpty() && !tag.equals("null", ignoreCase = true)) {
+            "$pkg#$id#$tag"
+        } else {
+            "$pkg#$id"
+        }
     }
 
     fun keyMatches(short: String, candidates: List<NotificationSummary>): NotificationSummary? {
         if (short.isBlank()) return null
-        val exact = candidates.firstOrNull { it.key == short }
+        val target = short.trim()
+        val exact = candidates.firstOrNull { it.key == short || it.key == target }
         if (exact != null) return exact
-        val lower = short.lowercase()
-        return candidates.firstOrNull { shortKey(it.key).equals(lower, ignoreCase = true) }
+        return candidates.firstOrNull { shortKey(it.key).equals(target, ignoreCase = true) }
     }
 
     /**
@@ -293,8 +301,14 @@ internal object Notifications {
  */
 class LocalNotificationListenerService : NotificationListenerService() {
 
+    override fun onCreate() {
+        super.onCreate()
+        AndroidContextHolder.install(this)
+    }
+
     override fun onListenerConnected() {
         connected = this
+        AndroidContextHolder.install(this)
     }
 
     override fun onListenerDisconnected() {
@@ -907,7 +921,7 @@ class NotificationReplyTool(
             if (context.signal.isCancelled()) return cancelled()
 
             val delivered = try {
-                sender(AndroidContextHolder.current, sbn, text)
+                sender(service, sbn, text)
             } catch (e: SecurityException) {
                 return ToolResult(
                     success = false,
@@ -1181,7 +1195,7 @@ internal object LABELS {
             cache[pkg]?.let { return it }
         }
         val label = try {
-            val context = AndroidContextHolder.current
+            val context = AndroidContextHolder.current ?: LocalNotificationListenerService.connected
             val pm = context?.packageManager
             if (pm == null) {
                 pkg
