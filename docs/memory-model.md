@@ -58,7 +58,7 @@ block_iq1_m   elems=256 bytes=56   bpw=1.7500
 block_iq4_xs  elems=256 bytes=136  bpw=4.2500
 ```
 
-Against `ggml-common.h` at tag **b4661**, the tag this project builds. Two
+Against `ggml-common.h` at tag **b4661**, the tag this project built at the time. Two
 figures in the previous `GgufQuant` enum were the wrong block entirely:
 `Q4_1` was carrying 4.5 (that is `block_q4_0`, 18 bytes) when `block_q4_1` is
 20 bytes per 32 elements = **5.0**, and `Q5_1` was carrying 5.5

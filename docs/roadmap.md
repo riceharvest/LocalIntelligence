@@ -211,7 +211,7 @@ in this file.
 [ ] vision input (photo, camera)                 libmtmd
 [ ] default-assistant overlay + screenshot       AnythingLLM
 [ ] text-selection toolbar (PROCESS_TEXT)        AnythingLLM
-[x] share-sheet entry                            already ships
+[?] share-sheet entry                            implemented; not seen on a device
 [ ] quick-settings tile, "reply done" notification
 [ ] OpenRouter key: image.generate, video.generate (async job + notification),
       speech, optional remote chat model         opt-in; no key = no network call

@@ -12,8 +12,8 @@ real number instead of the number someone remembered.
     cd /tmp/llama.cpp/ggml/src && gcc -O0 -o /tmp/blocksize /tmp/blocksize.c -I.
     /tmp/blocksize
 
-Tag b4661 is the tag this project builds against. Newer llama.cpp removed
-use_mmap / logits_all / flash_attn and will not compile here.
+Tag b4661 is the tag these measurements were taken at. The project now builds
+against b11988; the block sizes of the types listed here did not change.
 """
 import os
 import subprocess
