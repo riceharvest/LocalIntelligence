@@ -329,13 +329,6 @@ data class FileSelection(
  */
 object FileQuery {
 
-    /**
-     * MediaStore.Files column for "this is a document, not a photo or a song".
-     * Hard-coded rather than referenced from `MediaStore.Files.FileColumns` because
-     * that constant is a String on some SDK levels and an Int on others.
-     */
-    const val MEDIA_TYPE_DOCUMENT = "document"
-
     /** Columns read on API 29+. `RELATIVE_PATH` was added in Q. */
     private val MODERN_COLUMNS = listOf(
         MediaStore.Files.FileColumns._ID,
@@ -377,9 +370,15 @@ object FileQuery {
         mime: String? = null,
         fromMillis: Long? = null,
         toMillis: Long? = null,
+        sdkInt: Int = Build.VERSION.SDK_INT,
     ): FileSelection {
+        val mediaType = if (sdkInt >= Build.VERSION_CODES.R) {
+            MediaStore.Files.FileColumns.MEDIA_TYPE_DOCUMENT
+        } else {
+            MediaStore.Files.FileColumns.MEDIA_TYPE_NONE
+        }
         val clauses = mutableListOf("${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?")
-        val args = mutableListOf<String>(MEDIA_TYPE_DOCUMENT)
+        val args = mutableListOf(mediaType.toString())
 
         if (!query.isNullOrBlank()) {
             clauses += "${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ? ESCAPE '\\'"
@@ -903,11 +902,16 @@ object DeleteGuard {
      * Decides whether a delete may proceed.
      *
      * @param uri an explicit `content://` URI, or null to resolve from [candidates].
-     * @param candidates the rows a search returned. More than one is a refusal: the
-     *   caller must disambiguate, because picking the first match of a multi-match
+     * @param requestedName the display name requested by the caller, or null when deleting by URI.
+     * @param candidates the rows a search returned. More than one exact match is a refusal:
+     *   the caller must disambiguate, because picking the first match of a multi-match
      *   search is how the wrong document gets deleted.
      */
-    fun plan(uri: String?, candidates: List<FileRow>): DeleteDecision {
+    fun plan(
+        uri: String?,
+        requestedName: String?,
+        candidates: List<FileRow>,
+    ): DeleteDecision {
         if (!uri.isNullOrBlank()) {
             if (!FileArgs.isContentUri(uri)) {
                 return DeleteDecision.Refused(
@@ -931,15 +935,28 @@ object DeleteGuard {
         if (candidates.isEmpty()) {
             return DeleteDecision.Refused("No document matched, so there is nothing to delete.")
         }
-        if (candidates.size > 1) {
+        val exact = if (requestedName != null) {
+            candidates.filter { it.displayName.equals(requestedName, ignoreCase = true) }
+        } else {
+            candidates
+        }
+        if (exact.isEmpty()) {
             val names = candidates.take(5).joinToString(", ") { it.displayName }
             val more = if (candidates.size > 5) " (+${candidates.size - 5} more)" else ""
             return DeleteDecision.Refused(
-                "${candidates.size} documents matched ($names$more). Re-run with an exact " +
+                "No document named '$requestedName' found. Partial matches: $names$more. " +
+                    "Re-run with an exact name or a uri so exactly one file is deleted.",
+            )
+        }
+        if (exact.size > 1) {
+            val names = exact.take(5).joinToString(", ") { it.displayName }
+            val more = if (exact.size > 5) " (+${exact.size - 5} more)" else ""
+            return DeleteDecision.Refused(
+                "${exact.size} documents matched ($names$more). Re-run with an exact " +
                     "name or a uri so exactly one file is deleted.",
             )
         }
-        val only = candidates.first()
+        val only = exact.first()
         if (hasGlob(only.displayName)) {
             return DeleteDecision.Refused(
                 "'${only.displayName}' contains a wildcard; pass one specific document URI.",
@@ -1415,12 +1432,19 @@ class FilesDeleteTool(
             // Resolve the target before deciding, so a bare name can be checked for
             // ambiguity instead of deleting whichever row happened to come back first.
             val candidates = if (explicitUri == null) {
-                readRows(appContext, limit = FileArgs.MAX_LIMIT, query = name)?.items.orEmpty()
+                val rows = readRows(appContext, limit = FileArgs.MAX_LIMIT, query = name)
+                if (rows == null) {
+                    return@guard fail(
+                        "The document index is not available right now. Try again shortly.",
+                        ToolError.Unavailable("MediaStore query returned null"),
+                    )
+                }
+                rows.items
             } else {
                 emptyList()
             }
 
-            val decision = DeleteGuard.plan(explicitUri, candidates)
+            val decision = DeleteGuard.plan(explicitUri, name, candidates)
             if (decision is DeleteDecision.Refused) {
                 val error = if (decision.reason.startsWith("No document")) {
                     ToolError.NotFound(decision.reason.take(80))
@@ -1475,7 +1499,13 @@ private suspend fun readRows(
     from: Long? = null,
     to: Long? = null,
 ): RowPage? = withContext(Dispatchers.IO) {
-    val selection = FileQuery.buildSelection(query = query, mime = mime, fromMillis = from, toMillis = to)
+    val selection = FileQuery.buildSelection(
+        query = query,
+        mime = mime,
+        fromMillis = from,
+        toMillis = to,
+        sdkInt = Build.VERSION.SDK_INT,
+    )
     val cursor = context.contentResolver.query(
         MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
         FileQuery.projection(Build.VERSION.SDK_INT).toTypedArray(),
@@ -1551,7 +1581,6 @@ private fun describeDocument(context: Context, uri: Uri): DocumentMeta? {
     val projection = arrayOf(
         android.provider.OpenableColumns.DISPLAY_NAME,
         android.provider.OpenableColumns.SIZE,
-        "android.intent.extra.MIME_TYPE",
     )
     val cursor = try {
         context.contentResolver.query(uri, projection, null, null, null)
@@ -1562,9 +1591,7 @@ private fun describeDocument(context: Context, uri: Uri): DocumentMeta? {
         if (!cursor.moveToFirst()) return null
         val name = cursor.stringAt(cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME))
         val size = columnsLongOrNull(cursor, android.provider.OpenableColumns.SIZE)
-        val mime = cursor.stringAt(
-            cursor.getColumnIndex("android.intent.extra.MIME_TYPE"),
-        ) ?: context.contentResolver.getType(uri)
+        val mime = context.contentResolver.getType(uri)
         DocumentMeta(name?.take(FileArgs.MAX_NAME_CHARS), mime, size)
     } finally {
         runCatching { cursor.close() }

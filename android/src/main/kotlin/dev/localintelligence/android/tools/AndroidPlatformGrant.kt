@@ -171,7 +171,8 @@ class AndroidPlatformGrant(context: Context) : PlatformGrant {
             // queryable fact is whether the user has ever granted one.
             hasPersistedDocumentGrant()
         } else {
-            isPermissionHeld(Manifest.permission.READ_EXTERNAL_STORAGE) ||
+            hasPersistedDocumentGrant() ||
+                isPermissionHeld(Manifest.permission.READ_EXTERNAL_STORAGE) ||
                 isPermissionHeld(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
 
