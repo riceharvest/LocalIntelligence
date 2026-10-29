@@ -110,6 +110,9 @@ class ModelDownloader(
             contextLength = PreDownloadContextLength,
             budget = budgetForPlan(plan),
             alreadyOnDiskBytes = localBytes,
+            // A LiteRT-LM file has no GGUF header for the RAM gate to read. Its
+            // disk check still runs, and the transfer below is the same one.
+            ramGate = !file.isLiteRtLm,
         )
         effectivePlan.reject?.let {
             emit(DownloadProgress.Stopped(it, partialBytesKept = localBytes))

@@ -69,6 +69,16 @@ data class ToolDefinition(
      * [dev.localintelligence.core.model.UntrustedContent.neutralise].
      */
     val observationOrigin: ObservationOrigin = ObservationOrigin.NETWORK,
+    /**
+     * The one host this tool contacts, for a tool whose calls name no URL.
+     *
+     * WHY: the egress confirmation names the destination, and a tool with no
+     * url argument (web.search always goes to one search endpoint) would
+     * otherwise be shown as "an external host", which tells the user nothing.
+     * Null for everything else, so a URL-carrying tool still names the host
+     * the call actually reaches.
+     */
+    val fixedHost: String? = null,
 )
 
 /**

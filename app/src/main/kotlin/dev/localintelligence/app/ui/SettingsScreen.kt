@@ -38,9 +38,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.app.openAssistantSettings
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.core.plugin.AgentPlugin
@@ -62,7 +64,7 @@ fun SettingsScreen(
     store: SettingsStore,
     plugins: List<AgentPlugin>,
     suggestion: SuggestedModel,
-    onOpenHub: () -> Unit,
+    onOpenHub: (repo: String, file: String) -> Unit,
     /** Opens the skills screen. Defaulted so a caller that predates skills still compiles. */
     onOpenSkills: () -> Unit = {},
     onBack: () -> Unit,
@@ -95,7 +97,8 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 ModeSwitch(store)
-                if (!technical) SuggestionCard(suggestion, onOpenHub)
+                if (!technical) SuggestionCard(suggestion) { onOpenHub(suggestion.repo, suggestion.file) }
+                AssistantCard()
 
                 val rows = (CoreSettings.all + plugins.flatMap { it.settings })
                     .filter { it !== CoreSettings.MODE && (technical || it.simple) }
@@ -151,6 +154,22 @@ private fun SuggestionCard(suggestion: SuggestedModel, onOpenHub: () -> Unit) {
 }
 
 @Composable
+private fun AssistantCard() {
+    val context = LocalContext.current
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Phone assistant", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "Opens LocalIntelligence over any app from the long-press Home or power button. " +
+                    "You choose it in system settings.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            FilledTonalButton(onClick = { openAssistantSettings(context) }) { Text("Set as phone assistant") }
+        }
+    }
+}
+
+@Composable
 private fun SectionHeader(title: String) {
     Column(Modifier.padding(top = 12.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
@@ -188,6 +207,7 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
                 )
             }
         }
+        is SettingDef.Text -> TextSettingRow(store, def, help)
         is SettingDef.IntValue -> {
             val value = store.stored(def)
             val span = def.max.toLong() - def.min.toLong()
@@ -205,6 +225,38 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
                     NumberField(value) { store.set(def, it) }
                 }
             }
+        }
+    }
+}
+
+/**
+ * A multi-line text setting with an explicit Save.
+ *
+ * WHY SAVE AND NOT WRITE-ON-EVERY-KEY: a store write bumps [SettingsStore.changes], and
+ * the whole screen is keyed on that revision, so each keystroke would rebuild the field
+ * and drop the cursor. The draft lives here until Save, which is the one write.
+ */
+@Composable
+private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: String) {
+    val stored = store.stored(def)
+    var draft by remember(stored) { mutableStateOf(stored) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        RowTitle(def.title, help)
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { draft = it.take(def.maxLength) },
+            minLines = 3,
+            modifier = Modifier.fillMaxWidth(),
+            supportingText = { Text("${draft.length} of ${def.maxLength} characters") },
+        )
+        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            if (stored.isNotEmpty()) {
+                TextButton(onClick = { store.set(def, "") }) { Text("Clear") }
+            }
+            FilledTonalButton(
+                onClick = { store.set(def, draft) },
+                enabled = draft != stored,
+            ) { Text("Save") }
         }
     }
 }

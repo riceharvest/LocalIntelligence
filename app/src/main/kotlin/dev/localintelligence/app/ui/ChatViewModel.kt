@@ -8,6 +8,7 @@ import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.ModelAvailabilityHolder
 import dev.localintelligence.app.RunOutcome
 import dev.localintelligence.app.RunState
+import dev.localintelligence.app.RunningTool
 import dev.localintelligence.app.blockingReason
 import dev.localintelligence.app.isActive
 import dev.localintelligence.app.isTerminal
@@ -132,6 +133,9 @@ class ChatViewModel(
 
     val runState: StateFlow<RunState> get() = gateway.runState
     val trace: StateFlow<List<StepTrace>> get() = gateway.trace
+
+    /** The call in flight, drawn as a live row until its result replaces it. */
+    val runningTool: StateFlow<RunningTool?> get() = gateway.runningTool
 
     /**
      * The live token stream, suppressed once the run is over.

@@ -64,6 +64,7 @@ import dev.localintelligence.app.ui.components.ChatModelIdentity
 import dev.localintelligence.app.ui.components.ModelIdentityLine
 import dev.localintelligence.app.ui.components.ApprovalRow
 import dev.localintelligence.app.ui.components.PendingToolRow
+import dev.localintelligence.app.ui.components.RunningToolRow
 import dev.localintelligence.app.ui.components.TranscriptEntry
 import dev.localintelligence.app.ui.components.ToolCallGroup
 import dev.localintelligence.app.ui.components.ToolStepRow
@@ -161,6 +162,7 @@ fun ChatScreen(
     }
     val runState by viewModel.runState.collectAsStateWithLifecycle()
     val rawStreaming by viewModel.streamingText.collectAsStateWithLifecycle()
+    val running by viewModel.runningTool.collectAsStateWithLifecycle()
     // What the live bubble shows. Everything below reads this, so the bubble,
     // its row in the count and the empty state cannot disagree about it.
     val streaming = remember(rawStreaming) { liveBubbleText(rawStreaming) }
@@ -217,13 +219,14 @@ fun ChatScreen(
     // auto-scroll has to reach it, or a run that is waiting on a model load
     // scrolls the user's own question off the top of the screen.
     // While the runtime waits on an approval, the call's own row (with its
-    // shield) says so, so the progress line stays silent to avoid saying it twice.
+    // Allow and Deny) says so, so the progress line stays silent to avoid saying it twice.
     val awaiting = runState as? RunState.AwaitingApproval
     val progress = if (awaiting != null) null else progressLine(runState)
     val entries = remember(messages) { groupToolCalls(messages) }
     val animate = rememberMotionEnabled()
     val rowCount = messages.size +
         (if (streaming.isNotEmpty()) 1 else 0) +
+        (if (running != null) 1 else 0) +
         (if (progress != null) 1 else 0) +
         (if (awaiting != null) 1 else 0)
 
@@ -272,14 +275,6 @@ fun ChatScreen(
     // the same one.
     val configuration = LocalConfiguration.current
     val compactComposer = configuration.screenHeightDp < COMPACT_HEIGHT_DP
-
-    if (awaiting != null) {
-        ConfirmationDialog(
-            pending = awaiting,
-            onApprove = { viewModel.resolveConfirmation(approved = true) },
-            onDecline = { viewModel.resolveConfirmation(approved = false) },
-        )
-    }
 
     Scaffold(
         // NO imePadding HERE, and this is the load-bearing part of the fix.
@@ -376,7 +371,7 @@ fun ChatScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (messages.isEmpty() && streaming.isEmpty() && progress == null) {
+            if (messages.isEmpty() && streaming.isEmpty() && running == null && progress == null) {
                 item("empty") {
                     EmptyState(
                         blockedReason = blocked,
@@ -423,8 +418,18 @@ fun ChatScreen(
                     }
                 }
             }
+            running?.let { tool ->
+                item("running") { RunningToolRow(tool, animate) }
+            }
             if (awaiting != null) {
-                item("pending") { PendingToolRow(awaiting, animate) }
+                item("pending") {
+                    PendingToolRow(
+                        pending = awaiting,
+                        animate = animate,
+                        onApprove = { viewModel.resolveConfirmation(approved = true) },
+                        onDecline = { viewModel.resolveConfirmation(approved = false) },
+                    )
+                }
             }
             if (progress != null) {
                 item("progress") { ProgressLine(progress) }

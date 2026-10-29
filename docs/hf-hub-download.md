@@ -202,3 +202,24 @@ Specifically untested:
 
 No real HF token was used, requested, or committed. Test fixtures contain no
 credential.
+
+## LiteRT-LM (`.litertlm`) files
+
+A repository's `.litertlm` files are listed under the GGUF rows with their size
+and a Download action. The action uses the same `ModelDownloader` as a GGUF:
+the `.part` file, resume, the size check, the SHA check from the LFS digest and
+the gated-repo token. The file lands in the same models directory.
+
+What differs is the gate. A `.litertlm` is a FlatBuffer with no GGUF header, so
+`HuggingFaceClient.plan(..., ramGate = false)` skips the RAM estimate and keeps
+the disk check. The screen shows the size and no memory figure.
+
+- Name-based label only: `TensorNpu.compiledFor` reads `_Google_Tensor_G<n>`, so
+  G5 reads "Runs on the Tensor G5 NPU (Pixel 10) only" and other generations
+  read "Runs on the Tensor G<n> NPU only".
+- Adoption calls the same `DownloadedModelRegistrar` (`AppContainer.adoptDownloaded`).
+  `ModelImporter.inspect` recognises a `.litertlm` by its identifier and describes
+  it from its size alone (`LiteRtLmFootprint`), so it is registered and loaded
+  through the LiteRT-LM backend like a scanned file. If the load fails the screen
+  says the file did not load.
+- Not verified on a device or against a live repository.
