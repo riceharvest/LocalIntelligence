@@ -140,7 +140,7 @@ private class ToolFamily(
  * with a tool set that can delete something the user was never asked about —
  * which, for a safety invariant, is the correct direction to fail.
  */
-private fun requireCatalogueAgreement(tools: List<AgentTool>): List<AgentTool> {
+internal fun requireCatalogueAgreement(tools: List<AgentTool>): List<AgentTool> {
     val unlisted = tools.map { it.definition.name }.filter { V0ToolCatalogue.byName(it) == null }
     check(unlisted.isEmpty()) {
         "these tools ship in the registry but are not in V0ToolCatalogue, so the lexical " +

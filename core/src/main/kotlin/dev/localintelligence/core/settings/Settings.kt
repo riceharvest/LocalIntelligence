@@ -59,6 +59,31 @@ sealed class SettingDef<T : Any>(
         override fun coerce(raw: Any?): String =
             (raw as? String)?.takeIf { id -> options.any { it.id == id } } ?: default
     }
+
+    /** Free text, such as a model id. Shown in full, trimmed, at most [maxLength] characters. */
+    class Text(
+        key: String, title: String, help: String, section: SettingSection,
+        default: String, val maxLength: Int = 200,
+        simple: Boolean = false, applies: SettingApplies = SettingApplies.NEXT_RUN,
+    ) : SettingDef<String>(key, title, help, section, default, simple, applies) {
+        override fun coerce(raw: Any?): String =
+            (raw as? String)?.trim()?.takeIf { it.isNotEmpty() && it.length <= maxLength } ?: default
+    }
+
+    /**
+     * A credential, such as an API key. It is stored encrypted and never shown
+     * back: the settings screen reports only whether one is set, and offers a
+     * field to replace or clear it. The stored form is opaque to [coerce]; the
+     * store decrypts before coercing, so readers always get the plain text.
+     *
+     * The default is the empty string, meaning "not set".
+     */
+    class Secret(
+        key: String, title: String, help: String, section: SettingSection,
+        simple: Boolean = false, applies: SettingApplies = SettingApplies.NEXT_RUN,
+    ) : SettingDef<String>(key, title, help, section, "", simple, applies) {
+        override fun coerce(raw: Any?): String = (raw as? String)?.takeIf { it.isNotBlank() } ?: default
+    }
 }
 
 /** Where a setting is listed. Order is display order. */

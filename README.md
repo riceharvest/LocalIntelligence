@@ -15,7 +15,7 @@ install APK
 
 **Runs fully on-device. No account, no server, no telemetry.** Inference is
 entirely local, and the app has no analytics or crash reporting. Two features do
-use the network, both of them opt-in and neither silent:
+use the network, and each is opt-in and never silent:
 
 - **Model downloads** go to the Hugging Face Hub and only fetch files. Nothing
   is ever uploaded. See [docs/hf-hub-download.md](docs/hf-hub-download.md).
@@ -25,6 +25,10 @@ use the network, both of them opt-in and neither silent:
   fetch a hostile page, and that page's contents re-enter the conversation as
   untrusted data. See [docs/threat-model.md](docs/threat-model.md) for what
   that does and does not protect against.
+- **Cloud images and video** (plugin "OpenRouter", off by default) need your own
+  OpenRouter key. With the plugin on and a key set, the prompts for image and video
+  generation go to openrouter.ai, and the key is sent there with them. The key is
+  stored encrypted with the Android Keystore. With no key, nothing is sent.
 
 Nothing else in the app opens a socket, and no conversation content, memory,
 file, contact, or calendar entry is transmitted by the app itself. Every
