@@ -120,14 +120,11 @@ class DefaultContextBuilder(
         //    non-system message and re-check. Removable range is index 1 up to
         //    (not including) the task; the system message and the task survive.
         if (used > limit) {
-            val removableEnd = if (taskIndex >= 0) taskIndex else out.size
-            var i = 1
-            while (used > limit && i < removableEnd) {
-                used -= TokenEstimate.tokens(out[i])
-                out.removeAt(i)
-                // Dropping one message can only shrink `out`, so the protected
-                // task's index moves down with it.
-                i++
+            var end = if (taskIndex >= 0) taskIndex else out.size
+            while (used > limit && end > 1) {
+                used -= TokenEstimate.tokens(out[1])
+                out.removeAt(1)
+                end--
             }
         }
 
@@ -275,9 +272,8 @@ internal object TokenEstimate {
         is ChatMessage.System -> tokens(message.text) + MESSAGE_OVERHEAD_TOKENS
         is ChatMessage.User -> tokens(message.text) + MESSAGE_OVERHEAD_TOKENS
         is ChatMessage.Assistant -> tokens(message.text) + MESSAGE_OVERHEAD_TOKENS
-        // The model sees the tool name and the observation, so both are paid for.
         is ChatMessage.ToolObservation ->
-            tokens(message.toolName) + tokens(message.observation) + MESSAGE_OVERHEAD_TOKENS
+            tokens(message.modelFacing()) + MESSAGE_OVERHEAD_TOKENS
     }
 
     fun tokens(messages: List<ChatMessage>): Int = messages.sumOf { tokens(it) }

@@ -140,15 +140,36 @@ object GrammarBuilder {
             .orEmpty()
 
         // Required first, then optional, each group in schema order.
-        val ordered = keys.filter { it in required } + keys.filter { it !in required }
-        if (ordered.isEmpty()) return """ws "{" ws "}""""
+        val reqKeys = keys.filter { it in required }
+        val optKeys = keys.filter { it !in required }
+        if (reqKeys.isEmpty() && optKeys.isEmpty()) return """ws "{" ws "}""""
 
         val sb = StringBuilder("""ws "{" ws""")
-        ordered.forEachIndexed { index, key ->
-            val property = properties?.get(key) as? JsonObject
-            if (index > 0) sb.append(""" (ws "," ws""")
-            sb.append(' ').append(pair(key, valueRule(property)))
-            if (index > 0) sb.append(")?")
+        if (reqKeys.isNotEmpty()) {
+            reqKeys.forEachIndexed { index, key ->
+                val property = properties?.get(key) as? JsonObject
+                if (index > 0) sb.append(""" ws "," ws""")
+                sb.append(' ').append(pair(key, valueRule(property)))
+            }
+            optKeys.forEach { key ->
+                val property = properties?.get(key) as? JsonObject
+                sb.append(""" (ws "," ws """).append(pair(key, valueRule(property))).append(")?")
+            }
+        } else {
+            // Any in-order subset, including none: one alternative per possible
+            // first key, each followed by the later keys as independent options.
+            val alternatives = optKeys.indices.map { first ->
+                val head = optKeys[first]
+                buildString {
+                    append(pair(head, valueRule(properties?.get(head) as? JsonObject)))
+                    optKeys.drop(first + 1).forEach { key ->
+                        append(""" (ws "," ws """)
+                        append(pair(key, valueRule(properties?.get(key) as? JsonObject)))
+                        append(")?")
+                    }
+                }
+            }
+            sb.append(" (").append(alternatives.joinToString(" | ")).append(")?")
         }
         return sb.append(""" ws "}"""").toString()
     }

@@ -337,16 +337,8 @@ object ActionParserImpl : ActionParser {
 
     // ---------------------------------------------------------------- small helpers
 
-    private fun indexOfTag(s: String, tag: String, from: Int = 0): Int {
-        var i = from
-        while (i <= s.length - tag.length) {
-            val at = s.indexOf(tag, i)
-            if (at < 0 || at > s.length - tag.length) return -1
-            if (s.regionMatches(at, tag, 0, tag.length, ignoreCase = true)) return at
-            i = at + 1
-        }
-        return -1
-    }
+    private fun indexOfTag(s: String, tag: String, from: Int = 0): Int =
+        s.indexOf(tag, from, ignoreCase = true)
 
     private fun malformed(reason: String, raw: String): ActionParseResult.Malformed =
         ActionParseResult.Malformed(reason, raw)

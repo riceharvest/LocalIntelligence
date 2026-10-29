@@ -271,8 +271,8 @@ class ContextCompactor(
             if (line.isEmpty() || !seen.add(line)) return
             lines.add(line)
             if (lines.size > cap) {
-                lines.removeAt(0)
-                seen.remove(lines.first())
+                val evicted = lines.removeAt(0)
+                seen.remove(evicted)
             }
         }
 
