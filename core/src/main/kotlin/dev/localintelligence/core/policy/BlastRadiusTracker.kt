@@ -43,6 +43,7 @@ class BlastRadiusTracker(
 
     /** Records that a human approved a gated call. */
     fun recordConfirmed(risk: ToolRisk) {
+        actionCount += 1
         confirmedCount += 1
         if (risk == ToolRisk.DESTRUCTIVE) destructiveCount += 1
     }

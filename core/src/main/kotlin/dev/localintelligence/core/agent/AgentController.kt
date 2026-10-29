@@ -321,6 +321,7 @@ class AgentController(
         // malformedStreak, pending, lastPrompt, loopDetector.
         lastPrompt = emptyList()
         loopDetector.reset()
+        noProgress.reset()
         // Blast radius is per TASK, not per process. Without this reset the
         // 200-action and 20-destructive-action caps would carry over between
         // conversations, so a user who legitimately deleted 19 things today
