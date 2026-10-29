@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.BatteryManager
 import android.os.Build
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -1013,6 +1014,7 @@ class AndroidDevicePlatform(private val context: Context) : DevicePlatform {
         // pathological scale, hence the Long.
         val rawPercent = if (level >= 0 && scale > 0) (level * 100L) / scale else -1L
         val timeToFull = intent.getLongExtra(EXTRA_TIME_TO_FULL, -1L)
+        val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
 
         return BatterySnapshot(
             levelPercent = rawPercent.coerceIn(-1L, 100L).toInt(),
@@ -1021,7 +1023,7 @@ class AndroidDevicePlatform(private val context: Context) : DevicePlatform {
             timeToFullSeconds = timeToFull,
             temperatureCelsius = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) / 10f,
             health = intent.getIntExtra(BatteryManager.EXTRA_HEALTH, BatteryConstants.HEALTH_UNKNOWN),
-            screenOn = intent.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true),
+            screenOn = powerManager?.isInteractive,
         )
     }
 

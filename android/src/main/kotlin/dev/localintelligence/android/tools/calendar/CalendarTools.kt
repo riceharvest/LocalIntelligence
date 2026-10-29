@@ -31,6 +31,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
@@ -469,8 +470,12 @@ internal interface CalendarProvider {
         pattern: String?,
     ): Cursor?
 
+    /** Returns the id of a writable calendar, preferring primary, or null if none exists. */
+    fun findWritableCalendarId(): Long?
+
     /** Returns the new event's id, or null when the insert was refused. */
     fun insert(
+        calendarId: Long,
         title: String,
         startMillis: Long,
         endMillis: Long,
@@ -509,7 +514,35 @@ internal class ResolverCalendarProvider(private val resolver: ContentResolver) :
         )
     }
 
+    override fun findWritableCalendarId(): Long? {
+        val cursor = resolver.query(
+            CalendarContract.Calendars.CONTENT_URI,
+            CALENDARS_PROJECTION,
+            "${CalendarContract.Calendars.VISIBLE} = 1 AND " +
+                "${CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL} >= ?",
+            arrayOf(CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR.toString()),
+            null,
+        ) ?: return null
+
+        var firstWritableId: Long? = null
+        try {
+            while (cursor.moveToNext()) {
+                val id = cursor.longOrNull(CalendarContract.Calendars._ID) ?: continue
+                if (firstWritableId == null) {
+                    firstWritableId = id
+                }
+                if (cursor.intOrNull(CalendarContract.Calendars.IS_PRIMARY) == 1) {
+                    return id
+                }
+            }
+        } finally {
+            cursor.close()
+        }
+        return firstWritableId
+    }
+
     override fun insert(
+        calendarId: Long,
         title: String,
         startMillis: Long,
         endMillis: Long,
@@ -518,12 +551,23 @@ internal class ResolverCalendarProvider(private val resolver: ContentResolver) :
         description: String?,
         zone: ZoneId,
     ): Long? {
+        val (dtStart, dtEnd) = if (allDay) {
+            val startDate = Instant.ofEpochMilli(startMillis).atZone(zone).toLocalDate()
+            val endDate = Instant.ofEpochMilli(endMillis).atZone(zone).toLocalDate()
+            val dayAfterLast = if (endDate > startDate) endDate else startDate.plusDays(1)
+            val s = startDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+            val e = dayAfterLast.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+            s to e
+        } else {
+            startMillis to endMillis
+        }
         val values = ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, calendarId)
             put(CalendarContract.Events.TITLE, title)
-            put(CalendarContract.Events.DTSTART, startMillis)
-            put(CalendarContract.Events.DTEND, endMillis)
+            put(CalendarContract.Events.DTSTART, dtStart)
+            put(CalendarContract.Events.DTEND, dtEnd)
             put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
-            put(CalendarContract.Events.EVENT_TIMEZONE, zone.id)
+            put(CalendarContract.Events.EVENT_TIMEZONE, if (allDay) "UTC" else zone.id)
             put(CalendarContract.Events.HAS_ALARM, 0)
             put(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY)
             location?.let { put(CalendarContract.Events.EVENT_LOCATION, it) }
@@ -542,6 +586,10 @@ internal class ResolverCalendarProvider(private val resolver: ContentResolver) :
             CalendarContract.Instances.END,
             CalendarContract.Instances.ALL_DAY,
             CalendarContract.Instances.EVENT_LOCATION,
+        )
+        val CALENDARS_PROJECTION = arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.IS_PRIMARY,
         )
     }
 }
@@ -729,22 +777,33 @@ class CalendarSearchTool internal constructor(
         location = string(CalendarContract.Instances.EVENT_LOCATION),
     )
 
-    private fun Cursor.indexOf(column: String): Int = getColumnIndex(column)
+}
 
-    private fun Cursor.string(column: String): String? {
-        val index = indexOf(column)
-        return if (index < 0 || isNull(index)) null else getString(index)?.trim()
-    }
+private fun Cursor.indexOf(column: String): Int = getColumnIndex(column)
 
-    private fun Cursor.longOrZero(column: String): Long {
-        val index = indexOf(column)
-        return if (index < 0 || isNull(index)) 0L else getLong(index)
-    }
+private fun Cursor.string(column: String): String? {
+    val index = indexOf(column)
+    return if (index < 0 || isNull(index)) null else getString(index)?.trim()
+}
 
-    private fun Cursor.intOrZero(column: String): Int {
-        val index = indexOf(column)
-        return if (index < 0 || isNull(index)) 0 else getInt(index)
-    }
+private fun Cursor.longOrZero(column: String): Long {
+    val index = indexOf(column)
+    return if (index < 0 || isNull(index)) 0L else getLong(index)
+}
+
+private fun Cursor.intOrZero(column: String): Int {
+    val index = indexOf(column)
+    return if (index < 0 || isNull(index)) 0 else getInt(index)
+}
+
+private fun Cursor.longOrNull(column: String): Long? {
+    val index = indexOf(column)
+    return if (index < 0 || isNull(index)) null else getLong(index)
+}
+
+private fun Cursor.intOrNull(column: String): Int? {
+    val index = indexOf(column)
+    return if (index < 0 || isNull(index)) null else getInt(index)
 }
 
 /**
@@ -867,7 +926,25 @@ class CalendarCreateTool internal constructor(
             val description = optionalString(args, "description", CalendarArgs.MAX_DESCRIPTION_CHARS)
 
             try {
+                // Choosing the calendar to write to is a read of the calendar list.
+                val calendarId = try {
+                    provider.findWritableCalendarId()
+                } catch (e: SecurityException) {
+                    return@withContext ToolResult(
+                        success = false,
+                        observation = PermissionDenial.observation("calendar.create", ToolPermissions.CALENDAR_READ),
+                        error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.CALENDAR_READ)),
+                    )
+                }
+                if (calendarId == null) {
+                    return@withContext ToolResult(
+                        success = false,
+                        observation = "No writable calendar on this device.",
+                        error = ToolError.Unavailable("no writable calendar on this device"),
+                    )
+                }
                 val id = provider.insert(
+                    calendarId = calendarId,
                     title = title,
                     startMillis = startMillis,
                     endMillis = end,
