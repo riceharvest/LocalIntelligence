@@ -10,8 +10,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +50,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -71,7 +75,9 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.localintelligence.app.RunState
+import dev.localintelligence.app.RunningTool
 import dev.localintelligence.app.ui.ChatMessage
+import dev.localintelligence.core.tool.ToolRisk
 import kotlinx.coroutines.delay
 
 /**
@@ -87,11 +93,10 @@ import kotlinx.coroutines.delay
  *
  * ## WHAT THE ROW CAN AND CANNOT SAY
  *
- * The runtime records a `TOOL_CALL` only after the tool has returned, or when it
- * refuses the call. So a row is never "running" by itself: a row with no
- * observation is a call the runtime refused, and the in-flight call is shown by
- * the progress line. [ToolRowState.Running] exists so the row can take a spinner
- * the day the runtime reports a call starting; nothing produces it today.
+ * A finished row is a `TOOL_CALL` the runtime recorded after the tool returned,
+ * or a refusal. A row with no observation is a call the runtime refused. The
+ * call still in flight is [RunningToolRow], drawn from the runtime's start
+ * signal and replaced by this row when the result lands.
  *
  * ## WHAT STAYS VISIBLE WHEN COLLAPSED
  *
@@ -125,24 +130,22 @@ fun ToolStepRow(
 }
 
 /**
- * The row for the call that is waiting on the user.
+ * The call that has started and not yet returned.
  *
- * The approval itself is still the modal [dev.localintelligence.app.ui.ConfirmationDialog]:
- * it is the only place the full arguments and the risk wording appear, and it
- * covers the transcript while it is up, so inline Allow and Deny buttons here
- * would sit behind it. This row says what is waiting, and the shield is the
- * state. It is not expandable because the dialog already shows the input.
+ * Drawn from [RunningTool], which the runtime sets the moment it dispatches a
+ * call. It has no detail panel: the arguments are the call's own, and the
+ * result row that replaces this one carries them once the call is done.
  */
 @Composable
-fun PendingToolRow(
-    pending: RunState.AwaitingApproval,
+fun RunningToolRow(
+    tool: RunningTool,
     animate: Boolean,
     modifier: Modifier = Modifier,
 ) {
     ToolRow(
-        toolName = pending.toolName,
-        state = ToolRowState.Awaiting,
-        summary = "Waiting for your approval",
+        toolName = tool.toolName,
+        state = ToolRowState.Running,
+        summary = "Running",
         durationMs = 0,
         expanded = null,
         onToggle = {},
@@ -150,6 +153,191 @@ fun PendingToolRow(
         modifier = modifier,
         detail = null,
     )
+}
+
+/**
+ * The approval for the call that is waiting on the user, answered inline.
+ *
+ * This replaces the modal dialog. Everything the dialog showed is still here: the
+ * tool, why the policy stopped it, what the tool does, the risk wording, and the
+ * arguments verbatim. The Input panel starts open, because the approval is the
+ * one place a person must read the arguments, and the buttons sit outside the
+ * panel so they stay visible even when the user folds it.
+ *
+ * A decline still goes through `confirmAndResume(false)` via [onDecline]: the run
+ * continues and the model is told the call was refused.
+ */
+@Composable
+fun PendingToolRow(
+    pending: RunState.AwaitingApproval,
+    animate: Boolean,
+    onApprove: () -> Unit,
+    onDecline: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by rememberSaveable(pending.toolName, pending.arguments) { mutableStateOf(true) }
+    // The service flips the run state a moment after a tap, so a second tap in that
+    // gap would send a second decision and add a second Approval row.
+    var answered by remember(pending) { mutableStateOf(false) }
+    val accent = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        ToolRow(
+            toolName = pending.toolName,
+            state = ToolRowState.Awaiting,
+            summary = "Waiting for your approval",
+            durationMs = 0,
+            expanded = expanded,
+            onToggle = { expanded = !expanded },
+            animate = animate,
+            modifier = Modifier,
+        ) {
+            PendingDetail(pending)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 28.dp, bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(
+                onClick = {
+                    answered = true
+                    onApprove()
+                },
+                enabled = !answered,
+                border = accent,
+            ) { Text("Allow") }
+            OutlinedButton(
+                onClick = {
+                    answered = true
+                    onDecline()
+                },
+                enabled = !answered,
+                border = accent,
+            ) { Text("Deny") }
+        }
+    }
+}
+
+/**
+ * The approval's reasons and arguments, in the same panel shape as a finished
+ * row's detail so the two read as one kind of thing.
+ */
+@Composable
+private fun PendingDetail(pending: RunState.AwaitingApproval) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(start = 28.dp, bottom = 6.dp),
+        shape = MaterialTheme.shapes.extraSmall,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+    ) {
+        Column(
+            Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (pending.justification.isNotBlank()) {
+                Text(
+                    text = pending.justification,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Text(
+                text = pending.description,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            RiskBanner(pending.risk)
+            ArgumentsBlock(pending.arguments)
+        }
+    }
+}
+
+/**
+ * The derived risk, in words.
+ *
+ * `requiresConfirmation` is computed from the enum in `:core`, so a tool cannot
+ * lie about needing permission and the UI cannot invent a different threshold.
+ * Anything that is not one of the gated values is a bug upstream, and says so
+ * rather than rendering a reassuring banner.
+ *
+ * Three distinct cases, and the wording keeps them apart on purpose: one cannot
+ * be undone, one hands text to a third party, and one receives text FROM a third
+ * party. Collapsing them into "are you sure?" would hide the difference that
+ * decides the answer.
+ */
+@Composable
+private fun RiskBanner(risk: ToolRisk) {
+    val (label, explanation) = when (risk) {
+        ToolRisk.DESTRUCTIVE ->
+            "Destructive — this cannot be undone." to
+                "Whatever this changes, it is gone afterwards. There is no undo."
+
+        ToolRisk.EXTERNAL_COMMUNICATION ->
+            "Sends to someone else — a person or a service will see this." to
+                "This leaves your device. Check the recipient and the content."
+
+        // For a fetch nothing is composed: the request reveals where the user is
+        // asking about, and the reply is somebody else's text that the model will
+        // read. A banner written for sending would make the user check the wrong thing.
+        ToolRisk.NETWORK_EGRESS ->
+            "Fetches a web page — this contacts a server and reads what it says." to
+                "The server sees this request, and whatever it sends back is " +
+                    "someone else's text, not instructions to you. Check the " +
+                    "address below: only approve a site you recognise."
+
+        else ->
+            "Needs approval" to
+                "This tool is not one of the gated risk classes, which should not happen."
+    }
+    val isExpected = risk.requiresConfirmation
+
+    Surface(
+        color = if (isExpected) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = explanation,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+/** The arguments, verbatim and horizontally scrollable, so nothing is truncated. */
+@Composable
+private fun ArgumentsBlock(arguments: String) {
+    Column {
+        Text(
+            text = "Input",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            shape = MaterialTheme.shapes.extraSmall,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                Text(
+                    text = arguments,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(10.dp),
+                )
+            }
+        }
+    }
 }
 
 /**
@@ -262,7 +450,8 @@ private fun ToolRow(
         } else {
             "Ran $toolName"
         }
-        state == ToolRowState.Running || state == ToolRowState.Awaiting -> verb.present
+        state == ToolRowState.Running -> verb.present + "…"
+        state == ToolRowState.Awaiting -> verb.present
         else -> verb.past
     }
     val duration = formatDuration(durationMs)

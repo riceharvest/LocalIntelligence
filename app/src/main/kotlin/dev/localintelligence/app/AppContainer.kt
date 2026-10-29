@@ -8,6 +8,8 @@ import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.cloud.OpenRouterPlugin
+import dev.localintelligence.android.skills.SkillRepository
+import dev.localintelligence.android.skills.SkillsPlugin
 import dev.localintelligence.android.tools.androidToolPlugins
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.settings.SettingsStore
@@ -29,6 +31,7 @@ import dev.localintelligence.core.agent.ToolCallValidatorGate
 import dev.localintelligence.core.agent.TurnRecorder
 import dev.localintelligence.core.execution.RunGate
 import dev.localintelligence.core.memory.LexicalMemoryStore
+import dev.localintelligence.core.memory.ProfilePlugin
 import dev.localintelligence.android.inference.RamEstimate
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import androidx.compose.runtime.mutableStateListOf
@@ -147,8 +150,11 @@ class AppContainer(private val context: Context) {
         // catalogue would fail whenever any plugin is off, which is the default for
         // the cloud plugin.
         CatalogueAgreement.require(families.flatMap { it.tools() } + cloud.shippedTools(), V0ToolCatalogue.definitions)
-        families + cloud
+        families + ProfilePlugin() + SkillsPlugin(skills) + cloud
     }
+
+    /** Skills on disk under filesDir/skills. Shared by the plugin, the skills screen and "Save as skill". */
+    val skills: SkillRepository by lazy { SkillRepository(File(context.filesDir, "skills")) }
 
     /**
      * The risk policy, shared by every controller this container builds.
@@ -588,12 +594,22 @@ class AppContainer(private val context: Context) {
         )
     }
 
-    /** The runtime that can actually load [model], decided from its file. */
+    /**
+     * The runtime that can actually load [model], decided from its file.
+     *
+     * WHY a LiteRT-LM model that cannot be routed is an error and not a fall back
+     * to llama.cpp: llama.cpp cannot open a `.litertlm`, and the failure would come
+     * from native code with no reason attached. The fall back stays for models
+     * that list llama.cpp as a supported backend, which is every GGUF.
+     */
     fun backendFor(model: ImportedModel): ModelBackend {
         val file = model.uri.path?.let { java.io.File(it) }
-            ?: return modelBackend
-        if (!file.isFile) return modelBackend
-        return runCatching { backendRouter.route(file) }.getOrElse { modelBackend }
+        val routed = file?.takeIf { it.isFile }?.let { runCatching { backendRouter.route(it) }.getOrNull() }
+        if (routed != null) return routed
+        if (ModelImporter.BACKEND_LLAMA_CPP in model.supportedBackends) return modelBackend
+        throw IllegalStateException(
+            "cannot find a runtime for ${model.displayName}: it is not a file this app can open by path",
+        )
     }
 
     val importer: ModelImporter by lazy { ModelImporter(context.contentResolver) }
@@ -900,6 +916,10 @@ class AppContainer(private val context: Context) {
         model: ModelBackend = residentBackend(),
         metrics: RunRecorder? = null,
         onToken: ((String) -> Unit)? = null,
+        /** A tool is about to run. Forwarded to the controller; see [AgentController]. */
+        onToolStart: ((name: String, args: String) -> Unit)? = null,
+        /** A tool has returned and the trace now holds it. Forwarded to the controller. */
+        onToolDone: ((List<dev.localintelligence.core.agent.StepTrace>) -> Unit)? = null,
         /** A scheduled or background run: nobody is there to approve anything. */
         background: Boolean = false,
     ): AgentController {
@@ -913,6 +933,8 @@ class AppContainer(private val context: Context) {
         val config = snapshot.agentConfig()
         return AgentController(
         onToken = onToken,
+        onToolStart = onToolStart,
+        onToolDone = onToolDone,
         // Persist whenever the loop trims the window, not only at run
         // boundaries: a message removed by a mid-run fold is unrecoverable
         // afterwards. See AgentController.onWindowChanged.

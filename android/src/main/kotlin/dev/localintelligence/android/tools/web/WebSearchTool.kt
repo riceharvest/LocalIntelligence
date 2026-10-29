@@ -420,6 +420,8 @@ class WebSearchTool private constructor(
         // Stated, as in WebFetchTool: the results are written by third parties,
         // and this is what makes ModelBackend fence them.
         observationOrigin = ObservationOrigin.NETWORK,
+        // The endpoint is fixed, so the confirmation can name it.
+        fixedHost = SEARCH_HOST,
         tags = setOf(
             "search", "search for", "look up", "google", "search the web", "web search", "find online",
         ),

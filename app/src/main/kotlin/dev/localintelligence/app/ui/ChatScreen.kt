@@ -1,6 +1,7 @@
 package dev.localintelligence.app.ui
 
 import android.widget.Toast
+import dev.localintelligence.android.skills.SkillRepository
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -62,6 +64,7 @@ import dev.localintelligence.app.ui.components.ChatModelIdentity
 import dev.localintelligence.app.ui.components.ModelIdentityLine
 import dev.localintelligence.app.ui.components.ApprovalRow
 import dev.localintelligence.app.ui.components.PendingToolRow
+import dev.localintelligence.app.ui.components.RunningToolRow
 import dev.localintelligence.app.ui.components.TranscriptEntry
 import dev.localintelligence.app.ui.components.ToolCallGroup
 import dev.localintelligence.app.ui.components.ToolStepRow
@@ -126,12 +129,40 @@ fun ChatScreen(
      * preferences and the default matches the setting's own default.
      */
     toolCallsAutoCollapse: Boolean = true,
+    /** The skills store. Null hides "Save as skill", for hosts that have no store. */
+    skills: SkillRepository? = null,
 ) {
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
     val messages by viewModel.messages.collectAsStateWithLifecycle()
+    // "Save as skill" draft for the answer on screen, if the run used 2+ tools.
+    // Shown in SkillEditorDialog; nothing is written until the user taps Save.
+    val skillDraft = remember(messages) { saveAsSkillDraft(messages) }
+    var editingSkill by remember { mutableStateOf<String?>(null) }
+    editingSkill?.let { draft ->
+        val store = skills
+        val dialogContext = LocalContext.current
+        if (store != null) {
+            SkillEditorDialog(
+                title = "Save as skill",
+                initialText = draft,
+                onDismiss = { editingSkill = null },
+                onConfirm = { text ->
+                    when (val saved = store.save(text)) {
+                        is SkillRepository.SaveResult.Saved -> {
+                            editingSkill = null
+                            Toast.makeText(dialogContext, "Saved skill ${saved.slug}", Toast.LENGTH_SHORT).show()
+                            null
+                        }
+                        is SkillRepository.SaveResult.Refused -> saved.reason
+                    }
+                },
+            )
+        }
+    }
     val runState by viewModel.runState.collectAsStateWithLifecycle()
     val rawStreaming by viewModel.streamingText.collectAsStateWithLifecycle()
+    val running by viewModel.runningTool.collectAsStateWithLifecycle()
     // What the live bubble shows. Everything below reads this, so the bubble,
     // its row in the count and the empty state cannot disagree about it.
     val streaming = remember(rawStreaming) { liveBubbleText(rawStreaming) }
@@ -188,13 +219,14 @@ fun ChatScreen(
     // auto-scroll has to reach it, or a run that is waiting on a model load
     // scrolls the user's own question off the top of the screen.
     // While the runtime waits on an approval, the call's own row (with its
-    // shield) says so, so the progress line stays silent to avoid saying it twice.
+    // Allow and Deny) says so, so the progress line stays silent to avoid saying it twice.
     val awaiting = runState as? RunState.AwaitingApproval
     val progress = if (awaiting != null) null else progressLine(runState)
     val entries = remember(messages) { groupToolCalls(messages) }
     val animate = rememberMotionEnabled()
     val rowCount = messages.size +
         (if (streaming.isNotEmpty()) 1 else 0) +
+        (if (running != null) 1 else 0) +
         (if (progress != null) 1 else 0) +
         (if (awaiting != null) 1 else 0)
 
@@ -243,14 +275,6 @@ fun ChatScreen(
     // the same one.
     val configuration = LocalConfiguration.current
     val compactComposer = configuration.screenHeightDp < COMPACT_HEIGHT_DP
-
-    if (awaiting != null) {
-        ConfirmationDialog(
-            pending = awaiting,
-            onApprove = { viewModel.resolveConfirmation(approved = true) },
-            onDecline = { viewModel.resolveConfirmation(approved = false) },
-        )
-    }
 
     Scaffold(
         // NO imePadding HERE, and this is the load-bearing part of the fix.
@@ -347,7 +371,7 @@ fun ChatScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (messages.isEmpty() && streaming.isEmpty() && progress == null) {
+            if (messages.isEmpty() && streaming.isEmpty() && running == null && progress == null) {
                 item("empty") {
                     EmptyState(
                         blockedReason = blocked,
@@ -367,7 +391,14 @@ fun ChatScreen(
                 when (entry) {
                     is TranscriptEntry.Single -> when (val message = entry.message) {
                         is ChatMessage.User -> UserBubble(message.text)
-                        is ChatMessage.Assistant -> AssistantBubble(message.text)
+                        is ChatMessage.Assistant -> AssistantBubble(
+                            text = message.text,
+                            onSaveAsSkill = if (skills != null && skillDraft != null && message === messages.last()) {
+                                { editingSkill = skillDraft }
+                            } else {
+                                null
+                            },
+                        )
                         is ChatMessage.Notice -> NoticeLine(message.text)
                         is ChatMessage.Approval -> ApprovalRow(message)
                         is ChatMessage.ToolStep -> ToolStepRow(message, animate)
@@ -387,8 +418,18 @@ fun ChatScreen(
                     }
                 }
             }
+            running?.let { tool ->
+                item("running") { RunningToolRow(tool, animate) }
+            }
             if (awaiting != null) {
-                item("pending") { PendingToolRow(awaiting, animate) }
+                item("pending") {
+                    PendingToolRow(
+                        pending = awaiting,
+                        animate = animate,
+                        onApprove = { viewModel.resolveConfirmation(approved = true) },
+                        onDecline = { viewModel.resolveConfirmation(approved = false) },
+                    )
+                }
             }
             if (progress != null) {
                 item("progress") { ProgressLine(progress) }
@@ -447,13 +488,18 @@ private fun UserBubble(text: String) {
 }
 
 @Composable
-private fun AssistantBubble(text: String) {
+private fun AssistantBubble(text: String, onSaveAsSkill: (() -> Unit)? = null) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth(0.95f),
     ) {
-        Text(text, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+        Column(Modifier.padding(12.dp)) {
+            Text(text, style = MaterialTheme.typography.bodyMedium)
+            if (onSaveAsSkill != null) {
+                TextButton(onClick = onSaveAsSkill) { Text("Save as skill") }
+            }
+        }
     }
 }
 

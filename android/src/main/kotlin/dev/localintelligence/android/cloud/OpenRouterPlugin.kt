@@ -67,12 +67,14 @@ object OpenRouterSettings {
         "The OpenRouter model id used for images. Typed as is; check the Models page for ids " +
             "with image output.",
         SettingSection.PLUGINS, default = "google/gemini-2.5-flash-image", maxLength = 120,
+        blankMeansDefault = true,
     )
     val VIDEO_MODEL = SettingDef.Text(
         "cloud.openrouter.video_model", "Video model",
         "The OpenRouter model id used for videos. The default is the example id in OpenRouter's " +
             "video docs, not checked against the live model list.",
         SettingSection.PLUGINS, default = "google/veo-3.1", maxLength = 120,
+        blankMeansDefault = true,
     )
     val VIDEO_WAIT_SECONDS = SettingDef.IntValue(
         "cloud.openrouter.video_wait", "Video wait limit",

@@ -60,14 +60,21 @@ sealed class SettingDef<T : Any>(
             (raw as? String)?.takeIf { id -> options.any { it.id == id } } ?: default
     }
 
-    /** Free text, such as a model id. Shown in full, trimmed, at most [maxLength] characters. */
+    /**
+     * Free text, hard-capped at [maxLength] characters. The cap is enforced on read
+     * too, so no path can hand the prompt more than the setting promises.
+     * [blankMeansDefault]: an emptied field reads as [default] (a model id), rather
+     * than as an empty value (a profile the user cleared).
+     */
     class Text(
         key: String, title: String, help: String, section: SettingSection,
-        default: String, val maxLength: Int = 200,
+        default: String, val maxLength: Int = 200, val blankMeansDefault: Boolean = false,
         simple: Boolean = false, applies: SettingApplies = SettingApplies.NEXT_RUN,
     ) : SettingDef<String>(key, title, help, section, default, simple, applies) {
-        override fun coerce(raw: Any?): String =
-            (raw as? String)?.trim()?.takeIf { it.isNotEmpty() && it.length <= maxLength } ?: default
+        override fun coerce(raw: Any?): String {
+            val value = (raw as? String)?.take(maxLength) ?: return default
+            return if (blankMeansDefault && value.isBlank()) default else value
+        }
     }
 
     /**

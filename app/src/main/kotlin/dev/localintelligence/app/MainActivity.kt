@@ -35,6 +35,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import android.net.Uri
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
 import dev.localintelligence.core.settings.CoreSettings
@@ -43,6 +45,7 @@ import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.HubScreen
 import dev.localintelligence.app.ui.SettingsScreen
+import dev.localintelligence.app.ui.SkillsScreen
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
@@ -168,6 +171,7 @@ class MainActivity : ComponentActivity() {
                                 // Read here, where the screen is built, and passed down
                                 // as a plain Boolean: the screen never touches prefs.
                                 toolCallsAutoCollapse = container.settings[CoreSettings.TOOL_CALLS_AUTO_COLLAPSE],
+                                skills = container.skills,
                             )
                         }
                     }
@@ -349,7 +353,15 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    composable(ROUTE_HUB) {
+                    // Plain "hub" opens empty. The Settings suggestion adds the
+                    // repo and file, so the Hub opens with that file selected.
+                    composable(
+                        route = "$ROUTE_HUB?repo={repo}&file={file}",
+                        arguments = listOf(
+                            navArgument("repo") { nullable = true; defaultValue = null },
+                            navArgument("file") { nullable = true; defaultValue = null },
+                        ),
+                    ) { entry ->
                         // The registrar is what makes a download usable: the
                         // default adopts nothing, so the finished file would sit
                         // in files/models while the app still said "import a
@@ -365,6 +377,11 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         hub = vm
+                        val repo = entry.arguments?.getString("repo")
+                        val file = entry.arguments?.getString("file")
+                        LaunchedEffect(repo, file) {
+                            if (repo != null && file != null) vm.prefill(repo, file)
+                        }
                         HubScreen(viewModel = vm, onBack = { nav.popBackStack() })
                     }
 
@@ -373,7 +390,18 @@ class MainActivity : ComponentActivity() {
                             store = container.settings,
                             plugins = container.plugins,
                             suggestion = SimpleSetup.suggestedModel(container.deviceFacts),
-                            onOpenHub = { nav.navigate(ROUTE_HUB) },
+                            onOpenHub = { repo, file ->
+                                nav.navigate("$ROUTE_HUB?repo=${Uri.encode(repo)}&file=${Uri.encode(file)}")
+                            },
+                            onOpenSkills = { nav.navigate(ROUTE_SKILLS) },
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
+                    composable(ROUTE_SKILLS) {
+                        SkillsScreen(
+                            store = container.settings,
+                            repository = container.skills,
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -421,6 +449,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_SCHEDULE = "schedule"
         const val ROUTE_REDACTION = "redaction"
         const val ROUTE_SETTINGS = "settings"
+        const val ROUTE_SKILLS = "skills"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
         const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"

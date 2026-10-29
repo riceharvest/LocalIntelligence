@@ -39,12 +39,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.app.openAssistantSettings
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.core.plugin.AgentPlugin
@@ -66,7 +68,9 @@ fun SettingsScreen(
     store: SettingsStore,
     plugins: List<AgentPlugin>,
     suggestion: SuggestedModel,
-    onOpenHub: () -> Unit,
+    onOpenHub: (repo: String, file: String) -> Unit,
+    /** Opens the skills screen. Defaulted so a caller that predates skills still compiles. */
+    onOpenSkills: () -> Unit = {},
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -97,7 +101,8 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 ModeSwitch(store)
-                if (!technical) SuggestionCard(suggestion, onOpenHub)
+                if (!technical) SuggestionCard(suggestion) { onOpenHub(suggestion.repo, suggestion.file) }
+                AssistantCard()
 
                 val rows = (CoreSettings.all + plugins.flatMap { it.settings })
                     .filter { it !== CoreSettings.MODE && (technical || it.simple) }
@@ -109,6 +114,7 @@ fun SettingsScreen(
                 }
 
                 SectionHeader(if (technical) "Plugins" else "What the assistant can use")
+                FilledTonalButton(onClick = onOpenSkills, modifier = Modifier.fillMaxWidth()) { Text("Skills") }
                 plugins.forEach { plugin ->
                     SwitchRow(
                         title = plugin.title,
@@ -152,6 +158,22 @@ private fun SuggestionCard(suggestion: SuggestedModel, onOpenHub: () -> Unit) {
 }
 
 @Composable
+private fun AssistantCard() {
+    val context = LocalContext.current
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Phone assistant", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "Opens LocalIntelligence over any app from the long-press Home or power button. " +
+                    "You choose it in system settings.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            FilledTonalButton(onClick = { openAssistantSettings(context) }) { Text("Set as phone assistant") }
+        }
+    }
+}
+
+@Composable
 private fun SectionHeader(title: String) {
     Column(Modifier.padding(top = 12.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
@@ -189,7 +211,7 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
                 )
             }
         }
-        is SettingDef.Text -> TextRow(store, def, help)
+        is SettingDef.Text -> TextSettingRow(store, def, help)
         is SettingDef.Secret -> SecretRow(store, def, help)
         is SettingDef.IntValue -> {
             val value = store.stored(def)
@@ -213,29 +235,33 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
 }
 
 /**
- * A free-text setting. Writes on Done or when the field loses focus, not on every
- * keystroke: each write rebuilds this screen (see [SettingsScreen]), which would
- * drop the keyboard mid-word.
+ * A multi-line text setting with an explicit Save.
+ *
+ * WHY SAVE AND NOT WRITE-ON-EVERY-KEY: a store write bumps [SettingsStore.changes], and
+ * the whole screen is keyed on that revision, so each keystroke would rebuild the field
+ * and drop the cursor. The draft lives here until Save, which is the one write.
  */
 @Composable
-private fun TextRow(store: SettingsStore, def: SettingDef.Text, help: String) {
-    val saved = store.stored(def)
-    var draft by remember(saved) { mutableStateOf(saved) }
-    fun commit() {
-        if (draft != saved) store.set(def, draft)
-    }
+private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: String) {
+    val stored = store.stored(def)
+    var draft by remember(stored) { mutableStateOf(stored) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        RowTitle(def.title, help, onReset = { store.reset(def) })
+        RowTitle(def.title, help)
         OutlinedTextField(
             value = draft,
-            onValueChange = { draft = it },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { commit() }),
-            modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) commit() },
+            onValueChange = { draft = it.take(def.maxLength) },
+            minLines = 3,
+            modifier = Modifier.fillMaxWidth(),
+            supportingText = { Text("${draft.length} of ${def.maxLength} characters") },
         )
-    }
-}
+        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            if (stored.isNotEmpty()) {
+                TextButton(onClick = { store.set(def, "") }) { Text("Clear") }
+            }
+            FilledTonalButton(
+                onClick = { store.set(def, draft) },
+                enabled = draft != stored,
+            ) { Text("Save") }
 
 /**
  * A credential. The screen says only "set" or "not set"; the field is for typing

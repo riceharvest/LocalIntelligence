@@ -269,6 +269,51 @@
             </intent-filter>
         </activity>
 
+        <!-- Digital assistant (long-press Home / power button). The system binds
+             the interaction service only after the user picks this app in
+             Settings > Default apps > Digital assistant app. BIND_VOICE_INTERACTION
+             is a system permission, so no other app can bind either service. -->
+        <service
+            android:name=".AssistantInteractionService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/assistant_interaction_service" />
+        </service>
+        <service
+            android:name=".AssistantRecognitionService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".AssistantSessionService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+
+        <!-- The overlay the assistant shows over the current app. Started by the
+             session and by the ASSIST intent (the older assist gesture). Dialog
+             theme so it floats over the app underneath. Exported because the
+             system starts it. -->
+        <activity
+            android:name=".AssistActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="Ask LocalIntelligence"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <!-- Quick Settings tile. Opens the chat from the shade. The
              BIND_QUICK_SETTINGS_TILE permission means only the system can bind
              it; no other app can start the service. -->
