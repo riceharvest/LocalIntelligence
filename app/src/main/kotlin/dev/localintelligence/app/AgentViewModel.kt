@@ -73,6 +73,7 @@ class AgentViewModel(
     override val runState: StateFlow<RunState> get() = sinks.state
     override val trace: StateFlow<List<StepTrace>> get() = sinks.trace
     override val streamingText: StateFlow<String> get() = sinks.streamingText
+    override val runningTool: StateFlow<RunningTool?> get() = sinks.runningTool
 
     override fun start(task: String) {
         // One run at a time. The STOP button is not a queue.
@@ -93,6 +94,7 @@ class AgentViewModel(
     private fun runTask(task: String) {
         sinks.state.value = RunState.Running
         sinks.streamingText.value = ""
+        sinks.runningTool.value = null
         val runner = controller ?: newController().also {
             controller = it
             if (cancelRequested) it.cancel()
@@ -261,6 +263,7 @@ class AgentViewModel(
             )
         } finally {
             sinks.streamingText.value = ""
+            sinks.runningTool.value = null
         }
     }
 
@@ -344,6 +347,9 @@ class AgentViewModel(
                 sinks.state.value = RunState.Finished(RunOutcome.Cancelled)
         }
         sinks.streamingText.value = ""
+        // A tool that is still "running" cannot be running once the run has a
+        // result: either it finished, and the trace says so, or it was never run.
+        sinks.runningTool.value = null
     }
 
     companion object {
@@ -372,11 +378,13 @@ class RunSinks {
     val state: MutableStateFlow<RunState> = MutableStateFlow(RunState.Idle)
     val trace: MutableStateFlow<List<StepTrace>> = MutableStateFlow(emptyList())
     val streamingText: MutableStateFlow<String> = MutableStateFlow("")
+    val runningTool: MutableStateFlow<RunningTool?> = MutableStateFlow(null)
 
     fun reset() {
         state.value = RunState.Idle
         trace.value = emptyList()
         streamingText.value = ""
+        runningTool.value = null
     }
 }
 
@@ -391,10 +399,22 @@ interface AgentGateway {
     val trace: StateFlow<List<StepTrace>>
     val streamingText: StateFlow<String>
 
+    /** The tool call in flight right now, or null. Not a trace entry: see [RunningTool]. */
+    val runningTool: StateFlow<RunningTool?>
+
     fun start(task: String)
     fun confirm(approved: Boolean)
     fun cancel()
 }
+
+/**
+ * A tool call that has started and has not returned yet.
+ *
+ * Kept beside the trace rather than inside it, on purpose: the trace is the
+ * record of what happened and every entry in it is final, so a call that is
+ * still running has no entry yet. [args] is the compact form the trace uses.
+ */
+data class RunningTool(val toolName: String, val args: String)
 
 /** Coarse run phase. Everything the chat screen branches on is here. */
 sealed interface RunState {
