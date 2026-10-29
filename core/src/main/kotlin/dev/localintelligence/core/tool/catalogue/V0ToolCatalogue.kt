@@ -1083,6 +1083,8 @@ object V0ToolCatalogue {
             risk = ToolRisk.NETWORK_EGRESS,
             observationOrigin = ObservationOrigin.NETWORK,
             tags = setOf("video", "clip", "animation", "generate video", "make a video", "movie"),
+            requiredPermission = null,
+        ),
         // ------------------------------------------------------------- history
         ToolDefinition(
             name = "history.search",
