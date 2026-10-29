@@ -57,13 +57,15 @@ data class TaskReadiness(
         // "the model would not load" in this app, and a scheduled task showing
         // a different sentence for the same failure is exactly the drift this
         // type exists to prevent.
-        modelAvailability.blockingReason()?.let { reason ->
-            add(
-                TaskBlocker.NoModel(
-                    message = reason,
-                    action = TaskAction.OpenModels,
-                ),
-            )
+        if (!hasModel || modelAvailability is ModelAvailability.Failed) {
+            modelAvailability.blockingReason()?.let { reason ->
+                add(
+                    TaskBlocker.NoModel(
+                        message = reason,
+                        action = TaskAction.OpenModels,
+                    ),
+                )
+            }
         }
         if (!notificationsAllowed) {
             add(

@@ -135,7 +135,7 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
         task: ScheduledTask,
     ) {
         val now = System.currentTimeMillis()
-        val next = TaskCadence.nextAfter(task.cadence, task.nextRunAtMillis)
+        val next = TaskCadence.nextAfter(task.cadence, task.nextRunAtMillis, notBefore = now)
 
         val advanced = if (next == null) {
             // One-shot: it has now fired, so it is not "enabled and waiting".
@@ -271,7 +271,17 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
         for (task in store.all()) {
             if (!task.enabled) continue
             val rolled = if (task.nextRunAtMillis <= now) {
-                val next = TaskCadence.nextAfter(task.cadence, now) ?: continue
+                val next = TaskCadence.nextAfter(task.cadence, task.nextRunAtMillis, notBefore = now)
+                if (next == null) {
+                    store.upsert(
+                        task.copy(
+                            enabled = false,
+                            lastResult = ScheduledRunReporter.DID_NOT_START +
+                                "missed while the phone was off.",
+                        ),
+                    )
+                    continue
+                }
                 task.copy(nextRunAtMillis = next)
             } else {
                 task

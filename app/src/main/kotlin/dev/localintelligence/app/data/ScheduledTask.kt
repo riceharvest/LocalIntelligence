@@ -95,11 +95,12 @@ sealed interface TaskCadence {
         const val MIN_EVERY_MINUTES = 15
         const val MAX_EVERY_MINUTES = 24 * 60
 
-        /** The exact next fire strictly after [afterMillis], or null when finished. */
+        /** The exact next fire strictly after [afterMillis] and [notBefore], or null when finished. */
         fun nextAfter(
             cadence: TaskCadence,
             afterMillis: Long,
             zone: ZoneId = ZoneId.systemDefault(),
+            notBefore: Long = afterMillis,
         ): Long? = when (cadence) {
             // A one-shot has exactly one next fire, ever. Returning null is what
             // lets the fire path disable it instead of scheduling it into a loop.
@@ -107,11 +108,12 @@ sealed interface TaskCadence {
 
             is TaskCadence.EveryMinutes -> {
                 val step = cadence.minutes.coerceIn(MIN_EVERY_MINUTES, MAX_EVERY_MINUTES) * 60_000L
+                val threshold = maxOf(afterMillis, notBefore)
                 // One step is the common case. The loop is here for the case
                 // where the phone was off for three days: it skips the missed
                 // slots instead of firing nine times the instant it wakes up.
                 var candidate = afterMillis + step
-                while (candidate <= afterMillis) candidate += step
+                while (candidate <= threshold) candidate += step
                 candidate
             }
 
@@ -120,9 +122,10 @@ sealed interface TaskCadence {
                     cadence.hour.coerceIn(0, 23),
                     cadence.minute.coerceIn(0, 59),
                 )
+                val threshold = maxOf(afterMillis, notBefore)
                 var day = Instant.ofEpochMilli(afterMillis).atZone(zone).toLocalDate()
                 var target = ZonedDateTime.of(day, time, zone)
-                if (!target.toInstant().toEpochMilli().let { it > afterMillis }) {
+                while (target.toInstant().toEpochMilli() <= threshold) {
                     day = day.plusDays(1)
                     target = ZonedDateTime.of(day, time, zone)
                 }
