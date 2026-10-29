@@ -38,9 +38,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.app.openAssistantSettings
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.core.plugin.AgentPlugin
@@ -62,7 +64,7 @@ fun SettingsScreen(
     store: SettingsStore,
     plugins: List<AgentPlugin>,
     suggestion: SuggestedModel,
-    onOpenHub: () -> Unit,
+    onOpenHub: (repo: String, file: String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -93,7 +95,8 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 ModeSwitch(store)
-                if (!technical) SuggestionCard(suggestion, onOpenHub)
+                if (!technical) SuggestionCard(suggestion) { onOpenHub(suggestion.repo, suggestion.file) }
+                AssistantCard()
 
                 val rows = (CoreSettings.all + plugins.flatMap { it.settings })
                     .filter { it !== CoreSettings.MODE && (technical || it.simple) }
@@ -143,6 +146,22 @@ private fun SuggestionCard(suggestion: SuggestedModel, onOpenHub: () -> Unit) {
             Text(suggestion.file, style = MaterialTheme.typography.titleMedium)
             Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
             FilledTonalButton(onClick = onOpenHub) { Text("Get it from ${suggestion.repo}") }
+        }
+    }
+}
+
+@Composable
+private fun AssistantCard() {
+    val context = LocalContext.current
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Phone assistant", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "Opens LocalIntelligence over any app from the long-press Home or power button. " +
+                    "You choose it in system settings.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            FilledTonalButton(onClick = { openAssistantSettings(context) }) { Text("Set as phone assistant") }
         }
     }
 }

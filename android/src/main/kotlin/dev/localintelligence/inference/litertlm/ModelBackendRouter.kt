@@ -175,7 +175,7 @@ class ModelBackendRouter(
         }
         return when {
             head.startsWith(GGUF_MAGIC) -> Container.GGUF
-            head.contains(LITERTLM_MAGIC) -> Container.LITERTLM
+            LiteRtLmContainer.matches(head) -> Container.LITERTLM
             else -> null
         }
     }
@@ -229,12 +229,6 @@ class ModelBackendRouter(
         private val GGUF_MAGIC = "GGUF".toByteArray(Charsets.US_ASCII)
 
         /**
-         * From the shipped `liblitertlm_jni.so` (0.13.1):
-         * `Invalid magic number. Expected 'LITERTLM', got '`.
-         */
-        private val LITERTLM_MAGIC = "LITERTLM".toByteArray(Charsets.US_ASCII)
-
-        /**
          * A router wired to a live [Context].
          *
          * The one line `AppContainer` needs:
@@ -272,17 +266,6 @@ private fun ByteArray.startsWith(prefix: ByteArray): Boolean {
     if (size < prefix.size) return false
     for (i in prefix.indices) if (this[i] != prefix[i]) return false
     return true
-}
-
-/** Whether [needle] appears anywhere in this buffer. See [ModelBackendRouter.sniff]. */
-private fun ByteArray.contains(needle: ByteArray): Boolean {
-    if (needle.isEmpty() || size < needle.size) return false
-    for (start in 0..(size - needle.size)) {
-        var match = true
-        for (i in needle.indices) if (this[start + i] != needle[i]) { match = false; break }
-        if (match) return true
-    }
-    return false
 }
 
 /** Matches `AppContainer.modelsDir`, so both backends see the same directory. */

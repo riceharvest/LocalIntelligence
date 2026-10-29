@@ -321,6 +321,12 @@ class HuggingFaceClient(
          * [PreDownloadMemoryModel] and is conservative in the safe direction.
          */
         header: GgufHeader? = null,
+        /**
+         * False for a file whose memory cannot be estimated from GGUF metadata
+         * (a LiteRT-LM file). The RAM gate is then skipped and the plan is gated
+         * on disk space alone. The default keeps every GGUF caller unchanged.
+         */
+        ramGate: Boolean = true,
     ): DownloadPlan {
         // WHY `rangedFrom` AND NOT `from`: `from` returns the plain
         // `MemoryModel` the seam declares, and a lambda cannot also be a
@@ -332,14 +338,25 @@ class HuggingFaceClient(
         // never fire. The tensor table still leaves the runtime-buffer term
         // unmeasured, so the range it produces is that term's width.
         val effectiveModel = header?.let { GgufMemoryModel.rangedFrom(it) } ?: model
-        val ram = FitGate.ramFit(
-            fileBytes = file.sizeBytes,
-            quant = file.quant,
-            contextLength = contextLength,
-            budget = budget,
-            model = effectiveModel,
-            parameterCount = header?.let { null } ?: parseParameterCount(file.fileName),
-        )
+        val ram = if (ramGate) {
+            FitGate.ramFit(
+                fileBytes = file.sizeBytes,
+                quant = file.quant,
+                contextLength = contextLength,
+                budget = budget,
+                model = effectiveModel,
+                parameterCount = header?.let { null } ?: parseParameterCount(file.fileName),
+            )
+        } else {
+            // Not a memory verdict. It says the RAM gate did not apply, so a
+            // caller that displays it must not present it as a fit estimate.
+            RamFit(
+                totalBytes = 0L,
+                availableBytes = budget.availableRamBytes(),
+                fits = true,
+                explanation = "No memory estimate: this file is not GGUF, so its size is the only figure.",
+            )
+        }
         val stillNeeded = (file.sizeBytes - alreadyOnDiskBytes).coerceAtLeast(0L)
         val headroom = maxOf(
             (file.sizeBytes * FitGate.DISK_HEADROOM_RATIO).toLong(),
