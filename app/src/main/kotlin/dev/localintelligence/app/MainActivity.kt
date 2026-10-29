@@ -37,6 +37,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
+import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.app.ui.ChatScreen
 import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
@@ -164,6 +165,9 @@ class MainActivity : ComponentActivity() {
                                 onOpenSettings = { nav.navigate(ROUTE_SETTINGS) },
                                 modifier = Modifier.fillMaxSize(),
                                 activeModel = resident,
+                                // Read here, where the screen is built, and passed down
+                                // as a plain Boolean: the screen never touches prefs.
+                                toolCallsAutoCollapse = container.settings[CoreSettings.TOOL_CALLS_AUTO_COLLAPSE],
                             )
                         }
                     }
