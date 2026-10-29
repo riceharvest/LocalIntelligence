@@ -700,7 +700,10 @@ class NotificationListTool(
                 ToolError.Unavailable("activeNotifications returned null"),
             )
 
-            val all = active.map { sbn -> NotificationProjector.project(sbn, LABELS::labelFor) }
+            // Skip this app's own notifications, such as the foreground "Working on your request" one.
+            val all = active
+                .filter { sbn -> sbn.packageName != service.packageName }
+                .map { sbn -> NotificationProjector.project(sbn, LABELS::labelFor) }
             val query = NotificationArgs.coerceString(args["query"])?.lowercase()
             val onlyReplyable = NotificationArgs.coerceBool(args["onlyReplyable"])
             val limit = NotificationArgs.coerceInt(

@@ -13,6 +13,7 @@ import android.content.SharedPreferences
 import android.os.Build
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import dev.localintelligence.android.tools.device.ArgCoerce
 import dev.localintelligence.android.tools.device.ArgResult
 import dev.localintelligence.android.tools.device.guarded
@@ -599,6 +600,9 @@ interface AlarmPlatform {
     fun nowMillis(): Long
 
     fun hasClockApp(): Boolean
+
+    /** False when this app's notifications are off, so an alarm can only show a Toast. */
+    fun notificationsEnabled(): Boolean
 }
 
 // =====================================================================================
@@ -811,6 +815,14 @@ class AlarmCreateTool(
 
             val now = platform.nowMillis()
             val plan = AlarmTimes.plan(now, ZoneId.systemDefault(), hour, minute, dayOffset)
+            if (plan.triggerAtMillis <= now) {
+                return@guarded ToolResult(
+                    success = false,
+                    observation = "That time has already passed today, so the alarm would ring at once. " +
+                        "Use day_offset 1, or leave day_offset out to set it for tomorrow.",
+                    error = ToolError.InvalidArguments("day_offset 0 is in the past"),
+                )
+            }
             val id = AlarmIds.coerceId(
                 raw = (ArgCoerce.string(args, "id") as? ArgResult.Present)?.value,
                 hour = hour,
@@ -828,12 +840,38 @@ class AlarmCreateTool(
                 requestCode = AlarmIds.requestCodeOf(id),
                 createdAtMillis = now,
             )
+            val tracked = AlarmRegistry.all()
+            if (tracked.any { it.id.equals(id, ignoreCase = true) }) {
+                return@guarded ToolResult(
+                    success = false,
+                    observation = "An alarm with id \"$id\" already exists. Pick another id, or " +
+                        "cancel that alarm with alarm.cancel first.",
+                    error = ToolError.InvalidArguments("id $id already in use"),
+                )
+            }
+            if (tracked.size >= AlarmRegistry.MAX_TRACKED) {
+                return@guarded ToolResult(
+                    success = false,
+                    observation = "${AlarmRegistry.MAX_TRACKED} alarms are already set, the most this " +
+                        "assistant can list and cancel. Cancel one with alarm.cancel first.",
+                    error = ToolError.Unavailable("alarm limit of ${AlarmRegistry.MAX_TRACKED} reached"),
+                )
+            }
+
             platform.schedule(spec)
             AlarmRegistry.add(spec)
 
+            // Notifications that are off are dropped without an error, so the model is told here.
+            val notice = if (platform.notificationsEnabled()) {
+                ""
+            } else {
+                " Notifications are off, so it will only show a brief message."
+            }
             ToolResult(
                 success = true,
-                observation = ObservationTruncator.truncate(AlarmDescriptions.describeCreated(spec, plan)),
+                observation = ObservationTruncator.truncate(
+                    AlarmDescriptions.describeCreated(spec, plan) + notice,
+                ),
                 data = buildJsonObject {
                     put("id", spec.id)
                     put("hour", spec.hour)
@@ -965,14 +1003,15 @@ class AlarmCancelTool(private val platform: AlarmPlatform) : AgentTool {
         // touched. A guard that can only run after the cancellation has already been
         // issued is not a guard.
         if (decision !is CancelDecision.Cancel) {
+            // No match or an ambiguous request is a valid answer, not a failed call. Two
+            // failures would mark the tool unavailable for the rest of the run.
             return ToolResult(
-                success = false,
+                success = true,
                 observation = ObservationTruncator.truncate(AlarmCancel.describe(decision)),
                 data = buildJsonObject {
                     put("cancelled", false)
                     put("reason", decision.javaClass.simpleName)
                 },
-                error = ToolError.InvalidArguments(AlarmCancel.describe(decision)),
             )
         }
 
@@ -1069,6 +1108,9 @@ class AndroidAlarmPlatform(private val context: Context) : AlarmPlatform {
         // permission at all, so the question cannot arise.
         return if (Build.VERSION.SDK_INT >= API_S) alarmManager.canScheduleExactAlarms() else true
     }
+
+    override fun notificationsEnabled(): Boolean =
+        NotificationManagerCompat.from(appContext).areNotificationsEnabled()
 
     override fun schedule(spec: AlarmSpec) {
         val alarmManager = manager() ?: throw IllegalStateException("AlarmManager unavailable")
@@ -1181,9 +1223,13 @@ class AlarmFireReceiver : BroadcastReceiver() {
     ): Boolean = try {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as? NotificationManager ?: return false
-        ensureChannel(context, manager)
-        manager.notify(id.hashCode(), build(context, id, label, time))
-        true
+        // notify() drops the notification without an error when notifications are off.
+        val enabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+        if (enabled) {
+            ensureChannel(context, manager)
+            manager.notify(id.hashCode(), build(context, id, label, time))
+        }
+        enabled
     } catch (e: SecurityException) {
         // POST_NOTIFICATIONS revoked on API 33+. Nothing to do but fall back.
         false
@@ -1348,7 +1394,7 @@ class AlarmBootReceiver : BroadcastReceiver() {
             rearm(context.applicationContext)
         } catch (e: SecurityException) {
             // Exact-alarm permission revoked between reboot and this broadcast.
-            // The registry is still correct; only the re-arming is skipped.
+            // Rows that could not be re-armed are removed inside rearm.
         } finally {
             pending.finish()
         }
@@ -1377,7 +1423,11 @@ class AlarmBootReceiver : BroadcastReceiver() {
         // of the app, not of an alarm, and asking N times is N system calls for one
         // boolean. On failure every alarm is skipped identically, so the early
         // return is also the cheaper path.
-        if (!platform.canScheduleExactAlarms()) return 0
+        if (!platform.canScheduleExactAlarms()) {
+            // Nothing can ring without the permission, so the rows must go too or alarm.list lies.
+            survivors.forEach { AlarmRegistry.remove(it.id) }
+            return 0
+        }
 
         var armed = 0
         for (spec in survivors) {
@@ -1386,8 +1436,10 @@ class AlarmBootReceiver : BroadcastReceiver() {
                 armed++
             } catch (e: SecurityException) {
                 // One refused alarm must not stop the rest from being restored.
+                AlarmRegistry.remove(spec.id)
             } catch (e: IllegalStateException) {
                 // AlarmManager unavailable on this device.
+                AlarmRegistry.remove(spec.id)
             }
         }
         return armed
