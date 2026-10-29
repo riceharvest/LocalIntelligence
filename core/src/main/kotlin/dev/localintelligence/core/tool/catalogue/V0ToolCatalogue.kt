@@ -1048,6 +1048,43 @@ object V0ToolCatalogue {
             requiredPermission = null,
         ),
 
+        // ----------------------------------------------------------------- cloud
+        // Offered only when the OpenRouter plugin is on and a key is set. The
+        // catalogue lists them so the risk tier is checked like every other tool.
+        ToolDefinition(
+            name = "image.generate",
+            description = "Generates an image from a text prompt with the user's OpenRouter account " +
+                "and saves it to the phone. Returns the file path.",
+            category = "image",
+            schema = objSchema(required = listOf("prompt")) {
+                putJsonObject("prompt") {
+                    put("type", "string")
+                    put("maxLength", 2000)
+                    put("description", "What the image shows.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("image", "picture", "draw", "illustration", "generate image", "make an image", "photo"),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "video.generate",
+            description = "Generates a short video from a text prompt with the user's OpenRouter account, " +
+                "waits for it, and saves it to the phone. Returns the file path.",
+            category = "video",
+            schema = objSchema(required = listOf("prompt")) {
+                putJsonObject("prompt") {
+                    put("type", "string")
+                    put("maxLength", 2000)
+                    put("description", "What the video shows.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("video", "clip", "animation", "generate video", "make a video", "movie"),
+            requiredPermission = null,
+        ),
         // ------------------------------------------------------------- history
         ToolDefinition(
             name = "history.search",

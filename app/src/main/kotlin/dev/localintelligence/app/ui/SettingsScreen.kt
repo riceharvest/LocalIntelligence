@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -40,7 +41,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.localintelligence.app.openAssistantSettings
 import dev.localintelligence.app.settings.SettingsStore
@@ -208,6 +212,7 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
             }
         }
         is SettingDef.Text -> TextSettingRow(store, def, help)
+        is SettingDef.Secret -> SecretRow(store, def, help)
         is SettingDef.IntValue -> {
             val value = store.stored(def)
             val span = def.max.toLong() - def.min.toLong()
@@ -257,6 +262,52 @@ private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: Str
                 onClick = { store.set(def, draft) },
                 enabled = draft != stored,
             ) { Text("Save") }
+        }
+    }
+}
+
+/**
+ * A credential. The screen says only "set" or "not set"; the field is for typing
+ * a new value, never for reading the old one. Clearing removes it.
+ */
+@Composable
+private fun SecretRow(store: SettingsStore, def: SettingDef.Secret, help: String) {
+    val isSet = store.isSecretSet(def)
+    var draft by remember { mutableStateOf("") }
+    var refused by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        RowTitle(def.title, help, valueText = if (isSet) "set" else "not set")
+        OutlinedTextField(
+            value = draft,
+            onValueChange = {
+                draft = it
+                refused = false
+            },
+            label = { Text(if (isSet) "Replace" else "Paste the key") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(
+                onClick = {
+                    if (store.setSecret(def, draft)) draft = "" else refused = true
+                },
+                enabled = draft.isNotBlank(),
+            ) { Text("Save") }
+            if (isSet) {
+                TextButton(onClick = {
+                    store.clearSecret(def)
+                    draft = ""
+                }) { Text("Clear") }
+            }
+        }
+        if (refused) {
+            Text(
+                "The phone's keystore refused to store it. Nothing was saved.",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }

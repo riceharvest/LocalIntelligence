@@ -123,6 +123,19 @@ source is the only exclusion a later refactor cannot quietly reverse.
 memory databases were eligible for cloud backup and device transfer. Now
 `false`. This costs users adb-based backup; restore is in-app only.
 
+### T7. Cloud generation sends prompts to a third party — opt-in
+
+The OpenRouter plugin (`image.generate`, `video.generate`) is off by default and
+offers its tools only while a key is stored. With both on, the prompt the model
+wrote goes to `openrouter.ai`, and the user's key goes with it as a Bearer
+header. The key is kept encrypted under the Keystore (`KeystoreCipher`), never
+shown back in Settings, and removed from any error text before the model sees
+it. The key is sent only to `https://openrouter.ai/api/v1`: redirects are not
+followed, so a response cannot move it to another host. The model cannot pick
+the model id or the wait limit, which are the user's settings, so it cannot
+choose a more expensive one. Each call still goes through the network tier's
+confirmation unless the user chose to skip it.
+
 ## Deliberately not defended
 
 - **A hostile local model file.** Anyone who can place a GGUF in app storage can

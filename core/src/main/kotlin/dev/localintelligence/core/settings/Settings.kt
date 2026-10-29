@@ -61,19 +61,35 @@ sealed class SettingDef<T : Any>(
     }
 
     /**
-     * Free text, multi-line in the settings screen, hard-capped at [maxLength] characters.
-     *
-     * The cap is enforced here as well as in the field: a value written by any path
-     * (a future import, an older build) is cut to the limit on read, so no caller can
-     * hand the prompt more than the setting promises.
+     * Free text, hard-capped at [maxLength] characters. The cap is enforced on read
+     * too, so no path can hand the prompt more than the setting promises.
+     * [blankMeansDefault]: an emptied field reads as [default] (a model id), rather
+     * than as an empty value (a profile the user cleared).
      */
     class Text(
         key: String, title: String, help: String, section: SettingSection,
-        default: String, val maxLength: Int,
+        default: String, val maxLength: Int = 200, val blankMeansDefault: Boolean = false,
         simple: Boolean = false, applies: SettingApplies = SettingApplies.NEXT_RUN,
     ) : SettingDef<String>(key, title, help, section, default, simple, applies) {
-        override fun coerce(raw: Any?): String =
-            (raw as? String)?.take(maxLength) ?: default
+        override fun coerce(raw: Any?): String {
+            val value = (raw as? String)?.take(maxLength) ?: return default
+            return if (blankMeansDefault && value.isBlank()) default else value
+        }
+    }
+
+    /**
+     * A credential, such as an API key. It is stored encrypted and never shown
+     * back: the settings screen reports only whether one is set, and offers a
+     * field to replace or clear it. The stored form is opaque to [coerce]; the
+     * store decrypts before coercing, so readers always get the plain text.
+     *
+     * The default is the empty string, meaning "not set".
+     */
+    class Secret(
+        key: String, title: String, help: String, section: SettingSection,
+        simple: Boolean = false, applies: SettingApplies = SettingApplies.NEXT_RUN,
+    ) : SettingDef<String>(key, title, help, section, "", simple, applies) {
+        override fun coerce(raw: Any?): String = (raw as? String)?.takeIf { it.isNotBlank() } ?: default
     }
 }
 
