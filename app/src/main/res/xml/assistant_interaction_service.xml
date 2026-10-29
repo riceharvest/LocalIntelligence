@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Declares LocalIntelligence to the system as a digital assistant. The
-     recognition service is not implemented (no hotword or voice-input
-     recognizer), so the session service is named here as well; the system
-     binds it only for recognizer work this app does not do. -->
+     recognition service is a stub that answers every request with an error:
+     the system requires one, and this app does not do voice input there. -->
 <voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:sessionService="dev.localintelligence.app.AssistantSessionService"
-    android:recognitionService="dev.localintelligence.app.AssistantSessionService"
+    android:recognitionService="dev.localintelligence.app.AssistantRecognitionService"
     android:supportsAssist="true" />
