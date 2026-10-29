@@ -8,6 +8,8 @@ import dev.localintelligence.android.tools.calendar.calendarTools
 import dev.localintelligence.android.tools.clipboard.clipboardTools
 import dev.localintelligence.android.tools.contacts.contactsTools
 import dev.localintelligence.android.tools.device.deviceTools
+import dev.localintelligence.android.tools.drafts.draftTools
+import dev.localintelligence.android.tools.location.locationTools
 import dev.localintelligence.android.tools.files.fileTools
 import dev.localintelligence.android.tools.notifications.notificationTools
 import dev.localintelligence.android.tools.web.webTools
@@ -61,6 +63,8 @@ fun androidTools(context: Context): List<AgentTool> {
         addAll(contactsTools(appContext, grant))
         addAll(notificationTools(grant))
         addAll(webTools(grant))
+        addAll(locationTools(appContext, grant))
+        addAll(draftTools(appContext))
     }
     return requireCatalogueAgreement(tools)
 }
@@ -89,6 +93,8 @@ fun androidToolPlugins(context: Context): List<AgentPlugin> {
             notificationTools(grant)
         },
         ToolFamily("tools.web", "Web", "Search the web and fetch pages") { webTools(grant) },
+        ToolFamily("tools.location", "Location", "Current approximate location") { locationTools(app, grant) },
+        ToolFamily("tools.drafts", "Drafts", "Open a message or email draft for you to send") { draftTools(app) },
     )
     requireCatalogueAgreement(families.flatMap { it.tools() })
     return families
