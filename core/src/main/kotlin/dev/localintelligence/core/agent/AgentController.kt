@@ -230,6 +230,32 @@ class AgentController(
      * default; off is a user choice in Technical settings.
      */
     private val constrainOutput: Boolean = true,
+    /**
+     * Invoked right before a tool runs, with the tool's name and its arguments
+     * in the same compact form the trace uses.
+     *
+     * WHY THIS EXISTS: the trace only learns of a call when the call returns,
+     * so the transcript could not show anything while a slow tool (a web fetch,
+     * a file scan) was running. The app draws a live row from this instead.
+     * It is NOT a trace entry: nothing is added to [trace], and the model sees
+     * nothing new, so the loop is unchanged for every caller that leaves it null.
+     *
+     * A callback that throws is skipped, never fatal, for the same reason a
+     * plugin hook is: a UI bug must not turn into a failed run.
+     */
+    private val onToolStart: ((name: String, args: String) -> Unit)? = null,
+    /**
+     * Invoked right after a tool's result has been recorded in [trace], with a
+     * snapshot of the whole trace.
+     *
+     * WHY THIS EXISTS: [onToolStart] alone can say a call began but not that it
+     * finished, and the trace is otherwise published only at an approval and at
+     * the end of the run. Handing the snapshot here lets the app show the result
+     * as soon as the tool returns, rather than after the model's whole run. The
+     * snapshot is the same list the terminal publication would carry, so nothing
+     * is drawn twice: the transcript is identity-keyed.
+     */
+    private val onToolDone: ((List<StepTrace>) -> Unit)? = null,
 ) {
     /**
      * Run state. It outlives a single call because
@@ -746,6 +772,16 @@ class AgentController(
             signal = CancellationSignal { cancelled },
         )
 
+        val argsText = compactArgs(call.args)
+        // Before the tool runs, so the app can show the call while it is in
+        // flight. A callback that throws is skipped: see [onToolStart].
+        try {
+            onToolStart?.invoke(call.name, argsText)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Throwable) {
+        }
+
         val startedAt = System.nanoTime()
         val result: ToolResult = try {
             call.tool.execute(call.args, context)
@@ -768,13 +804,19 @@ class AgentController(
         // A confirmed call is charged by `recordConfirmed` at approval time.
         if (!call.userConfirmed) riskPolicy.recordExecuted(call.tool.definition.risk)
         trace += StepTrace(
-            call.step, StepTrace.Kind.TOOL_CALL, call.name + compactArgs(call.args),
+            call.step, StepTrace.Kind.TOOL_CALL, call.name + argsText,
             durationMs, result.success,
             toolName = call.name,
-            toolArgs = compactArgs(call.args),
+            toolArgs = argsText,
         )
         trace += StepTrace(call.step, StepTrace.Kind.OBSERVATION, observation, success = result.success)
         metrics?.endPhase(StepTrace.Kind.TOOL_CALL, result.success)
+        try {
+            onToolDone?.invoke(trace.toList())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Throwable) {
+        }
 
         // The real observation has arrived, so the estimate the step was
         // approved against is replaced with the thing itself. A tool that

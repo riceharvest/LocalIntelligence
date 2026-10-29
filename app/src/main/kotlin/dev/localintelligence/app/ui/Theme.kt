@@ -18,7 +18,7 @@ import androidx.compose.ui.platform.LocalContext
  * product, and a second agent adding a `Typography` scale here would be building
  * something nobody has agreed on. Colours that *carry meaning* are not in this
  * file — success and failure use the Material error/primary roles via
- * [dev.localintelligence.app.ui.ToolActivityCard] so there is exactly one
+ * [dev.localintelligence.app.ui.components.ToolStepRow] so there is exactly one
  * definition of "red" in the app.
  */
 private val LightColors = lightColorScheme(

@@ -66,9 +66,10 @@ import kotlinx.serialization.json.putJsonObject
  *
  * Explicitly NOT in v0, and why:
  *
- * - **Memory tools.** `docs/architecture.md` section 14 puts memory writes on an
+ * - **Memory write tools.** `docs/architecture.md` section 14 puts memory writes on an
  *   explicit "remember X" in the runtime, not behind a model-visible tool. Exposing
  *   `memory.write` would let the model invent a memory the user never asked for.
+ *   `history.search` is the one read-only exception: it only reads past messages.
  * - **A general SMS send.** `notifications.reply` covers the only send path v0
  *   needs. A second send tool collides with it on the word "text".
  * - **Settings read/write, wifi, volume, storage, media, clock.** Real
@@ -141,7 +142,7 @@ object V0ToolCatalogue {
     /** Categories, in the order a reader should expect to meet them. */
     val categories: List<String> = listOf(
         "files", "apps", "clipboard", "device", "alarm", "calendar",
-        "contacts", "notifications", "web",
+        "contacts", "notifications", "web", "history",
     )
 
     /**
@@ -1043,6 +1044,73 @@ object V0ToolCatalogue {
             tags = setOf(
                 "search", "search for", "look up", "google",
                 "search the web", "web search", "find online",
+            ),
+            requiredPermission = null,
+        ),
+
+        // ----------------------------------------------------------------- cloud
+        // Offered only when the OpenRouter plugin is on and a key is set. The
+        // catalogue lists them so the risk tier is checked like every other tool.
+        ToolDefinition(
+            name = "image.generate",
+            description = "Generates an image from a text prompt with the user's OpenRouter account " +
+                "and saves it to the phone. Returns the file path.",
+            category = "image",
+            schema = objSchema(required = listOf("prompt")) {
+                putJsonObject("prompt") {
+                    put("type", "string")
+                    put("maxLength", 2000)
+                    put("description", "What the image shows.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("image", "picture", "draw", "illustration", "generate image", "make an image", "photo"),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "video.generate",
+            description = "Generates a short video from a text prompt with the user's OpenRouter account, " +
+                "waits for it, and saves it to the phone. Returns the file path.",
+            category = "video",
+            schema = objSchema(required = listOf("prompt")) {
+                putJsonObject("prompt") {
+                    put("type", "string")
+                    put("maxLength", 2000)
+                    put("description", "What the video shows.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("video", "clip", "animation", "generate video", "make a video", "movie"),
+            requiredPermission = null,
+        ),
+        // ------------------------------------------------------------- history
+        ToolDefinition(
+            name = "history.search",
+            description = "Searches earlier conversations for words and returns the matching " +
+                "messages with their dates. Use when the user refers to something said before.",
+            category = "history",
+            schema = objSchema(required = listOf("query")) {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "The words to look for, for example \"wifi password\".")
+                }
+                putJsonObject("max_results") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 10)
+                    put("description", "How many messages to return, 5 by default, at most 10.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            // Past replies can repeat web text the model read earlier, so the result is
+            // fenced like network content rather than trusted as the user's own words.
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "remember when", "last time", "we talked about", "earlier conversation",
+                "history", "earlier", "before", "previous chat",
             ),
             requiredPermission = null,
         ),

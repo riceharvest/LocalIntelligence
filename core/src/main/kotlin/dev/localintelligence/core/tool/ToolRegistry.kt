@@ -216,10 +216,7 @@ class LexicalToolSelector : ToolSelector {
         "zip", "apk", "gguf", "log", "kt", "py", "js",
     )
 
-    private fun tokenize(text: String): List<String> =
-        text.lowercase()
-            .split(Regex("[^a-z0-9]+"))
-            .filter { it.length > 2 }
+    private fun tokenize(text: String): List<String> = lexicalTokens(text)
 }
 
 /**

@@ -7,6 +7,9 @@ import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
+import dev.localintelligence.android.cloud.OpenRouterPlugin
+import dev.localintelligence.android.skills.SkillRepository
+import dev.localintelligence.android.skills.SkillsPlugin
 import dev.localintelligence.android.tools.androidToolPlugins
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.settings.SettingsStore
@@ -28,6 +31,7 @@ import dev.localintelligence.core.agent.ToolCallValidatorGate
 import dev.localintelligence.core.agent.TurnRecorder
 import dev.localintelligence.core.execution.RunGate
 import dev.localintelligence.core.memory.LexicalMemoryStore
+import dev.localintelligence.core.memory.ProfilePlugin
 import dev.localintelligence.android.inference.RamEstimate
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import androidx.compose.runtime.mutableStateListOf
@@ -41,6 +45,8 @@ import dev.localintelligence.core.model.ModelSpec
 import dev.localintelligence.core.policy.RiskPolicy
 import dev.localintelligence.core.tool.LexicalToolSelector
 import dev.localintelligence.core.tool.SimpleToolRegistry
+import dev.localintelligence.core.tool.catalogue.CatalogueAgreement
+import dev.localintelligence.core.tool.catalogue.V0ToolCatalogue
 import dev.localintelligence.core.tool.ToolRegistry
 import kotlinx.coroutines.CancellationException
 import dev.localintelligence.core.hub.DeviceBudget
@@ -123,7 +129,7 @@ class AppContainer(private val context: Context) {
         // misdescribe what actually happened, in the direction that looks like
         // safety. The decorator delegates everything, so catalogue agreement and
         // risk tiers still run on the real registry underneath.
-        RedactingToolRegistry(SimpleToolRegistry(plugins.flatMap { it.tools() }))
+        RedactingToolRegistry(SimpleToolRegistry(plugins.flatMap { it.tools() }, catalogue = emptyList()))
     }
 
     /** What Simple mode decides from. Read once: RAM and core count do not change. */
@@ -136,7 +142,19 @@ class AppContainer(private val context: Context) {
      * Everything that can be switched on and off. The built-in tool families
      * are the first plugins; features add theirs here.
      */
-    val plugins: List<AgentPlugin> by lazy { androidToolPlugins(context) }
+    val plugins: List<AgentPlugin> by lazy {
+        val families = androidToolPlugins(context)
+        val cloud = OpenRouterPlugin(context, settings)
+        // Checked here, against everything shipped and switched on or not. A run's
+        // registry holds only the enabled tools, so checking it against the
+        // catalogue would fail whenever any plugin is off, which is the default for
+        // the cloud plugin.
+        CatalogueAgreement.require(families.flatMap { it.tools() } + cloud.shippedTools(), V0ToolCatalogue.definitions)
+        families + ProfilePlugin() + SkillsPlugin(skills) + cloud
+    }
+
+    /** Skills on disk under filesDir/skills. Shared by the plugin, the skills screen and "Save as skill". */
+    val skills: SkillRepository by lazy { SkillRepository(File(context.filesDir, "skills")) }
 
     /**
      * The risk policy, shared by every controller this container builds.
@@ -898,6 +916,10 @@ class AppContainer(private val context: Context) {
         model: ModelBackend = residentBackend(),
         metrics: RunRecorder? = null,
         onToken: ((String) -> Unit)? = null,
+        /** A tool is about to run. Forwarded to the controller; see [AgentController]. */
+        onToolStart: ((name: String, args: String) -> Unit)? = null,
+        /** A tool has returned and the trace now holds it. Forwarded to the controller. */
+        onToolDone: ((List<dev.localintelligence.core.agent.StepTrace>) -> Unit)? = null,
         /** A scheduled or background run: nobody is there to approve anything. */
         background: Boolean = false,
     ): AgentController {
@@ -905,10 +927,14 @@ class AppContainer(private val context: Context) {
         // plugins switched on right now: a toggle applies from the next message.
         val snapshot = settings.snapshot()
         val pluginSet = PluginSet(plugins, snapshot, settings::isPluginEnabled)
-        val runTools: ToolRegistry = RedactingToolRegistry(SimpleToolRegistry(pluginSet.tools()))
+        // No catalogue here: the enabled subset is smaller than the catalogue by design.
+        // The full set is checked once, in `plugins`.
+        val runTools: ToolRegistry = RedactingToolRegistry(SimpleToolRegistry(pluginSet.tools(), catalogue = emptyList()))
         val config = snapshot.agentConfig()
         return AgentController(
         onToken = onToken,
+        onToolStart = onToolStart,
+        onToolDone = onToolDone,
         // Persist whenever the loop trims the window, not only at run
         // boundaries: a message removed by a mid-run fold is unrecoverable
         // afterwards. See AgentController.onWindowChanged.

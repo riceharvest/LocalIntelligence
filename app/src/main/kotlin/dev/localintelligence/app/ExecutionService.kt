@@ -342,6 +342,21 @@ class ExecutionService : Service() {
                             sinks.streamingText.value += token
                         }
                     },
+                    // The live row: set the moment a tool is dispatched.
+                    onToolStart = { name, args ->
+                        sinks.runningTool.value = RunningTool(name, args)
+                    },
+                    // The result: publish the trace now, not at the end of the
+                    // run, and drop the live row it replaces. The step's words
+                    // are in the trace as a GENERATION entry, so the streaming
+                    // bubble is cleared too, or the same words would be drawn
+                    // twice. Order: trace first, so the row is never missing
+                    // for a frame that has no replacement.
+                    onToolDone = { snapshot ->
+                        sinks.trace.value = snapshot
+                        sinks.streamingText.value = ""
+                        sinks.runningTool.value = null
+                    },
                 )
             },
             scope = serviceScope,
@@ -698,6 +713,7 @@ class ServiceAgentGateway(
     override val runState: StateFlow<RunState> get() = sinks.state
     override val trace: StateFlow<List<StepTrace>> get() = sinks.trace
     override val streamingText: StateFlow<String> get() = sinks.streamingText
+    override val runningTool: StateFlow<RunningTool?> get() = sinks.runningTool
 
     override fun start(task: String) = ExecutionService.start(context, task)
 

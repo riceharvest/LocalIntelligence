@@ -9,6 +9,7 @@ import dev.localintelligence.android.tools.clipboard.clipboardTools
 import dev.localintelligence.android.tools.contacts.contactsTools
 import dev.localintelligence.android.tools.device.deviceTools
 import dev.localintelligence.android.tools.drafts.draftTools
+import dev.localintelligence.android.tools.history.historyTools
 import dev.localintelligence.android.tools.location.locationTools
 import dev.localintelligence.android.tools.files.fileTools
 import dev.localintelligence.android.tools.notifications.notificationTools
@@ -65,6 +66,7 @@ fun androidTools(context: Context): List<AgentTool> {
         addAll(webTools(grant))
         addAll(locationTools(appContext, grant))
         addAll(draftTools(appContext))
+        addAll(historyTools(appContext))
     }
     return requireCatalogueAgreement(tools)
 }
@@ -95,6 +97,9 @@ fun androidToolPlugins(context: Context): List<AgentPlugin> {
         ToolFamily("tools.web", "Web", "Search the web and fetch pages") { webTools(grant) },
         ToolFamily("tools.location", "Location", "Current approximate location") { locationTools(app, grant) },
         ToolFamily("tools.drafts", "Drafts", "Open a message or email draft for you to send") { draftTools(app) },
+        ToolFamily("memory.history", "Past chats", "Search what was said in earlier conversations") {
+            historyTools(app)
+        },
     )
     requireCatalogueAgreement(families.flatMap { it.tools() })
     return families
@@ -140,7 +145,7 @@ private class ToolFamily(
  * with a tool set that can delete something the user was never asked about —
  * which, for a safety invariant, is the correct direction to fail.
  */
-private fun requireCatalogueAgreement(tools: List<AgentTool>): List<AgentTool> {
+internal fun requireCatalogueAgreement(tools: List<AgentTool>): List<AgentTool> {
     val unlisted = tools.map { it.definition.name }.filter { V0ToolCatalogue.byName(it) == null }
     check(unlisted.isEmpty()) {
         "these tools ship in the registry but are not in V0ToolCatalogue, so the lexical " +
