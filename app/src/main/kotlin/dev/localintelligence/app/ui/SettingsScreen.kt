@@ -262,6 +262,9 @@ private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: Str
                 onClick = { store.set(def, draft) },
                 enabled = draft != stored,
             ) { Text("Save") }
+        }
+    }
+}
 
 /**
  * A credential. The screen says only "set" or "not set"; the field is for typing
