@@ -150,9 +150,7 @@ class BoundedExecutor(
      * throwing.
      *
      * [block] is a *blocking* lambda on purpose: this is the seam for tools whose
-     * internals are blocking (a socket read, a file walk). A suspending tool
-     * should use [BoundedToolExecutor] instead, which adds coroutine
-     * cancellation on top of this.
+     * internals are blocking (a socket read, a file walk).
      *
      * Precedence, and it is deliberate: **cancel beats timeout**. If a user
      * presses stop and the deadline expires in the same millisecond, the run was

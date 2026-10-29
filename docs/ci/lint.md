@@ -25,12 +25,9 @@ now declares `android.permission.VIBRATE`.
 front when `Build.VERSION.SDK_INT < Build.VERSION_CODES.Q`, so the API 29 class
 is never touched on API 26-28.
 
-## Stale ratchet list
+## Ratchet list
 
-`.github/scripts/check-no-new-lint-errors.sh` still lists the three errors above
-in `KNOWN_ERRORS` with their old line numbers. They are no longer expected to be
-reported; the script prints "no longer reported" for each, and the entries should
-be deleted. The script lives outside the files this page covers and was not edited.
+`.github/scripts/check-no-new-lint-errors.sh` has an empty `KNOWN_ERRORS` list now that the three errors above are fixed.
 
 ## Warnings
 

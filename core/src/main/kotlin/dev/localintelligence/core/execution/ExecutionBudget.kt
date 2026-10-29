@@ -26,31 +26,6 @@ fun interface ExecutionClock {
 }
 
 /**
- * A clock the test advances by hand.
- *
- * Top-level rather than nested in [ExecutionClock] so it can be referred to as
- * `ExecutionClock.Fake` from a test without the companion-resolution gymnastics a
- * `fun interface` forces.
- *
- * NOT thread-safe by accident: every read and write goes through the same
- * monitor, so a test hammering [advance] from several threads — the
- * cancellation race test does — cannot observe a torn value.
- */
-class FakeExecutionClock(start: Long = 0) : ExecutionClock {
-    private var now = start
-
-    @Synchronized
-    override fun elapsedMillis(): Long = now
-
-    /** Moves virtual time forward. Never accepts a negative delta. */
-    @Synchronized
-    fun advance(millis: Long) {
-        require(millis >= 0) { "a monotonic clock cannot go backwards" }
-        now += millis
-    }
-}
-
-/**
  * A budget for one operation, plus the machinery to ask "how much is left".
  *
  * WHY a type rather than a bare `Long`: a raw millisecond count has no unit at
