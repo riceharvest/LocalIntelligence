@@ -450,8 +450,10 @@ class ChatViewModel(
             return
         }
 
+        // "The text above" is only true when some text was drawn above the notice.
+        val hasPartialText = lastGeneration != null && GenerationProse.display(lastGeneration.detail).isNotBlank()
         val notice = when (outcome) {
-            is RunOutcome.Cancelled -> CANCELLED_MID_ANSWER
+            is RunOutcome.Cancelled -> if (hasPartialText) CANCELLED_MID_ANSWER else outcome.transcriptLine()
             else -> outcome.transcriptLine()
         }
         appendRows(listOf(ChatMessage.Notice(notice)))

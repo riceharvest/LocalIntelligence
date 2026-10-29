@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
                 // The gateway is the screen's whole handle on the agent. It holds
                 // no state of its own — it reads the process-scoped RunSinks the
                 // service writes to — so a rotation cannot desync UI from run.
-                val gateway = remember { ServiceAgentGateway(this, container.runSinks) }
+                val gateway = remember { ServiceAgentGateway(applicationContext, container.runSinks) }
                 val chat: ChatViewModel = viewModel(
                     factory = remember(gateway, container) {
                         ChatViewModel.Factory(

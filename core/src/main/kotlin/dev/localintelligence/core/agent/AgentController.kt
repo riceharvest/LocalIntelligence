@@ -259,6 +259,10 @@ class AgentController(
     var lastRunMetrics: RunMetrics? = null
         private set
 
+    /** The steps of this run so far, copied, for a caller that reads them after the run has returned. */
+    val traceSnapshot: List<StepTrace>
+        get() = trace.toList()
+
     /** Sticky: a cancelled controller stays cancelled. Reuse means a new controller. */
     private var cancelled: Boolean = false
 
@@ -481,9 +485,13 @@ class AgentController(
             }
             metrics?.recordGeneration(generation)
             metrics?.endPhase(StepTrace.Kind.GENERATION, generation.stopReason == StopReason.COMPLETED)
+            val completed = generation.stopReason == StopReason.COMPLETED
             trace += StepTrace(
-                step, StepTrace.Kind.GENERATION, generation.text.take(TRACE_DETAIL_CHARS),
-                generation.prefillMs + generation.decodeMs, generation.stopReason == StopReason.COMPLETED,
+                step, StepTrace.Kind.GENERATION,
+                // An unfinished generation is kept whole: it is bounded by the output limit,
+                // and it is the partial answer the user was reading when they stopped.
+                if (completed) generation.text.take(TRACE_DETAIL_CHARS) else generation.text,
+                generation.prefillMs + generation.decodeMs, completed,
             )
 
             when (generation.stopReason) {
@@ -491,6 +499,8 @@ class AgentController(
                 StopReason.ERROR -> return Stop("model failed: ${generation.text.take(120)}", trace.toList())
                 else -> Unit
             }
+            // A Stop that landed before the generation began is not reported as CANCELLED.
+            if (cancelled) return AgentResult.Cancelled
 
             when (val parsed = parse(generation.text, visible)) {
                 is ActionParseResult.Malformed -> {
@@ -628,6 +638,7 @@ class AgentController(
                     // the justification the dialog renders.
                     AgentResult.AwaitingConfirmation(
                         action.name, tool, session.proposedArguments, trace.toList(),
+                        justification = session.justification,
                     )
                 }
 

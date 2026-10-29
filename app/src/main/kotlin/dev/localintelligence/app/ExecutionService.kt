@@ -203,6 +203,9 @@ class ExecutionService : Service() {
             watcher = serviceScope.launch {
                 try {
                     val terminal = sinks.state.filter { it.isTerminal }.first()
+                    // A run that ends without an answer has no later point at which its turns
+                    // are written, so they are written now. This service stops below.
+                    container.persistRunEnd()
                     // The result is written HERE, from the same terminal state
                     // that stops the service, so the two can never disagree
                     // about whether a run finished. A run that does not settle

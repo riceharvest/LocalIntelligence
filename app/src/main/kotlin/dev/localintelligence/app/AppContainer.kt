@@ -455,6 +455,18 @@ class AppContainer(private val context: Context) {
         writeSnapshot(snapshotPendingMessages())
     }
 
+    /**
+     * Writes the turns of a run that has just reached a terminal state, without
+     * waiting for the next run to start. The snapshot is taken on the calling
+     * thread and only the write is launched on [appScope]: the caller's scope is
+     * torn down with its service, and a write cancelled midway is marked written
+     * without ever being stored.
+     */
+    fun persistRunEnd() {
+        val pending = snapshotPendingMessages()
+        if (pending.isNotEmpty()) appScope.launch { writeSnapshot(pending) }
+    }
+
     @Volatile
     private var restoredOnce: Boolean = false
 
