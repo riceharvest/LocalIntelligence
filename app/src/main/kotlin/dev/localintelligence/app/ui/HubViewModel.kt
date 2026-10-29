@@ -291,6 +291,7 @@ class HubViewModel(
                 // load it." in primary colour — a success belonging to a file
                 // that was not on screen. A stale success is the most
                 // confident lie this state machine can tell.
+                _state.value.downloadJob?.cancel()
                 _state.update {
                     it.copy(
                         loading = true,
@@ -299,6 +300,7 @@ class HubViewModel(
                         partialBytesKept = 0,
                         registeredNote = null,
                         downloading = false,
+                        downloadJob = null,
                     )
                 }
                 viewModelScope.launch {
@@ -425,13 +427,15 @@ class HubViewModel(
             try {
                 if (response.status !in 200..299) return@withContext emptyList()
                 val body = response.body ?: return@withContext emptyList()
-                val text = body.use { it.readBytes().decodeToString() }
+                val text = body.readBytes().decodeToString()
                 parseNonGgufSiblings(text)
             } catch (_: Exception) {
                 // Deliberately broad. This is an advisory notice; there is
                 // nothing here worth failing a resolve over, and throwing would
                 // take down a GGUF listing that succeeded.
                 emptyList()
+            } finally {
+                runCatching { response.body?.close() }
             }
         }
 
@@ -486,8 +490,16 @@ class HubViewModel(
      */
     private suspend fun planFor(file: HubGgufFile): Triple<DownloadPlan, Boolean, Boolean> {
         val header = client.probeHeader(file, tokenSource.token())
-        val plan = client.plan(file, DEFAULT_CONTEXT_LENGTH, budget, header = header)
-        val onDevice = withContext(Dispatchers.IO) { downloader.isDownloaded(file) }
+        val (alreadyOnDisk, onDevice) = withContext(Dispatchers.IO) {
+            downloader.partialFileFor(file).localBytes() to downloader.isDownloaded(file)
+        }
+        val plan = client.plan(
+            file = file,
+            contextLength = DEFAULT_CONTEXT_LENGTH,
+            budget = budget,
+            alreadyOnDiskBytes = alreadyOnDisk,
+            header = header,
+        )
         return Triple(plan, header != null, onDevice)
     }
 

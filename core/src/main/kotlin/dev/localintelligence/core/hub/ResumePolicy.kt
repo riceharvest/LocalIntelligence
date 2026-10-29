@@ -36,6 +36,9 @@ sealed interface ResumeDecision {
     /** Append from [fromByte]; the local prefix is trusted. */
     data class Resume(val fromByte: Long) : ResumeDecision
 
+    /** The partial file is complete. Skip transfer, verify checksum and promote. */
+    data object Complete : ResumeDecision
+
     /** The partial file cannot be trusted. Delete it and start over. */
     data class Discard(val reason: String) : ResumeDecision
 }
@@ -65,7 +68,7 @@ object ResumePolicy {
         // that omits Content-Range.
         serverTotal < 0 -> ResumeDecision.Resume(localBytes)
         localBytes > serverTotal -> ResumeDecision.Discard("local file is longer than the remote file")
-        localBytes == serverTotal -> ResumeDecision.Discard("already complete")
+        localBytes == serverTotal -> ResumeDecision.Complete
         else -> ResumeDecision.Resume(localBytes)
     }
 }
