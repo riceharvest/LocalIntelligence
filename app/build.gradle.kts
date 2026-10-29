@@ -12,6 +12,10 @@ plugins {
 android {
     namespace = "dev.localintelligence.app"
     compileSdk = 36
+    // Same NDK as :android. Packaging strips native libraries with this
+    // module's NDK; left unset it is AGP's default (27.0.12077973), which is
+    // not installed, so every .so shipped with its debug info.
+    ndkVersion = "27.1.12297006"
 
     defaultConfig {
         applicationId = "dev.localintelligence.app"
