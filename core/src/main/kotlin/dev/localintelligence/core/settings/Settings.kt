@@ -59,6 +59,22 @@ sealed class SettingDef<T : Any>(
         override fun coerce(raw: Any?): String =
             (raw as? String)?.takeIf { id -> options.any { it.id == id } } ?: default
     }
+
+    /**
+     * Free text, multi-line in the settings screen, hard-capped at [maxLength] characters.
+     *
+     * The cap is enforced here as well as in the field: a value written by any path
+     * (a future import, an older build) is cut to the limit on read, so no caller can
+     * hand the prompt more than the setting promises.
+     */
+    class Text(
+        key: String, title: String, help: String, section: SettingSection,
+        default: String, val maxLength: Int,
+        simple: Boolean = false, applies: SettingApplies = SettingApplies.NEXT_RUN,
+    ) : SettingDef<String>(key, title, help, section, default, simple, applies) {
+        override fun coerce(raw: Any?): String =
+            (raw as? String)?.take(maxLength) ?: default
+    }
 }
 
 /** Where a setting is listed. Order is display order. */

@@ -38,6 +38,15 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE session_id = :sessionId ORDER BY id ASC")
     suspend fun forSession(sessionId: Long): List<MessageEntity>
 
+    /**
+     * Newest-first candidates for `history.search`: user and assistant text only, never
+     * tool observations (raw tool output is not something a past-chat search should
+     * surface). The statement is built by [HistoryQueries]; only `?` placeholders reach
+     * it, and the caller has already capped the row count.
+     */
+    @RawQuery(observedEntities = [MessageEntity::class])
+    suspend fun searchText(query: SupportSQLiteQuery): List<MessageEntity>
+
     @Query("SELECT COALESCE(MAX(id), 0) FROM messages WHERE session_id = :sessionId")
     suspend fun maxId(sessionId: Long): Long
 
