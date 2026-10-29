@@ -262,7 +262,10 @@ object ArgumentInspector {
         // both cases are escalated.
         if (hasTraversalSegment(path)) return false
         val normalized = normalizeLexically(path)
-        return config.appStorageRoots.any { root -> normalized.startsWith(normalizeLexically(root)) }
+        return config.appStorageRoots.any { root ->
+            val normRoot = normalizeLexically(root)
+            normalized == normRoot || normalized.startsWith("$normRoot/")
+        }
     }
 
     /** True when any path segment is a `..` traversal. */
@@ -389,7 +392,7 @@ object ArgumentInspector {
         }
         // Any prose alongside the link disqualifies it.
         return trimmed.split(Regex("\\s+")).none { token ->
-            token.isNotEmpty() && !token.startsWith("http://") && !token.startsWith("https://")
+            token.isNotEmpty() && !token.startsWith("http://") && !token.startsWith("https://") && !token.matches(BARE_DOMAIN)
         }
     }
 

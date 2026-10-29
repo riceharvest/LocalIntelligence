@@ -42,6 +42,7 @@ import dev.localintelligence.core.tool.ToolRisk
  *     than for a single item.
  *  7. External-comms argument analysis → REQUIRE_CONFIRMATION, with a bare-link
  *     body called out explicitly.
+ *  7b. Network egress → REQUIRE_CONFIRMATION naming destination host.
  *  8. Caller rules → used only to restrict further, never to lift 1–7.
  *  9. Risk tier → the documented fallback. Anything not explicitly safe and
  *     not matched above is UNCLASSIFIED → BLOCK.
@@ -211,6 +212,17 @@ class RiskPolicy(
             )
         }
 
+        // (7b) Network egress, judged by destination host.
+        if (definition.risk == ToolRisk.NETWORK_EGRESS) {
+            val host = ArgumentInspector.hostOf(args)
+            val destination = host ?: "an external host"
+            return decide(
+                definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.NETWORK_EGRESS,
+                "${definition.name} contacts $destination over the network. " +
+                    "Confirm only if you recognise this site.",
+            )
+        }
+
         // (8) Caller rules. Restricted to *raising* restrictiveness: a rule may
         //     turn EXECUTE into anything, or tighten a confirmation into a
         //     block, but may never loosen a BLOCK or a confirmation into EXECUTE.
@@ -362,6 +374,7 @@ class RiskPolicy(
         ToolRisk.PRIVILEGED -> PolicyOutcome.BLOCK
         ToolRisk.DESTRUCTIVE -> PolicyOutcome.REQUIRE_CONFIRMATION
         ToolRisk.EXTERNAL_COMMUNICATION -> PolicyOutcome.REQUIRE_CONFIRMATION
+        ToolRisk.NETWORK_EGRESS -> PolicyOutcome.REQUIRE_CONFIRMATION
         else -> PolicyOutcome.EXECUTE
     }
 
