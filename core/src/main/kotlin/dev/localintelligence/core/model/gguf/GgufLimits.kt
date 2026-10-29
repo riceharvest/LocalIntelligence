@@ -78,6 +78,13 @@ data class GgufLimits(
     val maxArrayPreviewElements: Int = 8,
 
     /**
+     * Longest integer array kept whole in [GgufValue.Array.retained]. Sized above any
+     * real layer count (the deepest released models are a little over 200 blocks) with
+     * room for per-layer tables of other kinds; anything longer is summarised as usual.
+     */
+    val maxRetainedIntegerArrayElements: Int = 1_024,
+
+    /**
      * Ceiling applied to a context length before it is fed to the memory estimator.
      *
      * WHY: context length is multiplied by layers, heads and width to size the KV cache.

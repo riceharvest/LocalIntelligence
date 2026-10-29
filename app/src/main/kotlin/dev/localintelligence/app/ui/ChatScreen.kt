@@ -1,6 +1,8 @@
 package dev.localintelligence.app.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,14 +13,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -34,10 +39,12 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -49,12 +56,21 @@ import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.blockingReason
 import dev.localintelligence.app.isActive
+import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.ui.components.ChatComposer
 import dev.localintelligence.app.ui.components.ChatModelIdentity
 import dev.localintelligence.app.ui.components.ModelIdentityLine
 import dev.localintelligence.app.ui.components.ApprovalRow
+import dev.localintelligence.app.ui.components.PendingToolRow
+import dev.localintelligence.app.ui.components.TranscriptEntry
+import dev.localintelligence.app.ui.components.ToolCallGroup
 import dev.localintelligence.app.ui.components.ToolStepRow
+import dev.localintelligence.app.ui.components.groupToolCalls
+import dev.localintelligence.app.ui.components.rememberMotionEnabled
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The chat. A message list, a text field, a send button, and a STOP button while
@@ -102,6 +118,14 @@ fun ChatScreen(
      * that then fails leaves it naming a file the backend never opened.
      */
     activeModel: ChatModelIdentity? = null,
+    /**
+     * Whether a finished run of tool calls folds itself to one header line.
+     *
+     * Passed in, not read here: the host reads it from the settings store
+     * (`CoreSettings.TOOL_CALLS_AUTO_COLLAPSE`), so this screen stays free of
+     * preferences and the default matches the setting's own default.
+     */
+    toolCallsAutoCollapse: Boolean = true,
 ) {
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
@@ -141,13 +165,38 @@ fun ChatScreen(
     }
 
     val listState = rememberLazyListState()
+
+    // The overflow menu's state and the export work. Export is file IO, so it
+    // runs on IO and only the share sheet is started from here.
+    var exportMenuOpen by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val export: (ChatExporter.Format) -> Unit = { format ->
+        exportMenuOpen = false
+        scope.launch {
+            try {
+                val file = withContext(Dispatchers.IO) {
+                    ChatExporter.write(context, messages, format)
+                }
+                ChatExporter.share(context, file, format)
+            } catch (e: Exception) {
+                Toast.makeText(context, "Export failed", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     // The progress line participates in the count because it is a real row: the
     // auto-scroll has to reach it, or a run that is waiting on a model load
     // scrolls the user's own question off the top of the screen.
-    val progress = progressLine(runState)
+    // While the runtime waits on an approval, the call's own row (with its
+    // shield) says so, so the progress line stays silent to avoid saying it twice.
+    val awaiting = runState as? RunState.AwaitingApproval
+    val progress = if (awaiting != null) null else progressLine(runState)
+    val entries = remember(messages) { groupToolCalls(messages) }
+    val animate = rememberMotionEnabled()
     val rowCount = messages.size +
         (if (streaming.isNotEmpty()) 1 else 0) +
-        (if (progress != null) 1 else 0)
+        (if (progress != null) 1 else 0) +
+        (if (awaiting != null) 1 else 0)
 
     // Whether the transcript is parked at the newest row.
     //
@@ -195,10 +244,9 @@ fun ChatScreen(
     val configuration = LocalConfiguration.current
     val compactComposer = configuration.screenHeightDp < COMPACT_HEIGHT_DP
 
-    val pending = runState as? RunState.AwaitingApproval
-    if (pending != null) {
+    if (awaiting != null) {
         ConfirmationDialog(
-            pending = pending,
+            pending = awaiting,
             onApprove = { viewModel.resolveConfirmation(approved = true) },
             onDecline = { viewModel.resolveConfirmation(approved = false) },
         )
@@ -254,6 +302,26 @@ fun ChatScreen(
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }
+                    // Appended last, so the four icons above keep their places.
+                    // The menu holds the export formats; an empty transcript has
+                    // nothing to export, so the items are disabled.
+                    Box {
+                        IconButton(onClick = { exportMenuOpen = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(
+                            expanded = exportMenuOpen,
+                            onDismissRequest = { exportMenuOpen = false },
+                        ) {
+                            ChatExporter.Format.entries.forEach { format ->
+                                DropdownMenuItem(
+                                    text = { Text(format.label) },
+                                    enabled = messages.isNotEmpty(),
+                                    onClick = { export(format) },
+                                )
+                            }
+                        }
+                    }
                 },
             )
         },
@@ -295,14 +363,32 @@ fun ChatScreen(
                     )
                 }
             }
-            itemsIndexed(messages, key = { index, message -> "$index:${message::class.simpleName}" }) { _, message ->
-                when (message) {
-                    is ChatMessage.User -> UserBubble(message.text)
-                    is ChatMessage.Assistant -> AssistantBubble(message.text)
-                    is ChatMessage.Notice -> NoticeLine(message.text)
-                    is ChatMessage.ToolStep -> ToolStepRow(message)
-                    is ChatMessage.Approval -> ApprovalRow(message)
+            items(entries, key = { entry -> entry.key }) { entry ->
+                when (entry) {
+                    is TranscriptEntry.Single -> when (val message = entry.message) {
+                        is ChatMessage.User -> UserBubble(message.text)
+                        is ChatMessage.Assistant -> AssistantBubble(message.text)
+                        is ChatMessage.Notice -> NoticeLine(message.text)
+                        is ChatMessage.Approval -> ApprovalRow(message)
+                        is ChatMessage.ToolStep -> ToolStepRow(message, animate)
+                    }
+                    is TranscriptEntry.Group -> if (entry.steps.size == 1) {
+                        ToolStepRow(entry.steps.first(), animate)
+                    } else {
+                        // Live only while it is the last thing in the transcript
+                        // and the run is still going; an approval pending row is
+                        // also "after" it, so the group is not live then.
+                        ToolCallGroup(
+                            steps = entry.steps,
+                            live = busy && awaiting == null && entry.lastIndex == messages.lastIndex,
+                            autoCollapse = toolCallsAutoCollapse,
+                            animate = animate,
+                        )
+                    }
                 }
+            }
+            if (awaiting != null) {
+                item("pending") { PendingToolRow(awaiting, animate) }
             }
             if (progress != null) {
                 item("progress") { ProgressLine(progress) }

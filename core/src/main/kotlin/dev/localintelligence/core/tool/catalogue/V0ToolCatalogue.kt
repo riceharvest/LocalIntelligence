@@ -35,7 +35,7 @@ import kotlinx.serialization.json.putJsonObject
  * | `calendar`      |     2 | "what is on my calendar", "block out 16:00"              |
  * | `contacts`      |     2 | resolve a person to a phone number                       |
  * | `notifications` |     3 | read the shade, reply in it, clear it                    |
- * | `web`           |     1 | the one tool that reaches the internet                   |
+ * | `web`           |     2 | fetch a page, or search the web and fetch a result       |
  *
  * ## WHAT THIS FILE IS NOT, stated because it was previously misstated
  *
@@ -71,7 +71,7 @@ import kotlinx.serialization.json.putJsonObject
  *   `memory.write` would let the model invent a memory the user never asked for.
  * - **A general SMS send.** `notifications.reply` covers the only send path v0
  *   needs. A second send tool collides with it on the word "text".
- * - **Settings read/write, wifi, volume, storage, media, clock, timer.** Real
+ * - **Settings read/write, wifi, volume, storage, media, clock.** Real
  *   capabilities, none of which a target task needs, and each a fresh pair of tags
  *   competing for the same six retrieval slots.
  * - **Browser and computer-use.** Banned by `docs/architecture.md` section 1.
@@ -640,6 +640,32 @@ object V0ToolCatalogue {
             requiredPermission = "android.permission.SCHEDULE_EXACT_ALARM",
         ),
 
+        ToolDefinition(
+            name = "timer.set",
+            description = "Start a countdown timer in the phone's clock app for a number of " +
+                "seconds. Use when the user says set a timer, or a countdown for some minutes.",
+            category = "alarm",
+            schema = objSchema(required = listOf("seconds")) {
+                putJsonObject("seconds") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 86400)
+                    put("description", "Length of the timer in seconds, 1 to 86400. Ten minutes is 600.")
+                }
+                putJsonObject("label") {
+                    put("type", "string")
+                    put("maxLength", 60)
+                    put("description", "Short name for the timer, e.g. \"pasta\".")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf(
+                "timer", "countdown", "set a timer", "timer for", "minute timer", "time me",
+            ),
+            requiredPermission = null,
+        ),
+
         // -------------------------------------------------------------- calendar
         ToolDefinition(
             name = "calendar.search",
@@ -891,6 +917,73 @@ object V0ToolCatalogue {
             requiredPermission = null,
         ),
 
+        // ----------------------------------------------------------------- location
+        ToolDefinition(
+            name = "location.get",
+            description = "Get the phone's current approximate location as coordinates and " +
+                "accuracy. Use when the user asks where they are or for their location.",
+            category = "location",
+            schema = objSchema {},
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf(
+                "where am i", "location", "gps", "my location", "where are we",
+                "coordinates", "current location", "nearby",
+            ),
+            requiredPermission = "android.permission.ACCESS_COARSE_LOCATION",
+        ),
+
+        // ------------------------------------------------------------------ drafts
+        ToolDefinition(
+            name = "message.draft",
+            description = "Open the messaging app with a text message drafted for the user to " +
+                "review and send. Nothing is sent. Use when the user asks to text or message someone.",
+            category = "drafts",
+            schema = objSchema(required = listOf("body")) {
+                putJsonObject("to") {
+                    put("type", "string")
+                    put("maxLength", 40)
+                    put("description", "Phone number of the recipient, e.g. +31612345678. Optional.")
+                }
+                putJsonObject("body") {
+                    put("type", "string")
+                    put("maxLength", 2000)
+                    put("description", "The text of the message.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("text", "sms", "message", "text message", "draft a text", "send a text"),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "email.draft",
+            description = "Open the email app with an email drafted for the user to review and " +
+                "send. Nothing is sent. Use when the user asks to email someone or write an email.",
+            category = "drafts",
+            schema = objSchema(required = listOf("body")) {
+                putJsonObject("to") {
+                    put("type", "string")
+                    put("maxLength", 120)
+                    put("description", "Email address of the recipient. Optional.")
+                }
+                putJsonObject("subject") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "The subject line. Optional.")
+                }
+                putJsonObject("body") {
+                    put("type", "string")
+                    put("maxLength", 2000)
+                    put("description", "The text of the email.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("email", "e-mail", "mail", "write an email", "draft an email", "send an email"),
+            requiredPermission = null,
+        ),
+
         // ------------------------------------------------------------------- web
         ToolDefinition(
             name = "web.fetch",
@@ -921,6 +1014,35 @@ object V0ToolCatalogue {
             tags = setOf(
                 "web", "internet", "online", "look up",
                 "website", "weather", "forecast", "right now",
+            ),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "web.search",
+            description = "Searches the web and returns the top results as numbered titles, links and " +
+                "short snippets. Use web.fetch on a link to read the page.",
+            category = "web",
+            schema = objSchema(required = listOf("query")) {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "The search words, for example \"weather amsterdam\".")
+                }
+                putJsonObject("max_results") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 10)
+                    put("description", "How many results to return, 5 by default, at most 10.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            // MUST match `WebSearchTool.definition`. Same reason as web.fetch: a
+            // mismatch here is a hard failure at composition, not a degraded tool.
+            // Search phrases lead the tags, since "search for" and "look up" are what
+            // a user types. "google" is included on purpose: it is the verb people use.
+            tags = setOf(
+                "search", "search for", "look up", "google",
+                "search the web", "web search", "find online",
             ),
             requiredPermission = null,
         ),

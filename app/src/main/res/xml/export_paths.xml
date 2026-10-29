@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Paths the export FileProvider may hand out. Only cacheDir/exports, which is
+  where ChatExporter writes a transcript before the share sheet takes it. A
+  grant is read-only and lasts for that one share, so nothing else in the
+  app's cache is reachable by another app.
+-->
+<paths>
+    <cache-path name="exports" path="exports/" />
+</paths>

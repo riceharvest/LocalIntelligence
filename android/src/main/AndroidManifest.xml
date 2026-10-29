@@ -22,4 +22,10 @@
     -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!--
+      location.get calls LocationManager, which lint checks per library exactly like
+      the VIBRATE call above, so the requirement is declared here too.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
 </manifest>
