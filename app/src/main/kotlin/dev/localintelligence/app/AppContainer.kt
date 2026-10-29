@@ -899,6 +899,10 @@ class AppContainer(private val context: Context) {
         model: ModelBackend = residentBackend(),
         metrics: RunRecorder? = null,
         onToken: ((String) -> Unit)? = null,
+        /** A tool is about to run. Forwarded to the controller; see [AgentController]. */
+        onToolStart: ((name: String, args: String) -> Unit)? = null,
+        /** A tool has returned and the trace now holds it. Forwarded to the controller. */
+        onToolDone: ((List<dev.localintelligence.core.agent.StepTrace>) -> Unit)? = null,
         /** A scheduled or background run: nobody is there to approve anything. */
         background: Boolean = false,
     ): AgentController {
@@ -910,6 +914,8 @@ class AppContainer(private val context: Context) {
         val config = snapshot.agentConfig()
         return AgentController(
         onToken = onToken,
+        onToolStart = onToolStart,
+        onToolDone = onToolDone,
         // Persist whenever the loop trims the window, not only at run
         // boundaries: a message removed by a mid-run fold is unrecoverable
         // afterwards. See AgentController.onWindowChanged.
