@@ -26,7 +26,10 @@ data class ArgumentAnalysis(
     /** Every filesystem path the call names, from any path-like argument. */
     val paths: List<String>,
 
-    /** Paths that resolve outside [PolicyConfig.appStorageRoots]. */
+    /**
+     * Paths that resolve outside [PolicyConfig.appStorageRoots]. Provider URIs
+     * (`content://`) are not filesystem paths and are never listed here.
+     */
     val escapingPaths: List<String>,
 
     /** The recipient/target the call is addressed to, if one is present. */
@@ -107,6 +110,9 @@ object ArgumentInspector {
      * with this so a custom name is honoured too.
      */
     private val IMPLICIT_PATH_ARGS = setOf("path", "paths", "filePath", "file_path", "dir", "directory", "filename")
+
+    /** Provider URIs are opened through a ContentResolver, so they never resolve to a filesystem path. */
+    private const val PROVIDER_URI_PREFIX = "content://"
 
     /**
      * Reads [args] against [config].
@@ -224,7 +230,9 @@ object ArgumentInspector {
 
         return ArgumentAnalysis(
             paths = paths,
-            escapingPaths = paths.filterNot { isInsideAppStorage(it, config) },
+            escapingPaths = paths.filterNot {
+                it.trim().startsWith(PROVIDER_URI_PREFIX) || isInsideAppStorage(it, config)
+            },
             target = target,
             targetIsKnown = target != null && target in config.knownTargets,
             body = body,

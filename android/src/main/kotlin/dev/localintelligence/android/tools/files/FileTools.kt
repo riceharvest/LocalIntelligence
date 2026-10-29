@@ -241,7 +241,8 @@ object FileArgs {
 
     /**
      * Coerces an epoch-millis bound, accepting a number or a numeric string.
-     * Returns null when absent or unparseable, which callers read as "no bound".
+     * Returns null when absent or unparseable. files.search refuses a bound that was
+     * given but is null, rather than reading it as "no bound".
      *
      * Negative values are rejected rather than clamped: a date before 1970 is not a
      * date a user meant, and letting it through would turn "files since last year"
@@ -627,7 +628,7 @@ object FileListing {
         return sb.toString().trimEnd()
     }
 
-    /** One row, one line, no URI: the URI belongs in `data`, and it is long. */
+    /** One row, one line. The URI at the end is the handle files.read_text and files.delete take back. */
     fun describe(row: FileRow): String {
         val sb = StringBuilder()
         sb.append(if (row.displayName.isBlank()) "(unnamed document)" else row.displayName)
@@ -636,7 +637,7 @@ object FileListing {
         val path = row.relativePath
         if (!path.isNullOrBlank()) sb.append(", in ").append(path)
         sb.append(", modified ").append(formatDate(row.modifiedMillis))
-        sb.append(')')
+        sb.append(") uri ").append(row.uri)
         return sb.toString()
     }
 
@@ -1027,6 +1028,14 @@ private const val SAF_IS_PER_DOCUMENT: String =
         "switch. Do not tell the user they have no documents; they have documents " +
         "this app was simply not given."
 
+/**
+ * Whether list, search and read may run. A persisted document grant always answers yes.
+ * From API 29 MediaStore also returns the app's own documents without one, and
+ * DOCUMENT_WRITE reports that case as granted, so it counts here too.
+ */
+private fun canSeeDocuments(grant: PlatformGrant): Boolean =
+    grant.isGranted(ToolPermissions.DOCUMENT_READ) || grant.isGranted(ToolPermissions.DOCUMENT_WRITE)
+
 /** Documents visible to this app, newest first. */
 class FilesListTool(
     private val appContext: Context,
@@ -1055,7 +1064,10 @@ class FilesListTool(
         },
         risk = ToolRisk.READ_ONLY,
         observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("files", "documents", "downloads", "storage", "browse", "my files", "what files do i have"),
+        tags = setOf(
+            "files", "documents", "downloads", "storage", "browse", "my files", "what files do i have",
+            "note", "my note", "notes",
+        ),
         requiredPermission = null,
     )
 
@@ -1066,7 +1078,7 @@ class FilesListTool(
             // honest answer is a refusal that explains the file picker rather
             // than a "No documents matched." line the model would report to the
             // user as "you have no documents".
-            if (!grant.isGranted(ToolPermissions.DOCUMENT_READ)) {
+            if (!canSeeDocuments(grant)) {
                 return@guard denied("files.list", ToolPermissions.DOCUMENT_READ)
             }
             val limit = FileArgs.limit(args.str("limit"))
@@ -1130,7 +1142,10 @@ class FilesSearchTool(
         },
         risk = ToolRisk.READ_ONLY,
         observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("search", "find", "look for", "filename", "extension", "mime type", "recent files", "modified"),
+        tags = setOf(
+            "search", "find", "look for", "filename", "extension", "mime type", "recent files", "modified",
+            "note", "my note", "notes",
+        ),
         requiredPermission = null,
     )
 
@@ -1140,13 +1155,23 @@ class FilesSearchTool(
             // silently matches nothing is indistinguishable from a search over
             // an index this app cannot see, and the model will say the file
             // does not exist.
-            if (!grant.isGranted(ToolPermissions.DOCUMENT_READ)) {
+            if (!canSeeDocuments(grant)) {
                 return@guard denied("files.search", ToolPermissions.DOCUMENT_READ)
             }
             val query = FileArgs.optionalString(args.str("query"), FileArgs.MAX_NAME_CHARS)
             val mime = FileArgs.optionalString(args.str("mime"), FileArgs.MAX_MIME_CHARS)
             val from = FileArgs.epochMillis(args.str("modified_after"))
             val to = FileArgs.epochMillis(args.str("modified_before"))
+            // A bound that was given but is not epoch milliseconds is refused, not dropped.
+            for (name in listOf("modified_after", "modified_before")) {
+                val raw = args.str(name)
+                if (FileArgs.optionalString(raw) != null && FileArgs.epochMillis(raw) == null) {
+                    return@guard fail(
+                        "'$name' must be epoch milliseconds: a whole number, 0 or more, such as 1759276800000.",
+                        ToolError.InvalidArguments("$name is not epoch milliseconds"),
+                    )
+                }
+            }
 
             if (query == null && mime == null && from == null && to == null) {
                 return@guard fail(
@@ -1209,13 +1234,16 @@ class FilesReadTextTool(
         },
         risk = ToolRisk.READ_ONLY,
         observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("read", "open", "text", "contents", "preview", "file content", "what does the file say"),
+        tags = setOf(
+            "read", "open", "text", "contents", "preview", "file content", "what does the file say",
+            "note", "my note", "notes",
+        ),
         requiredPermission = null,
     )
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         ToolSafety.guard("files.read_text") {
-            if (!grant.isGranted(ToolPermissions.DOCUMENT_READ)) {
+            if (!canSeeDocuments(grant)) {
                 return@guard denied("files.read_text", ToolPermissions.DOCUMENT_READ)
             }
             val raw = FileArgs.stringOrNull(args.str("uri"))
@@ -1332,11 +1360,18 @@ class FilesWriteTextTool(
             if (!grant.isGranted(ToolPermissions.DOCUMENT_WRITE)) {
                 return@guard denied("files.write_text", ToolPermissions.DOCUMENT_WRITE)
             }
-            val content = FileArgs.optionalString(args.str("content"), FileArgs.MAX_WRITE_CHARS)
+            val content = FileArgs.optionalString(args.str("content"), Int.MAX_VALUE)
             if (content == null) {
                 return@guard fail(
                     "files.write_text needs a non-empty 'content' string.",
                     ToolError.InvalidArguments("missing or empty content"),
+                )
+            }
+            if (content.length > FileArgs.MAX_WRITE_CHARS) {
+                return@guard fail(
+                    "files.write_text accepts at most ${FileArgs.MAX_WRITE_CHARS} characters of 'content' " +
+                        "per call; this one has ${content.length}. Nothing was written.",
+                    ToolError.InvalidArguments("content is over ${FileArgs.MAX_WRITE_CHARS} characters"),
                 )
             }
             val plan = WritePlanner.plan(
@@ -1359,15 +1394,18 @@ class FilesWriteTextTool(
                     ok("Wrote ${content.length} characters to ${plan.uri.take(120)}.")
                 }
                 is WritePlan.CreateInDownloads -> {
-                    val written = withContext(Dispatchers.IO) { createInDownloads(appContext, plan, content) }
-                    if (!written) {
+                    val created = withContext(Dispatchers.IO) { createInDownloads(appContext, plan, content) }
+                    if (created == null) {
                         return@guard fail(
                             "Could not create '${plan.displayName}' in Downloads. The storage " +
                                 "provider rejected the insert.",
                             ToolError.Unavailable("MediaStore insert failed"),
                         )
                     }
-                    ok("Created ${plan.displayName} in Downloads with ${content.length} characters.")
+                    // MediaStore renames a colliding insert, so report the name the row actually has.
+                    val name = withContext(Dispatchers.IO) { describeDocument(appContext, created)?.name }
+                        ?: plan.displayName
+                    ok("Created $name in Downloads with ${content.length} characters at $created.")
                 }
             }
         }
@@ -1634,7 +1672,7 @@ private fun overwrite(context: Context, uri: Uri, content: String): Boolean {
  * half-written file. If the write throws, the pending row is deleted in a `finally`
  * rather than being left behind as a permanent zero-byte ghost.
  */
-private fun createInDownloads(context: Context, plan: WritePlan.CreateInDownloads, content: String): Boolean {
+private fun createInDownloads(context: Context, plan: WritePlan.CreateInDownloads, content: String): Uri? {
     // `MediaStore.Downloads` is API 29. The SDK_INT guard below protected only
     // the two *fields* inside the ContentValues, while the TYPE REFERENCE and
     // `EXTERNAL_CONTENT_URI` on the line after it were outside the guard — so on
@@ -1646,7 +1684,7 @@ private fun createInDownloads(context: Context, plan: WritePlan.CreateInDownload
     // minSdk is 26, so this is a real crash on 26-28 rather than a theoretical
     // one. Early-return is the honest fix: this whole strategy needs API 29, and
     // the caller already has a SAF path for older devices.
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
 
     val resolver = context.contentResolver
     val values = ContentValues().apply {
@@ -1660,11 +1698,11 @@ private fun createInDownloads(context: Context, plan: WritePlan.CreateInDownload
         resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
     } catch (t: Exception) {
         null
-    } ?: return false
+    } ?: return null
 
     var ok = false
     try {
-        val stream = resolver.openOutputStream(uri, "wt") ?: return false
+        val stream = resolver.openOutputStream(uri, "wt") ?: return null
         try {
             stream.write(content.toByteArray(Charsets.UTF_8))
             stream.flush()
@@ -1686,7 +1724,7 @@ private fun createInDownloads(context: Context, plan: WritePlan.CreateInDownload
             runCatching { resolver.delete(uri, null, null) }
         }
     }
-    return ok
+    return if (ok) uri else null
 }
 
 /** Every file tool, in registry order. */
