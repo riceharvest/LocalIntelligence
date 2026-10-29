@@ -24,6 +24,7 @@ import kotlinx.coroutines.withContext
 import dev.localintelligence.core.context.ContextBuilder
 import dev.localintelligence.core.context.DefaultContextBuilder
 import dev.localintelligence.core.metrics.RunRecorder
+import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.ModelBackend
 import dev.localintelligence.core.model.ModelSpec
 import dev.localintelligence.core.policy.RiskPolicy
@@ -395,9 +396,8 @@ class AppContainer(private val context: Context) {
      * nothing, because a process killed mid-turn loses the same window either
      * way. The unit of durability here is the turn, stated plainly.
      */
-    suspend fun persistConversation() {
-        val store = sessionStore ?: return
-
+    private fun snapshotPendingMessages(): List<ChatMessage> {
+        if (sessionStore == null) return emptyList()
         // Write every message in the window that has not been written, by
         // IDENTITY rather than by count.
         //
@@ -413,8 +413,12 @@ class AppContainer(private val context: Context) {
         // `Session.writtenIds` is the set of message identities already handed
         // to the store, so a trim, a fold, or a repeated call are all naturally
         // idempotent and nothing is inferred from positions.
-        val pending = session.messages.filter { session.writtenIds.add(session.idOf(it)) }
+        return session.messages.filter { session.writtenIds.add(session.idOf(it)) }
+    }
+
+    private suspend fun writeSnapshot(pending: List<ChatMessage>) {
         if (pending.isEmpty()) return
+        val store = sessionStore ?: return
         val id = try {
             durableSessionId(store)
         } catch (e: CancellationException) {
@@ -439,6 +443,10 @@ class AppContainer(private val context: Context) {
             pending.forEach { session.writtenIds.remove(session.idOf(it)) }
             android.util.Log.w(TAG, "Could not persist the conversation; will retry next run.", t)
         }
+    }
+
+    suspend fun persistConversation() {
+        writeSnapshot(snapshotPendingMessages())
     }
 
     @Volatile
@@ -740,11 +748,15 @@ class AppContainer(private val context: Context) {
         // Persist whenever the loop trims the window, not only at run
         // boundaries: a message removed by a mid-run fold is unrecoverable
         // afterwards. See AgentController.onWindowChanged.
-        // Launched on the app scope rather than awaited inline: the loop is
-        // mid-generation and a database write must not stall token production.
-        // The write is ordered by identity (Session.writtenIds), so a
-        // checkpoint racing the final run-boundary persist cannot double-write.
-        onWindowChanged = { appScope.launch { persistConversation() } },
+        // The snapshot is taken synchronously on the calling thread before
+        // the trim/fold drops messages from the window; the database write
+        // is launched on appScope so it does not stall token production.
+        onWindowChanged = {
+            val pending = snapshotPendingMessages()
+            if (pending.isNotEmpty()) {
+                appScope.launch { writeSnapshot(pending) }
+            }
+        },
         model = model,
         parser = dev.localintelligence.core.agent.ActionParserImpl,
         tools = tools,
@@ -867,8 +879,8 @@ class AppContainer(private val context: Context) {
     suspend fun adoptDownloaded(file: java.io.File): String? = withContext(Dispatchers.IO) {
         val uri = android.net.Uri.fromFile(file)
         val model = runCatching { importer.inspect(uri) }.getOrNull() ?: return@withContext null
-        loadModel(model)
-        model.displayName
+        val availability = loadModel(model)
+        if (availability is ModelAvailability.Ready) availability.displayName else null
     }
 }
 

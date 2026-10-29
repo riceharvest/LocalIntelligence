@@ -103,8 +103,8 @@ class AgentViewModel(
         ensureReady: suspend () -> ModelAvailability,
     ) {
         if (job?.isActive == true) return
+        sinks.state.value = RunState.LoadingModel
         job = scope.launch {
-            sinks.state.value = RunState.LoadingModel
             val readiness = try {
                 ensureReady()
             } catch (e: CancellationException) {
