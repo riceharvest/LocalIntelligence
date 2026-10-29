@@ -231,8 +231,9 @@ bool tokenize(const llama_vocab * vocab, const std::string & text,
 
 // Builds the sampling chain. Returns null only if llama.cpp cannot allocate one.
 llama_sampler * build_chain(const llama_vocab * vocab, const std::string & grammar_str,
-                            float temperature, float top_p, float min_p,
-                            float repeat_penalty, uint32_t seed) {
+                            float temperature, int32_t top_k, float top_p, float min_p,
+                            float repeat_penalty, int32_t penalty_last_n,
+                            float freq_penalty, float presence_penalty, uint32_t seed) {
     // The chain has to exist before anything can be added to it: `sparams` is
     // consumed by llama_sampler_chain_init, and llama_sampler_chain_add takes
     // the chain, not the params.
@@ -252,10 +253,20 @@ llama_sampler * build_chain(const llama_vocab * vocab, const std::string & gramm
             llama_sampler_chain_add(chain, g);
         }
     }
-    if (repeat_penalty > 0.0f) {
+    // Penalties only go in when one is active. A window of 0 turns all of them
+    // off, and llama.cpp treats a repeat penalty of exactly 1 as a no-op.
+    const float repeat = repeat_penalty > 0.0f ? repeat_penalty : 1.0f;
+    const bool penalties_active =
+        penalty_last_n > 0 && (repeat != 1.0f || freq_penalty != 0.0f || presence_penalty != 0.0f);
+    if (penalties_active) {
         llama_sampler_chain_add(
-            chain, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab),
-                                                /*penalty_last_n=*/64, repeat_penalty, 0.0f, 0.0f));
+            chain, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), penalty_last_n,
+                                                repeat, freq_penalty, presence_penalty));
+    }
+    // Top-k goes before top-p, the usual order. It cannot change a greedy pick,
+    // since the most likely token always survives it.
+    if (top_k > 0) {
+        llama_sampler_chain_add(chain, llama_sampler_init_top_k(top_k));
     }
     if (top_p > 0.0f && top_p < 1.0f) {
         llama_sampler_chain_add(chain, llama_sampler_init_top_p(top_p, /*min_keep=*/1));
@@ -522,7 +533,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeTakeResult(JNIEnv
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         JNIEnv * env, jclass, jlong handle, jstring prompt, jstring grammar, jfloat temperature,
-        jfloat top_p, jfloat min_p, jfloat repeat_penalty, jint seed, jint max_tokens,
+        jfloat top_p, jint top_k, jfloat min_p, jfloat repeat_penalty, jint penalty_last_n,
+        jfloat frequency_penalty, jfloat presence_penalty, jint seed, jint max_tokens,
         jobject onToken) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
@@ -633,8 +645,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     const int32_t prompt_tokens = static_cast<int32_t>(tokens.size());
 
     llama_sampler * chain = build_chain(
-        vocab, grammar_str, temperature, top_p, min_p, repeat_penalty,
-        static_cast<uint32_t>(seed));
+        vocab, grammar_str, temperature, top_k, top_p, min_p, repeat_penalty,
+        penalty_last_n, frequency_penalty, presence_penalty, static_cast<uint32_t>(seed));
     if (chain == nullptr) {
         outcome.stop = static_cast<int32_t>(StopCode::ERROR);
         outcome.error = "could not build the sampler chain";

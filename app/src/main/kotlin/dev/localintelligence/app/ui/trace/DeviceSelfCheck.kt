@@ -811,6 +811,8 @@ class DeviceSelfCheck(
                 "implausible dimensions for ${warning.tensor}: ${warning.dimensions}"
             is GgufWarning.ImplausibleValue ->
                 "implausible value for ${warning.key}: ${warning.raw}"
+            is GgufWarning.KvHeadCountArrayUnusable ->
+                "per-layer KV head array does not match the layer count; head_count used everywhere"
             is GgufWarning.DuplicateKey ->
                 "duplicate metadata key ${warning.key}"
             is GgufWarning.UnknownValueType ->

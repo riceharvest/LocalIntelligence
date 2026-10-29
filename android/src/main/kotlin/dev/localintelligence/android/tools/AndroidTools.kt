@@ -92,7 +92,7 @@ fun androidToolPlugins(context: Context): List<AgentPlugin> {
         ToolFamily("tools.notifications", "Notifications", "Read, dismiss and reply to notifications") {
             notificationTools(grant)
         },
-        ToolFamily("tools.web", "Web", "Fetch web pages") { webTools(grant) },
+        ToolFamily("tools.web", "Web", "Search the web and fetch pages") { webTools(grant) },
         ToolFamily("tools.location", "Location", "Current approximate location") { locationTools(app, grant) },
         ToolFamily("tools.drafts", "Drafts", "Open a message or email draft for you to send") { draftTools(app) },
     )

@@ -42,6 +42,14 @@ enum class GgufValueType(val id: Int, val fixedByteWidth: Int?) {
     val isUnsigned: Boolean
         get() = this == UINT8 || this == UINT16 || this == UINT32 || this == UINT64
 
+    /**
+     * True for the eight integer widths. Used to decide whether an array is a list of
+     * counts (per-layer head counts) that the parser may keep whole, as opposed to a
+     * string or float array where a summary is all anyone needs.
+     */
+    val isInteger: Boolean
+        get() = this != BOOL && this != STRING && this != ARRAY && this != FLOAT32 && this != FLOAT64
+
     companion object {
         private val byId = entries.associateBy { it.id }
 

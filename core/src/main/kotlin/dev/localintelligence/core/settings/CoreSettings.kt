@@ -82,6 +82,21 @@ object CoreSettings {
         "sampling.repeat_penalty", "Repeat penalty", "1 disables it.",
         SettingSection.SAMPLING, default = 1.1f, min = 1f, max = 2f, step = 0.01f,
     )
+    val PENALTY_LAST_N = IntValue(
+        "sampling.penalty_last_n", "Penalty window",
+        "How many recent tokens the repeat and frequency penalties look back over. 0 disables them.",
+        SettingSection.SAMPLING, default = 64, min = 0, max = 2048,
+    )
+    val FREQUENCY_PENALTY = FloatValue(
+        "sampling.frequency_penalty", "Frequency penalty",
+        "Pushes down a token more the more often it appeared in the window. 0 disables it.",
+        SettingSection.SAMPLING, default = 0f, min = 0f, max = 2f, step = 0.05f,
+    )
+    val PRESENCE_PENALTY = FloatValue(
+        "sampling.presence_penalty", "Presence penalty",
+        "Pushes down any token already used in the window, once. 0 disables it.",
+        SettingSection.SAMPLING, default = 0f, min = 0f, max = 2f, step = 0.05f,
+    )
     val SEED = IntValue(
         "sampling.seed", "Seed", "-1 picks a new one every time.",
         SettingSection.SAMPLING, default = -1, min = -1, max = Int.MAX_VALUE,
@@ -130,7 +145,8 @@ object CoreSettings {
         MODE,
         AUTO_ACCEPT_DESTRUCTIVE, AUTO_ACCEPT_EXTERNAL, AUTO_ACCEPT_NETWORK, AUTO_ACCEPT_IN_BACKGROUND,
         TOOL_CALLS_AUTO_COLLAPSE,
-        TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT,
+        TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
+        SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT,
         MAX_STEPS, MAX_VISIBLE_TOOLS, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
     )
 }
@@ -150,6 +166,9 @@ fun SettingsReader.samplingParams(): SamplingParams = SamplingParams(
     topK = this[CoreSettings.TOP_K],
     minP = this[CoreSettings.MIN_P],
     repeatPenalty = this[CoreSettings.REPEAT_PENALTY],
+    penaltyLastN = this[CoreSettings.PENALTY_LAST_N],
+    frequencyPenalty = this[CoreSettings.FREQUENCY_PENALTY],
+    presencePenalty = this[CoreSettings.PRESENCE_PENALTY],
     seed = this[CoreSettings.SEED],
     maxOutputTokens = this[CoreSettings.MAX_OUTPUT_TOKENS],
 )

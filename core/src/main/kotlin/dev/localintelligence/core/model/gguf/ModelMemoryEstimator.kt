@@ -8,7 +8,8 @@ package dev.localintelligence.core.model.gguf
  * ```
  * weights  = sum over tensors:  ceil(elements / blockElements) * blockBytes
  *          (fallback: parameterCount * bitsPerWeight / 8, then: fileBytes)
- * kv cache = 2 * layers * kvHeads * headDim * contextLength * bytesPerElement
+ * kv cache = sum over layers of kvHeads_i * (keyDim + valueDim) * contextLength * bytesPerElement
+ *            (= 2 * layers * kvHeads * headDim * ... when the layers are uniform)
  * overhead = max(RUNTIME_BUFFER_FLOOR, RUNTIME_BUFFER_RATIO * weights)
  * total    = weights + kvCache + overhead
  * ```
@@ -120,39 +121,63 @@ class ModelMemoryEstimator(
 
         // ---- geometry ----------------------------------------------------------
         val layers = m.blockCount
-        val kvHeads = m.kvHeadCount
+        // Per-layer KV heads (hybrid models store one entry per layer). The single figure
+        // reported as "KV heads" is the largest, so a verdict that reads it stays conservative.
+        val kvHeadsPerLayer = m.kvHeadsPerLayer
+        val kvHeads = kvHeadsPerLayer?.maxOrNull()
         val headDim = m.resolveHeadDimension()
         val headDimValue = headDim?.value
+        // K and V use separate widths only when the file declares both key_length and
+        // value_length; otherwise both are the one head dimension, as they always were.
+        val keyLengthDeclared = m.keyLength?.takeIf { it > 0 }
+        val valueLengthDeclared = m.valueLength?.takeIf { it > 0 }
+        val valueDimValue = if (keyLengthDeclared != null && valueLengthDeclared != null) {
+            valueLengthDeclared
+        } else {
+            headDimValue
+        }
         layers?.let { inputs += EstimateInput("Layers", it.toString(), "<arch>.block_count") }
-        kvHeads?.let {
-            inputs += EstimateInput(
-                "KV heads",
-                it.toString(),
-                if (m.headCountKv != null) "<arch>.attention.head_count_kv" else "<arch>.attention.head_count (MHA)",
-            )
+        if (kvHeadsPerLayer != null) {
+            val distinct = kvHeadsPerLayer.distinct()
+            val arrayUsed = m.headCountKvArray?.size?.toLong() == layers
+            val value = if (distinct.size == 1) distinct[0].toString()
+            else "${kvHeadsPerLayer.min()}-${kvHeadsPerLayer.max()} per layer"
+            val source = when {
+                arrayUsed -> "<arch>.attention.head_count_kv (per layer)"
+                m.headCountKv != null -> "<arch>.attention.head_count_kv"
+                m.headCountKvArrayUnusable -> "<arch>.attention.head_count (per-layer array unusable)"
+                else -> "<arch>.attention.head_count (MHA)"
+            }
+            inputs += EstimateInput("KV heads", value, source)
         }
         if (headDim != null) {
             inputs += EstimateInput("Head dimension", headDim.value.toString(), headDimSourceKey(headDim.source))
+        }
+        if (valueDimValue != null && valueDimValue != headDimValue) {
+            inputs += EstimateInput("Value dimension", valueDimValue.toString(), "<arch>.attention.value_length")
         }
         m.expertCount?.let { inputs += EstimateInput("Experts", it.toString(), "<arch>.expert_count") }
 
         // ---- kv cache ----------------------------------------------------------
         val bytesPerElement = kvCacheType.bytesPerElement
-        val kvCacheBytes = if (layers == null || kvHeads == null || headDimValue == null) {
+        val kvCacheBytes = if (layers == null || kvHeadsPerLayer == null || headDimValue == null || valueDimValue == null) {
             inputs += EstimateInput("KV cache", "not computable", "missing layer/head metadata")
             0L
         } else {
-            // 2 = K and V.
+            // kv cache = sum over layers of (kvHeads_i * (keyDim + valueDim) * ctx * bytes),
+            // which is 2 * kvHeads * headDim per layer when K and V share a width. A layer
+            // with 0 KV heads (no attention, as in hybrid models) adds nothing.
             //
             // WHY this is the one place the estimate multiplies in floating point:
             // bytesPerElement is fractional for the quantised cache types (q8_0 is
             // 34/32 = 1.0625), and truncating it to a Long turns every quantised cache
             // into an f16-sized one — the exact opposite of what the user asked for. All
-            // other factors are integers and 1.0625 is exactly representable, so the
-            // product is exact up to 2^53, roughly 9000x larger than any real model's
-            // cache. Beyond that the product is not a number a phone has, and it
-            // saturates rather than wrapping.
-            val exact = 2.0 * layers * kvHeads * headDimValue * contextLength * bytesPerElement
+            // other factors are integers and the cache multipliers are exactly
+            // representable, so the product is exact up to 2^53, roughly 9000x larger than
+            // any real model's cache. Beyond that the product is not a number a phone has,
+            // and it saturates rather than wrapping.
+            val kvHeadSum = kvHeadsPerLayer.sum()
+            val exact = kvHeadSum.toDouble() * (headDimValue + valueDimValue).toDouble() * contextLength * bytesPerElement
             val cache = if (!exact.isFinite() || exact >= Long.MAX_VALUE.toDouble()) Long.MAX_VALUE else exact.toLong()
             inputs += EstimateInput("Bytes per KV element", "%.3f".format(bytesPerElement), kvCacheType.label)
             cache

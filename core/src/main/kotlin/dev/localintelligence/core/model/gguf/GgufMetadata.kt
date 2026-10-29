@@ -44,6 +44,12 @@ class GgufMetadata internal constructor(
         return fields.long("$prefix.$suffix")
     }
 
+    /** The raw `<arch>.<suffix>` value, for keys whose shape (scalar or array) the caller must see. */
+    private fun archValue(suffix: String): GgufValue? {
+        val prefix = architecture ?: return null
+        return fields["$prefix.$suffix"]
+    }
+
     /** `general.architecture`, or the inferred prefix. `llama`, `qwen3`, `gemma3`, ... */
     val architectureName: String? get() = architecture
 
@@ -132,6 +138,57 @@ class GgufMetadata internal constructor(
     val kvHeadCount: Long? get() = headCountKv ?: headCount
 
     /**
+     * `<arch>.attention.head_count_kv` when the file stores it as one entry per layer.
+     *
+     * Hybrid models (LFM2, Gemma 3n) use this form: layers without attention, such as
+     * LFM2's short-convolution blocks, carry 0. Null for a scalar, for an absent key, and
+     * for an array too long to have been kept whole by the parser.
+     */
+    val headCountKvArray: List<Long>?
+        get() {
+            val raw = (archValue("attention.head_count_kv") as? GgufValue.Array)?.retained ?: return null
+            return raw.takeIf { values -> values.all { it >= 0 && it <= PLAUSIBLE_CEILING } }
+        }
+
+    /** Element count of the raw `head_count_kv` array, or null when the key is not an array. */
+    val headCountKvArrayEntries: Long?
+        get() = (archValue("attention.head_count_kv") as? GgufValue.Array)?.count
+
+    /**
+     * True when `head_count_kv` is an array that cannot be used as written: it does not match
+     * [blockCount], an entry is implausible, or [blockCount] itself is missing. The per-layer
+     * list then falls back to [kvHeadCount] everywhere, which is the old behaviour.
+     */
+    val headCountKvArrayUnusable: Boolean
+        get() {
+            val entries = headCountKvArrayEntries ?: return false
+            val values = headCountKvArray ?: return true
+            return blockCount == null || values.size.toLong() != blockCount
+        }
+
+    /**
+     * KV heads for every layer, in block order, or null when the layer count or the head
+     * count is unknown.
+     *
+     * - A scalar `head_count_kv` (or the MHA `head_count` fallback) is repeated for each
+     *   of the [blockCount] layers.
+     * - A per-layer array is used as stored when its length equals [blockCount].
+     * - An array that does not fit is replaced by the scalar fallback on every layer, the
+     *   conservative behaviour the estimator had before per-layer support existed.
+     *
+     * Returns null above [MAX_LAYERS]. No real model is that deep, and a list that size
+     * would be built from a corrupt count.
+     */
+    val kvHeadsPerLayer: List<Long>?
+        get() {
+            val layers = blockCount ?: return null
+            if (layers <= 0 || layers > MAX_LAYERS) return null
+            headCountKvArray?.takeIf { it.size.toLong() == layers }?.let { return it }
+            val uniform = kvHeadCount ?: return null
+            return List(layers.toInt()) { uniform }
+        }
+
+    /**
      * The head dimension to use, and where it came from.
      *
      * WHY the order: `attention.key_length` is what attention actually computes with.
@@ -167,6 +224,12 @@ class GgufMetadata internal constructor(
         EMBEDDING_LENGTH_OVER_HEAD_COUNT,
     }
 }
+
+/** Layer counts above this are treated as corrupt rather than sized per layer. */
+private const val MAX_LAYERS: Long = 10_000
+
+/** [MAX_PLAUSIBLE_METADATA_VALUE] as the integer ceiling array entries are checked against. */
+private val PLAUSIBLE_CEILING: Long = MAX_PLAUSIBLE_METADATA_VALUE.toLong()
 
 /** Reads a string field, or null. */
 private fun Map<String, GgufValue>.string(key: String): String? = this[key]?.asString()
