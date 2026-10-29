@@ -494,7 +494,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeTakeResult(JNIEnv
     }
     std::lock_guard<std::mutex> lock(h->outcome_mutex);
     // Serialised so JNI carries one string instead of a struct:
-    //   stop|promptTokens|completionTokens|prefillMs|decodeMs|<error>\n<text>
+    //   stop|promptTokens|completionTokens|prefillMs|decodeMs|error|<text>
     std::string out;
     out += std::to_string(h->outcome.stop);
     out += '|';
@@ -506,9 +506,11 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeTakeResult(JNIEnv
     out += '|';
     out += std::to_string(h->outcome.decode_ms);
     out += '|';
-    if (!h->outcome.error.empty()) {
-        out += "E" + h->outcome.error + '\n';
-    }
+    std::string err = h->outcome.error;
+    std::replace(err.begin(), err.end(), '\n', ' ');
+    std::replace(err.begin(), err.end(), '|', ' ');
+    out += err;
+    out += '|';
     out += h->outcome.text;
     h->outcome = GenOutcome();
     return to_jstring(env, out);
@@ -638,10 +640,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     }
     llama_sampler_reset(chain);
 
-    // The prompt and the generated answer live in different sequence slots, so
-    // a context compactor can drop the prompt without dropping the answer.
     constexpr llama_seq_id kPromptSeq = 0;
-    constexpr llama_seq_id kOutputSeq = 1;
 
     const int64_t start = now_ms();
     int32_t pos = 0;
@@ -680,6 +679,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     }
 
     // ---- prefill --------------------------------------------------------------
+    llama_kv_cache_clear(ctx);
     const int32_t batch_limit = std::max(1, std::min(n_ctx, kDefaultBatch));
     for (int32_t off = 0; off < prompt_tokens; off += batch_limit) {
         if (h->cancelled.load()) {
@@ -781,7 +781,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             batch.token[0] = id;
             batch.pos[0] = pos;
             batch.n_seq_id[0] = 1;
-            batch.seq_id[0][0] = kOutputSeq;
+            batch.seq_id[0][0] = kPromptSeq;
             batch.logits[0] = 1;
             batch.n_tokens = 1;  // see the prefill note: never left implicit
             const int32_t rc = llama_decode(ctx, batch);
