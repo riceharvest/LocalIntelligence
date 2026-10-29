@@ -565,9 +565,8 @@ Do not redesign architecture.
 Do not add dependencies unless it is genuinely necessary.
 Do not create abstractions for hypothetical future use.
 Do not modify interfaces owned by another workstream.
-Do not add cloud dependencies.
 Do not add telemetry.
-Do not introduce MCP.
+Cloud features and MCP are opt-in: off by default, no key or server means no network call.
 Do not implement features outside the assigned issue.
 Prefer Android/Kotlin platform APIs over wrappers.
 Keep model-visible outputs extremely compact.
