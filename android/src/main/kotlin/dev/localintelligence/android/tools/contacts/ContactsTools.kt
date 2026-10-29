@@ -55,6 +55,8 @@ internal data class ContactDetail(
     val organization: String?,
     val phones: List<String>,
     val emails: List<String>,
+    val phoneTotal: Int = phones.size,
+    val emailTotal: Int = emails.size,
 )
 
 internal sealed interface ParsedContactId {
@@ -182,15 +184,21 @@ internal object ContactsArgs {
         phones: List<String>,
         emails: List<String>,
         organization: String?,
-    ): ContactDetail = ContactDetail(
-        contactId = contactId,
-        displayName = displayName.trim().ifEmpty { "(no name)" },
-        organization = clean(organization, MAX_ORGANIZATION_CHARS),
-        phones = phones.filter(::isPhoneLike).map { it.trim() }.distinct().take(MAX_PHONES)
-            .mapNotNull { clean(it, MAX_VALUE_CHARS) },
-        emails = emails.filter(::isEmailLike).map { it.trim() }.distinct().take(MAX_EMAILS)
-            .map { shortenEmail(it) },
-    )
+    ): ContactDetail {
+        val validPhones = phones.filter(::isPhoneLike).map { it.trim() }.distinct()
+            .mapNotNull { clean(it, MAX_VALUE_CHARS) }
+        val validEmails = emails.filter(::isEmailLike).map { it.trim() }.distinct()
+            .map { shortenEmail(it) }
+        return ContactDetail(
+            contactId = contactId,
+            displayName = displayName.trim().ifEmpty { "(no name)" },
+            organization = clean(organization, MAX_ORGANIZATION_CHARS),
+            phones = validPhones.take(MAX_PHONES),
+            emails = validEmails.take(MAX_EMAILS),
+            phoneTotal = validPhones.size,
+            emailTotal = validEmails.size,
+        )
+    }
 
     /**
      * Emails are shortened from the LEFT of the local part, never the right of the whole
@@ -245,7 +253,7 @@ internal object ContactsText {
             } else {
                 shown.joinToString(", ") + if (extra > 0) " (+$extra more)" else ""
             }
-            "${index + 1}. $name — $numbers"
+            "${index + 1}. $name (id ${contact.contactId}) — $numbers"
         }
 
         return ObservationTruncator.truncate((listOf(header) + body).joinToString("\n"))
@@ -616,9 +624,8 @@ class ContactsGetTool internal constructor(
             if (rowsSeen == 0) return@withContext notFound(id)
 
             val detail = ContactsArgs.buildDetail(id, name, phones, emails, organization)
-            // The "+n more" counts must reflect the provider, not the post-filter list.
-            val phoneTotal = phones.size.coerceAtLeast(detail.phones.size)
-            val emailTotal = emails.size.coerceAtLeast(detail.emails.size)
+            val phoneTotal = detail.phoneTotal
+            val emailTotal = detail.emailTotal
 
             ToolResult(
                 success = true,

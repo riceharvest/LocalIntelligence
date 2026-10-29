@@ -377,7 +377,7 @@ class ClipboardReadTool(private val platform: ClipboardPlatform) : AgentTool {
 
             val isText = snapshot.mimeTypes.any { it.startsWith("text/") } ||
                 snapshot.mimeTypes.isEmpty()
-            if (!isText || snapshot.text == null) {
+            if (!isText) {
                 // A non-text clip is NOT coerced. Coercing an image or a file URI to text
                 // produces a content:// URI string that the model will happily read as
                 // if it were the user's words.
@@ -386,6 +386,14 @@ class ClipboardReadTool(private val platform: ClipboardPlatform) : AgentTool {
                     observation = ClipboardText.describeNonText(snapshot.mimeTypes),
                     data = ClipboardText.readData(snapshot),
                     error = ToolError.Unavailable("clipboard holds a non-text item"),
+                )
+            }
+            if (snapshot.text == null) {
+                return@guarded ToolResult(
+                    success = false,
+                    observation = ClipboardText.describeRead(snapshot),
+                    data = ClipboardText.readData(snapshot),
+                    error = ToolError.Unavailable("clipboard text could not be read"),
                 )
             }
 
