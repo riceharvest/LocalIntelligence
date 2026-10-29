@@ -28,6 +28,7 @@ import dev.localintelligence.core.agent.ToolCallValidatorGate
 import dev.localintelligence.core.agent.TurnRecorder
 import dev.localintelligence.core.execution.RunGate
 import dev.localintelligence.core.memory.LexicalMemoryStore
+import dev.localintelligence.core.memory.ProfilePlugin
 import dev.localintelligence.android.inference.RamEstimate
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import androidx.compose.runtime.mutableStateListOf
@@ -136,7 +137,7 @@ class AppContainer(private val context: Context) {
      * Everything that can be switched on and off. The built-in tool families
      * are the first plugins; features add theirs here.
      */
-    val plugins: List<AgentPlugin> by lazy { androidToolPlugins(context) }
+    val plugins: List<AgentPlugin> by lazy { androidToolPlugins(context) + ProfilePlugin() }
 
     /**
      * The risk policy, shared by every controller this container builds.

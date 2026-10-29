@@ -185,6 +185,7 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
                 )
             }
         }
+        is SettingDef.Text -> TextSettingRow(store, def, help)
         is SettingDef.IntValue -> {
             val value = store.stored(def)
             val span = def.max.toLong() - def.min.toLong()
@@ -202,6 +203,38 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
                     NumberField(value) { store.set(def, it) }
                 }
             }
+        }
+    }
+}
+
+/**
+ * A multi-line text setting with an explicit Save.
+ *
+ * WHY SAVE AND NOT WRITE-ON-EVERY-KEY: a store write bumps [SettingsStore.changes], and
+ * the whole screen is keyed on that revision, so each keystroke would rebuild the field
+ * and drop the cursor. The draft lives here until Save, which is the one write.
+ */
+@Composable
+private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: String) {
+    val stored = store.stored(def)
+    var draft by remember(stored) { mutableStateOf(stored) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        RowTitle(def.title, help)
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { draft = it.take(def.maxLength) },
+            minLines = 3,
+            modifier = Modifier.fillMaxWidth(),
+            supportingText = { Text("${draft.length} of ${def.maxLength} characters") },
+        )
+        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            if (stored.isNotEmpty()) {
+                TextButton(onClick = { store.set(def, "") }) { Text("Clear") }
+            }
+            FilledTonalButton(
+                onClick = { store.set(def, draft) },
+                enabled = draft != stored,
+            ) { Text("Save") }
         }
     }
 }
