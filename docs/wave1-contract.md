@@ -1,5 +1,9 @@
 # Wave 1 contract
 
+Historical: these are the wave-1 signatures as first fixed. The source is the reference
+now, and several have changed since (`AgentController`, `ContextCompactor.compact`,
+`Session`).
+
 Signatures that two or more wave-1 agents depend on. This file exists because agent A
 writes the loop and agent B writes the tests for the loop, and they are running in
 parallel in different worktrees. They cannot negotiate. So these signatures are fixed
@@ -16,31 +20,31 @@ Everything else in `docs/architecture.md` and `docs/tool-contract.md` is also bi
 ## What already exists (do not recreate, do not modify)
 
 ```
-core/src/main/kotlin/dev/LocalIntelligence/core/model/ModelBackend.kt
+core/src/main/kotlin/dev/localintelligence/core/model/ModelBackend.kt
     ModelSpec, ModelCapabilities, ChatMessage, SamplingParams,
     GenerationRequest, GenerationResult, StopReason,
     ModelBackend, StreamingModelBackend, NoopModelBackend,
     ToolPayload, ToolArgs
 
-core/src/main/kotlin/dev/LocalIntelligence/core/agent/AgentAction.kt
+core/src/main/kotlin/dev/localintelligence/core/agent/AgentAction.kt
     AgentAction.Respond, AgentAction.CallTool, RawAction,
     ActionParseResult.Parsed, ActionParseResult.Malformed, ActionParser
 
-core/src/main/kotlin/dev/LocalIntelligence/core/tool/AgentTool.kt
+core/src/main/kotlin/dev/localintelligence/core/tool/AgentTool.kt
     AgentTool, ToolDefinition, ToolResult, ToolError, ToolContext,
     ToolRisk, CancellationSignal
 
-core/src/main/kotlin/dev/LocalIntelligence/core/tool/ToolRegistry.kt
+core/src/main/kotlin/dev/localintelligence/core/tool/ToolRegistry.kt
     ToolRegistry, SimpleToolRegistry, ToolSelector, LexicalToolSelector,
     ObservationTruncator, ToolCallValidator
 
-core/src/main/kotlin/dev/LocalIntelligence/core/agent/LoopDetector.kt
+core/src/main/kotlin/dev/localintelligence/core/agent/LoopDetector.kt
     LoopDetector (check/recordResult/hasStalled/isUnavailable/reset/normalize)
 
-core/src/main/kotlin/dev/LocalIntelligence/core/agent/MemoryStore.kt
+core/src/main/kotlin/dev/localintelligence/core/agent/MemoryStore.kt
     Memory, MemoryStore, SessionStore, InMemoryMemoryStore
 
-core/src/main/kotlin/dev/LocalIntelligence/core/context/ContextBuilder.kt
+core/src/main/kotlin/dev/localintelligence/core/context/ContextBuilder.kt
     ContextBuilder, CompactedState, SystemPrompts
 ```
 
@@ -51,7 +55,7 @@ Read the actual files. This list is a map, not a substitute.
 ## Fixed: the agent loop (agent A owns it, agent B tests it)
 
 ```kotlin
-package dev.LocalIntelligence.core.agent
+package dev.localintelligence.core.agent
 
 data class AgentConfig(
     val maxSteps: Int = 8,
@@ -146,7 +150,7 @@ gets `List<AgentTool>`. That interface already exists and is frozen.
 Agent C produces the grammar from the *visible* tool set:
 
 ```kotlin
-package dev.LocalIntelligence.core.model
+package dev.localintelligence.core.model
 
 object GrammarBuilder {
     /** GBNF constraining output to Respond(text) or CallTool(name in [tools], args). */
@@ -165,7 +169,7 @@ observation. That is the only coupling between A and C.
 ## Fixed: context building (agent D owns it, agent A consumes it)
 
 ```kotlin
-package dev.LocalIntelligence.core.context
+package dev.localintelligence.core.context
 
 class DefaultContextBuilder(
     private val systemPrompt: (List<ToolDefinition>) -> String = SystemPrompts::forTools,

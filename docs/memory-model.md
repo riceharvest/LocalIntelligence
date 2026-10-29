@@ -577,36 +577,19 @@ The two things it settles that nothing else in this repository can:
 A code audit of the native layer and the model lifecycle, done without a
 device. Findings are stated with the arithmetic; none of them is a measurement.
 
-**The KV cache is sized to `n_ctx`, and `n_ctx` is not what the fit gate
-assumed.** This is the real defect and it is a class of bug, not a number.
+**The KV cache is sized to `n_ctx`, and the fit gate and the loader now agree on
+it. This was the real defect, and it is fixed on this branch.**
 
-The chain is:
+The defect, as it was found: `LlamaCppBackend.load` passed the model's trained
+context length (read from the GGUF header) to the loader, while the fit gate priced
+4096. A model trained at 32K therefore allocated an 8x larger KV cache than the gate
+had counted. The KV cache is sized from `n_ctx` upstream (`kv_size = cparams.n_ctx`),
+with one K and one V tensor per layer.
 
-1. `AppContainer.loadModel` gates on `ModelImporter.DEFAULT_CONTEXT_LENGTH`,
-   which is **4096** (`app/.../AppContainer.kt:267`).
-2. `LlamaCppBackend.load` computes the context it will actually pass as
-   `(meta.contextLength ?: DEFAULT_CONTEXT_LENGTH).coerceAtLeast(128)`
-   (`android/.../LlamaCppBackend.kt:92`) — i.e. **the model's trained length**,
-   read from the GGUF header, defaulting to 4096 only when the header is silent.
-3. That value is passed to `LlamaBridge.loadModel(contextLength = ...)` and
-   becomes `cparams.n_ctx` in `android/src/main/cpp/llama_jni.cpp:369`.
-4. Upstream then does `uint32_t kv_size = cparams.n_ctx`
-   (`src/llama.cpp:9680`) and allocates one `n_embd_k_gqa * kv_size` K tensor
-   and one `n_embd_v_gqa * kv_size` V tensor **per layer**
-   (`src/llama-kv-cache.cpp:94-95`).
-
-So for a model whose header declares a trained context larger than 4096 — which
-is most of them; Qwen2.5 and Llama-3.1 both ship 32K — the gate priced a 4K KV
-cache and the loader allocated a 32K one. That is an **8x** underestimate of
-the dominant term, on exactly the models most likely to be selected, and it is
-the "gate says it fits, then it allocates more than the gate counted" failure
-this document has been warning about since §1.2.
-
-The native side is not where the fix belongs and this branch did not paper over
-it: `llama_jni.cpp:357-362` clamps `ctx_len` down to `llama_model_n_ctx_train`,
-which is correct but does nothing here, because the caller *asked* for the
-trained length. The caller is `LlamaCppBackend.kt`, owned by another workstream.
-The exact edit is in the PR description.
+The fix is in `LlamaCppBackend.load`: the context is clamped to
+`MIN_CONTEXT_LENGTH..MAX_CONTEXT_LENGTH`, and `MAX_CONTEXT_LENGTH` equals
+`DEFAULT_CONTEXT_LENGTH` (4096), the same constant the gate uses. The loader no longer
+allocates more than the gate priced.
 
 **`flash_attn` is ON, not off.** The working assumption going in was that
 `flash_attn` had been switched off while ruling out the prefill bug. It has

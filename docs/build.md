@@ -47,10 +47,10 @@ Install `ndk;27.1.12297006` via the SDK manager.
 `android/src/main/cpp/CMakeLists.txt` offers three ways to find llama.cpp, in this order:
 
 1. `PIDROID_LLAMA_DIR` — an explicit path you point at
-2. `<repo>/llama.cpp` — a submodule at the repo root
+2. `<repo>/llama.cpp` — a checkout placed at the repo root. It is not a git submodule; the repository has none
 3. `PIDROID_LLAMA_FETCH` — CMake `FetchContent` (default is `ON`)
 
-`FetchContent` fetches the pinned tag `b4661` when no local path or submodule is found. The second `add_subdirectory` is guarded by `if(NOT _llama_src_dir_from_fetchcontent)`, so `FetchContent` works out of the box on a fresh clone.
+`FetchContent` fetches the pinned tag `b4661` when no local path or checkout is found. The second `add_subdirectory` is guarded by `if(NOT _llama_src_dir_from_fetchcontent)`, so `FetchContent` works out of the box on a fresh clone.
 
 For local development or faster builds, use route 1:
 
@@ -61,8 +61,8 @@ export PIDROID_LLAMA_DIR=/tmp/llama.cpp
 
 ### Why the tag is pinned
 
-The JNI sets `use_mmap`, `logits_all` and `flash_attn` on
-`llama_context_params`. A newer llama.cpp **removed all three**, so building
+The JNI sets `use_mmap` on `llama_model_params`, and `logits_all` and `flash_attn`
+on `llama_context_params`. A newer llama.cpp **removed all three**, so building
 against `main` does not compile. `b4661` is a fixed point that works:
 
 ```

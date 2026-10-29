@@ -13,7 +13,7 @@ $ ls core/src/
 main
 $ ls android/src/
 main
-$ find . -path ./.git -prune -o -type d -name test -print
+$ find . -path ./.git -prune -o -type d \( -name test -o -name androidTest \) -print
 ./app/src/androidTest          # DeviceModelProbe.kt — a manual probe, not a suite
 
 $ grep -rn 'evals' core/build.gradle.kts build.gradle.kts

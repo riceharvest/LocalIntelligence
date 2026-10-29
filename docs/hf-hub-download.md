@@ -67,8 +67,8 @@ val plan = client.plan(file, contextLength, budget, model = { fb, q, ctx, pc ->
 `ModelMemoryEstimator` to the hub's `MemoryModel` interface. A seam nobody has
 ever called is a guess; this one at least fails to compile the moment the
 estimator's signature changes, rather than failing silently at runtime on a
-user's phone. It is called from `HuggingFaceClient.probeHeader` → `plan()`; see
-docs/memory-model.md for the measured agreement between the two paths.
+user's phone. `HuggingFaceClient.plan()` uses it when `probeHeader` has returned a
+header; see docs/memory-model.md for the measured agreement between the two paths.
 
 It is deliberately **not** wired into `ModelDownloader`. The reason is the one
 that makes the seam necessary in the first place:

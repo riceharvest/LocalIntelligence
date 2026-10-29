@@ -12,7 +12,7 @@ root:
 | `check-no-secrets.sh` | No credential-like string (known token formats, long literals assigned to credential-named identifiers) in any tracked file. | `bash .github/scripts/check-no-secrets.sh` |
 | `check-native-lib-name.sh` | CMake `OUTPUT_NAME`, the Kotlin `System.loadLibrary` constant and the library inside the APK are all `localintelligence_llama_jni`. | `bash .github/scripts/check-native-lib-name.sh <apk>` |
 | `inspect-apk.sh` | The APK carries both `arm64-v8a` and `x86_64`, contains no NPU/accelerator runtime library, and has a manifest. | `bash .github/scripts/inspect-apk.sh <apk>` |
-| `check-no-new-lint-errors.sh` | After `./gradlew :android:lintDebug :app:lintDebug`, no lint error outside the script's `KNOWN_ERRORS` list. That list is stale; see [lint.md](lint.md). | `bash .github/scripts/check-no-new-lint-errors.sh` |
+| `check-no-new-lint-errors.sh` | After `./gradlew :android:lintDebug :app:lintDebug`, no lint error outside the script's `KNOWN_ERRORS` list. The list is empty; see [lint.md](lint.md). | `bash .github/scripts/check-no-new-lint-errors.sh` |
 
 `<apk>` is `app/build/outputs/apk/debug/app-debug.apk` after
 `./gradlew :app:assembleDebug`.

@@ -66,13 +66,17 @@ Before this was fixed, `web.fetch` filtered host *names* only, so `127.0.0.1`,
 network and the link-local cloud metadata address.
 
 Now rejected: loopback, 10/8, 172.16/12, 192.168/16, 169.254/16, 0/8,
-multicast/reserved, and `localhost` in any form.
+multicast/reserved, `localhost` in any form, `.local` and `.internal` names,
+single-label host names, every all-numeric non-standard IP spelling (`127.1`,
+`0177.0.0.1`), and every IPv6 literal, including IPv4-mapped forms such as
+`[::ffff:127.0.0.1]`.
 
 **Known gap.** This is address *text* matching. A public hostname that resolves
 to a private address still passes, because nothing resolves DNS at validation
-time. Closing it requires pinning the resolved address and connecting to the
-pinned IP, or re-validating every redirect hop. Neither is implemented. Until
-one is, assume `web.fetch` can reach whatever the resolver returns.
+time. Redirect hops are re-validated with the same rules, and a redirect that
+changes both host and scheme is refused. Pinning the resolved address and
+connecting to the pinned IP is not implemented. Until it is, assume `web.fetch`
+can reach whatever the resolver returns.
 
 ### T3. Data exfiltration via URL — not fully mitigated
 
@@ -80,8 +84,10 @@ The model controls the full URL. Anything it puts in the query string or path
 is transmitted to the chosen host. Blocking private addresses (T2) does not
 help when the destination is a public server the attacker also controls.
 
-No allowlist of hosts exists, and per-user approval of outbound fetches is
-pending. This is the most significant open item in the document.
+Every `web.fetch` call needs the user's confirmation, and the dialog names the
+host (`RiskPolicy`, `NETWORK_EGRESS`). Nothing limits the destination after that:
+no host allowlist exists, and an approved host receives whatever the model put in
+the URL. This is the most significant open item in the document.
 
 ### T4. Unattended file access — partially mitigated
 
@@ -119,7 +125,8 @@ memory databases were eligible for cloud backup and device transfer. Now
 
 ## What to do before calling this hardened
 
-1. Host allowlist or per-call approval for `web.fetch` (closes T3).
+1. Host allowlist for `web.fetch`. Per-call confirmation exists, but it does not
+   limit what an approved host receives (T3 stays open without this).
 2. Pin resolved addresses so DNS cannot point inward (closes the T2 gap).
 3. Capability scoping, so a tool call must be justified by the user's own
    request rather than by page text (closes T1 properly).

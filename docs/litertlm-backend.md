@@ -86,6 +86,10 @@ believed in a transcript the core may already have rewritten. Rebuilding from
 the supplied transcript is the only way the backend cannot be wrong about what
 the model has seen. The cost is that the KV cache is not reused across turns.
 
+The transcript must end on a user or tool turn. A transcript that ends on the
+model's own turn is refused before the engine is called, because it would ask the
+model to continue its own answer.
+
 ### 2. The model must be a real file
 
 llama.cpp takes `/proc/self/fd/N` for a SAF document. LiteRT-LM takes a
@@ -101,7 +105,8 @@ read when a conversation is created, aimed at forcing valid tool-call JSON. Ther
 is no per-request GBNF entry point. Reporting `true` would make the runtime build
 a grammar and believe it was enforced when it was not — the exact lie the frozen
 interface warns about. `generate()` refuses a request carrying a grammar rather
-than silently ignoring it.
+than silently ignoring it. The agent loop never sends one to this backend: it passes
+a grammar only to a backend whose capabilities say `supportsGrammar = true`.
 
 Sampling fields that LiteRT-LM has no equivalent for (`minP`, `repeatPenalty`)
 are dropped and documented rather than folded into a neighbouring parameter.

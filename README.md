@@ -27,9 +27,9 @@ use the network, both of them opt-in and neither silent:
   that does and does not protect against.
 
 Nothing else in the app opens a socket, and no conversation content, memory,
-file, contact, or calendar entry is transmitted by the app itself. If you do
-not want the model making outbound requests at all, do not install a model that
-has the `web.fetch` tool available.
+file, contact, or calendar entry is transmitted by the app itself. Every
+`web.fetch` call asks you to confirm first, and the confirmation names the host;
+decline those confirmations if you do not want outbound requests.
 
 ---
 
@@ -40,10 +40,11 @@ with a large context, many tools, or a complicated protocol. Most agent framewor
 assume a frontier model on a server. LocalIntelligence assumes the opposite and optimizes
 everything for that assumption:
 
-- **Constrained output.** Grammar-constrained generation means the model physically
-  cannot emit a malformed action or hallucinate a tool it was not offered.
-- **Small tool surface.** 3-6 tools visible per turn out of a registry of 25, chosen
-  by lexical scoring. Not a second LLM call.
+- **Constrained output.** On the llama.cpp backend, grammar-constrained generation
+  means the model cannot emit a malformed action or a tool it was not offered. The
+  LiteRT-LM backend takes no grammar, so there the parser rejects both instead.
+- **Small tool surface.** Up to 6 tools visible per turn (`AgentConfig.maxVisibleTools`)
+  out of a registry of 25, chosen by lexical scoring. Not a second LLM call.
 - **Deterministic reliability.** Loop detection, argument validation, risk gating and
   context budgeting are plain Kotlin. The model is used only where language
   understanding is actually required.
