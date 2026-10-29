@@ -44,6 +44,17 @@ sealed interface GgufValue {
         val elementType: GgufValueType,
         val count: Long,
         val preview: List<GgufValue>,
+        /**
+         * Every element, as raw integer bits, for a short integer array. Null when the
+         * array is not an integer array or is longer than
+         * [GgufLimits.maxRetainedIntegerArrayElements].
+         *
+         * WHY: hybrid models (LFM2, Gemma 3n) store `attention.head_count_kv` with one
+         * entry per layer, and the KV estimate needs all of them, not the first eight.
+         * Only short integer arrays are retained whole, so a 256k token-type array still
+         * costs nothing beyond its preview.
+         */
+        val retained: List<Long>? = null,
     ) : GgufValue
 
     /**

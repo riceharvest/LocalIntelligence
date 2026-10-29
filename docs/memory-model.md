@@ -220,6 +220,43 @@ middle, plain MHA at the high end. GQA 1 is not a pessimistic invention —
 Phi-3-mini-4k-instruct really ships it, at 3.8B parameters, inside the range
 this app targets.
 
+### 2.1 Hybrid models: `head_count_kv` as an array
+
+Hybrid architectures such as LFM2/LFM3 and Gemma 3n/4 store
+`<arch>.attention.head_count_kv` as an **array with one entry per layer**, not
+a single number. Layers that carry no attention and no KV cache hold `0`. The
+array has been checked against these files' metadata only as far as the job
+brief states; the per-layer values themselves are not measured here. A scalar reader sees nothing
+and falls back to `head_count` on every layer, which charges full multi-head
+attention to layers that keep no cache and over-counts the cache.
+
+The estimator now sums per layer:
+
+```
+kvCache = sum_i ( kvHeads_i * keyDim * ctx * bytes  +  kvHeads_i * valueDim * ctx * bytes )
+```
+
+- `kvHeads_i` is the array entry for layer `i`. Zero-entry layers add nothing.
+- `keyDim` is `<arch>.attention.key_length`, and `valueDim` is
+  `<arch>.attention.value_length`. They are used separately only when the file
+  declares both. Otherwise both are the single head dimension, which is what
+  every scalar model already got.
+- A scalar `head_count_kv` is repeated for `block_count` layers, so a uniform
+  model's number is unchanged: the sum is `2 * layers * kvHeads * headDim * ctx * bytes`.
+
+`GgufMetadata.kvHeadsPerLayer` produces the per-layer list. The parser keeps
+every entry of an integer array of up to 1024 elements (`GgufLimits.maxRetainedIntegerArrayElements`);
+the eight-element preview is not enough for a per-layer table.
+
+**Mismatch fallback.** If the array length is not `block_count`, or an entry is
+implausible, the array cannot be applied to the layers. The estimator then uses
+the scalar `head_count` on every layer, as before, and the parse reports
+`GgufWarning.KvHeadCountArrayUnusable`. This is the conservative direction: the
+cache is over-counted, never under-counted.
+
+The "KV heads" line of the estimate shows the per-layer range (for example
+`0-8 per layer`) and the largest value is what feeds the confidence grade.
+
 ---
 
 ## 3. Before and after, through the real call path
