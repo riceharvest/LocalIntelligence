@@ -7,8 +7,19 @@ import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
-import dev.localintelligence.android.tools.androidTools
-import dev.localintelligence.core.agent.AgentConfig
+import dev.localintelligence.android.tools.androidToolPlugins
+import dev.localintelligence.app.settings.DeviceFacts
+import dev.localintelligence.app.settings.SettingsStore
+import dev.localintelligence.app.settings.SimpleSetup
+import dev.localintelligence.core.plugin.AgentPlugin
+import dev.localintelligence.core.plugin.PluginSet
+import dev.localintelligence.core.policy.BlastRadiusTracker
+import dev.localintelligence.core.policy.PolicyConfig
+import dev.localintelligence.core.settings.CoreSettings
+import dev.localintelligence.core.settings.SettingsReader
+import dev.localintelligence.core.settings.agentConfig
+import dev.localintelligence.core.settings.autoAcceptTiers
+import dev.localintelligence.core.settings.samplingParams
 import dev.localintelligence.core.agent.AgentController
 import dev.localintelligence.core.agent.LoopDetector
 import dev.localintelligence.core.agent.Session
@@ -22,7 +33,6 @@ import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import androidx.compose.runtime.mutableStateListOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import dev.localintelligence.core.context.ContextBuilder
 import dev.localintelligence.core.context.DefaultContextBuilder
 import dev.localintelligence.core.metrics.RunRecorder
 import dev.localintelligence.core.model.ChatMessage
@@ -113,8 +123,20 @@ class AppContainer(private val context: Context) {
         // misdescribe what actually happened, in the direction that looks like
         // safety. The decorator delegates everything, so catalogue agreement and
         // risk tiers still run on the real registry underneath.
-        RedactingToolRegistry(SimpleToolRegistry(androidTools(context)))
+        RedactingToolRegistry(SimpleToolRegistry(plugins.flatMap { it.tools() }))
     }
+
+    /** What Simple mode decides from. Read once: RAM and core count do not change. */
+    val deviceFacts: DeviceFacts by lazy { DeviceFacts.of(context) }
+
+    /** Every setting in the app. See [SettingsStore]. */
+    val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
+
+    /**
+     * Everything that can be switched on and off. The built-in tool families
+     * are the first plugins; features add theirs here.
+     */
+    val plugins: List<AgentPlugin> by lazy { androidToolPlugins(context) }
 
     /**
      * The risk policy, shared by every controller this container builds.
@@ -135,7 +157,16 @@ class AppContainer(private val context: Context) {
      * that default real; changing the default is a product decision, not a
      * wiring one.
      */
-    val riskPolicy: RiskPolicy by lazy { RiskPolicy() }
+    private val blastRadius: BlastRadiusTracker by lazy { BlastRadiusTracker() }
+
+    /**
+     * The policy for one run: the user's Approvals choices for this kind of run,
+     * over the one shared [blastRadius] counter.
+     */
+    fun riskPolicy(settings: SettingsReader, background: Boolean): RiskPolicy = RiskPolicy(
+        PolicyConfig(autoAcceptTiers = settings.autoAcceptTiers(background)),
+        blastRadius,
+    )
 
     /**
      * The memory store the agent runs on.
@@ -489,17 +520,6 @@ class AppContainer(private val context: Context) {
      * container is what both of them already share.
      */
 
-
-    val agentConfig: AgentConfig by lazy { AgentConfig() }
-
-    /**
-     * Prompt assembly is cheap and stateless, so one shared instance is safe and
-     * correct. `DefaultContextBuilder` holds no state between calls by design
-     * (see its own KDoc on heap discipline).
-     */
-    val contextBuilder: ContextBuilder by lazy {
-        DefaultContextBuilder(workingLimit = agentConfig.workingTokenLimit)
-    }
 
     /**
      * The inference backend. Constructed lazily, and the single biggest reason
@@ -868,7 +888,16 @@ class AppContainer(private val context: Context) {
         model: ModelBackend = residentBackend(),
         metrics: RunRecorder? = null,
         onToken: ((String) -> Unit)? = null,
-    ): AgentController = AgentController(
+        /** A scheduled or background run: nobody is there to approve anything. */
+        background: Boolean = false,
+    ): AgentController {
+        // Settings are frozen for the run, and the tool set is built from the
+        // plugins switched on right now: a toggle applies from the next message.
+        val snapshot = settings.snapshot()
+        val pluginSet = PluginSet(plugins, snapshot, settings::isPluginEnabled)
+        val runTools: ToolRegistry = RedactingToolRegistry(SimpleToolRegistry(pluginSet.tools()))
+        val config = snapshot.agentConfig()
+        return AgentController(
         onToken = onToken,
         // Persist whenever the loop trims the window, not only at run
         // boundaries: a message removed by a mid-run fold is unrecoverable
@@ -884,17 +913,17 @@ class AppContainer(private val context: Context) {
         },
         model = model,
         parser = dev.localintelligence.core.agent.ActionParserImpl,
-        tools = tools,
+        tools = runTools,
         toolSelector = LexicalToolSelector(),
-        validator = ToolCallValidatorGate.forRegistry(tools),
+        validator = ToolCallValidatorGate.forRegistry(runTools),
         loopDetector = LoopDetector(),
-        contextBuilder = contextBuilder,
+        contextBuilder = DefaultContextBuilder(workingLimit = config.workingTokenLimit),
         memory = memoryStore,
         // The shared conversation, not a fresh one. See [session] for why this
         // used to silently discard everything the model had already been told.
         sessions = session,
-        config = agentConfig,
-        riskPolicy = riskPolicy,
+        config = config,
+        riskPolicy = riskPolicy(snapshot, background),
         metrics = metrics,
         // The write half of memory. Bound here rather than inside the loop
         // because the loop is `:core` and only `:app` knows which store is
@@ -918,7 +947,11 @@ class AppContainer(private val context: Context) {
             persistConversation()
             memory
         },
+        sampling = snapshot.samplingParams(),
+        hooks = pluginSet.hooks,
+        constrainOutput = snapshot[CoreSettings.CONSTRAINED_OUTPUT],
     )
+    }
 
     // ---- HuggingFace download -----------------------------------------
     //

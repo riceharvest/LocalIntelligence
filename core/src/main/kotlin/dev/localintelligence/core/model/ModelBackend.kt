@@ -87,6 +87,8 @@ sealed interface ChatMessage {
 data class SamplingParams(
     val temperature: Float = 0.7f,
     val topP: Float = 0.95f,
+    /** 0 disables it. LiteRT-LM reads it; the llama.cpp chain does not yet. */
+    val topK: Int = 40,
     val minP: Float = 0.05f,
     val repeatPenalty: Float = 1.1f,
     val seed: Int = -1,

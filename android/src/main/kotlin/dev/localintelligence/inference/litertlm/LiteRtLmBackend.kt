@@ -626,7 +626,7 @@ class LiteRtLmBackend(
                 conversation = LiteRtLmConversationRequest(
                     systemInstruction = systemInstruction,
                     history = turns.dropLast(1),
-                    sampler = request.params.toSampler(topK),
+                    sampler = request.params.toSampler(request.params.topK),
                 ),
                 turn = last,
             ),

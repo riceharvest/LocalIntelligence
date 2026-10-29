@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Button
@@ -84,6 +85,7 @@ fun ChatScreen(
      * screen cannot break a caller that has not been updated yet.
      */
     onOpenRedaction: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
     /**
      * Which model is answering, when the host knows.
@@ -248,6 +250,9 @@ fun ChatScreen(
                     // names it.
                     IconButton(onClick = onOpenRedaction) {
                         Icon(Icons.Filled.Shield, contentDescription = "What is filtered")
+                    }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }
                 },
             )

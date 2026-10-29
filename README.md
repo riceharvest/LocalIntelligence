@@ -29,7 +29,9 @@ use the network, both of them opt-in and neither silent:
 Nothing else in the app opens a socket, and no conversation content, memory,
 file, contact, or calendar entry is transmitted by the app itself. Every
 `web.fetch` call asks you to confirm first, and the confirmation names the host;
-decline those confirmations if you do not want outbound requests.
+decline those confirmations if you do not want outbound requests. The one
+exception is your own choice: Settings → Approvals → "Open websites without
+asking" (off by default) skips that confirmation.
 
 ---
 

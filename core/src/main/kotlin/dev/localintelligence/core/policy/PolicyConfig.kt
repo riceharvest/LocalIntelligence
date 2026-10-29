@@ -138,7 +138,14 @@ data class PolicyConfig(
      * [ToolDefinition.requiredPermission] absent here returns
      * [PolicyOutcome.REQUIRE_PERMISSION] instead of executing.
      */
-    val grantedPermissions: Set<String> = emptySet()
+    val grantedPermissions: Set<String> = emptySet(),
+
+    /**
+     * Risk tiers whose plain confirmations the user chose to skip in
+     * Approvals. Empty by default. Only the confirmation the tier itself
+     * causes is skipped; see `RiskPolicy.evaluate`.
+     */
+    val autoAcceptTiers: Set<dev.localintelligence.core.tool.ToolRisk> = emptySet(),
 ) {
     companion object {
         /**

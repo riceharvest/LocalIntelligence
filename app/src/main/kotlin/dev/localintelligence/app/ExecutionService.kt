@@ -326,6 +326,7 @@ class ExecutionService : Service() {
             // controller binds to the backend that is actually loaded.
             newController = {
                 container.newController(
+                    background = scheduledTaskId != null,
                     // Streaming, wired at last. Every layer below already existed -
                     // generateStreaming on the backend, the per-token JNI callback,
                     // RunSinks.streamingText, appendStreamToken - and the loop called the

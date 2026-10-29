@@ -41,6 +41,8 @@ import dev.localintelligence.app.ui.ChatScreen
 import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.HubScreen
+import dev.localintelligence.app.ui.SettingsScreen
+import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import dev.localintelligence.app.ui.ModelManagerScreen
@@ -159,6 +161,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenTrace = { nav.navigate(ROUTE_TRACE) },
                                 onOpenModels = { nav.navigate(ROUTE_MODELS) },
                                 onOpenRedaction = { nav.navigate(ROUTE_REDACTION) },
+                                onOpenSettings = { nav.navigate(ROUTE_SETTINGS) },
                                 modifier = Modifier.fillMaxSize(),
                                 activeModel = resident,
                             )
@@ -360,6 +363,16 @@ class MainActivity : ComponentActivity() {
                         hub = vm
                         HubScreen(viewModel = vm, onBack = { nav.popBackStack() })
                     }
+
+                    composable(ROUTE_SETTINGS) {
+                        SettingsScreen(
+                            store = container.settings,
+                            plugins = container.plugins,
+                            suggestion = SimpleSetup.suggestedModel(container.deviceFacts),
+                            onOpenHub = { nav.navigate(ROUTE_HUB) },
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
                 }
             }
         }
@@ -403,6 +416,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_HUB = "hub"
         const val ROUTE_SCHEDULE = "schedule"
         const val ROUTE_REDACTION = "redaction"
+        const val ROUTE_SETTINGS = "settings"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
         const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"
