@@ -152,11 +152,10 @@ class AgentViewModel(
     /**
      * Appends one streamed token.
      *
-     * Honesty about what is wired: `AgentController` calls
-     * `ModelBackend.generate`, not `generateStreaming`, so on the current core
-     * this never fires. The sink exists so the UI contract ("show tokens as they
-     * arrive") is real the moment the loop calls `generateStreaming`, rather than
-     * being a spinner pretending to be a stream.
+     * `AgentController` streams through `generateStreaming` whenever a token
+     * sink is attached and the backend supports it, so tokens of every step
+     * arrive here, protocol markup included; the chat screen filters what it
+     * draws.
      */
     fun appendStreamToken(token: String) {
         if (sinks.state.value != RunState.Running) return
