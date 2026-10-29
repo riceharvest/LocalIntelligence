@@ -483,10 +483,11 @@ private fun ModelRow(model: ImportedModel, onDelete: () -> Unit) {
             FactLine("On disk (measured)", formatBytes(model.fileSizeBytes))
             FactLine("Weights, estimated", formatBytes(model.estimate.weightBytes))
             FactLine("RAM at load (estimated)", formatBytes(totalBytes))
-            FactLine(
-                "  of which KV cache",
-                formatBytes(model.estimate.kvBytes(loadContext)),
-            )
+            // A LiteRT-LM file does not expose its KV geometry, so the line is
+            // omitted rather than shown as 0 B, which would read as a claim.
+            model.estimate.kvBytes(loadContext)?.let { kv ->
+                FactLine("  of which KV cache", formatBytes(kv))
+            }
             FactLine("Context at load", "$loadContext tokens")
             model.trainedContextLength?.let { trained ->
                 // The trained length is a property of the file, and it is NOT

@@ -6,6 +6,7 @@ import dev.localintelligence.core.hub.DeviceBudget
 import dev.localintelligence.core.hub.DownloadPlan
 import dev.localintelligence.core.hub.DownloadProgress
 import dev.localintelligence.core.hub.HubError
+import dev.localintelligence.core.hub.HubFilePath
 import dev.localintelligence.core.hub.HubGgufFile
 import dev.localintelligence.core.hub.HubRepoId
 import dev.localintelligence.core.hub.HubRequest
@@ -110,7 +111,8 @@ data class HubUiState(
      * about. A wrong number on this screen is worse than no row, because the
      * whole screen exists to be believed.
      *
-     * So the `.litertlm` is named, sized, and explicitly **not priced**.
+     * So the `.litertlm` is named and sized, with no price, and is downloaded
+     * through [HubViewModel.startNonGgufDownload] rather than as a quant row.
      */
     val nonGgufFiles: List<NonGgufModelFile> = emptyList(),
     /** Null until the repo resolves. A non-null plan with a reject is a refusal. */
@@ -167,64 +169,83 @@ data class HubUiState(
     val stopped: DownloadProgress.Stopped? get() = progress as? DownloadProgress.Stopped
 
     /**
-     * Why this repository's `.litertlm` files are listed but not offered.
+     * A note shown on the `.litertlm` card, or null when there are none.
      *
-     * Null when the repository publishes none, or when the probe could not
-     * run — the latter matters: a failed probe must not become a claim. This
-     * screen would rather say nothing about `.litertlm` than guess.
-     *
-     * Kept short on purpose. The reasons are numerous and all true — this is
-     * the one place a user is told the acquisition path does not exist, and a
-     * wall of text is a wall nobody reads. The specifics that would otherwise
-     * be lost are in `docs/acceleration.md`, which says the same thing without
-     * a 180-character limit.
-     *
-     * The last sentence is the one that earns its place. "No NPU, GPU is
-     * OpenCL, never initialised" is what stops a user who has a `.litertlm`
-     * and a fast phone from concluding this is the fast path and spending an
-     * evening on it.
+     * Kept short on purpose. The one sentence that earns its place says why no
+     * memory figure is shown: the screen reads GGUF headers, and a `.litertlm`
+     * has none, so any number here would be invented. The Models list and the
+     * "no speed is claimed" caveat are stated where they apply: the notice after
+     * a finished download and the ViewModel's `adopt`.
      */
     val nonGgufNotice: String? get() {
-        val litertlm = nonGgufFiles.filter { it.isLiteRtLm }
-        if (litertlm.isEmpty()) return null
-        return "This app has a LiteRT-LM backend but cannot fetch a .litertlm " +
-            "yet, so these are listed without a price. No size or memory " +
-            "figure is shown for them because this screen works out memory by " +
-            "reading a GGUF header, and a .litertlm is a FlatBuffer of TFLite " +
-            "graphs — a number here would be invented. There is also no " +
-            "GGUF-to-.litertlm converter in existence, so one cannot be made " +
-            "from the GGUFs this app downloads. Worth knowing before you " +
-            "look elsewhere: litertlm-android 0.13.1 ships no NPU library and " +
-            "no GOOGLE_TENSOR backend, and its GPU is OpenCL, not Vulkan. No " +
-            ".litertlm has ever been loaded here, so no speed is claimed for " +
-            "one."
+        if (nonGgufFiles.none { it.isLiteRtLm }) return null
+        return "No memory figure is shown: this screen reads GGUF headers, and a " +
+            ".litertlm has none. No .litertlm has been run in this app, so no " +
+            "speed is claimed for one."
     }
 }
 
 /**
  * A model file in a repository that is not a GGUF.
  *
- * Deliberately carries only what HF reports truthfully for any file: the name
- * and the size. There is no RAM estimate, no quant, no context length, because
- * there is no arithmetic in this app that applies to a LiteRT-LM FlatBuffer —
- * the tensor table `FitGate` prices does not exist in that format.
+ * Carries what HF reports for any file (the path, the size and the LFS digest),
+ * which is enough to download it through the same transfer as a GGUF. It has no
+ * RAM estimate, no quant and no context length, because there is no arithmetic
+ * in this app that applies to a LiteRT-LM FlatBuffer. The tensor table `FitGate`
+ * prices does not exist in that format.
  */
 data class NonGgufModelFile(
-    val fileName: String,
+    val repo: HubRepoId,
+    val path: HubFilePath,
     val sizeBytes: Long,
+    /** HF's LFS payload digest, checked after the transfer. Null when unlisted. */
+    val sha256: String?,
 ) {
+    val fileName: String get() = path.fileName
+
     /**
      * True for the LiteRT-LM container this app has a backend for.
      *
-     * By **name**, and the KDoc says why that is acceptable here: this is a
-     * label for a message, never a gate. Nothing is downloaded, loaded or
-     * priced off the back of it, so a misdetection costs a slightly wrong
-     * sentence rather than a wrong number or a wrong download. The one place a
-     * LiteRT-LM file is *acted* on — the import path in `ModelManagerScreen` —
-     * sniffs the file's bytes instead, because there the difference is a
-     * refusal the user acts on.
+     * By **name**, and the KDoc says why that is acceptable here: this decides
+     * which label and which gate apply, never what gets downloaded. The one place
+     * a LiteRT-LM file is *loaded* sniffs the file's bytes instead.
      */
     val isLiteRtLm: Boolean get() = fileName.endsWith(".litertlm", ignoreCase = true)
+
+    /**
+     * The Tensor generation the file was compiled for, read from its name.
+     *
+     * WHY the regex is repeated here: `TensorNpu` is `internal` to `:android`, and
+     * this is the same pattern as its `compiledFor` (case-insensitive, first
+     * match), so the label and the backend's refusal read the name the same way.
+     */
+    val npuLabel: String?
+        get() = NPU_COMPILED_FOR.find(fileName.lowercase())?.groupValues?.get(1)?.toIntOrNull()?.let { generation ->
+            if (generation == 5) {
+                "Runs on the Tensor G5 NPU (Pixel 10) only"
+            } else {
+                "Runs on the Tensor G$generation NPU only"
+            }
+        }
+
+    private companion object {
+        /** Same pattern as `TensorNpu.COMPILED_FOR`; see [npuLabel]. */
+        val NPU_COMPILED_FOR = Regex("""_google_tensor_g(\d+)""")
+    }
+
+    /**
+     * This file as the downloader's record. There is no quant and no shard, and
+     * the local name is the same `owner__name__path` rule a GGUF uses.
+     */
+    fun toHubFile(): HubGgufFile = HubGgufFile(
+        repo = repo,
+        path = path,
+        sizeBytes = sizeBytes,
+        sha256 = sha256,
+        quant = null,
+        shardIndex = null,
+        shardCount = null,
+    )
 }
 
 /**
@@ -428,7 +449,7 @@ class HubViewModel(
                 if (response.status !in 200..299) return@withContext emptyList()
                 val body = response.body ?: return@withContext emptyList()
                 val text = body.readBytes().decodeToString()
-                parseNonGgufSiblings(text)
+                parseNonGgufSiblings(repo, text)
             } catch (_: Exception) {
                 // Deliberately broad. This is an advisory notice; there is
                 // nothing here worth failing a resolve over, and throwing would
@@ -439,7 +460,7 @@ class HubViewModel(
             }
         }
 
-    private fun parseNonGgufSiblings(json: String): List<NonGgufModelFile> {
+    private fun parseNonGgufSiblings(repo: HubRepoId, json: String): List<NonGgufModelFile> {
         val root = runCatching { SIBLING_JSON.parseToJsonElement(json).jsonObject }.getOrNull()
             ?: return emptyList()
         val siblings = root["siblings"] as? JsonArray ?: return emptyList()
@@ -454,10 +475,28 @@ class HubViewModel(
             // full of `.md` and `.ipynb` is not a model this app declined, and
             // listing those would turn a useful notice into noise.
             if (!lower.endsWith(".litertlm") && !lower.endsWith(".task")) continue
-            out += NonGgufModelFile(fileName = name, sizeBytes = siblingSize(obj))
+            val path = (HubFilePath.parse(name) as? HubFilePath.Result.Valid)?.filePath ?: continue
+            out += NonGgufModelFile(
+                repo = repo,
+                path = path,
+                sizeBytes = siblingSize(obj),
+                sha256 = siblingSha256(obj),
+            )
         }
         return out.sortedBy { it.sizeBytes }
     }
+
+    /**
+     * HF's LFS payload digest, as the downloader's SHA check reads it.
+     *
+     * Read from the `lfs` block only: a git-blob sibling has no digest of the
+     * payload, and a wrong digest would reject a correct file. A missing one
+     * skips the check, exactly as it does for a GGUF.
+     */
+    private fun siblingSha256(sibling: JsonObject): String? =
+        ((sibling["lfs"] as? JsonObject)?.get("sha256") as? JsonPrimitive)
+            ?.content
+            ?.takeIf { it.isNotBlank() }
 
     /**
      * The payload size, preferring LFS exactly as `HubSibling.trueSize` does.
@@ -542,51 +581,135 @@ class HubViewModel(
             )
         }
 
+        val job = viewModelScope.launch { collectDownload(file, plan) }
+        _state.update { it.copy(downloadJob = job) }
+    }
+
+    /**
+     * Starts the download of one `.litertlm` listed in [HubUiState.nonGgufFiles].
+     *
+     * WHY this is not a quant selection: a LiteRT-LM file has no GGUF header, so
+     * the selection path would price it with the GGUF RAM gate and show a figure
+     * derived from a format that gate does not understand. Instead the RAM gate is
+     * skipped ([HuggingFaceClient.plan] with `ramGate = false`) and the disk gate
+     * still runs. The transfer, resume, size check, SHA check and gated-repo token
+     * are the GGUF ones, unchanged, so a `.litertlm` is never a second, weaker
+     * download path.
+     *
+     * A file with no declared size is refused. The downloader only checks the
+     * size when it is known, so an unknown size would leave a truncated transfer
+     * unchecked.
+     */
+    fun startNonGgufDownload(file: NonGgufModelFile) {
+        if (file.sizeBytes <= 0L) return
+        val hubFile = file.toHubFile()
+        _state.value.downloadJob?.cancel()
+        _state.update {
+            it.copy(
+                selected = null,
+                plan = null,
+                exactFit = false,
+                alreadyOnDevice = false,
+                downloading = true,
+                progress = null,
+                error = null,
+                registeredNote = null,
+                partialBytesKept = 0,
+            )
+        }
         val job = viewModelScope.launch {
-            downloader.download(file, plan).collect { event ->
-                when (event) {
-                    is DownloadProgress.Done -> {
-                        // Registration happens HERE, inside the Done branch, and
-                        // not in the UI: a `Done` that only renders text is
-                        // exactly the bug this closes. The bytes exist; the app
-                        // must be able to select and load them.
-                        val note = adopt(event.file)
-                        _state.update {
-                            it.copy(
-                                downloading = false,
-                                progress = event,
-                                error = null,
-                                registeredNote = note,
-                                alreadyOnDevice = true,
-                                partialBytesKept = 0,
-                            )
-                        }
-                    }
-                    // WHY THE KEPT BYTES ARE RECORDED: a stop is the one state
-                    // the user has to act on, and "Connection dropped" alone
-                    // does not tell them whether the next tap is a 548 MB
-                    // transfer or a 30-second one. The downloader keeps the
-                    // `.part` file, so the honest number is in the event.
-                    //
-                    // `error` is deliberately left alone. It is the "this repo
-                    // could not be resolved" slot at the top of the screen, and
-                    // a stop renders its own message next to the resume button.
-                    // Setting both printed the same sentence twice, which reads
-                    // as two different failures.
-                    is DownloadProgress.Stopped -> _state.update {
+            val (kept, plan, onDisk) = withContext(Dispatchers.IO) {
+                val kept = downloader.partialFileFor(hubFile).localBytes()
+                Triple(
+                    kept,
+                    client.plan(
+                        file = hubFile,
+                        budget = budget,
+                        alreadyOnDiskBytes = kept,
+                        ramGate = false,
+                    ),
+                    downloader.isDownloaded(hubFile),
+                )
+            }
+            plan.reject?.let { reject ->
+                _state.update { it.copy(downloading = false, downloadJob = null, error = reject.message) }
+                return@launch
+            }
+            if (onDisk) {
+                // Already complete and checksum-verified. Adopt it instead of
+                // transferring the same bytes again, as the GGUF path does.
+                val note = adopt(hubFile)
+                _state.update {
+                    it.copy(
+                        downloading = false,
+                        downloadJob = null,
+                        progress = DownloadProgress.Done(
+                            hubFile,
+                            downloader.localFileFor(hubFile).absolutePath,
+                        ),
+                        registeredNote = note,
+                        alreadyOnDevice = true,
+                        partialBytesKept = 0,
+                    )
+                }
+                return@launch
+            }
+            // The kept byte count is recorded so a resumed transfer shows the
+            // right starting point, as it does for a GGUF.
+            _state.update { it.copy(partialBytesKept = kept) }
+            collectDownload(hubFile, plan)
+        }
+        _state.update { it.copy(downloadJob = job) }
+    }
+
+    /**
+     * Runs one transfer and writes each event into [HubUiState]. Shared by the
+     * GGUF and `.litertlm` entry points so both show the same progress, stop and
+     * completion states.
+     */
+    private suspend fun collectDownload(file: HubGgufFile, plan: DownloadPlan) {
+        downloader.download(file, plan).collect { event ->
+            when (event) {
+                is DownloadProgress.Done -> {
+                    // Registration happens HERE, inside the Done branch, and
+                    // not in the UI: a `Done` that only renders text is
+                    // exactly the bug this closes. The bytes exist; the app
+                    // must be able to select and load them.
+                    val note = adopt(event.file)
+                    _state.update {
                         it.copy(
                             downloading = false,
                             progress = event,
-                            partialBytesKept = event.partialBytesKept,
+                            error = null,
+                            registeredNote = note,
+                            alreadyOnDevice = true,
+                            partialBytesKept = 0,
                         )
                     }
-                    is DownloadProgress.InProgress -> _state.update {
-                        it.copy(progress = event, partialBytesKept = event.bytesDownloaded)
-                    }
+                }
+                // WHY THE KEPT BYTES ARE RECORDED: a stop is the one state
+                // the user has to act on, and "Connection dropped" alone
+                // does not tell them whether the next tap is a 548 MB
+                // transfer or a 30-second one. The downloader keeps the
+                // `.part` file, so the honest number is in the event.
+                //
+                // `error` is deliberately left alone. It is the "this repo
+                // could not be resolved" slot at the top of the screen, and
+                // a stop renders its own message next to the resume button.
+                // Setting both printed the same sentence twice, which reads
+                // as two different failures.
+                is DownloadProgress.Stopped -> _state.update {
+                    it.copy(
+                        downloading = false,
+                        progress = event,
+                        partialBytesKept = event.partialBytesKept,
+                    )
+                }
+                is DownloadProgress.InProgress -> _state.update {
+                    it.copy(progress = event, partialBytesKept = event.bytesDownloaded)
                 }
             }
         }
-        _state.update { it.copy(downloadJob = job) }
     }
 
     /**
@@ -598,12 +721,22 @@ class HubViewModel(
      * 668 MB price tag, so the failure is surfaced and the path is named.
      */
     private suspend fun adopt(file: HubGgufFile): String? {
+        // Same path for both formats: the registrar is the one place that decides
+        // whether a file can be registered, so this does not try to pre-judge it.
         val local = downloader.localFileFor(file)
         if (!local.isFile) {
             return "Downloaded, but the file is not where the app looks for models."
         }
         val note = runCatching { registrar.register(local) }.getOrNull()
-        return note ?: "Saved to ${local.name}. Open Models to load it."
+        if (note != null) return note
+        // WHY a LiteRT-LM file gets its own line: a null from the registrar means
+        // the file was saved but did not load, so "Open Models to load it" would
+        // point the user at a file that is not usable there.
+        return if (file.isLiteRtLm) {
+            "Saved to ${local.name}, but it did not load."
+        } else {
+            "Saved to ${local.name}. Open Models to load it."
+        }
     }
 
     /**

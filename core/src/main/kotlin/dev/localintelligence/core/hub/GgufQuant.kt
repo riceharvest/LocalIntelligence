@@ -25,6 +25,13 @@ data class HubGgufFile(
 ) {
     val fileName: String get() = path.fileName
 
+    /**
+     * True for a LiteRT-LM container. Such a file has no GGUF header, so no GGUF
+     * memory estimate applies to it. Name-based, like the other labels here, and
+     * used only to choose which gate runs, never to decide what gets downloaded.
+     */
+    val isLiteRtLm: Boolean get() = fileName.endsWith(".litertlm", ignoreCase = true)
+
     /** True when this file needs its siblings downloaded to be loadable. */
     val isSharded: Boolean get() = shardCount != null && shardCount > 1
 
