@@ -7,6 +7,8 @@ import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
+import dev.localintelligence.android.skills.SkillRepository
+import dev.localintelligence.android.skills.SkillsPlugin
 import dev.localintelligence.android.tools.androidToolPlugins
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.settings.SettingsStore
@@ -137,7 +139,10 @@ class AppContainer(private val context: Context) {
      * Everything that can be switched on and off. The built-in tool families
      * are the first plugins; features add theirs here.
      */
-    val plugins: List<AgentPlugin> by lazy { androidToolPlugins(context) + ProfilePlugin() }
+    val plugins: List<AgentPlugin> by lazy { androidToolPlugins(context) + ProfilePlugin() + SkillsPlugin(skills) }
+
+    /** Skills on disk under filesDir/skills. Shared by the plugin, the skills screen and "Save as skill". */
+    val skills: SkillRepository by lazy { SkillRepository(File(context.filesDir, "skills")) }
 
     /**
      * The risk policy, shared by every controller this container builds.

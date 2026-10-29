@@ -65,6 +65,8 @@ fun SettingsScreen(
     plugins: List<AgentPlugin>,
     suggestion: SuggestedModel,
     onOpenHub: (repo: String, file: String) -> Unit,
+    /** Opens the skills screen. Defaulted so a caller that predates skills still compiles. */
+    onOpenSkills: () -> Unit = {},
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -108,6 +110,7 @@ fun SettingsScreen(
                 }
 
                 SectionHeader(if (technical) "Plugins" else "What the assistant can use")
+                FilledTonalButton(onClick = onOpenSkills, modifier = Modifier.fillMaxWidth()) { Text("Skills") }
                 plugins.forEach { plugin ->
                     SwitchRow(
                         title = plugin.title,
