@@ -19,6 +19,7 @@ import dev.localintelligence.core.execution.RunGate
 import dev.localintelligence.core.memory.LexicalMemoryStore
 import dev.localintelligence.android.inference.RamEstimate
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
+import androidx.compose.runtime.mutableStateListOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import dev.localintelligence.core.context.ContextBuilder
@@ -571,6 +572,12 @@ class AppContainer(private val context: Context) {
      * empty body, which renders as the useless notice `model failed: `.
      */
     val modelAvailability: ModelAvailabilityHolder by lazy { ModelAvailabilityHolder() }
+
+    /**
+     * Models imported into the app, held in the container so the list survives
+     * activity recreation across configuration changes.
+     */
+    val models = mutableStateListOf<ImportedModel>()
 
     /**
      * The model the agent should run, chosen by the user in the model manager.
