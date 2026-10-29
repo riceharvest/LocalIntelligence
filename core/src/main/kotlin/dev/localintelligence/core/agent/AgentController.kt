@@ -500,8 +500,7 @@ class AgentController(
                         return Stop("no valid action in $malformedStreak attempts", trace.toList())
                     }
                     sessions.observe(
-                        "That was not a valid action (${parsed.reason}). " +
-                            "Reply with exactly one of: ${actionHint(visible)}",
+                        "That was not a valid action (${parsed.reason}). ${actionHint(visible)}",
                     )
                 }
 
@@ -720,7 +719,7 @@ class AgentController(
         val durationMs = (System.nanoTime() - startedAt) / 1_000_000
 
         val observation = truncate(result.observation)
-        loopDetector.recordResult(call.name, observation, result.success)
+        loopDetector.recordResult(call.name, observation, result.success, result.error)
         sessions.appendToolObservation(call.tool, observation, result.success)
         // Charge the call to the task's blast radius. This happens on the
         // EXECUTE path only, and a denied call never reaches it, which is what
@@ -1171,7 +1170,7 @@ class AgentController(
             messages = prompt,
             // Constrained generation, and this is the line that was the P0.
             //
-            // WHY IT CANNOT BE NULL ANY MORE: a 1.1B base model asked to "reply
+            // WHY IT IS NOT NULL ON A GRAMMAR BACKEND: a 1.1B base model asked to "reply
             // with JSON" will not reply with JSON. It continues the prompt instead,
             // so every run came back Malformed and the agent could never call a
             // tool no matter how many were wired up. GBNF makes the only
@@ -1181,7 +1180,14 @@ class AgentController(
             // JNI sampler chain treats an empty grammar string as "no constraint"
             // rather than a sampler that accepts nothing. A plain question with
             // nothing selected therefore still answers in prose.
-            grammar = GrammarBuilder.forActions(visible.map { it.definition }),
+            //
+            // WHY IT IS NULL OTHERWISE: LiteRT-LM refuses any request that carries a
+            // grammar, so a backend that cannot enforce one gets none.
+            grammar = if (model.capabilities.supportsGrammar) {
+                GrammarBuilder.forActions(visible.map { it.definition })
+            } else {
+                null
+            },
             allowedToolNames = visible.map { it.definition.name },
         )
     }
@@ -1193,18 +1199,9 @@ class AgentController(
         ActionParseResult.Malformed("parser failed: ${t::class.java.simpleName}", raw)
     }
 
-    /**
-     * What the model is told it may reply with. Mirrors the shape of
-     * `GrammarBuilder.hint` from `docs/wave1-contract.md`; swapped for the real
-     * call when the parser workstream lands.
-     */
+    /** What the model is told it may reply with: the wire format the parser accepts. */
     private fun actionHint(visible: List<AgentTool>): String =
-        if (visible.isEmpty()) {
-            "a plain answer."
-        } else {
-            "Respond(text) — or — CallTool(name, arguments), where name is one of: " +
-                visible.joinToString(", ") { it.definition.name } + "."
-        }
+        GrammarBuilder.hint(visible.map { it.definition })
 
     private fun truncate(observation: String): String {
         val budget = config.observationBudgetChars
