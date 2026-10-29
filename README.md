@@ -72,8 +72,10 @@ See [docs/build.md](docs/build.md). Beyond that:
   ~0.67 on an x86_64 *emulator*, which says nothing about a phone and is not a
   device number. [docs/measurements.md](docs/measurements.md) is the
   authoritative list of what has and has not been measured.
-- **NPU acceleration is unreachable** with the pinned LiteRT-LM 0.13.1. The GPU
-  path is OpenCL. See [docs/acceleration.md](docs/acceleration.md).
+- **NPU acceleration is implemented for Google Tensor (Pixel) and unverified.**
+  LiteRT-LM 0.17.1 plus Google's Tensor dispatch library runs models compiled
+  for the phone's Tensor generation on its NPU; nothing has run on a device yet.
+  See [docs/acceleration.md](docs/acceleration.md).
 
 See [docs/roadmap.md](docs/roadmap.md) for the item-by-item state.
 
@@ -99,7 +101,7 @@ Full detail: [docs/architecture.md](docs/architecture.md).
 | [docs/roadmap.md](docs/roadmap.md) | What is built, what is verified, what is deliberately not. |
 | [docs/evals.md](docs/evals.md) | Why there is no eval suite, and what is unmeasured. |
 | [docs/memory-model.md](docs/memory-model.md) | The RAM fit model: derivation, what is measured, and the device procedure. |
-| [docs/acceleration.md](docs/acceleration.md) | GPU/NPU reality on LiteRT-LM 0.13.1. |
+| [docs/acceleration.md](docs/acceleration.md) | GPU/NPU reality on LiteRT-LM, including the Tensor NPU path. |
 | [docs/litertlm-backend.md](docs/litertlm-backend.md) | The second backend and why it cannot load a model yet. |
 | [docs/hf-hub-download.md](docs/hf-hub-download.md) | Hugging Face download, resume, gating, auth. |
 
@@ -118,7 +120,7 @@ PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assembleDebug
 ```
 
 Output: `app/build/outputs/apk/debug/app-debug.apk` — **MEASURED** at
-~127.5 MB (121.6 MiB, debug, both ABIs).
+~51.3 MB (49.0 MiB, debug, both ABIs; native libraries compressed, extracted at install).
 
 Full instructions, required SDK components, and two traps that will
 otherwise cost you an hour: [docs/build.md](docs/build.md).

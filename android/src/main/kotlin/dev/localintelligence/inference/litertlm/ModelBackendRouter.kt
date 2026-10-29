@@ -138,6 +138,7 @@ class ModelBackendRouter(
         modelSource = LiteRtLmModelSource(modelsDir),
         capabilityProbe = LiteRtLmCapabilityProbe(nativeLibraryDir),
         nativeLibraryDir = nativeLibraryDir,
+        tensorGeneration = TensorNpu.deviceGeneration(),
         acceleratorPreference = acceleratorPreference,
         cacheDir = cacheDir,
         numThreads = numThreads,
