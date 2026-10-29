@@ -369,7 +369,7 @@ class LiteRtLmBackend(
 
             val prepared = prepare(request)
             if (prepared.failure != null) {
-                return@withContext GenerationResult(text = "", stopReason = StopReason.ERROR)
+                return@withContext GenerationResult(text = prepared.failure, stopReason = StopReason.ERROR)
             }
             val plan = prepared.plan!!
 
