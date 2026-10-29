@@ -35,6 +35,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import android.net.Uri
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
 import dev.localintelligence.core.settings.CoreSettings
@@ -349,7 +351,15 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    composable(ROUTE_HUB) {
+                    // Plain "hub" opens empty. The Settings suggestion adds the
+                    // repo and file, so the Hub opens with that file selected.
+                    composable(
+                        route = "$ROUTE_HUB?repo={repo}&file={file}",
+                        arguments = listOf(
+                            navArgument("repo") { nullable = true; defaultValue = null },
+                            navArgument("file") { nullable = true; defaultValue = null },
+                        ),
+                    ) { entry ->
                         // The registrar is what makes a download usable: the
                         // default adopts nothing, so the finished file would sit
                         // in files/models while the app still said "import a
@@ -365,6 +375,11 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         hub = vm
+                        val repo = entry.arguments?.getString("repo")
+                        val file = entry.arguments?.getString("file")
+                        LaunchedEffect(repo, file) {
+                            if (repo != null && file != null) vm.prefill(repo, file)
+                        }
                         HubScreen(viewModel = vm, onBack = { nav.popBackStack() })
                     }
 
@@ -373,7 +388,9 @@ class MainActivity : ComponentActivity() {
                             store = container.settings,
                             plugins = container.plugins,
                             suggestion = SimpleSetup.suggestedModel(container.deviceFacts),
-                            onOpenHub = { nav.navigate(ROUTE_HUB) },
+                            onOpenHub = { repo, file ->
+                                nav.navigate("$ROUTE_HUB?repo=${Uri.encode(repo)}&file=${Uri.encode(file)}")
+                            },
                             onBack = { nav.popBackStack() },
                         )
                     }
