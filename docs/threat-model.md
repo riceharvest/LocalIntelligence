@@ -29,8 +29,8 @@ threat model does not apply.
 3. **Model → tool.** A tool call the model emits. Still not automatically
    trusted: risk tier decides whether confirmation is required, and the model
    does not get to lower its own tier.
-4. **Model → network.** `web.fetch` only. Any text in a URL reaches a host the
-   model chose.
+4. **Model → network.** `web.fetch` and `web.search`. Any text in a URL reaches a
+   host the model chose; a search query reaches `html.duckduckgo.com` (see T3).
 
 ## Threats
 
@@ -89,6 +89,15 @@ Every `web.fetch` call needs the user's confirmation, and the dialog names the
 host (`RiskPolicy`, `NETWORK_EGRESS`). Nothing limits the destination after that:
 no host allowlist exists, and an approved host receives whatever the model put in
 the URL. This is the most significant open item in the document.
+
+`web.search` sends the query text, once, to `html.duckduckgo.com` as the `q`
+parameter of a GET. The host is fixed in code, so the model cannot redirect the
+search elsewhere, and the request carries no cookies or account. The query is
+therefore visible to DuckDuckGo, which is a third party, and it is the one
+place the app discloses what the user typed rather than what a page says.
+Because the destination is fixed, the confirmation dialog cannot name it: the
+dialog reads only a `url` argument, and `web.search` has none, so it shows
+"an external host".
 
 ### T4. Unattended file access — partially mitigated
 

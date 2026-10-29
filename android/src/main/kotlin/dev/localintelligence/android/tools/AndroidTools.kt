@@ -88,7 +88,7 @@ fun androidToolPlugins(context: Context): List<AgentPlugin> {
         ToolFamily("tools.notifications", "Notifications", "Read, dismiss and reply to notifications") {
             notificationTools(grant)
         },
-        ToolFamily("tools.web", "Web", "Fetch web pages") { webTools(grant) },
+        ToolFamily("tools.web", "Web", "Search the web and fetch pages") { webTools(grant) },
     )
     requireCatalogueAgreement(families.flatMap { it.tools() })
     return families
