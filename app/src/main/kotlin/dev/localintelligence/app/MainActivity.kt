@@ -43,6 +43,7 @@ import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.HubScreen
 import dev.localintelligence.app.ui.SettingsScreen
+import dev.localintelligence.app.ui.SkillsScreen
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
@@ -168,6 +169,7 @@ class MainActivity : ComponentActivity() {
                                 // Read here, where the screen is built, and passed down
                                 // as a plain Boolean: the screen never touches prefs.
                                 toolCallsAutoCollapse = container.settings[CoreSettings.TOOL_CALLS_AUTO_COLLAPSE],
+                                skills = container.skills,
                             )
                         }
                     }
@@ -374,6 +376,15 @@ class MainActivity : ComponentActivity() {
                             plugins = container.plugins,
                             suggestion = SimpleSetup.suggestedModel(container.deviceFacts),
                             onOpenHub = { nav.navigate(ROUTE_HUB) },
+                            onOpenSkills = { nav.navigate(ROUTE_SKILLS) },
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
+                    composable(ROUTE_SKILLS) {
+                        SkillsScreen(
+                            store = container.settings,
+                            repository = container.skills,
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -421,6 +432,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_SCHEDULE = "schedule"
         const val ROUTE_REDACTION = "redaction"
         const val ROUTE_SETTINGS = "settings"
+        const val ROUTE_SKILLS = "skills"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
         const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"
