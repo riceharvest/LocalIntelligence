@@ -62,7 +62,7 @@ fun SettingsScreen(
     store: SettingsStore,
     plugins: List<AgentPlugin>,
     suggestion: SuggestedModel,
-    onOpenHub: () -> Unit,
+    onOpenHub: (repo: String, file: String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -93,7 +93,7 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 ModeSwitch(store)
-                if (!technical) SuggestionCard(suggestion, onOpenHub)
+                if (!technical) SuggestionCard(suggestion) { onOpenHub(suggestion.repo, suggestion.file) }
 
                 val rows = (CoreSettings.all + plugins.flatMap { it.settings })
                     .filter { it !== CoreSettings.MODE && (technical || it.simple) }

@@ -351,6 +351,20 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        // Same action as the idle button: startDownload resumes
+                        // from the kept .part file, so this is the resume path.
+                        Button(
+                            onClick = viewModel::startDownload,
+                            enabled = state.plan?.isAllowed == true,
+                        ) {
+                            Text(
+                                if (state.resumable) {
+                                    "Resume download"
+                                } else {
+                                    "Download${state.sizeLabel?.let { " ($it)" } ?: ""}"
+                                },
+                            )
+                        }
                     }
                 }
                 blocked != null -> {

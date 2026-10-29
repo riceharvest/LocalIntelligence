@@ -248,7 +248,7 @@ class RiskPolicy(
         // (7b) Network egress, judged by destination host.
         if (definition.risk == ToolRisk.NETWORK_EGRESS) {
             val host = ArgumentInspector.hostOf(args)
-            val destination = host ?: "an external host"
+            val destination = host ?: definition.fixedHost ?: "an external host"
             return decide(
                 definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.NETWORK_EGRESS,
                 "${definition.name} contacts $destination over the network. " +

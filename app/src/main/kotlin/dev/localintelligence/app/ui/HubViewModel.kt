@@ -279,10 +279,15 @@ class HubViewModel(
         val raw = _state.value.repoInput
         when (val parsed = HubRepoId.parse(raw)) {
             is HubRepoId.Result.Invalid -> {
+                pendingPrefill = null
                 _state.update { it.copy(error = parsed.message, files = emptyList(), selected = null, plan = null) }
                 return
             }
             is HubRepoId.Result.Valid -> {
+                // Taken here, once, so a prefill applies to the listing it asked
+                // for and never to a later resolve the user types by hand.
+                val wantedFile = pendingPrefill
+                pendingPrefill = null
                 // WHY EVERY DOWNLOAD FIELD IS CLEARED HERE: `resolve` is also
                 // how the user gets from a finished download to a different
                 // repo. The previous version only touched `loading` and
@@ -343,6 +348,11 @@ class HubViewModel(
                                 alreadyOnDevice = planned?.third == true,
                             )
                         }
+                        // A suggested file that the repository does not list is
+                        // simply not selected: the user sees the repo's files.
+                        wantedFile?.let { name ->
+                            loadable.firstOrNull { it.fileName == name }?.let { select(it) }
+                        }
                     }.onFailure { e ->
                         _state.update {
                             it.copy(
@@ -358,6 +368,26 @@ class HubViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * The file name a Settings suggestion asked for, to select once its
+     * repository is listed. Set by [prefill], consumed by the next [resolve].
+     */
+    private var pendingPrefill: String? = null
+
+    /**
+     * Opens [repo] as if the user had typed it and pressed Find models, then
+     * selects [fileName] from the listing instead of the largest fitting quant.
+     *
+     * WHY a one-shot field and not a parameter on [resolve]: resolve is also
+     * what the user taps by hand, and only the Settings suggestion should
+     * preselect a file.
+     */
+    fun prefill(repo: String, fileName: String) {
+        pendingPrefill = fileName
+        onRepoInputChanged(repo)
+        resolve()
     }
 
     /** Selects a specific quant and recomputes the plan for it. */
