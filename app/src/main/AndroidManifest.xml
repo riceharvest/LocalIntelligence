@@ -123,6 +123,19 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Shares a chat export. Only cacheDir/exports is covered (see
+             res/xml/export_paths.xml), and the grant is per share, so no other
+             app can read the transcript later. Not exported. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.exports"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/export_paths" />
+        </provider>
+
         <!-- Delivers a fired alarm. Without this declaration alarm.create
              reports success for an alarm that will never ring. -->
         <receiver
