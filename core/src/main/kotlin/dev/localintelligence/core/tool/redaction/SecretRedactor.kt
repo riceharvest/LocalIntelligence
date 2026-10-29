@@ -278,13 +278,17 @@ object SecretRedactor {
         ),
 
         // ---- 3. Authorization / Bearer headers -----------------------
-        // Structural: the scheme word is the marker. Basic is included
-        // because base64 of user:pass is exactly as bad as the bearer token
-        // next to it, and it is the same keyword.
+        // Structural when the Authorization: name is there. Without it the
+        // value must look like a token (a digit, or token punctuation inside
+        // it), so "Basic Insurance" is left alone. Basic is included because
+        // base64 of user:pass is exactly as bad as the bearer token next to
+        // it, and it is the same keyword.
         Rule(
             category = SecretCategory.BEARER_TOKEN,
             pattern = Regex(
-                "(?i)\\b(authorization\\s*[:=]\\s*)?\\b(bearer|basic)\\s+[A-Za-z0-9._~+/=-]{8,}",
+                "(?i)(?=authorization\\s*[:=]|" +
+                    "\\b(?:bearer|basic)\\s+[A-Za-z0-9._~+/=-]*(?:[0-9]|[._~+/=-][A-Za-z0-9._~+/=-]))" +
+                    "\\b(authorization\\s*[:=]\\s*)?\\b(bearer|basic)\\s+[A-Za-z0-9._~+/=-]{8,}",
             ),
             // The scheme word survives so the model knows a header was there.
             // `m.groupValues[2]` is the scheme, matched case-insensitively.

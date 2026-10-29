@@ -119,6 +119,9 @@ internal object ContactsArgs {
     fun escapeLike(raw: String): String =
         raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
+    /** "Mom's" means Mom: the stored name has no trailing apostrophe-s. */
+    fun stripPossessive(raw: String): String = raw.replace(Regex("['’][sS]$"), "").ifEmpty { raw }
+
     fun clean(raw: String?, max: Int): String? {
         val text = raw?.trim().orEmpty().replace(Regex("\\s+"), " ")
         if (text.isEmpty()) return null
@@ -330,12 +333,19 @@ internal interface ContactsProvider {
 internal class ResolverContactsProvider(private val resolver: ContentResolver) : ContactsProvider {
 
     override fun queryPhones(pattern: String, maxRows: Int): Cursor? = resolver.query(
-        ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-        PHONE_PROJECTION,
-        "(${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ? ESCAPE '\\' " +
-            "OR ${ContactsContract.CommonDataKinds.Phone.NUMBER} LIKE ? ESCAPE '\\')",
-        arrayOf(pattern, pattern),
-        "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} COLLATE NOCASE ASC " +
+        ContactsContract.Data.CONTENT_URI,
+        SEARCH_PROJECTION,
+        "${ContactsContract.Data.MIMETYPE} IN (?,?,?) AND " +
+            "(${ContactsContract.Data.DISPLAY_NAME} LIKE ? ESCAPE '\\' " +
+            "OR ${ContactsContract.Data.DATA1} LIKE ? ESCAPE '\\')",
+        arrayOf(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
+            ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE,
+            ContactsContract.CommonDataKinds.Nickname.CONTENT_ITEM_TYPE,
+            pattern,
+            pattern,
+        ),
+        "${ContactsContract.Data.DISPLAY_NAME} COLLATE NOCASE ASC " +
             "LIMIT $maxRows",
     )
 
@@ -353,10 +363,11 @@ internal class ResolverContactsProvider(private val resolver: ContentResolver) :
     )
 
     private companion object {
-        val PHONE_PROJECTION = arrayOf(
-            ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
-            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-            ContactsContract.CommonDataKinds.Phone.NUMBER,
+        val SEARCH_PROJECTION = arrayOf(
+            ContactsContract.Data.CONTACT_ID,
+            ContactsContract.Data.DISPLAY_NAME,
+            ContactsContract.Data.MIMETYPE,
+            ContactsContract.Data.DATA1,
         )
         val DATA_PROJECTION = arrayOf(
             ContactsContract.Data.MIMETYPE,
@@ -386,14 +397,15 @@ class ContactsSearchTool internal constructor(
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "contacts.search",
-        description = "Return the contacts whose name or phone number matches a query, one line per person.",
+        description = "Return the contacts whose name, nickname, phone number or email matches a query, " +
+            "one line per person.",
         category = "contacts",
         schema = buildJsonObject {
             put("type", "object")
             put("properties", buildJsonObject {
                 put("query", buildJsonObject {
                     put("type", "string")
-                    put("description", "Name fragment or phone number to look for.")
+                    put("description", "Name, nickname, phone number or email fragment to look for.")
                 })
                 put("limit", buildJsonObject {
                     put("type", "integer")
@@ -408,6 +420,7 @@ class ContactsSearchTool internal constructor(
         observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "contact", "contacts", "phone book", "address book", "call", "who is", "number", "lookup",
+            "email", "nickname",
         ),
         requiredPermission = "android.permission.READ_CONTACTS",
     )
@@ -431,7 +444,7 @@ class ContactsSearchTool internal constructor(
             // Fetch a little more than we show: the dedup happens after the query, so
             // limit rows can collapse to far fewer contacts.
             val fetch = (limit * 4).coerceIn(limit, ContactsArgs.MAX_LIMIT * 4)
-            val pattern = "%${ContactsArgs.escapeLike(query)}%"
+            val pattern = "%${ContactsArgs.escapeLike(ContactsArgs.stripPossessive(query))}%"
 
             val rows = ArrayList<ContactPhoneRow>(fetch)
             var wasCancelled = false
@@ -457,9 +470,16 @@ class ContactsSearchTool internal constructor(
                             overflow = true
                             break
                         }
-                        val name = cursor.stringOrEmpty(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-                        val number = cursor.stringOrEmpty(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                        val id = cursor.longOrZero(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
+                        val name = cursor.stringOrEmpty(ContactsContract.Data.DISPLAY_NAME)
+                        val mimetype = cursor.stringOrEmpty(ContactsContract.Data.MIMETYPE)
+                        // Only a phone row carries a number. An email or nickname row still
+                        // names its contact, which then shows as "no number" unless a phone row matched.
+                        val number = if (mimetype == ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE) {
+                            cursor.stringOrEmpty(ContactsContract.Data.DATA1)
+                        } else {
+                            ""
+                        }
+                        val id = cursor.longOrZero(ContactsContract.Data.CONTACT_ID)
                         if (id > 0) rows += ContactPhoneRow(id, name, number)
                     }
                 } finally {

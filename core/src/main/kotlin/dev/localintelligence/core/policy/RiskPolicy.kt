@@ -92,8 +92,14 @@ class RiskPolicy(
         val analysis = ArgumentInspector.analyze(args, config, requiredArguments(definition))
 
         // (2) Malformed arguments. Null beats a guess: an argument we cannot
-        //     read is an argument whose effect we cannot bound.
-        if (analysis.malformed.isNotEmpty()) {
+        //     read is an argument whose effect we cannot bound. The exception is
+        //     a READ_ONLY call whose only unreadable arguments are counts: the
+        //     tools fall back to their default, and a read changes nothing.
+        //     Path names are excluded, because a path that cannot be read is an
+        //     escape we cannot see.
+        val onlyUnreadableCounts = definition.risk == ToolRisk.READ_ONLY &&
+            analysis.malformed.all { it in config.countArgumentNames && it !in config.pathArgumentNames }
+        if (analysis.malformed.isNotEmpty() && !onlyUnreadableCounts) {
             return decide(
                 definition, args, PolicyOutcome.BLOCK, PolicyRule.MALFORMED_ARGUMENTS,
                 "${definition.name} was called with arguments this runtime cannot interpret " +
