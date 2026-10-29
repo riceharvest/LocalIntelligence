@@ -27,6 +27,7 @@ import java.net.URI
 import java.net.URISyntaxException
 import java.net.UnknownHostException
 import java.net.URL
+import java.nio.charset.Charset
 import javax.net.ssl.SSLException
 
 // ===========================================================================
@@ -449,12 +450,12 @@ internal object WebUrls {
      *
      * Three rules, and the second is the one that matters:
      *  1. No more than [MAX_REDIRECTS] hops. Past that it is a loop or a decoy.
-     *  2. A redirect that leaves the host is only allowed when it does not also
-     *     change the security level. `http` -> `https` on another host means the
-     *     first hop was attacker-chosen plaintext, so following it hands a
-     *     summary of a hostile page to the model; `https` -> `http` is the
-     *     downgrade twin of the same trick. Same-host hops and same-scheme
-     *     cross-host hops (https -> https, e.g. example.com -> www) are fine.
+     *  2. A redirect may stay on the host the user approved, or move to its
+     *     `www.` twin. Any other host is refused, whatever the scheme: the user
+     *     approved only the host they named, and the model fetches the new one
+     *     as its own call. Moving to the `www.` twin, a change of security level
+     *     is refused too, since `http` -> `https` on another host means the
+     *     first hop was attacker-chosen plaintext.
      *  3. The target is re-validated through [validate], so a redirect can
      *     never walk a request from https back onto `file://`.
      */
@@ -493,6 +494,12 @@ internal object WebUrls {
         val fromAccepted = from as UrlVerdict.Accepted
         val toAccepted = to as UrlVerdict.Accepted
 
+        if (fromAccepted.host.removePrefix("www.") != toAccepted.host.removePrefix("www.")) {
+            return RedirectVerdict.Rejected(
+                "The page redirected to ${toAccepted.url}, a different host. Fetch that " +
+                    "address directly; it needs its own approval.",
+            )
+        }
         val hostChanged = fromAccepted.host != toAccepted.host
         val levelChanged = level(schemeOf(current)) != level(schemeOf(toAccepted.url))
         if (hostChanged && levelChanged) {
@@ -534,12 +541,15 @@ internal data class BodyRead(
     val totalBytes: Long,
     /** True when [signal] fired; the body is partial and must not be used. */
     val cancelled: Boolean,
+    /** True when the connection failed mid-body; the body is partial. */
+    val interrupted: Boolean = false,
 ) {
     // ByteArray in a data class needs these spelled out.
     override fun equals(other: Any?): Boolean =
         this === other ||
             (other is BodyRead && bytes.contentEquals(other.bytes) && truncated == other.truncated &&
-                totalBytes == other.totalBytes && cancelled == other.cancelled)
+                totalBytes == other.totalBytes && cancelled == other.cancelled &&
+                interrupted == other.interrupted)
 
     override fun hashCode(): Int =
         (bytes.contentHashCode() * 31 + truncated.hashCode()) * 31 + totalBytes.hashCode()
@@ -568,6 +578,7 @@ internal object BodyReader {
         val chunk = ByteArray(8 * 1024)
         var kept = 0
         var truncated = false
+        var interrupted = false
         var eof = false
 
         while (!eof) {
@@ -583,7 +594,8 @@ internal object BodyReader {
                 input.read(chunk, 0, want)
             } catch (e: IOException) {
                 // A connection dropped mid-body is not a failure: keep what
-                // arrived and let the observation report the partial length.
+                // arrived and let the observation say the text is partial.
+                interrupted = true
                 break
             }
             if (read < 0) {
@@ -602,7 +614,13 @@ internal object BodyReader {
                 break
             }
         }
-        return BodyRead(buffer.toByteArray(), truncated, kept.toLong(), cancelled = false)
+        return BodyRead(
+            buffer.toByteArray(),
+            truncated,
+            kept.toLong(),
+            cancelled = false,
+            interrupted = interrupted,
+        )
     }
 }
 
@@ -656,7 +674,7 @@ internal object HtmlText {
         RegexOption.IGNORE_CASE,
     )
 
-    private val ANY_TAG = Regex("<[^>]*>", RegexOption.DOT_MATCHES_ALL)
+    private val ANY_TAG = Regex("<[a-zA-Z/!?][^>]*>", RegexOption.DOT_MATCHES_ALL)
 
     private val NAMED = mapOf(
         "amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'",
@@ -771,6 +789,19 @@ internal object WebFetchContent {
         return head.startsWith("<")
     }
 
+    private val CHARSET_PARAM = Regex("""charset\s*=\s*["']?([^"';\s]+)""", RegexOption.IGNORE_CASE)
+
+    /** The charset a Content-Type names, or UTF-8 when it names none or one this platform lacks. */
+    fun charsetOf(contentType: String?): Charset {
+        val name = CHARSET_PARAM.find(contentType.orEmpty())?.groupValues?.get(1) ?: return Charsets.UTF_8
+        return try {
+            Charset.forName(name)
+        } catch (e: IllegalArgumentException) {
+            // An illegal name and an unsupported one are both IllegalArgumentExceptions.
+            Charsets.UTF_8
+        }
+    }
+
     /** Human-readable content type for the observation header. */
     fun describe(contentType: String?): String {
         val type = contentType?.substringBefore(';')?.trim()?.lowercase()
@@ -806,10 +837,10 @@ internal object WebObservations {
         contentType: String?,
         body: BodyRead,
     ): String {
-        val size = if (body.truncated) {
-            "${formatBytes(body.totalBytes)}, stopped at the $MAX_BODY_BYTES B download cap"
-        } else {
-            "${formatBytes(body.totalBytes)}, complete"
+        val size = when {
+            body.interrupted -> "${formatBytes(body.totalBytes)}, connection interrupted, text is partial"
+            body.truncated -> "${formatBytes(body.totalBytes)}, stopped at the $MAX_BODY_BYTES B download cap"
+            else -> "${formatBytes(body.totalBytes)}, complete"
         }
         return "HTTP $status from $finalUrl (${WebFetchContent.describe(contentType)}, $size)"
     }
@@ -980,7 +1011,7 @@ internal class WebFetcher(
                 )
                 if (body.cancelled) return cancelled()
 
-                val raw = String(body.bytes, Charsets.UTF_8)
+                val raw = String(body.bytes, WebFetchContent.charsetOf(response?.contentType))
                 if (context.signal.isCancelled()) return cancelled()
 
                 // maxChars is the budget for the WHOLE observation, not just

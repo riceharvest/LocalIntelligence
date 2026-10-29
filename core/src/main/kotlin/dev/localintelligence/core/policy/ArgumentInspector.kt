@@ -342,10 +342,15 @@ object ArgumentInspector {
     private const val MAX_HOST_CHARS = 253
 
     private fun hostFrom(raw: String): String? {
-        val match = URL_LIKE.find(raw) ?: return null
+        // A scheme-less `host.tld/path` is fetched as https by WebTools, so it names
+        // that host. It is tested first because URL_LIKE is unanchored and would read
+        // the host out of a query value such as `example.com/r?to=https://evil.example`.
+        val trimmed = raw.trim()
+        val text = if (BARE_DOMAIN.matches(trimmed)) "https://$trimmed" else raw
+        val match = URL_LIKE.find(text) ?: return null
         val scheme = match.groupValues[1].lowercase()
         if (scheme != "http" && scheme != "https") return null
-        val authority = raw.substringAfter("//", "")
+        val authority = text.substringAfter("//", "")
             .substringBefore('/').substringBefore('?').substringBefore('#')
         if (authority.isEmpty()) return null
         // Userinfo is stripped BEFORE the port is split off, and the split has

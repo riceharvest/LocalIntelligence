@@ -169,6 +169,12 @@ class LexicalToolSelector : ToolSelector {
 
         val taskTokens = tokenize(task).toSet()
         val keywordTokens = sessionKeywords.flatMap { tokenize(it) }.toSet()
+        // A file name ("groceries.txt") has the same shape as a domain; its
+        // extension is what tells them apart.
+        val taskHasAddress = ADDRESS_IN_TASK.findAll(task).any { match ->
+            match.value.contains("://") ||
+                match.value.substringAfterLast('.').lowercase() !in FILE_EXTENSIONS
+        }
 
         val scored = available.map { tool ->
             val def = tool.definition
@@ -185,13 +191,30 @@ class LexicalToolSelector : ToolSelector {
             // Exact substring in the task is a strong signal a small model needs.
             val substringHit = if (task.contains(def.name, ignoreCase = true)) 10 else 0
 
-            tool to (overlap + substringHit)
+            // A web address in the task is as strong a signal as a tool name, and
+            // "example.com" shares no word with web.fetch's text. The measurements
+            // above predate this boost.
+            val addressHit = if (taskHasAddress && "url" in def.tags) 10 else 0
+
+            tool to (overlap + substringHit + addressHit)
         }
 
         return scored.sortedWith(
             compareByDescending<Pair<AgentTool, Int>> { it.second }.thenBy { it.first.definition.name },
         ).take(maxTools).map { it.first }
     }
+
+    /** A `scheme://` address or a `word.tld` domain. `1.5` and `e.g.` do not match: the TLD is letters. */
+    private val ADDRESS_IN_TASK = Regex(
+        """https?://|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val FILE_EXTENSIONS = setOf(
+        "txt", "md", "pdf", "doc", "docx", "odt", "rtf", "csv", "json", "xml", "xls", "xlsx",
+        "ppt", "pptx", "jpg", "jpeg", "png", "gif", "webp", "heic", "mp3", "mp4", "m4a", "wav",
+        "zip", "apk", "gguf", "log", "kt", "py", "js",
+    )
 
     private fun tokenize(text: String): List<String> =
         text.lowercase()
