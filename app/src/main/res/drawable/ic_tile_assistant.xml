@@ -1,0 +1,12 @@
+<!-- Monochrome glyph for the Quick Settings tile. The system tints tiles from
+     the alpha channel, so only the shape matters. A full-colour launcher icon
+     renders as a blank square in the shade, which is why this exists. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M20,2H4C2.9,2 2,2.9 2,4V22L6,18H20C21.1,18 22,17.1 22,16V4C22,2.9 21.1,2 20,2Z" />
+</vector>
