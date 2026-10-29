@@ -249,8 +249,7 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
-                            text = "LiteRT-LM models in this repository " +
-                                "(${nonGguf.size}, not downloadable here)",
+                            text = "LiteRT-LM models in this repository (${nonGguf.size})",
                             style = MaterialTheme.typography.titleSmall,
                         )
                         // The size is `lfs.size` — the payload size HF reports
@@ -271,6 +270,21 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = FontFamily.Monospace,
                             )
+                            file.npuLabel?.let { label ->
+                                Text(text = label, style = MaterialTheme.typography.bodySmall)
+                            }
+                            // Only a `.litertlm` gets the action. A `.task` is
+                            // listed for information, and a zero size is never
+                            // offered because the downloader's size check would
+                            // be skipped.
+                            if (file.isLiteRtLm && file.sizeBytes > 0) {
+                                OutlinedButton(
+                                    onClick = { viewModel.startNonGgufDownload(file) },
+                                    enabled = !state.downloading,
+                                ) {
+                                    Text("Download (${formatBytes(file.sizeBytes)})")
+                                }
+                            }
                         }
                         Text(
                             text = notice,
@@ -389,10 +403,9 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                     // app has and cannot yet feed. Saying it up front costs two
                     // sentences and saves the user a search.
                     Text(
-                        text = "LiteRT-LM (.litertlm) models are not listed as " +
-                            "downloadable. The app has a backend for them and no " +
-                            "way to fetch one, so if the repository holds any you " +
-                            "will see them named with their size and an explanation.",
+                        text = "LiteRT-LM (.litertlm) files in a repository are " +
+                            "listed with their size and can be downloaded. They " +
+                            "have no memory estimate, and Models cannot load them yet.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
