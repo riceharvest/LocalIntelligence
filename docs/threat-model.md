@@ -73,8 +73,9 @@ single-label host names, every all-numeric non-standard IP spelling (`127.1`,
 
 **Known gap.** This is address *text* matching. A public hostname that resolves
 to a private address still passes, because nothing resolves DNS at validation
-time. Redirect hops are re-validated with the same rules, and a redirect that
-changes both host and scheme is refused. Pinning the resolved address and
+time. Redirect hops are re-validated with the same rules, and a redirect to any
+host other than the approved one (or its `www.` twin) is refused, so the model
+must fetch the new address as its own approved call. Pinning the resolved address and
 connecting to the pinned IP is not implemented. Until it is, assume `web.fetch`
 can reach whatever the resolver returns.
 
