@@ -20,9 +20,10 @@ import kotlinx.serialization.json.contentOrNull
  *  - only top-level argument properties are constrained. Nested objects and arrays
  *    fall back to the generic `object`/`array`/`value` JSON rules, because a model
  *    that cannot hit the outer shape will not hit a deep one either.
- *  - `required` keys come first, then optional keys, each at most once, in schema
- *    order. Key order is therefore fixed, which measurably helps small models and
- *    costs us nothing.
+ *  - `required` keys come first, in schema order, so their order is fixed. Optional
+ *    keys follow in any order: a model that starts with `"label"` must still be able
+ *    to add `"hour"`. The grammar does not forbid a repeated key; `ActionParserImpl`
+ *    rejects one.
  */
 object GrammarBuilder {
 
@@ -139,37 +140,32 @@ object GrammarBuilder {
             ?.toSet()
             .orEmpty()
 
-        // Required first, then optional, each group in schema order.
+        // Required keys first, in schema order; optional keys follow in any order.
         val reqKeys = keys.filter { it in required }
         val optKeys = keys.filter { it !in required }
         if (reqKeys.isEmpty() && optKeys.isEmpty()) return """ws "{" ws "}""""
 
         val sb = StringBuilder("""ws "{" ws""")
-        if (reqKeys.isNotEmpty()) {
-            reqKeys.forEachIndexed { index, key ->
-                val property = properties?.get(key) as? JsonObject
-                if (index > 0) sb.append(""" ws "," ws""")
-                sb.append(' ').append(pair(key, valueRule(property)))
+        reqKeys.forEachIndexed { index, key ->
+            val property = properties?.get(key) as? JsonObject
+            if (index > 0) sb.append(""" ws "," ws""")
+            sb.append(' ').append(pair(key, valueRule(property)))
+        }
+        if (optKeys.isNotEmpty()) {
+            val options = optKeys.map { key -> pair(key, valueRule(properties?.get(key) as? JsonObject)) }
+            val single = options.size == 1
+            val group = if (single) options[0] else options.joinToString(" | ", "(", ")")
+            // A repeat is legal here: forbidding one in GBNF takes a rule per key subset,
+            // so ActionParserImpl rejects it. One optional key has no order to get wrong,
+            // so it keeps the plain optional form.
+            if (reqKeys.isNotEmpty()) {
+                sb.append(""" (ws "," ws $group)""").append(if (single) "?" else "*")
+            } else {
+                // With no required key the whole group is optional, so `{}` still parses.
+                sb.append(" (").append(group)
+                if (!single) sb.append(""" (ws "," ws $group)*""")
+                sb.append(")?")
             }
-            optKeys.forEach { key ->
-                val property = properties?.get(key) as? JsonObject
-                sb.append(""" (ws "," ws """).append(pair(key, valueRule(property))).append(")?")
-            }
-        } else {
-            // Any in-order subset, including none: one alternative per possible
-            // first key, each followed by the later keys as independent options.
-            val alternatives = optKeys.indices.map { first ->
-                val head = optKeys[first]
-                buildString {
-                    append(pair(head, valueRule(properties?.get(head) as? JsonObject)))
-                    optKeys.drop(first + 1).forEach { key ->
-                        append(""" (ws "," ws """)
-                        append(pair(key, valueRule(properties?.get(key) as? JsonObject)))
-                        append(")?")
-                    }
-                }
-            }
-            sb.append(" (").append(alternatives.joinToString(" | ")).append(")?")
         }
         return sb.append(""" ws "}"""").toString()
     }

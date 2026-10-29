@@ -134,8 +134,14 @@ object ActionParserImpl : ActionParser {
         if (body.length > MAX_ARGS_CHARS) {
             return malformed("Arguments for \"$name\" are too long (${body.length} chars).", raw)
         }
-        val args = parseArgsObject(body)
-            ?: return malformed("Arguments for \"$name\" are not a JSON object.", raw)
+        val args = when (val parsed = parseArgsObject(body)) {
+            is ArgsParse.Ok -> parsed.args
+            is ArgsParse.Repeated -> return malformed(
+                "Argument \"${parsed.key}\" is given twice for \"$name\".",
+                raw,
+            )
+            null -> return malformed("Arguments for \"$name\" are not a JSON object.", raw)
+        }
 
         return ActionParseResult.Parsed(AgentAction.CallTool(name, args))
     }
@@ -155,18 +161,24 @@ object ActionParserImpl : ActionParser {
 
     // ---------------------------------------------------------------- JSON + bounded repair
 
+    /** An argument object as read from the text: the object, or the key the text gives twice. */
+    private sealed interface ArgsParse {
+        data class Ok(val args: ToolArgs) : ArgsParse
+        data class Repeated(val key: String) : ArgsParse
+    }
+
     /**
      * Strict parse, then at most [MAX_REPAIR_PASSES] rewrites, then one last resort:
      * a lone `{...}` span lifted out of surrounding prose. Every step is a pure
      * text transformation — no value is ever invented, so a missing argument stays
      * missing and the tool's own validation still sees the truth.
      */
-    private fun parseArgsObject(body: String): ToolArgs? {
+    private fun parseArgsObject(body: String): ArgsParse? {
         val cleaned = stripCodeFence(body).trim()
         if (cleaned.isEmpty()) {
             // No arguments emitted at all. An empty object states exactly that; it does
             // not guess at a required argument. Tool-level validation still applies.
-            return ToolArgs(emptyMap())
+            return ArgsParse.Ok(ToolArgs(emptyMap()))
         }
 
         strictObject(cleaned)?.let { return it }
@@ -191,10 +203,40 @@ object ActionParserImpl : ActionParser {
         return null
     }
 
-    private fun strictObject(text: String): JsonObject? = try {
-        Json.parseToJsonElement(text) as? JsonObject
+    private fun strictObject(text: String): ArgsParse? = try {
+        (Json.parseToJsonElement(text) as? JsonObject)?.let { args ->
+            repeatedKey(text)?.let { ArgsParse.Repeated(it) } ?: ArgsParse.Ok(args)
+        }
     } catch (t: Throwable) {
         null
+    }
+
+    /**
+     * The first key a strict JSON object gives twice, or null. `Json` keeps the last
+     * value of a repeated key without complaint, so the text is the only place it shows.
+     */
+    private fun repeatedKey(text: String): String? {
+        val seen = HashSet<String>()
+        var depth = 0
+        var i = 0
+        while (i < text.length) {
+            when (text[i]) {
+                '{', '[' -> { depth++; i++ }
+                '}', ']' -> { depth--; i++ }
+                '"' -> {
+                    val end = jsonStringEnd(text, i)
+                    if (end < 0) return null
+                    // At depth 1 a string followed by a colon is a key; any other is a value.
+                    if (depth == 1 && nextNonWs(text, end) == ':') {
+                        val key = Json.decodeFromString<String>(text.substring(i, end))
+                        if (!seen.add(key)) return key
+                    }
+                    i = end
+                }
+                else -> i++
+            }
+        }
+        return null
     }
 
     private fun stripCodeFence(text: String): String {

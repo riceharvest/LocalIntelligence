@@ -304,12 +304,8 @@ object ToolCallValidator {
         // A missing required argument was previously not an error at all here: the
         // call validated, ran, and the tool failed somewhere further down, so the
         // model was told "no such thing" instead of "you left out the name". The
-        // grammar does not close this on its own either — `GrammarBuilder.argsRule`
-        // emits the first required key unconditionally and wraps every key after
-        // it in `( ... )?`, so for a tool with two or more required arguments only
-        // the first is actually enforced (GrammarBuilder.kt:147-152). Two shipped
-        // tools are in that state, `calendar.search` and `calendar.create`. This
-        // check is the one that holds, and it reads the same schema.
+        // grammar enforces required keys too, but only on a backend that applies a
+        // grammar; this check holds for every backend, and it reads the same schema.
         val missing = required.filter { it !in args }
         if (missing.isNotEmpty()) {
             val named = missing.take(MAX_NAMED_ARGS).joinToString()
