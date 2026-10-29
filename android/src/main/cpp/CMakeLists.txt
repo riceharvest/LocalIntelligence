@@ -165,6 +165,10 @@ set(LLAMA_BUILD_TOOLS    OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_APP      OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_COMMON   OFF CACHE BOOL "" FORCE)
 set(LLAMA_OPENSSL        OFF CACHE BOOL "" FORCE)
+# libmtmd: image and audio input, and speech output, for multimodal models.
+# Built on its own (tools stay off); video needs an ffmpeg binary, so it is off.
+set(LLAMA_BUILD_MTMD     ON  CACHE BOOL "" FORCE)
+set(MTMD_VIDEO           OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)
 
 set(GGML_NATIVE          OFF CACHE BOOL "" FORCE)
@@ -221,6 +225,7 @@ target_include_directories(LocalIntelligence_llama_jni PRIVATE
 )
 
 target_link_libraries(LocalIntelligence_llama_jni PRIVATE
+    mtmd
     llama
     ggml
     android

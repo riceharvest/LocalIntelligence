@@ -107,6 +107,31 @@ object LlamaBridge {
         if (isAvailable) nativeCountTokens(handle.ptr, text) else -1
 
     /**
+     * Loads a multimodal projector (an `mmproj-*.gguf`) for the loaded model.
+     * Returns null on success, or the error. Replaced by the next call, freed
+     * with the model.
+     */
+    fun loadProjector(handle: Handle, path: String): String? =
+        if (isAvailable) nativeLoadProjector(handle.ptr, path) else "the llama.cpp native library is not available"
+
+    /** What the loaded projector reads: [CAP_IMAGE] and/or [CAP_AUDIO], 0 without one. */
+    fun projectorCaps(handle: Handle): Int = if (isAvailable) nativeProjectorCaps(handle.ptr) else 0
+
+    /**
+     * Encoded attachments (jpg, png, wav, mp3...) for the next [generate] only.
+     * The prompt must contain one [mediaMarker] per attachment, in order.
+     */
+    fun setMedia(handle: Handle, media: List<ByteArray>) {
+        if (isAvailable) nativeSetMedia(handle.ptr, media.toTypedArray())
+    }
+
+    /** The placeholder libmtmd replaces with an attachment's embeddings. */
+    val mediaMarker: String by lazy { if (isAvailable) nativeMediaMarker() else "<__media__>" }
+
+    const val CAP_IMAGE = 1
+    const val CAP_AUDIO = 2
+
+    /**
      * Generates, streaming to [onToken]. Returns null on success, or the error.
      * The [GenerationOutcome] is then taken with [takeResult].
      */
@@ -209,6 +234,10 @@ object LlamaBridge {
         sink: TokenSink?,
     ): String?
     @JvmStatic private external fun nativeTakeResult(ptr: Long): String?
+    @JvmStatic private external fun nativeLoadProjector(ptr: Long, path: String): String?
+    @JvmStatic private external fun nativeProjectorCaps(ptr: Long): Int
+    @JvmStatic private external fun nativeSetMedia(ptr: Long, media: Array<ByteArray>)
+    @JvmStatic private external fun nativeMediaMarker(): String
     @JvmStatic private external fun nativeCancel(ptr: Long)
     @JvmStatic private external fun nativeIsGenerating(ptr: Long): Boolean
 }
