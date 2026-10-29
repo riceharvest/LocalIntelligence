@@ -137,7 +137,7 @@ bool split_utf8(const std::string & piece, std::string & out, std::string & part
             }
             const size_t have = buf.size() - (i - 1);
             if (need > 0 && have < static_cast<size_t>(need)) {
-                keep = need - have;  // hold back the bytes we do have
+                keep = have;  // hold back the bytes we do have
             }
             break;
         }
@@ -146,7 +146,7 @@ bool split_utf8(const std::string & piece, std::string & out, std::string & part
             break;  // malformed: stop rather than scan the whole buffer
         }
     }
-    if (keep > 0 && keep < buf.size()) {
+    if (keep > 0 && keep <= buf.size()) {
         partial = buf.substr(buf.size() - keep);
         out = buf.substr(0, buf.size() - keep);
     } else {
