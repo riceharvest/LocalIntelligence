@@ -1471,5 +1471,6 @@ fun alarmTools(context: Context, grant: PlatformGrant): List<AgentTool> {
         AlarmCreateTool(AndroidAlarmPlatform(context), grant),
         AlarmListTool(AndroidAlarmPlatform(context)),
         AlarmCancelTool(AndroidAlarmPlatform(context)),
+        TimerSetTool(context.applicationContext),
     )
 }

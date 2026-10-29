@@ -165,6 +165,7 @@ object ToolPermissions {
     const val READ_EXTERNAL_STORAGE = "android.permission.READ_EXTERNAL_STORAGE"
     const val WRITE_EXTERNAL_STORAGE = "android.permission.WRITE_EXTERNAL_STORAGE"
     const val INTERNET = "android.permission.INTERNET"
+    const val ACCESS_COARSE_LOCATION = "android.permission.ACCESS_COARSE_LOCATION"
 
     /** Android 13+ replaced the single storage permission with per-type media ones. */
     const val READ_MEDIA_IMAGES = "android.permission.READ_MEDIA_IMAGES"
@@ -187,6 +188,12 @@ object ToolPermissions {
         permission = WRITE_CALENDAR,
         capability = "Permission to change the calendar",
         grantInstructions = "Settings > Apps > LocalIntelligence > Permissions > Calendar.",
+    )
+
+    val LOCATION = PlatformRequirement(
+        permission = ACCESS_COARSE_LOCATION,
+        capability = "Location access",
+        grantInstructions = "Settings > Apps > LocalIntelligence > Permissions > Location.",
     )
 
     /**

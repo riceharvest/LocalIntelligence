@@ -1151,7 +1151,10 @@ internal class WebFetcher(
  * followed hops itself we would never see them, never validate them, and
  * `http://` could walk us onto `file://` behind [WebUrls]' back.
  */
-internal class HttpUrlConnectionOpener : ResponseOpener {
+internal class HttpUrlConnectionOpener(
+    /** web.fetch keeps its own identity. web.search passes a browser-like one, see [WebSearchTool]. */
+    private val userAgent: String = "LocalIntelligence/1.0 (on-device agent)",
+) : ResponseOpener {
 
     override fun open(url: String, signal: CancellationSignal): OpenedResponse {
         val connection = URL(url).openConnection() as HttpURLConnection
@@ -1164,7 +1167,7 @@ internal class HttpUrlConnectionOpener : ResponseOpener {
         // carrying the user's session to a page the model picked.
         connection.setRequestProperty("Accept", "text/html,text/plain,application/json;q=0.9,*/*;q=0.5")
         connection.setRequestProperty("Accept-Language", "en")
-        connection.setRequestProperty("User-Agent", "LocalIntelligence/1.0 (on-device agent)")
+        connection.setRequestProperty("User-Agent", userAgent)
         if (signal.isCancelled()) connection.disconnect()
 
         val status = try {
@@ -1341,15 +1344,15 @@ class WebFetchTool private constructor(
 // =====================================================================================
 
 /**
- * The one tool that reaches the internet.
+ * The tools that reach the internet: [WebFetchTool] and [WebSearchTool].
  *
- * WHY a factory for a single tool: the other eight families each have one, and
+ * WHY a factory for the family: the other eight families each have one, and
  * [dev.localintelligence.android.di.AgentGraph] composes the tool set out of
- * them. A family of one that skips the pattern is the kind of asymmetry the
+ * them. A family that skips the pattern is the kind of asymmetry the
  * next person re-discovers.
  *
  * No [Context] parameter, and that is the design rather than an omission: the
  * fetcher is an [HttpUrlConnectionOpener] with no access to app state, so it
  * cannot read anything the user did not explicitly ask it to fetch.
  */
-fun webTools(grant: PlatformGrant): List<AgentTool> = listOf(WebFetchTool(grant))
+fun webTools(grant: PlatformGrant): List<AgentTool> = listOf(WebFetchTool(grant), WebSearchTool(grant))

@@ -7,6 +7,8 @@
     <!-- Tool permissions. Each is requested lazily, only when a tool that needs
          it is actually invoked. See docs/tool-contract.md. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- location.get: coarse only, so the GPS provider stays refused and network/fused answer. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -86,6 +88,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.LocalIntelligence">
             <intent-filter>
@@ -119,6 +122,19 @@
             android:name=".ExecutionService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- Shares a chat export. Only cacheDir/exports is covered (see
+             res/xml/export_paths.xml), and the grant is per share, so no other
+             app can read the transcript later. Not exported. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.exports"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/export_paths" />
+        </provider>
 
         <!-- Delivers a fired alarm. Without this declaration alarm.create
              reports success for an alarm that will never ring. -->
@@ -232,6 +248,38 @@
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+        <!-- Text-selection toolbar entry: "Ask LocalIntelligence".
+
+             Transparent and display-less: it forwards the selected text to
+             MainActivity through the same ACTION_SEND path a share uses, then
+             finishes. exported=true is required because the text-selection
+             toolbar of another app starts it. -->
+        <activity
+            android:name=".ProcessTextActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="Ask LocalIntelligence"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!-- Quick Settings tile. Opens the chat from the shade. The
+             BIND_QUICK_SETTINGS_TILE permission means only the system can bind
+             it; no other app can start the service. -->
+        <service
+            android:name=".AssistantTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_assistant"
+            android:label="LocalIntelligence"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
     </application>

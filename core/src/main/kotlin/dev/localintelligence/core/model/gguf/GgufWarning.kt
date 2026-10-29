@@ -100,6 +100,18 @@ sealed interface GgufWarning {
             get() = "declared context length $declared clamped to $clampedTo"
     }
 
+    /**
+     * `<arch>.attention.head_count_kv` is a per-layer array that cannot be matched to the
+     * layer count (wrong length, missing `block_count`, or an unusable entry). The estimate
+     * falls back to `head_count` on every layer, which over-counts the KV cache but never
+     * under-counts it.
+     */
+    data class KvHeadCountArrayUnusable(val entries: Long, val blockCount: Long?) : GgufWarning {
+        override val message: String
+            get() = "attention.head_count_kv has $entries entries for ${blockCount ?: "unknown"} layers; " +
+                "using head_count for every layer"
+    }
+
     /** Metadata carried a non-finite or negative number where a size was expected. */
     data class ImplausibleValue(val key: String, val raw: String) : GgufWarning {
         override val message: String get() = "key '$key' holds an implausible value ($raw)"

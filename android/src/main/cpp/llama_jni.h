@@ -122,7 +122,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeCountTokens(
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         JNIEnv * env, jclass, jlong handle, jstring prompt, jstring grammar, jfloat temperature,
-        jfloat top_p, jfloat min_p, jfloat repeat_penalty, jint seed, jint max_tokens,
+        jfloat top_p, jint top_k, jfloat min_p, jfloat repeat_penalty, jint penalty_last_n,
+        jfloat frequency_penalty, jfloat presence_penalty, jint seed, jint max_tokens,
         jobject onToken);
 
 // Moves the last outcome off the handle, serialised as a single string.
