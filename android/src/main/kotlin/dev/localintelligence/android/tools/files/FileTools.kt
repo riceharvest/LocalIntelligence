@@ -375,6 +375,7 @@ object FileQuery {
      *   match `text/html`, which is a different request.
      * @param fromMillis inclusive lower bound on modification time, or null.
      * @param toMillis exclusive upper bound on modification time, or null.
+     * @param exactName display name that must match exactly (case-insensitively), or null.
      */
     fun buildSelection(
         query: String? = null,
@@ -382,6 +383,7 @@ object FileQuery {
         fromMillis: Long? = null,
         toMillis: Long? = null,
         sdkInt: Int = Build.VERSION.SDK_INT,
+        exactName: String? = null,
     ): FileSelection {
         val mediaType = if (sdkInt >= Build.VERSION_CODES.R) {
             MediaStore.Files.FileColumns.MEDIA_TYPE_DOCUMENT
@@ -394,6 +396,10 @@ object FileQuery {
         if (!query.isNullOrBlank()) {
             clauses += "${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ? ESCAPE '\\'"
             args += likePattern(query)
+        }
+        if (exactName != null) {
+            clauses += "${MediaStore.Files.FileColumns.DISPLAY_NAME} = ? COLLATE NOCASE"
+            args += exactName
         }
         if (!mime.isNullOrBlank()) {
             clauses += "${MediaStore.Files.FileColumns.MIME_TYPE} = ?"
@@ -1453,8 +1459,19 @@ class FilesDeleteTool(
 
             // Resolve the target before deciding, so a bare name can be checked for
             // ambiguity instead of deleting whichever row happened to come back first.
-            val candidates = if (explicitUri == null) {
-                val rows = readRows(appContext, limit = FileArgs.MAX_LIMIT, query = name)
+            val candidates = if (explicitUri == null && name != null) {
+                // The exact-name lookup is its own query. A substring query capped at
+                // MAX_LIMIT rows could fill that cap with newer partial matches and hide a
+                // second exact match, and the duplicate refusal would never see it. Only
+                // when nothing matches exactly is the substring query run, so the refusal
+                // can name what is close.
+                val exact = readRows(appContext, limit = FileArgs.MAX_LIMIT, exactName = name)
+                val partial = if (exact != null && exact.items.isEmpty()) {
+                    readRows(appContext, limit = FileArgs.MAX_LIMIT, query = name)
+                } else {
+                    null
+                }
+                val rows = if (exact != null && exact.items.isNotEmpty()) exact else partial
                 if (rows == null) {
                     return@guard fail(
                         "The document index is not available right now. Try again shortly.",
@@ -1522,6 +1539,7 @@ private suspend fun readRows(
     mime: String? = null,
     from: Long? = null,
     to: Long? = null,
+    exactName: String? = null,
 ): RowPage? = withContext(Dispatchers.IO) {
     val selection = FileQuery.buildSelection(
         query = query,
@@ -1529,6 +1547,7 @@ private suspend fun readRows(
         fromMillis = from,
         toMillis = to,
         sdkInt = Build.VERSION.SDK_INT,
+        exactName = exactName,
     )
     val cursor = context.contentResolver.query(
         MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
