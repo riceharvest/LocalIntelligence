@@ -31,11 +31,12 @@ import kotlinx.serialization.json.put
 import java.io.IOException
 
 // ===========================================================================
-// Tools from one remote MCP server. Off by default.
+// Tools from up to five remote MCP servers. Off by default.
 //
 // Off, or no address set: [McpPlugin.tools] returns nothing and makes no
-// network call. On, with an address: the run's tool list is built from the
-// server's own tools/list, once per run.
+// network call. On, with addresses: the run's tool list is built from each
+// server's own tools/list, once per run. A server that cannot be reached is
+// skipped; the others still answer.
 //
 // Every remote tool is NETWORK_EGRESS, so each call confirms unless the user
 // chose "Open websites without asking", and its output is NETWORK-origin, so it
@@ -44,31 +45,52 @@ import java.io.IOException
 // docs/threat-model.md.
 // ===========================================================================
 
-/** The settings rows this plugin adds. Keys are prefixed with the plugin id. */
+/**
+ * The settings rows this plugin adds. Keys are prefixed with the plugin id.
+ *
+ * Up to [MAX_SERVERS] servers, each an address row and a token row. Server 1 keeps
+ * the keys this plugin shipped with, so an address and token already set carry
+ * over unchanged. Servers 2 to 5 are Technical-mode rows; an empty address means
+ * that slot is not used. Every slot is listed rather than shown on demand, because
+ * the settings screen is generated from a flat list of rows.
+ */
 object McpSettings {
     const val PLUGIN_ID = "mcp.remote"
 
-    /** Simple, so Simple mode can reach it: with no address nothing is sent. */
-    val URL = SettingDef.Text(
-        "mcp.remote.url", "Server address",
-        "One MCP server, as an https:// address. Empty means no server: nothing is sent and no " +
-            "tools are offered. Its tools appear as mcp.<name>.",
-        SettingSection.PLUGINS, default = "", maxLength = 300, simple = true,
+    /** How many servers can be configured at once. */
+    const val MAX_SERVERS = 5
+
+    private fun urlKey(slot: Int): String = if (slot == 1) "mcp.remote.url" else "mcp.remote.url.$slot"
+    private fun tokenKey(slot: Int): String = if (slot == 1) "mcp.remote.token" else "mcp.remote.token.$slot"
+
+    /** Simple for slot 1, so Simple mode can reach it: with no address nothing is sent. */
+    private fun urlRow(slot: Int) = SettingDef.Text(
+        urlKey(slot), if (slot == 1) "Server address" else "Server $slot address",
+        "One MCP server, as an https:// address. Empty means this slot is not used: nothing is " +
+            "sent. With one server its tools appear as mcp.<name>; with more, as mcp.$slot.<name>.",
+        SettingSection.PLUGINS, default = "", maxLength = 300, simple = slot == 1,
     )
-    val TOKEN = SettingDef.Secret(
-        "mcp.remote.token", "Bearer token",
+
+    private fun tokenRow(slot: Int) = SettingDef.Secret(
+        tokenKey(slot), if (slot == 1) "Bearer token" else "Server $slot bearer token",
         "Optional. Sent to the server as Authorization: Bearer. Stored encrypted and never shown back.",
         SettingSection.PLUGINS,
     )
 
-    val all: List<SettingDef<*>> = listOf(URL, TOKEN)
+    /** Address rows, index 0 is server 1. */
+    val urls: List<SettingDef.Text> = (1..MAX_SERVERS).map(::urlRow)
+
+    /** Token rows, index 0 is server 1. */
+    val tokens: List<SettingDef.Secret> = (1..MAX_SERVERS).map(::tokenRow)
+
+    val all: List<SettingDef<*>> = (0 until MAX_SERVERS).flatMap { listOf(urls[it], tokens[it]) }
 }
 
 /**
- * Off by default. Offers one remote server's tools while it is switched on and
- * an address is set.
+ * Off by default. Offers the tools of up to five remote servers while it is
+ * switched on and at least one address is set.
  *
- * [reader] is the live settings store. The address and token are read when a
+ * [reader] is the live settings store. The addresses and tokens are read when a
  * run builds its tool list, so a change takes effect at the next message.
  */
 class McpPlugin(
@@ -77,38 +99,68 @@ class McpPlugin(
     override val id: String = McpSettings.PLUGIN_ID
     override val title: String = "Remote tools (MCP)"
     override val summary: String =
-        "Tools from one MCP server you name. Each call sends its arguments to that server."
+        "Tools from up to five MCP servers you name. Each call sends its arguments to that server."
     override val enabledByDefault: Boolean = false
     override val settings: List<SettingDef<*>> = McpSettings.all
 
     /**
      * Called once per run, from the thread that builds the run's controller: the
      * service's background scope, never the main thread (see ExecutionService.startRun,
-     * which launches prepareThenStart on serviceScope). The listing blocks that
+     * which launches prepareThenStart on serviceScope). Each listing blocks that
      * thread for up to the request timeout, and it is the only network call here.
      *
      * An unreachable or misbehaving server yields no tools and no failure: the run
-     * goes ahead without them.
+     * goes ahead without it, and without its tools only.
+     *
+     * Only addresses that pass the checks count towards the naming. So one server
+     * that is set but unusable does not turn the other's `mcp.<name>` into
+     * `mcp.<slot>.<name>`.
      */
     override fun tools(): List<AgentTool> {
-        val address = reader[McpSettings.URL].trim()
-        if (address.isEmpty()) return emptyList()
-        // The same address check web.fetch uses: no private, loopback or link-local
-        // host, no file or script scheme. Then https only, since the token rides in
-        // the Authorization header and http would send it in clear text.
-        val accepted = WebUrls.validate(address) as? UrlVerdict.Accepted ?: return emptyList()
-        if (!accepted.url.startsWith("https://")) return emptyList()
-        val token = reader[McpSettings.TOKEN].takeIf { it.isNotBlank() }
         val budget = reader[CoreSettings.OBSERVATION_BUDGET]
+        val servers = McpSettings.urls.indices.mapNotNull { index ->
+            val address = reader[McpSettings.urls[index]].trim().takeIf { it.isNotEmpty() }
+                ?: return@mapNotNull null
+            val url = acceptedAddress(address) ?: return@mapNotNull null
+            Server(
+                slot = index + 1,
+                url = url,
+                token = reader[McpSettings.tokens[index]].takeIf { it.isNotBlank() },
+            )
+        }
+        // One server keeps the plain mcp.<name>. More than one need the slot number so
+        // their names cannot collide, and the slot keeps a name stable when another
+        // server is changed or fails.
+        val numbered = servers.size > 1
+        return servers.flatMap { server -> toolsFrom(server, numbered, budget) }
+    }
+
+    /** One configured server: its slot number (1 to 5), checked address and optional token. */
+    private class Server(val slot: Int, val url: String, val token: String?)
+
+    private fun toolsFrom(server: Server, numbered: Boolean, budget: Int): List<AgentTool> {
+        val prefix = if (numbered) "${CatalogueAgreement.DYNAMIC_TOOL_PREFIX}${server.slot}."
+        else CatalogueAgreement.DYNAMIC_TOOL_PREFIX
         return try {
-            val session = McpSession.open(accepted.url, token)
-            remoteTools(session, session.listTools(), budget)
+            val session = McpSession.open(server.url, server.token)
+            remoteTools(session, session.listTools(), budget, prefix)
         } catch (e: IOException) {
             emptyList()
         } catch (e: RuntimeException) {
             // A malformed reply from the server must not end the run either.
             emptyList()
         }
+    }
+
+    /**
+     * The same address check web.fetch uses: no private, loopback or link-local
+     * host, no file or script scheme. Then https only, since the token rides in
+     * the Authorization header and http would send it in clear text. Null when the
+     * address fails either check.
+     */
+    private fun acceptedAddress(address: String): String? {
+        val accepted = WebUrls.validate(address) as? UrlVerdict.Accepted ?: return null
+        return accepted.url.takeIf { it.startsWith("https://") }
     }
 }
 
@@ -118,28 +170,34 @@ class McpPlugin(
  * name already taken: the registry refuses duplicate names, and a run must not
  * fail over a server's naming.
  */
-internal fun remoteTools(session: McpSession, listed: List<JsonObject>, budget: Int): List<AgentTool> {
+internal fun remoteTools(
+    session: McpSession,
+    listed: List<JsonObject>,
+    budget: Int,
+    prefix: String = CatalogueAgreement.DYNAMIC_TOOL_PREFIX,
+): List<AgentTool> {
     val taken = HashSet<String>()
     return listed.mapNotNull { tool ->
         val remoteName = (tool["name"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
             ?: return@mapNotNull null
-        val name = toolName(remoteName) ?: return@mapNotNull null
+        val name = toolName(remoteName, prefix) ?: return@mapNotNull null
         if (!taken.add(name)) return@mapNotNull null
         McpRemoteTool(session, remoteName, definition(name, remoteName, tool), budget)
     }
 }
 
 /**
- * `mcp.` plus the remote name, lowercased to [a-z0-9_] and capped, so a name a
- * model has to type stays short. Null when nothing is left after sanitising.
+ * [prefix] (`mcp.`, or `mcp.<slot>.` with several servers) plus the remote name,
+ * lowercased to [a-z0-9_] and capped, so a name a model has to type stays short.
+ * Null when nothing is left after sanitising.
  */
-internal fun toolName(remoteName: String): String? {
+internal fun toolName(remoteName: String, prefix: String = CatalogueAgreement.DYNAMIC_TOOL_PREFIX): String? {
     val slug = remoteName.lowercase()
         .replace(Regex("[^a-z0-9]+"), "_")
         .trim('_')
         .take(MAX_NAME_CHARS)
         .trimEnd('_')
-    return if (slug.isEmpty()) null else "${CatalogueAgreement.DYNAMIC_TOOL_PREFIX}$slug"
+    return if (slug.isEmpty()) null else "$prefix$slug"
 }
 
 private const val MAX_NAME_CHARS = 48

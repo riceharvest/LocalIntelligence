@@ -86,7 +86,7 @@ object OpenRouterSettings {
 }
 
 /**
- * Off by default. Offers `image.generate` and `video.generate` while a key is set.
+ * Off by default. Offers `image.generate`, `video.generate` and `video.status` while a key is set.
  *
  * [reader] is the live settings store, not a snapshot: the key is read when a run
  * builds its tool list and again when a tool runs, so a key saved mid-session
@@ -110,6 +110,7 @@ class OpenRouterPlugin(
             listOf(
                 ImageGenerateTool(reader, generatedDir),
                 VideoGenerateTool(reader, generatedDir),
+                VideoStatusTool(reader, generatedDir),
             ),
         )
     }
@@ -204,8 +205,7 @@ private fun firstImage(body: ByteArray): DecodedImage? {
  * `completed` or `failed`, or until the user's wait limit passes. A finished video
  * is downloaded from `GET /api/v1/videos/{id}/content?index=0`.
  *
- * There is no status tool. A job that outlives the wait limit is reported by id,
- * and the app cannot fetch it later.
+ * A job that outlives the wait limit is reported by id; `video.status` fetches it later.
  */
 private class VideoGenerateTool(
     private val reader: SettingsReader,
@@ -264,7 +264,7 @@ private class VideoGenerateTool(
                         return@withContext ToolResult(
                             success = false,
                             observation = "Still generating after ${waited}s. OpenRouter job $jobId keeps " +
-                                "running, but the video is not on the phone.",
+                                "running, but the video is not on the phone. Use video.status with this job_id.",
                             error = ToolError.Timeout("job $jobId still running"),
                         )
                     }
@@ -299,9 +299,83 @@ private class VideoGenerateTool(
 
     private companion object {
         const val POLL_SECONDS = 5
-        val JOB_ID = Regex("[A-Za-z0-9_-]{1,128}")
     }
 }
+
+// ---------------------------------------------------------------------------
+// video.status
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /api/v1/videos/{id}` once, with no waiting. A finished job is downloaded the
+ * way video.generate downloads it. Any other status is returned as it is, so the
+ * model can ask again later. This is the route to a video whose job outlived
+ * video.generate's wait limit.
+ */
+private class VideoStatusTool(
+    private val reader: SettingsReader,
+    private val dir: File,
+) : AgentTool {
+    override val definition: ToolDefinition =
+        checkNotNull(V0ToolCatalogue.byName("video.status")) { "video.status missing from catalogue" }
+
+    override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
+        withContext(Dispatchers.IO) {
+            try {
+                val key = reader[OpenRouterSettings.API_KEY]
+                if (key.isBlank()) return@withContext noKey("video.status")
+                val jobId = (args["job_id"] as? JsonPrimitive)?.contentOrNull?.trim()
+                    ?.takeIf { JOB_ID.matches(it) }
+                    ?: return@withContext ToolResult(
+                        success = false,
+                        observation = "video.status needs job_id, the id video.generate reported.",
+                        error = ToolError.InvalidArguments("job_id"),
+                    )
+                if (context.signal.isCancelled()) return@withContext cancelled("video.status", jobId)
+
+                val poll = exchange("GET", "$API/videos/$jobId", key, null)
+                if (!poll.ok) return@withContext httpFailure("video.status", poll, key, jobId)
+                val job = Json.parseToJsonElement(String(poll.body, Charsets.UTF_8)).jsonObject
+                when (val status = job["status"]?.jsonPrimitive?.contentOrNull.orEmpty()) {
+                    "completed" -> {
+                        val content = exchange("GET", "$API/videos/$jobId/content?index=0", key, null)
+                        if (!content.ok) return@withContext httpFailure("video.status", content, key, jobId)
+                        val file = saveBytes(dir, content.body, "mp4")
+                        ToolResult(
+                            success = true,
+                            observation = "Video saved to ${file.absolutePath}.",
+                            data = buildJsonObject { put("path", file.absolutePath) },
+                        )
+                    }
+                    "failed" -> {
+                        val reason = job["error"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                            .replace(key, "[key]").take(160)
+                        ToolResult(
+                            success = false,
+                            observation = "video.status: job $jobId failed on OpenRouter" +
+                                if (reason.isNotBlank()) ": $reason" else ".",
+                            error = ToolError.Unavailable("job $jobId failed"),
+                        )
+                    }
+                    else -> ToolResult(
+                        success = true,
+                        observation = "OpenRouter job $jobId is ${status.ifEmpty { "unknown" }}. " +
+                            "Check again later.",
+                        data = buildJsonObject { put("status", status) },
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                unreachable("video.status", e)
+            } catch (e: Exception) {
+                internal("video.status", e)
+            }
+        }
+}
+
+/** An OpenRouter job id as the API issues them: short, URL-safe, nothing to escape. */
+private val JOB_ID = Regex("[A-Za-z0-9_-]{1,128}")
 
 // ---------------------------------------------------------------------------
 // Shared helpers
