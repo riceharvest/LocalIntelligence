@@ -1,6 +1,18 @@
 package dev.localintelligence.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.DisposableEffect
+import androidx.core.content.ContextCompat
+import dev.localintelligence.app.media.LiveDictation
+import dev.localintelligence.app.media.ShownAttachment
+import dev.localintelligence.app.media.encodePickedPicture
+import dev.localintelligence.app.ui.components.SentAttachments
+import dev.localintelligence.app.ui.components.clipLength
 import dev.localintelligence.android.skills.SkillRepository
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -202,6 +214,57 @@ fun ChatScreen(
     var exportMenuOpen by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // Media input. What the loaded model reads decides what the mic does: a model
+    // that reads audio gets the clip itself; any other model gets the spoken words
+    // typed into the field, because a WAV it cannot read would be sent and ignored.
+    val attached by viewModel.attachments.collectAsStateWithLifecycle()
+    val notice by viewModel.notice.collectAsStateWithLifecycle()
+    val voiceSeconds by viewModel.voiceSeconds.collectAsStateWithLifecycle()
+    val canReadAudio = remember(modelState) { viewModel.modelCapabilities().supportsAudioInput }
+    val dictation = remember { LiveDictation(context.applicationContext) }
+    DisposableEffect(dictation) { onDispose { dictation.release() } }
+    val dictating by dictation.listening.collectAsStateWithLifecycle()
+    val pictureCount = attached.count { it.shown is ShownAttachment.Picture }
+
+    // The permission result resumes whatever the mic press was waiting on. Denied
+    // means nothing starts, and the user is told why.
+    var whenMicGranted by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val micPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val resume = whenMicGranted
+        whenMicGranted = null
+        if (granted) resume?.invoke() else viewModel.showNotice("Microphone access is needed for voice input.")
+    }
+    // The system photo picker needs no permission, and returns only the file the user chose.
+    val pickPicture = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) viewModel.attachPicture { encodePickedPicture(context.contentResolver, uri) }
+    }
+    val onAttach: () -> Unit = {
+        pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+    val onMic: () -> Unit = {
+        fun startCapture() {
+            if (canReadAudio) {
+                viewModel.startVoiceClip()
+            } else if (!dictation.start(input) { viewModel.onInputChange(it) }) {
+                viewModel.showNotice("Speech recognition is not available on this phone.")
+            }
+        }
+        when {
+            dictating -> dictation.stop()
+            voiceSeconds != null -> viewModel.stopVoiceClip()
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED -> startCapture()
+            else -> {
+                whenMicGranted = { startCapture() }
+                micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+    val liveStatus = voiceSeconds?.let { "Recording ${clipLength(it)} (tap the mic to stop)" }
+        ?: if (dictating) "Listening (tap the mic to stop)" else null
     val export: (ChatExporter.Format) -> Unit = { format ->
         exportMenuOpen = false
         scope.launch {
@@ -360,6 +423,15 @@ fun ChatScreen(
                 onSend = viewModel::send,
                 onStop = viewModel::stop,
                 compact = compactComposer,
+                attachments = attached,
+                canAttach = !busy && pictureCount < MAX_PICTURES_PER_MESSAGE,
+                canUseMic = !busy,
+                micActive = dictating || voiceSeconds != null,
+                liveStatus = liveStatus,
+                notice = notice,
+                onAttach = onAttach,
+                onMic = onMic,
+                onRemoveAttachment = viewModel::removeAttachment,
             )
         },
     ) { padding ->
@@ -390,7 +462,7 @@ fun ChatScreen(
             items(entries, key = { entry -> entry.key }) { entry ->
                 when (entry) {
                     is TranscriptEntry.Single -> when (val message = entry.message) {
-                        is ChatMessage.User -> UserBubble(message.text)
+                        is ChatMessage.User -> UserBubble(message.text, message.attached)
                         is ChatMessage.Assistant -> AssistantBubble(
                             text = message.text,
                             onSaveAsSkill = if (skills != null && skillDraft != null && message === messages.last()) {
@@ -475,14 +547,17 @@ private fun residentIdentity(availability: ModelAvailability): ChatModelIdentity
     }
 
 @Composable
-private fun UserBubble(text: String) {
+private fun UserBubble(text: String, attached: List<ShownAttachment>) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Surface(
             color = MaterialTheme.colorScheme.primaryContainer,
             shape = MaterialTheme.shapes.medium,
             modifier = Modifier.fillMaxWidth(0.85f),
         ) {
-            Text(text, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (attached.isNotEmpty()) SentAttachments(attached)
+                if (text.isNotEmpty()) Text(text, style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }

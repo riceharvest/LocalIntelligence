@@ -278,6 +278,9 @@ class ExecutionService : Service() {
         // is told instead.
         val claim = container.runGate.tryClaim()
         if (claim == null) {
+            // A refused CHAT start leaves its queued attachments behind; they would ride on the next message.
+            // A refused scheduled start never owned the chat's queue, so it must not clear it.
+            if (scheduledTaskId == null) container.pendingAttachments.clear()
             // A REFUSAL IS NOT A TERMINAL EVENT FOR THIS SERVICE.
             //
             // `onStartCommand` delivers to the SAME service instance, so
@@ -363,6 +366,8 @@ class ExecutionService : Service() {
             sinks = sinks,
             // Nobody is watching a scheduled run, so it cannot wait for an approval.
             declineApprovals = scheduledTaskId != null,
+            // Chat runs take what the chat queued; scheduled runs never do.
+            attachments = if (scheduledTaskId == null) container.pendingAttachments else null,
         )
         this.agent = agent
         agent.prepareThenStart(task) {

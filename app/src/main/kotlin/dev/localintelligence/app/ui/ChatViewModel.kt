@@ -12,11 +12,19 @@ import dev.localintelligence.app.RunningTool
 import dev.localintelligence.app.blockingReason
 import dev.localintelligence.app.isActive
 import dev.localintelligence.app.isTerminal
+import dev.localintelligence.app.media.PendingAttachment
+import dev.localintelligence.app.media.PendingAttachments
+import dev.localintelligence.app.media.ShownAttachment
+import dev.localintelligence.app.media.VoiceClipRecorder
 import dev.localintelligence.app.notice
 import dev.localintelligence.core.agent.StepTrace
 import dev.localintelligence.core.context.GenerationProse
 import dev.localintelligence.core.model.ChatMessage as CoreChatMessage
+import dev.localintelligence.core.model.MediaInput
+import dev.localintelligence.core.model.ModelCapabilities
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -65,6 +73,16 @@ class ChatViewModel(
      * service writes.
      */
     modelAvailability: ModelAvailabilityHolder = ModelAvailabilityHolder(),
+    /**
+     * Where the next run finds the attachments the user queued. Production passes
+     * the container's holder; the default keeps a bare view model self-contained.
+     */
+    private val attachmentQueue: PendingAttachments = PendingAttachments(),
+    /**
+     * What the loaded model reads. A function, not a value, because the model is
+     * loaded after this view model exists and can be swapped while the screen lives.
+     */
+    private val capabilities: () -> ModelCapabilities = { ModelCapabilities.UNKNOWN },
 ) : ViewModel() {
 
     private val scope: CoroutineScope = scopeOverride ?: viewModelScope
@@ -75,6 +93,25 @@ class ChatViewModel(
      * would silently drop it on the floor the moment `init` finished.
      */
     private val modelAvailability: ModelAvailabilityHolder = modelAvailability
+
+    /** Attachments queued in the composer for the next message. Not yet sent. */
+    private val _attachments = MutableStateFlow<List<PendingAttachment>>(emptyList())
+    val attachments: StateFlow<List<PendingAttachment>> = _attachments.asStateFlow()
+
+    /** A one-line complaint from the composer, such as a refused photo. Null when there is none. */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
+
+    /**
+     * Records voice clips. A finished clip becomes a composer attachment. Built
+     * here, after [scope], because its completion callback needs [_attachments].
+     */
+    private val voice = VoiceClipRecorder(scope) { wav, seconds ->
+        _attachments.update { it + PendingAttachment(MediaInput(wav, "audio/wav"), ShownAttachment.Voice(seconds)) }
+    }
+
+    /** Seconds of the clip being recorded, or null while not recording. */
+    val voiceSeconds: StateFlow<Int?> get() = voice.elapsedSeconds
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -569,25 +606,134 @@ class ChatViewModel(
         _input.value = value
     }
 
+    /** The loaded model's capabilities, read now. The composer asks this to decide what it can attach. */
+    fun modelCapabilities(): ModelCapabilities = capabilities()
+
     fun send() {
-        val task = _input.value.trim()
-        if (task.isEmpty() || !gateway.runState.value.isTerminal) return
-        // Refuse before touching the transcript. Appending a user message that
-        // no run will ever answer is the single most dishonest thing this screen
-        // could do: the user would be looking at their own question and silence.
-        if (blockedReason != null) return
+        val typed = _input.value.trim()
+        if (!canSubmit(hasText = typed.isNotEmpty())) {
+            refuseQueued()
+            return
+        }
         _input.value = ""
-        _messages.update { it + ChatMessage.User(task) }
-        gateway.start(task)
+        dispatch(typed)
     }
 
     /** Convenience for a SEND intent or a suggestion tap. */
     fun send(text: String) {
-        if (text.isBlank() || !gateway.runState.value.isTerminal) return
-        if (blockedReason != null) return
-        _messages.update { it + ChatMessage.User(text.trim()) }
-        gateway.start(text.trim())
+        if (text.isBlank() || !canSubmit(hasText = true)) {
+            refuseQueued()
+            return
+        }
+        dispatch(text.trim())
     }
+
+    /**
+     * A message that cannot be sent takes its queued attachments with it. The assistant
+     * queues a screen capture before forwarding its text; if that text is refused, the
+     * capture must not wait for the user's next, unrelated message.
+     */
+    private fun refuseQueued() {
+        attachmentQueue.clear()
+    }
+
+    /**
+     * Whether a message can go now.
+     *
+     * Refused before the transcript is touched. Appending a user message that no
+     * run will ever answer is the single most dishonest thing this screen could
+     * do: the user would be looking at their own question and silence.
+     */
+    private fun canSubmit(hasText: Boolean): Boolean =
+        (hasText || _attachments.value.isNotEmpty()) &&
+            gateway.runState.value.isTerminal &&
+            blockedReason == null &&
+            voice.elapsedSeconds.value == null
+
+    /**
+     * Starts a run with [typed] and whatever is attached.
+     *
+     * The composer's attachments join the queue, and the transcript row is drawn
+     * from the queue itself, so the row shows exactly what the run will receive.
+     * That includes an assistant screen capture, which the assistant queued
+     * before forwarding its text here.
+     */
+    private fun dispatch(typed: String) {
+        attachmentQueue.add(_attachments.value)
+        _attachments.value = emptyList()
+        _notice.value = null
+        val shown = attachmentQueue.snapshot().map { it.shown }
+        _messages.update { it + ChatMessage.User(typed, shown) }
+        // ExecutionService refuses a blank task, so media alone still needs words to run on.
+        gateway.start(typed.ifEmpty { DEFAULT_MEDIA_TASK })
+    }
+
+    /**
+     * Adds a picture from the photo picker.
+     *
+     * [encode] runs on a background thread: decoding and re-encoding a photo is
+     * the expensive part and must not happen on the main thread. It returns null
+     * for a file that is not a picture this app can read.
+     */
+    fun attachPicture(encode: () -> PendingAttachment?) {
+        if (pictureCount() >= MAX_PICTURES_PER_MESSAGE) {
+            showNotice("A message can carry up to $MAX_PICTURES_PER_MESSAGE photos.")
+            return
+        }
+        scope.launch {
+            val item = withContext(Dispatchers.Default) { runCatching { encode() }.getOrNull() }
+            if (item == null) {
+                showNotice("That file could not be read as a picture.")
+                return@launch
+            }
+            _attachments.update { current ->
+                if (current.count { it.shown is ShownAttachment.Picture } >= MAX_PICTURES_PER_MESSAGE) {
+                    current
+                } else {
+                    current + item
+                }
+            }
+        }
+    }
+
+    fun removeAttachment(index: Int) {
+        _attachments.update { current ->
+            if (index in current.indices) current.filterIndexed { i, _ -> i != index } else current
+        }
+    }
+
+    /**
+     * Starts a voice clip. One clip per message, because each one is a full
+     * audio input to the model and a second would double the cost of every step.
+     */
+    fun startVoiceClip() {
+        if (isBusy) return
+        if (_attachments.value.any { it.shown is ShownAttachment.Voice }) {
+            showNotice("A message can carry one voice clip. Remove it to record another.")
+            return
+        }
+        _notice.value = null
+        if (!voice.start()) {
+            showNotice("The microphone is not available. Check that the app may record audio.")
+        }
+    }
+
+    /** Ends the clip being recorded. It arrives as an attachment a moment later. */
+    fun stopVoiceClip() {
+        voice.stop()
+    }
+
+    /** The screen is gone, so the microphone must not keep recording for its remaining seconds. */
+    override fun onCleared() {
+        voice.stop()
+        super.onCleared()
+    }
+
+    fun showNotice(text: String) {
+        _notice.value = text
+    }
+
+    private fun pictureCount(): Int = _attachments.value.count { it.shown is ShownAttachment.Picture }
 
     /** The STOP button. Cooperative: the loop returns `Cancelled` when it can. */
     fun stop() {
@@ -656,13 +802,20 @@ class ChatViewModel(
     class Factory(
         private val gateway: AgentGateway,
         private val modelAvailability: ModelAvailabilityHolder = ModelAvailabilityHolder(),
+        private val attachmentQueue: PendingAttachments = PendingAttachments(),
+        private val capabilities: () -> ModelCapabilities = { ModelCapabilities.UNKNOWN },
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(ChatViewModel::class.java)) {
                 "unknown ViewModel ${modelClass.name}"
             }
-            return ChatViewModel(gateway, modelAvailability = modelAvailability) as T
+            return ChatViewModel(
+                gateway,
+                modelAvailability = modelAvailability,
+                attachmentQueue = attachmentQueue,
+                capabilities = capabilities,
+            ) as T
         }
     }
 }
@@ -730,6 +883,12 @@ class ChatViewModel(
  */
 private const val MAX_TRANSCRIPT_ROWS = 200
 
+/** The most photos one message carries. A vision encoder's cost grows with each one. */
+internal const val MAX_PICTURES_PER_MESSAGE = 3
+
+/** What a run is told when the user sent only attachments and no words. */
+private const val DEFAULT_MEDIA_TASK = "Respond to what is attached."
+
 /**
  * Said under an answer the model never finished producing.
  *
@@ -760,7 +919,11 @@ private const val CANCELLED_MID_ANSWER =
  * ignored the request. Acting on the phone and saying so are the same feature.
  */
 sealed interface ChatMessage {
-    data class User(val text: String) : ChatMessage
+    /**
+     * What the user sent. [attached] is what the row draws for the pictures and
+     * voice clip, never the bytes the model read.
+     */
+    data class User(val text: String, val attached: List<ShownAttachment> = emptyList()) : ChatMessage
     data class Assistant(val text: String) : ChatMessage
     data class Notice(val text: String) : ChatMessage
 

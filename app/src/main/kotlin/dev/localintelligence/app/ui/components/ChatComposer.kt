@@ -6,6 +6,8 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -23,12 +25,15 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -42,6 +47,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.app.media.PendingAttachment
 import dev.localintelligence.app.ui.PermissionActivity
 
 /**
@@ -68,14 +74,13 @@ import dev.localintelligence.app.ui.PermissionActivity
  *    the user no longer has to *aim* at anything. Landing anywhere on the strip
  *    sends.
  *
- * ## WHY THE ICON BUTTONS ARE NOT IN THE MIDDLE OF THIS
+ * ## WHY THE ATTACH AND MIC BUTTONS SIT NEXT TO THE PERMISSIONS ENTRY
  *
- * There is no mic, no attach and no camera button here, and that is deliberate
- * rather than an omission. A control that cannot be reached one-handed is worse
- * than no control: it advertises a capability, takes a tap's worth of thumb to
- * miss, and teaches the user the app is not listening. The one secondary control
- * that does exist is the permissions entry, on the opposite edge from SEND, and
- * it is a settings destination rather than something you aim at mid-conversation.
+ * A control that cannot be reached one-handed is worse than no control: it
+ * advertises a capability, takes a tap's worth of thumb to miss, and teaches the
+ * user the app is not listening. So attach and mic are small icons on the same
+ * edge as the permissions entry, away from the full-width SEND strip. They are
+ * never adjacent to SEND, so a thumb aiming for one cannot land on the other.
  *
  * ## WHY THE INSETS ARE HERE AND NOT ON THE SCAFFOLD
  *
@@ -115,9 +120,28 @@ fun ChatComposer(
      * any host without inheriting a layout assumption.
      */
     compact: Boolean = false,
+    /** Queued photos and voice clips, shown as chips above the field. */
+    attachments: List<PendingAttachment> = emptyList(),
+    /** Whether the attach button is offered. The caller turns it off while a run is in flight or at the photo limit. */
+    canAttach: Boolean = true,
+    /** Whether the mic is on: a clip is recording, or dictation is listening. */
+    micActive: Boolean = false,
+    /** Whether the mic button is offered. */
+    canUseMic: Boolean = true,
+    /** A live line such as "Recording 0:07". Null when nothing is in progress. */
+    liveStatus: String? = null,
+    /** A one-line complaint, such as a photo that did not decode. */
+    notice: String? = null,
+    onAttach: () -> Unit = {},
+    onMic: () -> Unit = {},
+    onRemoveAttachment: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val canSend = input.isNotBlank() && blockedReason == null && !busy
+    // A message can be only attachments, but never while a clip is still recording.
+    val canSend = (input.isNotBlank() || attachments.isNotEmpty()) &&
+        blockedReason == null &&
+        !busy &&
+        liveStatus == null
 
     Surface(tonalElevation = 3.dp, modifier = modifier.fillMaxWidth()) {
         Column(
@@ -148,6 +172,49 @@ fun ChatComposer(
                 )
             }
 
+            if (notice != null) {
+                Text(
+                    text = notice,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
+
+            if (liveStatus != null) {
+                // Announced as it changes, so a screen-reader user hears the recording is running.
+                Text(
+                    text = liveStatus,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
+
+            if (attachments.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(start = 12.dp, end = 12.dp, top = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    attachments.forEachIndexed { index, item ->
+                        AttachmentChip(
+                            attachment = item,
+                            index = index,
+                            onRemove = { onRemoveAttachment(index) },
+                        )
+                    }
+                }
+            }
+
             if (compact) {
                 // ONE ROW. A landscape phone held with the keyboard up leaves
                 // roughly 200dp of window, and a stacked composer plus the app
@@ -164,6 +231,7 @@ fun ChatComposer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    MediaButtons(canAttach, canUseMic, micActive, onAttach, onMic)
                     ComposerField(
                         input = input,
                         onInputChange = onInputChange,
@@ -197,6 +265,7 @@ fun ChatComposer(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     PermissionEntry()
+                    MediaButtons(canAttach, canUseMic, micActive, onAttach, onMic)
 
                     // One slot, two states, same geometry. The button never moves
                     // when a run starts or stops, so there is nothing to re-find
@@ -247,6 +316,43 @@ private fun ComposerField(
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
         keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
     )
+}
+
+/**
+ * Attach and mic, as 48dp icon buttons. Shared by both layouts.
+ *
+ * Disabled rather than hidden, so the user can see the controls exist and why
+ * they are unavailable, and so the row keeps its shape when a run starts.
+ */
+@Composable
+private fun MediaButtons(
+    canAttach: Boolean,
+    canUseMic: Boolean,
+    micActive: Boolean,
+    onAttach: () -> Unit,
+    onMic: () -> Unit,
+) {
+    IconButton(onClick = onAttach, enabled = canAttach, modifier = Modifier.size(48.dp)) {
+        Icon(Icons.Filled.AttachFile, contentDescription = "Attach a photo")
+    }
+    IconButton(
+        onClick = onMic,
+        enabled = canUseMic,
+        modifier = Modifier.size(48.dp),
+        colors = if (micActive) {
+            IconButtonDefaults.iconButtonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
+            )
+        } else {
+            IconButtonDefaults.iconButtonColors()
+        },
+    ) {
+        Icon(
+            Icons.Filled.Mic,
+            contentDescription = if (micActive) "Stop recording" else "Record voice",
+        )
+    }
 }
 
 /**

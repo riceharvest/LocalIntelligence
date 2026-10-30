@@ -102,6 +102,8 @@ class MainActivity : ComponentActivity() {
                         ChatViewModel.Factory(
                             gateway = gateway,
                             modelAvailability = container.modelAvailability,
+                            attachmentQueue = container.pendingAttachments,
+                            capabilities = { container.residentBackend().capabilities },
                         )
                     },
                 )

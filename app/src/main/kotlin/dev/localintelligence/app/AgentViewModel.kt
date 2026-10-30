@@ -1,8 +1,10 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.app.media.PendingAttachments
 import dev.localintelligence.core.agent.AgentController
 import dev.localintelligence.core.agent.AgentResult
 import dev.localintelligence.core.agent.StepTrace
+import dev.localintelligence.core.model.MediaInput
 import dev.localintelligence.core.tool.ToolRisk
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -46,6 +48,12 @@ class AgentViewModel(
      * so waiting for it would hold the service and block every later firing.
      */
     private val declineApprovals: Boolean = false,
+    /**
+     * The chat's queued attachments, taken by the run that starts. Null for a
+     * scheduled run: it never takes them, so a picture queued for a chat message
+     * cannot ride along on a run nobody typed.
+     */
+    private val attachments: PendingAttachments? = null,
 ) : AgentGateway {
 
     private var job: Job? = null
@@ -75,9 +83,24 @@ class AgentViewModel(
     override val streamingText: StateFlow<String> get() = sinks.streamingText
     override val runningTool: StateFlow<RunningTool?> get() = sinks.runningTool
 
+    /**
+     * The media the next run will send, taken from the chat's queue when the run is
+     * requested rather than when it starts. A model load can take tens of seconds,
+     * and the queue must not be held open across it: another start could clear it.
+     */
+    private var queuedMedia: List<MediaInput> = emptyList()
+
+    private fun takeQueuedMedia() {
+        queuedMedia = attachments?.take()?.map { it.media }.orEmpty()
+    }
+
     override fun start(task: String) {
         // One run at a time. The STOP button is not a queue.
-        if (job?.isActive == true) return
+        if (job?.isActive == true) {
+            attachments?.clear()
+            return
+        }
+        takeQueuedMedia()
         runTask(task)
     }
 
@@ -99,7 +122,9 @@ class AgentViewModel(
             controller = it
             if (cancelRequested) it.cancel()
         }
-        job = scope.launch { runAndPublish(runner) { runner.run(task) } }
+        val media = queuedMedia
+        queuedMedia = emptyList()
+        job = scope.launch { runAndPublish(runner) { runner.run(task, media) } }
     }
 
     override fun confirm(approved: Boolean) {
@@ -141,7 +166,11 @@ class AgentViewModel(
         task: String,
         ensureReady: suspend () -> ModelAvailability,
     ) {
-        if (job?.isActive == true) return
+        if (job?.isActive == true) {
+            attachments?.clear()
+            return
+        }
+        takeQueuedMedia()
         sinks.state.value = RunState.LoadingModel
         job = scope.launch {
             val readiness = try {
@@ -155,11 +184,14 @@ class AgentViewModel(
             // Before the blocking reason, so a load that failed after the STOP cannot replace
             // the cancelled outcome with its own failure.
             if (cancelRequested) {
+                queuedMedia = emptyList()
                 answerStopBeforeRun()
                 return@launch
             }
             val blocked = readiness.blockingReason()
             if (blocked != null) {
+                // The run never starts, so what was taken for it is dropped with it.
+                queuedMedia = emptyList()
                 // Terminal on purpose: the task cannot proceed, so pretending to
                 // be "running" would strand the service and the STOP button.
                 publish(AgentResult.Stop(reason = blocked, trace = sinks.trace.value))

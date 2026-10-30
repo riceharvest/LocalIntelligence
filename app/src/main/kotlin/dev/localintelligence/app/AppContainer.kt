@@ -647,6 +647,15 @@ class AppContainer(private val context: Context) {
     val modelAvailability: ModelAvailabilityHolder by lazy { ModelAvailabilityHolder() }
 
     /**
+     * Attachments the chat has queued for the next run. Read once, by the chat
+     * run's AgentViewModel. See [dev.localintelligence.app.media.PendingAttachments]
+     * for why this is not carried on the service Intent.
+     */
+    val pendingAttachments: dev.localintelligence.app.media.PendingAttachments by lazy {
+        dev.localintelligence.app.media.PendingAttachments()
+    }
+
+    /**
      * Models imported into the app, held in the container so the list survives
      * activity recreation across configuration changes.
      */
