@@ -90,13 +90,12 @@ class DocumentStore(
      * Stores [text] as a new document named [title] and rebuilds the index.
      * Returns the new entry. The caller has already checked [text] is not blank.
      */
-    fun add(title: String, text: String): DocumentEntry = synchronized(lock) {
+    fun add(title: String, text: String): DocumentEntry {
         root.mkdirs()
         val id = UUID.randomUUID().toString()
-        // Embedding happens here, under the lock: a search that arrives meanwhile waits
-        // for the vectors rather than ranking half a document. The text is written
-        // first, then the vectors, then the index entry that names them, so a crash
-        // leaves at worst an orphan file that no entry points at.
+        // Embedding is the slow part: a long PDF takes seconds. It runs before the lock, so
+        // list() and remove() on the Documents screen are not kept waiting behind an import.
+        // EmbeddingModel serialises its own calls, so a search's query still gets its turn.
         val model = embedder()
         val vectors = model?.let { embedAll(it, DocumentChunker.chunk(text), title.trim()) }
         val stored = if (model != null && vectors != null) model.fileName else null
@@ -107,11 +106,16 @@ class DocumentStore(
             addedAt = clock(),
             embeddingModel = stored,
         )
+        // The files are named by a fresh UUID that no index entry names yet, so nothing reads
+        // them until the index write below. The text is written first, then the vectors, then
+        // the index entry that names them, so a crash leaves at worst an orphan file.
         File(root, "$id.txt").writeText(text, Charsets.UTF_8)
         if (vectors != null) writeVectors(id, vectors)
-        writeIndex(listOf(entry) + readIndex())
-        cached = null
-        entry
+        synchronized(lock) {
+            writeIndex(listOf(entry) + readIndex())
+            cached = null
+        }
+        return entry
     }
 
     /** Removes the document and its text. False when no document has that id. */
