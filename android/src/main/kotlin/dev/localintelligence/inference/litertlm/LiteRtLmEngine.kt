@@ -34,9 +34,10 @@ import dev.localintelligence.core.model.AcceleratorKind
  *
  * ## Shape
  *
- * This mirrors LiteRT-LM's own lifecycle — engine, then a conversation per
- * request — because the mapping has to be faithful. See [LiteRtLmEngineFactory]
- * for why a conversation is per-request rather than long-lived.
+ * This mirrors LiteRT-LM's own lifecycle — an engine, then conversations on it,
+ * each taking one turn per send — because the mapping has to be faithful. See
+ * [LiteRtLmEngineFactory] for when a conversation is kept across requests and
+ * when it is rebuilt.
  */
 interface LiteRtLmEngine : AutoCloseable {
 
@@ -44,7 +45,8 @@ interface LiteRtLmEngine : AutoCloseable {
     val isAlive: Boolean
 
     /**
-     * Opens a conversation for one request.
+     * Opens a conversation seeded with [request]'s system instruction and
+     * history. The backend may keep it and send later turns to it.
      *
      * @throws LiteRtLmEngineException if the runtime refuses the request.
      */
@@ -61,10 +63,22 @@ interface LiteRtLmEngine : AutoCloseable {
 }
 
 /**
- * One in-flight generation. Closed by the backend exactly once, whether it
- * completed, failed, or was cancelled.
+ * One LiteRT-LM conversation: the runtime's history and KV cache for it.
+ *
+ * Each [send] appends one turn and the model's reply to it. The backend keeps
+ * a conversation across requests while each request only adds turns, and
+ * closes it exactly once: when the transcript is rewritten, or after a send
+ * that did not complete cleanly (a cancel is sticky, see [cancel]).
  */
 interface LiteRtLmConversation : AutoCloseable {
+
+    /**
+     * Tokens the runtime holds for this conversation (prefill plus decode), or
+     * null when the runtime cannot say. Used to start over before an appended
+     * turn would overflow the context, since a kept conversation can hold
+     * replies the core's own count does not include.
+     */
+    val tokenCount: Int?
 
     /**
      * Sends [turn] and streams the reply.
@@ -86,7 +100,10 @@ interface LiteRtLmConversation : AutoCloseable {
      * is a plain non-suspending call made from a UI thread while the generation
      * runs on an IO thread.
      *
-     * Safe to call repeatedly: only the first call reaches the runtime.
+     * Safe to call repeatedly: only the first call reaches the runtime. It is
+     * also final: a cancelled conversation treats every later send as
+     * cancelled, and the runtime does not roll back the partial reply, so the
+     * backend closes it rather than sending to it again.
      */
     fun cancel()
 
@@ -120,17 +137,17 @@ interface LiteRtLmListener {
  *
  * A LiteRT-LM `Engine` owns the weights and is expensive to build — the docs warn
  * `initialize()` can take ten seconds. It is created once per [LiteRtLmBackend.load]
- * and torn down by `unload()`. The *conversation* is cheap and is opened per
- * request instead.
+ * and torn down by `unload()`. A *conversation* is opened on it from a request's
+ * transcript and then kept, the way a chat UI uses this API, so its KV cache is
+ * reused across turns.
  *
- * That is a deliberate departure from how a chat UI would use this API, where one
- * conversation is kept alive across turns to reuse its KV cache. It is forced by
- * the frozen `ModelBackend` contract: `GenerationRequest` carries the entire
- * message history on every call, and `AgentController` compacts that history
- * between turns. Holding server-side conversational state would mean the engine
- * believed in a transcript the core may already have rewritten, and the two would
- * silently disagree. Rebuilding from the supplied transcript is the only way the
- * backend can never be wrong about what the model has seen.
+ * Keeping it is safe because `GenerationRequest` still carries the entire message
+ * history on every call, and the agent's prompt only grows at its end within an
+ * epoch. The backend compares each request with what the kept conversation was
+ * given: the same turns plus one new one is appended; anything else (a
+ * compaction, a new system message or tool list, a cancel, an error) closes the
+ * conversation and opens a new one from the full transcript. So the engine never
+ * holds a transcript the core has rewritten. See `LiteRtLmBackend.planReuse`.
  */
 fun interface LiteRtLmEngineFactory {
 
@@ -182,9 +199,8 @@ data class LiteRtLmConversationRequest(
     /** The system prompt, or null when the request has none. */
     val systemInstruction: String?,
     /**
-     * Everything before the final turn. These are replayed into a fresh
-     * conversation on every call, because the frozen request is the whole truth
-     * about the transcript.
+     * Everything before the final turn, replayed into a new conversation. Only
+     * used when the backend starts over; a kept conversation already holds these.
      */
     val history: List<LiteRtLmTurn>,
     val sampler: LiteRtLmSampler,

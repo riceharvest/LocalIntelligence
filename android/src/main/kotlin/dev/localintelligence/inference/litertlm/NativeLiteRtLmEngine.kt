@@ -247,11 +247,21 @@ internal class NativeLiteRtLmEngine(
     }
 }
 
-/** One in-flight generation over a native LiteRT-LM conversation. */
+/**
+ * A native LiteRT-LM conversation, possibly kept across requests.
+ *
+ * Each `sendMessageAsync` appends one message to the runtime's history and
+ * prefills only that message on top of the KV cache the conversation already
+ * holds; the reply is appended to the history when it completes. That is what
+ * makes keeping one conversation cheaper than rebuilding it per request.
+ * Checked against the 0.17.1 Kotlin API and `runtime/conversation/conversation.cc`
+ * at tag v0.17.1.
+ */
 internal class NativeLiteRtLmConversation(
     private val conversation: Conversation,
 ) : LiteRtLmConversation {
 
+    /** Sticky by design: see [LiteRtLmConversation.cancel]. */
     private val cancelled = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
 
@@ -260,6 +270,15 @@ internal class NativeLiteRtLmConversation(
             conversation.isAlive
         } catch (_: Throwable) {
             false
+        }
+
+    override val tokenCount: Int?
+        get() = try {
+            conversation.getTokenCount()
+        } catch (_: Throwable) {
+            // A closed conversation or a runtime that cannot count: unknown,
+            // not zero, so the caller does not read it as an empty context.
+            null
         }
 
     override fun send(turn: LiteRtLmTurn, listener: LiteRtLmListener) {
