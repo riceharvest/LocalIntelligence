@@ -713,7 +713,10 @@ class LiteRtLmBackend(
      * which also accepts the bare `<respond>` body an older session stored); any
      * other MODEL turn (a runtime correction, a changed answer) is a mismatch.
      * After a tool call the request is then the previous one, the call, and the
-     * observation: one new turn.
+     * observation: one new turn. A reply the agent did not record (a malformed one,
+     * which it drops and answers with a note) is not in the request at all, so the
+     * kept conversation would hold a reply the rebuilt one does not. That is a
+     * mismatch too, and it starts over.
      *
      * ## One new turn, or none of this
      *
@@ -760,12 +763,17 @@ class LiteRtLmBackend(
             return ReuseDecision.StartOver("the transcript was rewritten at turn ${diverged + 1}")
         }
         var fresh = turns.subList(held.given.size, turns.size)
-        if (fresh.first().role == LiteRtLmRole.MODEL) {
-            if (!isSameReply(fresh.first().text, held.reply)) {
-                return ReuseDecision.StartOver("the stored reply is not the one the model produced")
-            }
-            fresh = fresh.drop(1)
+        // The kept conversation always ends with the model's reply to the last turn
+        // it was given, so the request must replay that reply first. A request that
+        // goes straight to a new turn has dropped it, and appending would send the
+        // model a history that a rebuild would not.
+        if (fresh.first().role != LiteRtLmRole.MODEL) {
+            return ReuseDecision.StartOver("the model's last reply is not in the request")
         }
+        if (!isSameReply(fresh.first().text, held.reply)) {
+            return ReuseDecision.StartOver("the stored reply is not the one the model produced")
+        }
+        fresh = fresh.drop(1)
         if (fresh.size != 1) {
             return ReuseDecision.StartOver(
                 "${fresh.size} new turns; the engine takes one turn per generation",
