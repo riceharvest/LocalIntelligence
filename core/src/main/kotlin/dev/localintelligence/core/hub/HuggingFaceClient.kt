@@ -128,22 +128,31 @@ class HuggingFaceClient(
      * browse list empty, not take the screen down, because the primary flow is
      * "user knows the repo id".
      */
-    fun search(query: String, limit: Int = 20, token: String? = null): List<HubSearchHitPublic> {
+    fun search(query: String, limit: Int = 20, token: String? = null): List<HubSearchHitPublic> =
+        if (query.isBlank()) emptyList() else browse(query, limit, token).orEmpty()
+
+    /**
+     * GGUF repositories matching [query], most downloaded first; with a blank
+     * [query], the most downloaded GGUF repositories overall. Null when the hub
+     * could not be reached or answered with an error, so the screen can say so
+     * instead of showing an empty list as if nothing matched.
+     */
+    fun browse(query: String, limit: Int = 20, token: String? = null): List<HubSearchHitPublic>? {
         val trimmed = query.trim()
-        if (trimmed.isEmpty()) return emptyList()
         // WHY filter on the gguf tag: an unfiltered search for "qwen3 0.6b"
         // returns safetensors repos the app cannot use at all, and every one of
         // those is a dead row for a user who cannot read safetensors.
-        val url = "$baseUrl/api/models?search=${encodeQuery(trimmed)}&filter=gguf&limit=$limit&sort=downloads&direction=-1"
+        val search = if (trimmed.isEmpty()) "" else "search=${encodeQuery(trimmed)}&"
+        val url = "$baseUrl/api/models?${search}filter=gguf&limit=$limit&sort=downloads&direction=-1"
         return try {
             val response = transport.open(
                 HubRequest(url, authToken = tokenOrNull(token)),
             )
             if (response.status !in 200..299) {
                 response.body?.close()
-                return emptyList()
+                return null
             }
-            val body = response.body ?: return emptyList()
+            val body = response.body ?: return null
             val parsed = json.decodeFromString(
                 ListSerializer(HubSearchHit.serializer()),
                 body.readBytes().decodeToString(),
@@ -158,7 +167,7 @@ class HuggingFaceClient(
                 }
             }
         } catch (_: Exception) {
-            emptyList()
+            null
         }
     }
 

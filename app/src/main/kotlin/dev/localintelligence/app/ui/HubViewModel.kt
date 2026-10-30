@@ -304,38 +304,88 @@ class HubViewModel(
     val searchResults: StateFlow<List<HuggingFaceClient.HubSearchHitPublic>> = _searchResults.asStateFlow()
     private var searchJob: Job? = null
 
+    /** True while a search is out, so the screen can say "Searching…". */
+    private val _searching = MutableStateFlow(false)
+    val searching: StateFlow<Boolean> = _searching.asStateFlow()
+
+    /** "No models found…" or "Couldn't reach Hugging Face…"; null when the list speaks for itself. */
+    private val _searchNote = MutableStateFlow<String?>(null)
+    val searchNote: StateFlow<String?> = _searchNote.asStateFlow()
+
+    /** True when [searchResults] is the popular list shown before anything is typed. */
+    private val _showingPopular = MutableStateFlow(false)
+    val showingPopular: StateFlow<Boolean> = _showingPopular.asStateFlow()
+
+    private var popular: List<HuggingFaceClient.HubSearchHitPublic>? = null
+
+    init {
+        // Something to choose from before anything is typed.
+        runSearch("", delayMs = 0)
+    }
+
     /**
      * Typing searches Hugging Face as you go, so a partial name ("qwen3 0.6")
      * lists the GGUF repos that match. The wait before asking keeps a fast typist
      * from sending a request per key, and each new key cancels the last request.
+     * An empty field shows the most downloaded models again.
      */
     fun onRepoInputChanged(value: String) {
         _state.update { it.copy(repoInput = value) }
-        searchJob?.cancel()
         val query = value.trim()
-        if (query.length < MIN_SEARCH_CHARS) {
-            _searchResults.value = emptyList()
-            return
-        }
-        searchJob = viewModelScope.launch {
-            delay(SEARCH_DELAY_MS)
-            _searchResults.value = withContext(Dispatchers.IO) {
-                client.search(query, limit = SEARCH_LIMIT, token = tokenSource.token())
+        when {
+            query.isEmpty() -> runSearch("", delayMs = 0)
+            query.length < MIN_SEARCH_CHARS -> {
+                searchJob?.cancel()
+                _searching.value = false
             }
+            else -> runSearch(query, delayMs = SEARCH_DELAY_MS)
         }
     }
 
     /**
-     * The search key or List files: a full owner/name is listed as typed, and a
-     * partial name ("qwen3 0.6") takes the top match instead of failing as an
-     * invalid repository id.
+     * The search key or the Search button. A full owner/name is listed as typed.
+     * Anything else is searched now, without waiting for the typing delay: one
+     * match opens, several are listed to choose from. It used to treat a partial
+     * name pressed before its results arrived as a repository id, show "must be
+     * owner/name", and cancel the search that was about to answer.
      */
     fun submit() {
-        val top = _searchResults.value.firstOrNull()
-        if (top != null && HubRepoId.parse(_state.value.repoInput) !is HubRepoId.Result.Valid) {
-            pickSearchHit(top)
-        } else {
+        val input = _state.value.repoInput.trim()
+        if (HubRepoId.parse(input) is HubRepoId.Result.Valid) {
             resolve()
+            return
+        }
+        if (input.isEmpty()) return
+        runSearch(input, delayMs = 0, openSingle = true)
+    }
+
+    private fun runSearch(query: String, delayMs: Long, openSingle: Boolean = false) {
+        searchJob?.cancel()
+        if (query.isEmpty()) {
+            popular?.let {
+                _searchResults.value = it
+                _showingPopular.value = true
+                _searchNote.value = null
+                _searching.value = false
+                return
+            }
+        }
+        _searching.value = true
+        searchJob = viewModelScope.launch {
+            if (delayMs > 0) delay(delayMs)
+            val hits = withContext(Dispatchers.IO) {
+                client.browse(query, limit = if (query.isEmpty()) POPULAR_LIMIT else SEARCH_LIMIT, token = tokenSource.token())
+            }
+            _searching.value = false
+            if (query.isEmpty() && hits != null) popular = hits
+            _searchResults.value = hits.orEmpty()
+            _showingPopular.value = query.isEmpty() && hits != null
+            _searchNote.value = when {
+                hits == null -> "Couldn't reach Hugging Face. Check the connection and try again."
+                hits.isEmpty() && query.isNotEmpty() -> "No models found for \u201c$query\u201d."
+                else -> null
+            }
+            if (openSingle && hits?.size == 1) pickSearchHit(hits.single())
         }
     }
 
@@ -357,6 +407,8 @@ class HubViewModel(
     fun resolve() {
         // The suggestions are for finding a repo; once one is being listed they go.
         searchJob?.cancel()
+        _searching.value = false
+        _searchNote.value = null
         _searchResults.value = emptyList()
         val raw = _state.value.repoInput
         when (val parsed = HubRepoId.parse(raw)) {
@@ -899,6 +951,9 @@ class HubViewModel(
         const val MIN_SEARCH_CHARS = 2
         const val SEARCH_DELAY_MS = 300L
         const val SEARCH_LIMIT = 8
+
+        /** Models listed before anything is typed. */
+        const val POPULAR_LIMIT = 10
 
         /**
          * Mirrors `HubSibling.MAX_PLAIN_GIT_BLOB_BYTES` in `:core`: below this,
