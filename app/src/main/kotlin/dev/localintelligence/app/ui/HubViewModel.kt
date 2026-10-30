@@ -99,6 +99,11 @@ data class HubUiState(
     /** The file the app picked as the best fit for this phone when the repository was listed. */
     val recommended: HubGgufFile? = null,
     /**
+     * The repository's vision/audio projector (`mmproj`), downloaded with the
+     * model so the model can see or hear. Null when the repository has none.
+     */
+    val projector: HubGgufFile? = null,
+    /**
      * Non-GGUF model files the repository also publishes, when it publishes any.
      *
      * ## Why this exists next to [files] rather than inside it
@@ -165,7 +170,9 @@ data class HubUiState(
     val blocked: HubError? get() = plan?.reject
 
     /** The size label shown before starting. */
-    val sizeLabel: String? get() = selected?.let { formatBytes(it.sizeBytes) }
+    val sizeLabel: String? get() = selected?.let { file ->
+        formatBytes(file.sizeBytes) + (projector?.let { " + ${formatBytes(it.sizeBytes)} for photos" } ?: "")
+    }
 
     /**
      * True when the next tap continues a transfer rather than starting one.
@@ -285,6 +292,16 @@ class HubViewModel(
     private val tokenSource: HubTokenSource = HubTokenSource.NONE,
     /** The n_ctx a download is priced at: the same answer the model load will use. */
     private val contextLength: () -> Int = { DEFAULT_CONTEXT_LENGTH },
+    /**
+     * Offer the fastest quant that fits rather than the largest. Speed matters
+     * more on a phone than a few bits per weight: Q4_0 is what llama.cpp's ARM
+     * repack and KleidiAI kernels (and Adreno's OpenCL kernels) are built for.
+     * MEASURED: Pixel 10 Pro prefill 134-151 vs 127-133 tok/s for Q4_K_M in
+     * the app (llama-bench 254.6 vs 211.0), decode equal; Samsung A05s 11.1/7.4
+     * vs 10.8/7.1. Decoding reads every weight per token, so a Q6_K is about a
+     * quarter slower than a Q4_0 to write an answer.
+     */
+    private val preferFastQuant: Boolean = true,
     private val registrar: DownloadedModelRegistrar = DownloadedModelRegistrar.NONE,
     /**
      * Used only to look for `.litertlm` siblings that `listGgufFiles` filtered
@@ -469,9 +486,9 @@ class HubViewModel(
                         // header read: Gemma 4 E2B (3.3 GB on disk, 1.8 GB resident
                         // once its lookup table is known to stay on disk) was shown
                         // as unrecommended on a 3.6 GB phone it fits.
-                        val pick = guess ?: loadable.firstOrNull()
+                        val pick = preferQ4(loadable, guess) ?: loadable.firstOrNull()
                         val planned = pick?.let { planFor(it) }
-                        val best = guess ?: pick?.takeIf { planned?.first?.isAllowed == true }
+                        val best = (if (guess != null) pick else null) ?: pick?.takeIf { planned?.first?.isAllowed == true }
                         // WHY THE PROBE RUNS EVEN WHEN `loadable` IS NON-EMPTY:
                         // a repository can publish both, and in that case the
                         // `.litertlm` is the more interesting half — it is the
@@ -496,6 +513,7 @@ class HubViewModel(
                                 },
                                 files = loadable,
                                 nonGgufFiles = nonGguf,
+                                projector = chooseProjector(files),
                                 selected = pick,
                                 recommended = best,
                                 plan = planned?.first,
@@ -731,7 +749,10 @@ class HubViewModel(
         // downloader would answer `Discard("already complete")` and restart from
         // byte 0 anyway. So the button adopts instead of downloading.
         if (current.alreadyOnDevice) {
-            viewModelScope.launch { adopt(file) }
+            viewModelScope.launch {
+                current.projector?.let { fetchProjector(it) }
+                adopt(file)
+            }
             return
         }
 
@@ -751,8 +772,73 @@ class HubViewModel(
             )
         }
 
-        val job = viewModelScope.launch { collectDownload(file, plan) }
+        val job = viewModelScope.launch {
+            // The projector first, so it is next to the model when the model is
+            // adopted and loaded (the backend looks for it at load).
+            val projector = current.projector
+            if (projector != null && !fetchProjector(projector)) return@launch
+            collectDownload(file, plan)
+        }
         _state.update { it.copy(downloadJob = job) }
+    }
+
+    /**
+     * The fastest file to offer instead of [guess] (the largest that fits),
+     * never larger than it: Q4_0 (repacked for the ARM and Adreno kernels),
+     * then IQ4_NL (also repacked), Q4_K_S, Q4_K_M. [guess] when none of those
+     * is in the repository. IQ2/IQ3 files are smaller but slow to unpack on a
+     * phone CPU, so they are never preferred over a bigger Q4.
+     */
+    private fun preferQ4(loadable: List<HubGgufFile>, guess: HubGgufFile?): HubGgufFile? {
+        if (!preferFastQuant || guess == null) return guess
+        val fitting = loadable.filter { it.sizeBytes <= guess.sizeBytes }
+        for (label in FAST_QUANTS) {
+            fitting.filter { it.quant?.label == label }.maxByOrNull { it.sizeBytes }?.let { return it }
+        }
+        return guess
+    }
+
+    /** The repository's projector to download with a model: Q8_0, else F16, else the smallest. */
+    private fun chooseProjector(files: List<HubGgufFile>): HubGgufFile? {
+        val projectors = files.filter { it.isProjector && !it.isSharded }
+        if (projectors.isEmpty()) return null
+        return projectors.firstOrNull { it.fileName.contains("q8_0", ignoreCase = true) }
+            ?: projectors.firstOrNull { it.fileName.contains("f16", ignoreCase = true) }
+            ?: projectors.minByOrNull { it.sizeBytes }
+    }
+
+    /**
+     * Downloads [projector] unless it is already on the phone, showing its
+     * progress. Returns false when the user stopped it or it failed, so the
+     * model download does not start behind a stop the user is looking at. A
+     * projector that cannot be planned (no disk) is skipped: the model still
+     * works without it, only not with photos.
+     */
+    private suspend fun fetchProjector(projector: HubGgufFile): Boolean {
+        val plan = withContext(Dispatchers.IO) {
+            if (downloader.isDownloaded(projector)) return@withContext null
+            client.plan(
+                file = projector,
+                contextLength = contextLength(),
+                budget = budget,
+                alreadyOnDiskBytes = downloader.partialFileFor(projector).localBytes(),
+                ramGate = false,
+            )
+        } ?: return true
+        if (!plan.isAllowed) return true
+        var done = false
+        downloader.download(projector, plan).collect { event ->
+            when (event) {
+                is DownloadProgress.Done -> done = true
+                is DownloadProgress.Stopped -> _state.update {
+                    it.copy(downloading = false, progress = event, partialBytesKept = event.partialBytesKept)
+                }
+                is DownloadProgress.InProgress -> _state.update {
+                    it.copy(progress = event, partialBytesKept = event.bytesDownloaded)
+                }
+            }
+        }
+        return done
     }
 
     /**
@@ -972,6 +1058,9 @@ class HubViewModel(
 
         /** Models listed before anything is typed. */
         const val POPULAR_LIMIT = 10
+
+        /** Quants in the order a phone runs them fastest; see preferFastQuant. */
+        private val FAST_QUANTS = listOf("Q4_0", "IQ4_NL", "Q4_K_S", "Q4_K_M")
 
         /**
          * Listed before anything is typed: phone-sized models this app is tested

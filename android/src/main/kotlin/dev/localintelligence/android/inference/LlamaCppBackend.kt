@@ -418,19 +418,39 @@ class LlamaCppBackend(
     }
 
     /**
-     * The `mmproj-*.gguf` beside a model file, or null.
+     * The projector (`mmproj`) beside a model file, or null. Two ways to pair:
      *
-     * Matched by name stem: `LFM3-Omni-2B-Q4_K_M.gguf` pairs with
-     * `mmproj-LFM3-Omni-2B-Q8_0.gguf`. Only plain files are searched; a model
-     * opened through the document picker has no directory to look in.
+     *  - Downloaded in the app: files are stored as `owner__repo__file.gguf`, so
+     *    a projector from the model's own repository shares its `owner__repo__`
+     *    prefix, whatever the repository named it (`mmproj-X.gguf`,
+     *    `X-mmproj.gguf` as Gemma 4 does).
+     *  - Copied in by hand: by name stem, `LFM3-Omni-2B-Q4_K_M.gguf` pairs with
+     *    `mmproj-LFM3-Omni-2B-Q8_0.gguf`.
+     *
+     * Only plain files are searched; a model opened through the document picker
+     * has no directory to look in.
      */
     private fun findProjector(modelUri: android.net.Uri): java.io.File? {
         val modelFile = modelUri.path?.let(::File)?.takeIf { modelUri.scheme == "file" && it.isFile }
             ?: return null
+        val projectors = modelFile.parentFile
+            ?.listFiles { f -> f.isFile && f.name.contains("mmproj", ignoreCase = true) && f.name.endsWith(".gguf", true) }
+            .orEmpty()
+        if (projectors.isEmpty()) return null
+        repoPrefixOf(modelFile.name)?.let { prefix ->
+            projectors.firstOrNull { it.name.startsWith(prefix) }?.let { return it }
+        }
         val stem = stemOf(modelFile.name)
-        return modelFile.parentFile
-            ?.listFiles { f -> f.isFile && f.name.startsWith("mmproj", ignoreCase = true) && f.name.endsWith(".gguf", true) }
-            ?.firstOrNull { stemOf(it.name.removePrefix("mmproj-").removePrefix("mmproj_")).equals(stem, ignoreCase = true) }
+        return projectors.firstOrNull {
+            it.name.startsWith("mmproj", ignoreCase = true) &&
+                stemOf(it.name.removePrefix("mmproj-").removePrefix("mmproj_")).equals(stem, ignoreCase = true)
+        }
+    }
+
+    /** `owner__repo__` for a file the app downloaded (`owner__repo__path.gguf`), else null. */
+    private fun repoPrefixOf(fileName: String): String? {
+        val parts = fileName.split("__")
+        return if (parts.size >= 3) parts[0] + "__" + parts[1] + "__" else null
     }
 
     private fun stemOf(fileName: String): String =

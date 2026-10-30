@@ -143,9 +143,10 @@ object SimpleSetup {
         )
         else -> SuggestedModel(
             repo = "LiquidAI/LFM2.5-230M-GGUF",
-            file = "LFM2.5-230M-Q4_K_M.gguf",
+            // QAD Q4_0, like LFM3's: the fastest format on phone CPUs.
+            file = "LFM2.5-230M-QAD-Q4_0.gguf",
             name = "LFM2.5 230M",
-            sizeBytes = 153_406_304,
+            sizeBytes = 149_081_056,
             reason = "Small enough for this phone's memory. It handles simple requests.",
         )
     }
