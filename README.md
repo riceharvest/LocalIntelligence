@@ -14,8 +14,8 @@ install APK
 ```
 
 **Runs fully on-device. No account, no server, no telemetry.** Inference is
-entirely local, and the app has no analytics or crash reporting. Two features do
-use the network, and each is opt-in and never silent:
+entirely local, and the app has no analytics or crash reporting. These features
+use the network; each is opt-in or asks first, and none is silent:
 
 - **Model downloads** go to the Hugging Face Hub and only fetch files. Nothing
   is ever uploaded. See [docs/hf-hub-download.md](docs/hf-hub-download.md).
@@ -29,12 +29,18 @@ use the network, and each is opt-in and never silent:
   OpenRouter key. With the plugin on and a key set, the prompts for image and video
   generation go to openrouter.ai, and the key is sent there with them. The key is
   stored encrypted with the Android Keystore. With no key, nothing is sent.
+- **`web.search`** sends the search words to `html.duckduckgo.com` (no key,
+  no account). Like `web.fetch`, it asks first and names the host.
+- **MCP** (plugin "MCP", off by default) talks to the one server you enter;
+  every remote tool call sends its arguments there and asks first.
+- **Skills from a URL**: adding a skill by URL downloads that one file, when you
+  tap Add.
 
 Nothing else in the app opens a socket, and no conversation content, memory,
 file, contact, or calendar entry is transmitted by the app itself. Every
-`web.fetch` call asks you to confirm first, and the confirmation names the host;
-decline those confirmations if you do not want outbound requests. The one
-exception is your own choice: Settings → Approvals → "Open websites without
+network tool call asks you to confirm first, and the confirmation names the
+host; decline those confirmations if you do not want outbound requests. The
+one exception is your own choice: Settings → Approvals → "Open websites without
 asking" (off by default) skips that confirmation.
 
 ---
@@ -50,7 +56,8 @@ everything for that assumption:
   means the model cannot emit a malformed action or a tool it was not offered. The
   LiteRT-LM backend takes no grammar, so there the parser rejects both instead.
 - **Small tool surface.** Up to 6 tools visible per turn (`AgentConfig.maxVisibleTools`)
-  out of a registry of 25, chosen by lexical scoring. Not a second LLM call.
+  out of a registry of 32 built-in tools (plus opt-in OpenRouter and MCP tools),
+  chosen by lexical scoring. Not a second LLM call.
 - **Deterministic reliability.** Loop detection, argument validation, risk gating and
   context budgeting are plain Kotlin. The model is used only where language
   understanding is actually required.
@@ -126,7 +133,7 @@ PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assembleDebug
 ```
 
 Output: `app/build/outputs/apk/debug/app-debug.apk` — **MEASURED** at
-~51.3 MB (49.0 MiB, debug, both ABIs; native libraries compressed, extracted at install).
+~68.0 MB (64.9 MiB, debug, both ABIs; native libraries compressed, extracted at install).
 
 Full instructions, required SDK components, and two traps that will
 otherwise cost you an hour: [docs/build.md](docs/build.md).
