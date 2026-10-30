@@ -35,6 +35,14 @@ data class HubGgufFile(
     /** True when this file needs its siblings downloaded to be loadable. */
     val isSharded: Boolean get() = shardCount != null && shardCount > 1
 
+    /**
+     * True for a multimodal projector (`mmproj-…gguf`, `…-mmproj.gguf`): the
+     * vision/audio encoder that sits next to a model. It is a GGUF but not a
+     * model, so it is never offered or recommended as one; on the A05s the
+     * Gemma 4 E2B repo's 987 MB projector was picked as "Recommended".
+     */
+    val isProjector: Boolean get() = fileName.contains("mmproj", ignoreCase = true)
+
     /** Stable local name: `owner__name__path_with_slashes_replaced.gguf`. */
     fun localFileName(): String {
         val flat = path.segments.joinToString("__")
