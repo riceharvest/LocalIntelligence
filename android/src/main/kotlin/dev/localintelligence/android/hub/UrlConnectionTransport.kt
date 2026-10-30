@@ -3,6 +3,7 @@ package dev.localintelligence.android.hub
 import dev.localintelligence.core.hub.HubRequest
 import dev.localintelligence.core.hub.HubResponse
 import dev.localintelligence.core.hub.HubTransport
+import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -82,8 +83,8 @@ class UrlConnectionTransport(
             val length = connection.contentLengthLong
             val body: InputStream? = when {
                 status in REDIRECT_STATUSES -> null
-                status >= 400 -> connection.errorStream
-                else -> connection.inputStream
+                status >= 400 -> connection.errorStream?.let { DisconnectOnClose(connection, it) }
+                else -> DisconnectOnClose(connection, connection.inputStream)
             }
             return HubResponse(
                 status = status,
@@ -101,6 +102,25 @@ class UrlConnectionTransport(
         URL(this).host
     } catch (_: Exception) {
         ""
+    }
+
+    /**
+     * Closes the socket before closing the stream.
+     *
+     * WHY: a read blocked on a stalled link cannot be unblocked by closing the
+     * stream alone on a `HttpURLConnection`, because closing it first tries to
+     * drain the rest of the body, which is the very read that is stuck. Disconnecting
+     * cancels the call, so the blocked read returns at once and a cancelled
+     * download stops within a buffer instead of at the 60 s read timeout.
+     */
+    private class DisconnectOnClose(
+        private val connection: HttpURLConnection,
+        stream: InputStream,
+    ) : FilterInputStream(stream) {
+        override fun close() {
+            connection.disconnect()
+            super.close()
+        }
     }
 
     companion object {
