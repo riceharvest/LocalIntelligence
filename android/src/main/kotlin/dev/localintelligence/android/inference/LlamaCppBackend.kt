@@ -147,6 +147,11 @@ class LlamaCppBackend(
         val contextLength = (meta.contextLength ?: DEFAULT_CONTEXT_LENGTH)
             .coerceIn(MIN_CONTEXT_LENGTH, MAX_CONTEXT_LENGTH)
 
+        // A text-only model asks for one logits row per batch, which saves the
+        // output head's reserve; a model with a projector may speak, and the
+        // audio head reads every row, so it keeps the default.
+        val outputsMax = if (findProjector(uri) == null) 1 else 0
+
         fun loadNative(compute: LlamaCompute): String? {
             computeSource.loadStarting(compute)
             var error = LlamaBridge.loadModel(
@@ -156,6 +161,7 @@ class LlamaCppBackend(
                 threads = 0,
                 useMmap = opened.isMmapCapable,
                 compute = compute,
+                outputsMax = outputsMax,
             )
             // A GPU builds its compute pipelines on the first prefill and decode,
             // which is where a driver bug most likely crashes or fails. Running

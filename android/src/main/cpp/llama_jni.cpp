@@ -653,7 +653,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSystemInfo(JNIEnv
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
         JNIEnv * env, jclass, jlong handle, jstring path, jint n_ctx, jint n_threads,
-        jboolean use_mmap, jstring gpu_backend, jint gpu_layers) {
+        jboolean use_mmap, jstring gpu_backend, jint gpu_layers, jint outputs_max) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
         return to_jstring(env, "null handle");
@@ -744,6 +744,18 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     // f16 KV cache, which is what RamEstimate assumes.
     cparams.type_k = GGML_TYPE_F16;
     cparams.type_v = GGML_TYPE_F16;
+    // Chat asks for logits on one row per batch (the last prompt token, then
+    // each sampled token), and llama.cpp reserves the output head for
+    // n_outputs_max rows: 512 by default, 113-462 MiB of compute buffer for
+    // nothing. A batch asking for more rows than this aborts in llama.cpp, so
+    // the caller passes 0 (a whole batch) for a model whose projector may
+    // speak: the audio head reads every row of its batches.
+    cparams.n_outputs_max = outputs_max > 0 ? static_cast<uint32_t>(outputs_max) : 0;
+    // Sliding-window layers keep only their window (plus one ubatch) instead
+    // of n_ctx cells. Prefix reuse already checks the window before trimming
+    // (window_ok in nativeGenerate) and hybrid models restore a whole state
+    // snapshot, so nothing relied on the full-size cache.
+    cparams.swa_full = false;
 
     llama_context * ctx = llama_init_from_model(model, cparams);
     if (ctx == nullptr) {
@@ -1045,8 +1057,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     }
 
     // A prompt that fills the whole window leaves nowhere to put the answer.
-    // Truncate from the left, keeping the leading special token so the model
-    // still sees a well-formed sequence start.
+    // It is refused, not cut: cutting from the left dropped the system prompt
+    // and the tools without anyone being told. The agent loop sizes prompts
+    // with this model's tokenizer and compacts before this can happen, so
+    // reaching here means its budget was wrong, and the error says by how much.
     const int32_t max_prompt = n_ctx - kGenerationHeadroom;
     if (max_prompt <= 0) {
         outcome.stop = static_cast<int32_t>(StopCode::ERROR);
@@ -1055,17 +1069,11 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         return to_jstring(env, outcome.error);
     }
     if (!mm_chunks && static_cast<int32_t>(tokens.size()) > max_prompt) {
-        std::vector<llama_token> truncated;
-        truncated.reserve(static_cast<size_t>(max_prompt));
-        if (!llama_vocab_is_eog(vocab, tokens.front())) {
-            truncated.push_back(tokens.front());
-        }
-        const size_t room = static_cast<size_t>(max_prompt) - truncated.size();
-        const size_t from = tokens.size() - std::min(room, tokens.size());
-        for (size_t i = from; i < tokens.size(); ++i) {
-            truncated.push_back(tokens[i]);
-        }
-        tokens.swap(truncated);
+        outcome.stop = static_cast<int32_t>(StopCode::ERROR);
+        outcome.error = "context window too small: the prompt is " + std::to_string(tokens.size()) +
+            " tokens and the window holds " + std::to_string(max_prompt);
+        publish();
+        return to_jstring(env, outcome.error);
     }
     const int32_t prompt_tokens = mm_chunks ? mm_prompt_tokens : static_cast<int32_t>(tokens.size());
 
