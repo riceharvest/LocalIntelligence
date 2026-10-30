@@ -328,7 +328,18 @@ class HubViewModel(
      * An empty field shows the most downloaded models again.
      */
     fun onRepoInputChanged(value: String) {
-        _state.update { it.copy(repoInput = value) }
+        // Typing a new search closes the repository on screen (unless a download
+        // from it is running), so the new matches show instead of its files.
+        _state.update {
+            if (it.files.isNotEmpty() && !it.downloading) {
+                it.copy(
+                    repoInput = value, files = emptyList(), nonGgufFiles = emptyList(),
+                    selected = null, recommended = null, plan = null, error = null,
+                )
+            } else {
+                it.copy(repoInput = value)
+            }
+        }
         val query = value.trim()
         when {
             query.isEmpty() -> runSearch("", delayMs = 0)
