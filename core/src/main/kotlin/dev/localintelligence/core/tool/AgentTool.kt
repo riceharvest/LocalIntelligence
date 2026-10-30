@@ -136,4 +136,17 @@ fun interface CancellationSignal {
 interface AgentTool {
     val definition: ToolDefinition
     suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult
+
+    /**
+     * A plain name for the conversation, contact or place this call acts on,
+     * or null when the tool cannot name one.
+     *
+     * WHY this exists: the policy judges a call from its arguments, and some
+     * arguments are opaque handles. A reply is addressed by a notification
+     * key such as `com.whatsapp#2`, which tells the user nothing. The tool
+     * resolves it here, before the policy decides, so the confirmation can
+     * say "Maria in WhatsApp" instead. It runs at plan time and must not
+     * change anything. Null keeps the policy's own wording.
+     */
+    suspend fun describeTarget(args: ToolArgs): String? = null
 }

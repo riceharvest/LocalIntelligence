@@ -755,7 +755,9 @@ class AgentController(
         // evaluating before validation would have the policy reason about calls
         // that were never going to run, and evaluating after the loop detector
         // would let a repeated call burn the user's confirmation dialog.
-        val decision = riskPolicy.evaluate(tool.definition, action.arguments)
+        // The tool names what the call acts on before the policy reads it, so a
+        // confirmation can say which conversation a reply goes to (#201).
+        val decision = riskPolicy.evaluate(tool.definition, action.arguments, tool.describeTarget(action.arguments))
         metrics?.recordToolCall(
             action.name,
             action.arguments,
