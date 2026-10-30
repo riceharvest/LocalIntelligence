@@ -1018,18 +1018,18 @@ class AgentController(
      * has applied every fold the window allows gets here, so a step the planned
      * drops would have fitted is not stopped.
      *
-     * WHY THIS IS RARE RATHER THAN IMPOSSIBLE: the observation estimate alone
-     * is [config.observationBudgetChars] (512 tokens by default), so the step
-     * has to overflow the window on the reply and the arguments alone — a
-     * runaway generation, or a 12KB argument blob. Those are the cases where
-     * a stop is the right answer: the model is not out of ideas, it is out of
-     * room, and no amount of further thinking changes that.
+     * WHY THIS IS RARE: the observation estimate alone is
+     * [config.observationBudgetChars] (512 tokens by default), and [priceStep]
+     * has already folded everything the planner offered. What is left over is
+     * the step's own reply and arguments overflowing the window, a runaway
+     * generation or a 12KB argument blob. Those are the cases where a stop is
+     * the right answer: the model is not out of ideas, it is out of room.
      */
     private suspend fun refuseUnaffordableStep(call: PendingCall, reply: String): AgentResult? {
         val verdict = priceStep(call, reply, observationSample) ?: return null
         val trim = verdict.plan as? StepPlan.Trim ?: return null
         val detail = "${call.name} needs ${trim.projectedTokens} tokens and the window holds " +
-            "${trim.limit}, even after folding the conversation into the working state"
+            "${trim.limit}, even after folding the conversation into the working state as far as it goes"
         trace += StepTrace(
             call.step, StepTrace.Kind.TOOL_CALL, "refused ${call.name}: step does not fit — $detail",
             success = false,
