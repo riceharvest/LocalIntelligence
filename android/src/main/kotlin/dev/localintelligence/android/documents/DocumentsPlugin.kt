@@ -96,6 +96,7 @@ val DOCUMENT_SEARCH_MODE: SettingDef.Choice = SettingDef.Choice(
         SettingDef.Choice.Option(SEARCH_MODE_HYBRID, "Hybrid"),
         SettingDef.Choice.Option(SEARCH_MODE_KEYWORD, "Keyword only"),
     ),
+    simple = true,
 )
 
 /** The GGUF file name, in the models folder, used for meaning search. Empty reads as the default. */

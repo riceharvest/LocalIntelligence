@@ -13,7 +13,7 @@ import java.io.File
  * A file that fails to load is remembered by name, so a broken GGUF is not reread on
  * every search. Changing the setting clears that memory.
  */
-class DocumentEmbedder(private val modelsDir: File, private val fileName: () -> String) {
+class DocumentEmbedder(private val modelsDir: File, private val setting: () -> String) {
 
     private var loaded: EmbeddingModel? = null
     private var failedName: String? = null
@@ -21,18 +21,32 @@ class DocumentEmbedder(private val modelsDir: File, private val fileName: () -> 
     /** The embedding model, or null when the file is missing, blank or unloadable. */
     @Synchronized
     fun get(): EmbeddingModel? {
-        // Only the file name is used: a setting cannot point outside the models folder.
-        val name = File(fileName().trim()).name
-        loaded?.let { if (it.fileName == name) return it }
-        if (failedName == name) return null
+        val file = resolve(modelsDir, setting()) ?: return null
+        loaded?.let { if (it.fileName == file.name) return it }
+        if (failedName == file.name) return null
         loaded?.close()
         loaded = null
-        if (name.isEmpty()) return null
-        val file = File(modelsDir, name)
-        if (!file.isFile) return null
         val model = EmbeddingModel.load(file)
         loaded = model
-        failedName = if (model == null) name else null
+        failedName = if (model == null) file.name else null
         return model
+    }
+
+    companion object {
+        /**
+         * The file in [modelsDir] that [setting] names, or null. Only the file name is used,
+         * so a setting cannot point outside the models folder.
+         *
+         * The hub saves a download as `owner__repo__file` (see `GgufQuant.localFileName`),
+         * so a name also matches a file that ends with `__<name>`. Without that the hub
+         * download of the default model would never be found.
+         */
+        fun resolve(modelsDir: File, setting: String): File? {
+            val name = File(setting.trim()).name
+            if (name.isEmpty()) return null
+            val exact = File(modelsDir, name)
+            if (exact.isFile) return exact
+            return modelsDir.listFiles()?.firstOrNull { it.isFile && it.name.endsWith("__$name") }
+        }
     }
 }

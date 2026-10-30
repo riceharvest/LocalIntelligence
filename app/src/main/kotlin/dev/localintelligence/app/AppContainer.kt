@@ -198,8 +198,19 @@ class AppContainer(private val context: Context) {
         DocumentEmbedder(modelsDir) { settings[DOCUMENT_EMBEDDING_MODEL] }
     }
 
-    /** Where the document search model is expected: the models folder, under the name the setting gives. */
-    fun documentModelFile(): File = File(modelsDir, File(settings[DOCUMENT_EMBEDDING_MODEL].trim()).name)
+    /** The document search model on disk, or null. See [DocumentEmbedder.resolve]. */
+    fun documentModelFile(): File? = DocumentEmbedder.resolve(modelsDir, settings[DOCUMENT_EMBEDDING_MODEL])
+
+    /**
+     * True when a finished download is the document search model, by name: the setting's
+     * file name, or any EmbeddingGemma build. Hub names are `owner__repo__file`, so the
+     * setting's name is matched by its ending.
+     */
+    private fun isDocumentModelName(name: String): Boolean {
+        val setting = File(settings[DOCUMENT_EMBEDDING_MODEL].trim()).name
+        return name.contains("embeddinggemma", ignoreCase = true) ||
+            (setting.isNotEmpty() && (name == setting || name.endsWith("__$setting")))
+    }
 
     /** Skills on disk under filesDir/skills. Shared by the plugin, the skills screen and "Save as skill". */
     val skills: SkillRepository by lazy { SkillRepository(File(context.filesDir, "skills")) }
@@ -1166,7 +1177,7 @@ class AppContainer(private val context: Context) {
     suspend fun adoptDownloaded(file: java.io.File): String? = withContext(Dispatchers.IO) {
         // The embedding model is not a chat model. Loading it as one would replace the chat
         // model with a model that cannot write replies, so it is only kept for document search.
-        if (file.name == documentModelFile().name) return@withContext "Saved as the document search model."
+        if (isDocumentModelName(file.name)) return@withContext "Saved as the document search model."
         val uri = android.net.Uri.fromFile(file)
         val model = runCatching { importer.inspect(uri) }.getOrNull() ?: return@withContext null
         val availability = loadModel(model)
