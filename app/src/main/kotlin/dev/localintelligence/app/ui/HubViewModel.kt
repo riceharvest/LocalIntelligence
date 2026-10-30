@@ -452,6 +452,10 @@ class HubViewModel(
     fun resolve() {
         // The suggestions are for finding a repo; once one is being listed they go.
         searchJob?.cancel()
+        // A listing still out for the previous repository must not write its files,
+        // selection or error after this one has started. Its selection goes too.
+        resolveJob?.cancel()
+        selectJob?.cancel()
         _searching.value = false
         _searchNote.value = null
         _searchResults.value = emptyList()
@@ -489,12 +493,15 @@ class HubViewModel(
                         downloadJob = null,
                     )
                 }
-                viewModelScope.launch {
+                resolveJob = viewModelScope.launch {
                     // On IO: the transport is a blocking HttpURLConnection, and Android
                     // refuses network calls on the main thread.
                     val result = runCatching {
                         withContext(Dispatchers.IO) { client.listGgufFiles(parsed.repoId, tokenSource.token()) }
                     }
+                    // runCatching also catches the CancellationException of a listing that
+                    // was replaced. Stop here, so its error is never written over the new one.
+                    ensureActive()
                     result.onSuccess { files ->
                         val loadable = client.loadableFiles(files)
                         val guess = client.chooseBestFitting(
@@ -564,6 +571,9 @@ class HubViewModel(
             }
         }
     }
+
+    /** The listing in progress. A new [resolve] cancels it, so only the last repository typed is shown. */
+    private var resolveJob: Job? = null
 
     /**
      * The file name a Settings suggestion asked for, to select once its
