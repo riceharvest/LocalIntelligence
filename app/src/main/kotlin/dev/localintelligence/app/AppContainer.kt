@@ -81,7 +81,6 @@ import dev.localintelligence.core.hub.DeviceBudget
 import dev.localintelligence.core.hub.HubTokenSource
 import dev.localintelligence.core.hub.HuggingFaceClient
 import dev.localintelligence.android.hub.AndroidDeviceBudget
-import dev.localintelligence.android.hub.KeystoreTokenStore
 import dev.localintelligence.android.hub.ModelDownloader
 import dev.localintelligence.android.hub.UrlConnectionTransport
 import dev.localintelligence.app.ui.HubViewModel
@@ -1418,11 +1417,17 @@ class AppContainer(private val context: Context) {
     val hubBudget: DeviceBudget by lazy { AndroidDeviceBudget(context, modelsDir) }
 
     /**
-     * The optional read token. Null on a fresh install, and every ungated
-     * download works without it — the gate is a capability, not a
-     * requirement.
+     * The optional read token, typed in Settings (Technical mode) and kept
+     * encrypted by [SettingsStore] like the other API keys. Null on a fresh
+     * install, and every ungated download works without it — the gate is a
+     * capability, not a requirement.
+     *
+     * Read with `stored`, not the mode-aware getter: the token must not vanish
+     * in Simple mode, where the Simple table would answer "" for this row.
      */
-    val hubTokenSource: HubTokenSource by lazy { KeystoreTokenStore(context) }
+    val hubTokenSource: HubTokenSource by lazy {
+        HubTokenSource { settings.stored(CoreSettings.HF_READ_TOKEN).takeIf { it.isNotBlank() } }
+    }
 
     val hubClient: HuggingFaceClient by lazy {
         HuggingFaceClient(UrlConnectionTransport(), tokenSource = hubTokenSource)

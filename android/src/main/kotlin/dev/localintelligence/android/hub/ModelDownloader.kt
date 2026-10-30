@@ -34,6 +34,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Downloads a GGUF from HuggingFace into app-private storage, resumably,
@@ -166,6 +167,7 @@ class ModelDownloader(
                         file = file.fileName,
                         errorCode = response.header("X-Error-Code"),
                         retryAfterSeconds = response.header("Retry-After")?.toLongOrNull(),
+                        tokenSent = token != null,
                     )
                     emit(DownloadProgress.Stopped(error, partialBytesKept = localBytes))
                     return@flow
@@ -421,16 +423,41 @@ class ModelDownloader(
         val partial = partialFileFor(file)
         if (!partial.isComplete(file.sizeBytes)) return false
         val expected = file.sha256 ?: return true
-        val actual = Sha256.ofFile(partial.finalFile) ?: return false
-        if (!Sha256.matches(expected, actual)) {
-            // WHY kept: the bytes were verified when they were downloaded, so a
-            // changed digest means the repository published a newer revision, not
-            // that this copy is broken. Deleting it on a lookup removed a model
-            // the user still had.
-            return false
-        }
-        return true
+        val final = partial.finalFile
+        val length = final.length()
+        val modified = final.lastModified()
+        val key = final.path
+        // WHY cached: every quant tap on a file the phone already has used to read
+        // the whole 2-4 GB file again before the selection changed. The verdict only
+        // changes when the bytes or the digest it was checked against change, so the
+        // key is exactly those three.
+        verified[key]
+            ?.takeIf { it.expectedSha == expected && it.length == length && it.modifiedMs == modified }
+            ?.let { return it.matches }
+        val actual = Sha256.ofFile(final) ?: return false
+        val matches = Sha256.matches(expected, actual)
+        verified[key] = VerifiedCopy(expected, length, modified, matches)
+        // WHY kept: the bytes were verified when they were downloaded, so a
+        // changed digest means the repository published a newer revision, not
+        // that this copy is broken. Deleting it on a lookup removed a model
+        // the user still had.
+        return matches
     }
+
+    /**
+     * One digest check of a final file, remembered by [isDownloaded]. Keyed by the
+     * file's length and modification time as well as the expected digest, so a
+     * replaced file or a newer revision is checked again rather than trusted.
+     */
+    private class VerifiedCopy(
+        val expectedSha: String,
+        val length: Long,
+        val modifiedMs: Long,
+        val matches: Boolean,
+    )
+
+    /** Verdicts by final path. Written from the IO dispatcher, read from the same. */
+    private val verified = ConcurrentHashMap<String, VerifiedCopy>()
 
     /**
      * The `.part` and final paths for [file].

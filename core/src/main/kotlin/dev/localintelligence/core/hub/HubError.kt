@@ -145,6 +145,7 @@ sealed class HubError(override val message: String) : Exception(message) {
             file: String?,
             errorCode: String? = null,
             retryAfterSeconds: Long? = null,
+            tokenSent: Boolean = false,
         ): HubError {
             val code = errorCode?.trim()?.uppercase()
             if (code == "GATEDREPO" || code == "GATED" || code == "REPOGATED") {
@@ -160,8 +161,17 @@ sealed class HubError(override val message: String) : Exception(message) {
                 // page that does not exist. Only an explicit X-Error-Code is
                 // trusted; otherwise 401/403 means we could not authenticate,
                 // which for an anonymous user is indistinguishable from absent.
+                //
+                // WHY a sent token changes the answer: once the request carried a
+                // token, a 401/403 is HF rejecting that token (revoked, mistyped,
+                // or expired). Reporting it as a missing repo sends the user to
+                // check the spelling of a repo that exists.
                 status == 401 || status == 403 ->
-                    if (file != null) FileNotFound(repo, file) else RepoNotFound(repo)
+                    when {
+                        tokenSent -> Unauthorized(repo)
+                        file != null -> FileNotFound(repo, file)
+                        else -> RepoNotFound(repo)
+                    }
                 status == 404 -> if (file != null) FileNotFound(repo, file) else RepoNotFound(repo)
                 status == 429 -> RateLimited(retryAfterSeconds)
                 status in 500..599 -> ServerUnavailable(status)
