@@ -262,7 +262,7 @@ class HuggingFaceClient(
      * a future feature with its own size and resume story.
      */
     fun loadableFiles(all: List<HubGgufFile>): List<HubGgufFile> =
-        all.filterNot { it.isSharded }.sortedBy { it.sizeBytes }
+        all.filterNot { it.isSharded || it.isProjector }.sortedBy { it.sizeBytes }
 
     /**
      * Picks the largest quant that fits the RAM budget.
@@ -283,7 +283,7 @@ class HuggingFaceClient(
         budget: DeviceBudget,
         model: MemoryModel = PreDownloadMemoryModel,
     ): HubGgufFile? {
-        val loadable = candidates.filterNot { it.isSharded }
+        val loadable = candidates.filterNot { it.isSharded || it.isProjector }
         if (loadable.isEmpty()) return null
         // Best first, so the first that fits is the answer.
         val ordered = loadable.sortedWith(
