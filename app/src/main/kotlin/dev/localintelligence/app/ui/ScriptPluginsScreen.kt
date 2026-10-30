@@ -112,7 +112,7 @@ fun ScriptPluginsScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Plugins") },
+                title = { Text("Script plugins") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -130,15 +130,14 @@ fun ScriptPluginsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "A script plugin is a small JavaScript program you install. Its tools are offered to the " +
-                    "assistant while its switch is on. Each call runs in a sandbox with no network, no files " +
-                    "and no access to your data: it can compute and return text. Its output is treated as " +
-                    "untrusted text.",
+                "Small programs that add tools for the assistant. They run in a sandbox with no " +
+                    "network and no access to your data.",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (!supported) {
                 Text(
-                    "Script plugins cannot run on this phone: ${ScriptRunner.UNSUPPORTED_REASON}",
+                    "Script plugins are not supported on this phone.",
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -149,16 +148,17 @@ fun ScriptPluginsScreen(
                 Text("No script plugins yet.", style = MaterialTheme.typography.bodyMedium)
             }
             installed.forEach { (plugin, item) ->
-                Card(Modifier.fillMaxWidth()) {
+                var expanded by remember { mutableStateOf(false) }
+                Card(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(plugin.title, style = MaterialTheme.typography.titleSmall)
                                 Text(
-                                    "${item.manifest.id} ${item.manifest.version}",
-                                    style = MaterialTheme.typography.labelSmall,
+                                    plugin.summary,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                Text(plugin.summary, style = MaterialTheme.typography.bodySmall)
                             }
                             Switch(
                                 checked = store.isPluginEnabled(plugin),
@@ -166,40 +166,49 @@ fun ScriptPluginsScreen(
                                 onCheckedChange = { store.setPluginEnabled(plugin, it) },
                             )
                         }
-                        Text(
-                            item.manifest.tools.joinToString("\n") { "${plugin.id}.${it.name}" },
-                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        )
+                        if (expanded) {
+                            Text(
+                                "${item.manifest.id} ${item.manifest.version}",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                            Text(
+                                item.manifest.tools.joinToString("\n") { "${plugin.id}.${it.name}" },
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            )
+                        }
                         TextButton(onClick = { deleting = plugin to item }) { Text("Delete") }
                     }
                 }
             }
 
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Writing a plugin", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "A plugin is two files. plugin.json says what it is and which tools it offers: " +
-                            "an id, a title, a summary, a version, and tools. Each tool has a name, a " +
-                            "description, a parameters schema, and a risk of read_only or reversible. " +
-                            "A script cannot be a riskier tier, because it cannot reach anything outside " +
-                            "its sandbox.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        "main.js defines one function per tool. It receives the arguments as an object " +
-                            "and returns text. Use only plain JavaScript: no fetch, no files, no timers " +
-                            "that run later. A call is stopped after 5 seconds.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        "Example, a word count tool. Its tool is named script.word_count.count_words:",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        SAMPLE_PACKAGE.mainJs,
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                    )
+            var showHowTo by remember { mutableStateOf(false) }
+            TextButton(onClick = { showHowTo = !showHowTo }) { Text("How to write one") }
+            if (showHowTo) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "A plugin is two files. plugin.json says what it is and which tools it offers: " +
+                                "an id, a title, a summary, a version, and tools. Each tool has a name, a " +
+                                "description, a parameters schema, and a risk of read_only or reversible. " +
+                                "A script cannot be a riskier tier, because it cannot reach anything outside " +
+                                "its sandbox.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "main.js defines one function per tool. It receives the arguments as an object " +
+                                "and returns text. Use only plain JavaScript: no fetch, no files, no timers " +
+                                "that run later. A call is stopped after 5 seconds.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "Example, a word count tool. Its tool is named script.word_count.count_words:",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            SAMPLE_PACKAGE.mainJs,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        )
+                    }
                 }
             }
         }
@@ -209,19 +218,20 @@ fun ScriptPluginsScreen(
         AlertDialog(
             onDismissRequest = { showChoice = false },
             title = { Text("Add plugin") },
-            text = { Text("Paste the two files, or give a link to a .zip that holds plugin.json and main.js.") },
+            text = { Text("Write a new plugin or import one from a link.") },
             confirmButton = {
-                TextButton(onClick = {
-                    showChoice = false
-                    editor = SAMPLE_PACKAGE
-                }) { Text("Paste files") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showChoice = false
-                    urlError = null
-                    showUrl = true
-                }) { Text("From a URL") }
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(onClick = {
+                        showChoice = false
+                        editor = SAMPLE_PACKAGE
+                    }) { Text("Write it here") }
+                    TextButton(onClick = {
+                        showChoice = false
+                        urlError = null
+                        showUrl = true
+                    }) { Text("Import from a link") }
+                    TextButton(onClick = { showChoice = false }) { Text("Cancel") }
+                }
             },
         )
     }
@@ -229,12 +239,11 @@ fun ScriptPluginsScreen(
     if (showUrl) {
         AlertDialog(
             onDismissRequest = { if (!fetching) showUrl = false },
-            title = { Text("Plugin from a URL") },
+            title = { Text("Import from a link") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "Use a direct link to a .zip. Only http and https links, up to 256 KB. You read both " +
-                            "files before anything is saved.",
+                        "Paste the link to the plugin. You can read it before it is saved.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     OutlinedTextField(

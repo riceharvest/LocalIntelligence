@@ -39,6 +39,8 @@ import dev.localintelligence.android.skills.SkillDownloader
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.android.skills.SkillSettings
 import dev.localintelligence.app.settings.SettingsStore
+import dev.localintelligence.core.settings.SettingsMode
+import dev.localintelligence.core.settings.mode
 import dev.localintelligence.core.skill.SkillParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -77,6 +79,8 @@ fun SkillsScreen(
     var urlError by remember { mutableStateOf<String?>(null) }
     var fetching by remember { mutableStateOf(false) }
     var editorText by remember { mutableStateOf<String?>(null) }
+    var showForm by remember { mutableStateOf(false) }
+    val technical = store.mode == SettingsMode.TECHNICAL
     var deleting by remember { mutableStateOf<InstalledSkill?>(null) }
 
     Scaffold(
@@ -101,9 +105,10 @@ fun SkillsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "A skill is a SKILL.md file: a name, when to use it, and the steps. When a request " +
-                    "matches a skill that is on, its steps are added for the assistant to follow.",
+                "Skills teach the assistant a routine you use often. Turn one on and it is used " +
+                    "when a request matches.",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             FilledTonalButton(onClick = { showChoice = true }) { Text("Add skill") }
 
@@ -117,7 +122,11 @@ fun SkillsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(item.skill.name, style = MaterialTheme.typography.titleSmall)
-                                Text(item.skill.description, style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    item.skill.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                             Switch(checked = store.stored(def), onCheckedChange = { store.set(def, it) })
                         }
@@ -132,19 +141,20 @@ fun SkillsScreen(
         AlertDialog(
             onDismissRequest = { showChoice = false },
             title = { Text("Add skill") },
-            text = { Text("Paste the SKILL.md text, or give a link to a raw SKILL.md file.") },
+            text = { Text("Write a new skill or import one from a link.") },
             confirmButton = {
-                TextButton(onClick = {
-                    showChoice = false
-                    editorText = NEW_SKILL_TEMPLATE
-                }) { Text("Paste text") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showChoice = false
-                    urlError = null
-                    showUrl = true
-                }) { Text("From a URL") }
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(onClick = {
+                        showChoice = false
+                        if (technical) editorText = NEW_SKILL_TEMPLATE else showForm = true
+                    }) { Text("Write it here") }
+                    TextButton(onClick = {
+                        showChoice = false
+                        urlError = null
+                        showUrl = true
+                    }) { Text("Import from a link") }
+                    TextButton(onClick = { showChoice = false }) { Text("Cancel") }
+                }
             },
         )
     }
@@ -152,13 +162,10 @@ fun SkillsScreen(
     if (showUrl) {
         AlertDialog(
             onDismissRequest = { if (!fetching) showUrl = false },
-            title = { Text("Skill from a URL") },
+            title = { Text("Import from a link") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Use the raw file, for example a GitHub \"Raw\" link. Only http and https links, up to 64 KB.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    Text("Paste the link to the skill.", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(
                         value = url,
                         onValueChange = { url = it },
@@ -183,7 +190,9 @@ fun SkillsScreen(
                                     showUrl = false
                                     editorText = result.text
                                 }
-                                is SkillDownloader.Result.Failed -> urlError = result.reason
+                                is SkillDownloader.Result.Failed ->
+                                    urlError = result.reason +
+                                        " Use a direct link to the raw file (for GitHub, the \"Raw\" link), under 64 KB."
                             }
                         }
                     },
@@ -191,6 +200,22 @@ fun SkillsScreen(
             },
             dismissButton = {
                 TextButton(enabled = !fetching, onClick = { showUrl = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (showForm) {
+        SkillFormDialog(
+            onDismiss = { showForm = false },
+            onConfirm = { text ->
+                when (val saved = repository.save(text)) {
+                    is SkillRepository.SaveResult.Saved -> {
+                        showForm = false
+                        reload += 1
+                        null
+                    }
+                    is SkillRepository.SaveResult.Refused -> saved.reason
+                }
             },
         )
     }
@@ -229,6 +254,63 @@ fun SkillsScreen(
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
+}
+
+/**
+ * Simple-mode skill writing: three plain fields, turned into the skill text with
+ * [SkillParser.render] so the saved file is the same one the raw editor would give.
+ * [onConfirm] has the same contract as in [SkillEditorDialog].
+ */
+@Composable
+private fun SkillFormDialog(onDismiss: () -> Unit, onConfirm: (String) -> String?) {
+    var name by remember { mutableStateOf("") }
+    var whenToUse by remember { mutableStateOf("") }
+    var steps by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New skill") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it; error = null },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = whenToUse,
+                    onValueChange = { whenToUse = it; error = null },
+                    label = { Text("When to use it") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = steps,
+                    onValueChange = { steps = it; error = null },
+                    label = { Text("Steps") },
+                    minLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                error = when {
+                    name.isBlank() -> "Give the skill a name."
+                    whenToUse.isBlank() -> "Say when to use it."
+                    steps.isBlank() -> "Write the steps."
+                    else -> onConfirm(SkillParser.render(name.trim(), whenToUse.trim(), steps.trim()))
+                }
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /**
