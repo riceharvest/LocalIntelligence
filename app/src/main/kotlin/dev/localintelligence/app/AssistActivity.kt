@@ -18,7 +18,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -92,6 +99,25 @@ private fun AssistOverlay(
     var includeScreen by remember { mutableStateOf(false) }
     val ready = text.isNotBlank()
     val scope = rememberCoroutineScope()
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        keyboard?.show()
+    }
+    val submit = {
+        val send = text.trim()
+        // Encoding a full screen is slow enough to stall the overlay, so it runs off the main thread.
+        scope.launch {
+            val screen = if (includeScreen && screenshot != null) {
+                withContext(Dispatchers.Default) { encodeBitmapPicture(screenshot) }
+            } else {
+                null
+            }
+            onSend(send, screen)
+        }
+        Unit
+    }
     Surface(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         shape = MaterialTheme.shapes.large,
@@ -103,8 +129,10 @@ private fun AssistOverlay(
                 value = text,
                 onValueChange = { text = it },
                 placeholder = { Text("Ask anything") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                 minLines = 2,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { if (ready) submit() }),
             )
             if (screenshot != null) {
                 Row(
@@ -123,22 +151,13 @@ private fun AssistOverlay(
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onCancel) { Text("Cancel") }
-                Button(
-                    onClick = {
-                        val send = text.trim()
-                        // Encoding a full screen is slow enough to stall the overlay, so it runs off the main thread.
-                        scope.launch {
-                            val screen = if (includeScreen && screenshot != null) {
-                                withContext(Dispatchers.Default) { encodeBitmapPicture(screenshot) }
-                            } else {
-                                null
-                            }
-                            onSend(send, screen)
-                        }
-                    },
-                    enabled = ready,
-                ) { Text("Send") }
+                Button(onClick = { submit() }, enabled = ready) { Text("Ask") }
             }
+            Text(
+                "The answer opens in LocalIntelligence",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

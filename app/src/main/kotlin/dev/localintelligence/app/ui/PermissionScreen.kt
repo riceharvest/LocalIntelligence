@@ -1,6 +1,9 @@
 package dev.localintelligence.app.ui
 
 import android.Manifest
+import dev.localintelligence.app.LocalIntelligenceApp
+import dev.localintelligence.core.settings.SettingsMode
+import dev.localintelligence.core.settings.mode
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -31,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -209,6 +213,11 @@ fun PermissionScreen(
         launcher.launch(permissions.toTypedArray())
     }
 
+    val technical = remember {
+        (context.applicationContext as LocalIntelligenceApp).container.settings.mode ==
+            SettingsMode.TECHNICAL
+    }
+    var otherOpen by remember { mutableStateOf(false) }
     val outstanding = statuses.count { !it.value.isSatisfied }
 
     Scaffold(
@@ -233,15 +242,12 @@ fun PermissionScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = if (outstanding == 0) {
-                    "Everything the assistant's tools need is switched on. Nothing to do here."
-                } else {
-                    "$outstanding of ${entries.size} capabilities are off. Each one below says " +
-                        "exactly how to turn it on, and whether Android will ask you or send you " +
-                        "to Settings."
+                text = when (outstanding) {
+                    0 -> "All set"
+                    1 -> "1 permission is off"
+                    else -> "$outstanding permissions are off"
                 },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.titleMedium,
             )
 
             if (batchable.size > 1) {
@@ -249,21 +255,33 @@ fun PermissionScreen(
                     onClick = { ask(batchable) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Ask for the ${batchable.size} Android can prompt for")
+                    Text("Allow all")
                 }
             }
 
             HorizontalDivider()
 
-            entries.forEach { entry ->
-                val status = statuses.getValue(entry)
+            @Composable
+            fun CardFor(entry: PermissionEntry) {
                 PermissionCard(
                     entry = entry,
-                    status = status,
+                    status = statuses.getValue(entry),
                     onAsk = { entry.grant.permissionOrNull()?.let { ask(listOf(it)) } },
                     onOpenSettings = { openAppSettings(context) },
                     onOpenScreen = { (entry.grant as? Grant.Screen)?.open(context) },
                 )
+            }
+
+            val (actionable, noAction) = entries.partition { it.grant !is Grant.NoAction }
+            actionable.forEach { CardFor(it) }
+
+            // Cards with nothing to grant are noise for most people; only the
+            // technical view lists them, folded away.
+            if (technical && noAction.isNotEmpty()) {
+                TextButton(onClick = { otherOpen = !otherOpen }) {
+                    Text(if (otherOpen) "Hide other" else "Other")
+                }
+                if (otherOpen) noAction.forEach { CardFor(it) }
             }
         }
     }
@@ -379,9 +397,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         PermissionEntry(
             requirement = ToolPermissions.CONTACTS,
             title = "Contacts",
-            why = "Lets the assistant look up a name or phone number in your contacts when " +
-                "you ask it a question that needs one. It reads nothing until a tool runs, " +
-                "and nothing leaves the phone — the model runs here.",
+            why = "Look up names and numbers when you ask.",
             grant = Grant.Dialog(ToolPermissions.READ_CONTACTS),
         ),
     )
@@ -389,8 +405,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         PermissionEntry(
             requirement = ToolPermissions.CALENDAR_READ,
             title = "Calendar, reading",
-            why = "Lets the assistant check your schedule when you ask what is on today. " +
-                "Read-only: it cannot change an event with this one.",
+            why = "Check your schedule when you ask.",
             grant = Grant.Dialog(ToolPermissions.READ_CALENDAR),
         ),
     )
@@ -398,8 +413,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         PermissionEntry(
             requirement = ToolPermissions.CALENDAR_WRITE,
             title = "Calendar, writing",
-            why = "Lets the assistant add an event when you ask it to. Events are added " +
-                "without a separate approval step.",
+            why = "Add events when you ask.",
             grant = Grant.Dialog(ToolPermissions.WRITE_CALENDAR),
         ),
     )
@@ -408,9 +422,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
             PermissionEntry(
                 requirement = NOTIFICATIONS,
                 title = "Notifications",
-                why = "Lets a finished task, a set alarm, or a reminder reach you. Without " +
-                    "it a long task completes in silence and an alarm is indistinguishable " +
-                    "from one that was never set.",
+                why = "Tell you when a task or alarm is done.",
                 grant = Grant.Dialog(Manifest.permission.POST_NOTIFICATIONS),
             ),
         )
@@ -422,9 +434,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
             PermissionEntry(
                 requirement = NOTIFICATIONS,
                 title = "Notifications",
-                why = "Android ${android.os.Build.VERSION.RELEASE} does not ask for " +
-                    "notification permission, so this is already on. From Android 13 the " +
-                    "app asks you for it here.",
+                why = "Already on.",
                 grant = Grant.NoAction,
             ),
         )
@@ -435,10 +445,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         PermissionEntry(
             requirement = ToolPermissions.NOTIFICATION_LISTENER,
             title = "Notification access",
-            why = "Lets the assistant read notifications when you ask it to, and reply to " +
-                "ones that offer a reply button. Android has no dialog for this at all — it " +
-                "is a switch in the system Settings app, which is why the button takes you " +
-                "there instead.",
+            why = "Read and reply to notifications when you ask.",
             grant = Grant.Screen { context ->
                 LocalNotificationListenerService.requestConsent(context)
             },
@@ -449,9 +456,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
             PermissionEntry(
                 requirement = ToolPermissions.EXACT_ALARM,
                 title = "Exact alarms",
-                why = "Lets a task be set for a specific minute. Android calls this " +
-                    "\"Alarms & reminders\" and treats it as special access, so there is no " +
-                    "dialog — the button opens the page for this app where you turn it on.",
+                why = "Run tasks at an exact time.",
                 grant = Grant.Screen { context ->
                     openSettings(context, Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
                 },
@@ -462,8 +467,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
             PermissionEntry(
                 requirement = ToolPermissions.EXACT_ALARM,
                 title = "Exact alarms",
-                why = "Android ${android.os.Build.VERSION.RELEASE} lets any app set an exact " +
-                    "alarm, so there is nothing to grant here. Android 12 started asking.",
+                why = "Already on.",
                 grant = Grant.NoAction,
             ),
         )
@@ -475,11 +479,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
             PermissionEntry(
                 requirement = ToolPermissions.DOCUMENT_READ,
                 title = "Your documents",
-                why = "There is no Android dialog for this. A document reaches this app by " +
-                    "being handed over — share it to LocalIntelligence from any app's share " +
-                    "menu, or pick it with the system file picker. On Android 13 and newer " +
-                    "no permission, including the media ones, can list a document you have " +
-                    "not shared, so this row stays off no matter what you allow.",
+                why = "Share a file to the app to use it.",
                 grant = Grant.NoAction,
             ),
         )
@@ -488,8 +488,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
             PermissionEntry(
                 requirement = ToolPermissions.DOCUMENT_READ,
                 title = "Your documents, reading",
-                why = "Lets the assistant list and read documents and downloads on this " +
-                    "phone. Android asks you directly.",
+                why = "Read documents on this phone.",
                 grant = Grant.Dialog(Manifest.permission.READ_EXTERNAL_STORAGE),
             ),
         )
@@ -498,9 +497,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         PermissionEntry(
             requirement = ToolPermissions.DOCUMENT_WRITE,
             title = "Your documents, writing",
-            why = "From Android 10 the assistant can create files in Downloads without " +
-                "asking, and can overwrite only documents you have shared with it. On older " +
-                "phones it needs the storage permission, which Android asks for directly.",
+            why = "Save files on this phone.",
             grant = if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
                 Grant.NoAction
             } else {
@@ -514,9 +511,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         PermissionEntry(
             requirement = ToolPermissions.CLIPBOARD_BACKGROUND_READ,
             title = "Clipboard in the background",
-            why = "Not a permission — there is no switch anywhere. Android only lets an app " +
-                "read the clipboard while it has the screen's focus, and you are looking at " +
-                "this page, so it can read it right now. It stops the moment you switch away.",
+            why = "Read the clipboard while the app is open.",
             grant = Grant.NoAction,
         ),
     )
@@ -524,9 +519,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         PermissionEntry(
             requirement = ToolPermissions.VIBRATE_REQUIREMENT,
             title = "Vibration",
-            why = "Granted when the app was installed and cannot be taken away at runtime. " +
-                "If a tool ever says this is missing, the app was installed without it, " +
-                "which is a bug in the app rather than something to change in Settings.",
+            why = "Always on.",
             grant = Grant.NoAction,
         ),
     )
@@ -534,9 +527,7 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         PermissionEntry(
             requirement = ToolPermissions.INTERNET_REQUIREMENT,
             title = "Network",
-            why = "Granted at install, for the one tool that fetches a web page. Everything " +
-                "else — the model, your chats, your files — stays on this phone. There is " +
-                "no switch for it, because there is no switch for it.",
+            why = "Always on.",
             grant = Grant.NoAction,
         ),
     )
@@ -771,51 +762,25 @@ private fun PermissionCard(
             when (status) {
                 PermissionStatus.GRANTED -> Unit
 
-                PermissionStatus.NOT_A_PERMISSION -> Text(
-                    // The requirement's own words, so this screen and the
-                    // sentence a tool hands the model cannot say different
-                    // things about the same capability.
-                    text = entry.requirement.grantInstructions,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                PermissionStatus.NOT_A_PERMISSION -> Unit
 
                 PermissionStatus.REQUIRES_SCREEN -> {
-                    Text(
-                        text = entry.requirement.grantInstructions,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                     Button(onClick = onOpenScreen) {
                         Text("Open settings")
                     }
                 }
 
                 PermissionStatus.NOT_ASKED -> {
-                    Text(
-                        "Android will ask you, with its own dialog, the first time you tap.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                     Button(onClick = onAsk) { Text("Allow") }
                 }
 
                 PermissionStatus.DENIED -> {
-                    Text(
-                        "You said no. Android will ask again if you tap — nothing is " +
-                            "permanently off yet.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Button(onClick = onAsk) { Text("Ask again") }
+                    Button(onClick = onAsk) { Text("Allow") }
                 }
 
                 PermissionStatus.DENIED_FOREVER -> {
                     Text(
-                        "You told Android not to ask about this again, so tapping would only " +
-                            "flash a dialog and dismiss it. The button opens this app's page " +
-                            "in Settings, where the permission is still listed — or removed " +
-                            "entirely, if you want it gone for good.",
+                        "Turn it on in Android settings.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )

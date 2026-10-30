@@ -2,6 +2,8 @@ package dev.localintelligence.app.ui.trace
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,8 +15,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -52,10 +56,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.localintelligence.app.LocalIntelligenceApp
 import dev.localintelligence.app.data.ScheduledTask
+import dev.localintelligence.core.settings.SettingsMode
+import dev.localintelligence.core.settings.mode
 import dev.localintelligence.app.data.TaskAction
 import dev.localintelligence.app.data.TaskBlocker
 import dev.localintelligence.app.data.TaskCadence
+import dev.localintelligence.app.execution.ScheduledRunReporter.ANSWER_PREFIX
 import dev.localintelligence.app.execution.ScheduledRunReporter.FAILED_PREFIX
 import dev.localintelligence.app.execution.ScheduledRunReporter.REFUSED_PREFIX
 
@@ -90,6 +98,11 @@ fun ScheduleScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val technical = remember {
+        (context.applicationContext as LocalIntelligenceApp).container.settings.mode ==
+            SettingsMode.TECHNICAL
+    }
+    var pendingDelete by remember { mutableStateOf<String?>(null) }
 
     // The self-check is reachable from here because this is the only navigable
     // screen in the package this change owns, and a diagnostics screen nobody
@@ -123,6 +136,22 @@ fun ScheduleScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    pendingDelete?.let { id ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete this task?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.delete(id)
+                    pendingDelete = null
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            },
+        )
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -134,11 +163,13 @@ fun ScheduleScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showSelfCheck = true }) {
-                        Icon(
-                            Icons.Filled.HealthAndSafety,
-                            contentDescription = "Self-check: what is actually working on this phone",
-                        )
+                    if (technical) {
+                        IconButton(onClick = { showSelfCheck = true }) {
+                            Icon(
+                                Icons.Filled.HealthAndSafety,
+                                contentDescription = "Self-check: what is actually working on this phone",
+                            )
+                        }
                     }
                 },
             )
@@ -195,7 +226,7 @@ fun ScheduleScreen(
                         TaskRow(
                             task = task,
                             isRunning = task.id == state.runningTaskId,
-                            onDelete = { viewModel.delete(task.id) },
+                            onDelete = { pendingDelete = task.id },
                             onPause = { viewModel.pause(task.id) },
                             onResume = { viewModel.resume(task.id) },
                         )
@@ -240,7 +271,8 @@ private fun ScheduleForm(
         // A single-select chip row. FilterChip reports its own selected state,
         // which is what a screen reader announces; a custom clickable row would
         // have to describe "selected" in words by hand and could get it wrong.
-        Row(
+        @OptIn(ExperimentalLayoutApi::class)
+        FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -362,8 +394,17 @@ private fun TaskRow(
                     task = task,
                     isRunning = isRunning,
                 )
+                val failed = result.startsWith(FAILED_PREFIX) || result.startsWith(REFUSED_PREFIX)
+                if (failed) {
+                    Text(
+                        text = if (result.startsWith(FAILED_PREFIX)) "Failed" else "Refused",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
                 Text(
-                    text = result,
+                    text = displayResult(result),
                     style = MaterialTheme.typography.bodySmall,
                     color = resultColor(result),
                     // Bounded here as well as at write time. The stored value
@@ -391,7 +432,7 @@ private fun TaskRow(
                     modifier = Modifier.padding(top = 4.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.PlayArrow,
+                        imageVector = if (task.enabled) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = null,
                         modifier = Modifier.padding(end = 4.dp),
                     )
@@ -503,6 +544,13 @@ private fun resultColor(result: String): Color = when {
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
+/** The stored result without its machine prefix ("Answered: ", "Failed: ", ...). */
+private fun displayResult(result: String): String {
+    val prefixes = listOf(FAILED_PREFIX, REFUSED_PREFIX, ANSWER_PREFIX)
+    val hit = prefixes.firstOrNull { result.startsWith(it) } ?: return result
+    return result.removePrefix(hit).trimStart()
+}
+
 private fun timeOf(millis: Long): String =
     java.time.format.DateTimeFormatter
         .ofPattern("d MMM, HH:mm", java.util.Locale.getDefault())
@@ -546,7 +594,7 @@ private fun ScheduleNotice(notice: String) {
  */
 private fun TaskAction.label(): String = when (this) {
     TaskAction.OpenModels -> "Open models"
-    TaskAction.OpenNotificationAccess -> "Fix"
-    TaskAction.OpenBatterySettings -> "Fix"
-    TaskAction.OpenExactAlarmSettings -> "Fix"
+    TaskAction.OpenNotificationAccess -> "Allow notification access"
+    TaskAction.OpenBatterySettings -> "Battery settings"
+    TaskAction.OpenExactAlarmSettings -> "Allow alarms"
 }
