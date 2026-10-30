@@ -33,6 +33,7 @@ import dev.localintelligence.core.policy.PolicyOutcome
 import dev.localintelligence.core.policy.RiskPolicy
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.CancellationSignal
+import dev.localintelligence.core.tool.ObservationStore
 import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
 import dev.localintelligence.core.tool.ToolError
@@ -257,6 +258,12 @@ class AgentController(
     private val onToolDone: ((List<StepTrace>) -> Unit)? = null,
     /** One line per context decision (tool set change, compaction), for the device log. */
     private val log: (String) -> Unit = {},
+    /**
+     * Where a tool result longer than the observation budget is saved whole.
+     * The model then sees its start and end with a handle, and reads the rest
+     * with `observations.read`. Null: the result is cut to its head, as before.
+     */
+    private val observationStore: ObservationStore? = null,
 ) {
     /**
      * Run state. It outlives a single call because
@@ -836,7 +843,7 @@ class AgentController(
         }
         val durationMs = (System.nanoTime() - startedAt) / 1_000_000
 
-        val observation = truncate(hooks.afterTool(call.name, call.args, result.observation, result.success))
+        val observation = truncate(call.name, hooks.afterTool(call.name, call.args, result.observation, result.success))
         loopDetector.recordResult(call.name, observation, result.success, result.error)
         sessions.appendToolObservation(call.tool, observation, result.success)
         // Charge the call to the task's blast radius. This happens on the
@@ -1119,6 +1126,11 @@ class AgentController(
 
     // ------------------------------------------------------------ collaborators
 
+    /** Whether a saved-result handle (`[obs#N: …]`) is in the conversation or the working state. */
+    private fun handleInContext(): Boolean =
+        sessions.messages.any { it is ChatMessage.ToolObservation && it.observation.contains(OBS_HANDLE) } ||
+            sessions.workingSummary?.render()?.contains(OBS_HANDLE) == true
+
     /**
      * The tools for this step: the session's list, plus any this task needs that
      * it lacks.
@@ -1142,11 +1154,16 @@ class AgentController(
         }
         val byName = all.associateBy { it.definition.name }
         val kept = sessions.epochTools.filter { it in byName }
-        val wantedNames = wanted.map { it.definition.name }
+        // A saved result's preview names observations.read; the model must be
+        // able to call it while such a handle is in the conversation, whatever
+        // the selector thought of the task.
+        val mustHave = listOfNotNull(ObservationStore.READ_TOOL.takeIf { it in byName && handleInContext() })
+        val wantedNames = (mustHave + wanted.map { it.definition.name }).distinct()
         val added = wantedNames.filter { it !in kept }
         if (added.isNotEmpty() || kept.size != sessions.epochTools.size) {
-            val appended = kept.size + added.size <= cap
-            val next = if (appended) kept + added else (wantedNames + kept.filter { it !in wantedNames }).take(cap)
+            val room = cap + mustHave.size
+            val appended = kept.size + added.size <= room
+            val next = if (appended) kept + added else (wantedNames + kept.filter { it !in wantedNames }).take(room)
             log(
                 "tool set changed: ${sessions.epochTools.size} -> ${next.size} tools, " +
                     (if (appended) "appended ${added.joinToString()}" else "started over") +
@@ -1262,8 +1279,19 @@ class AgentController(
     private fun actionHint(visible: List<AgentTool>): String =
         GrammarBuilder.hint(visible.map { it.definition })
 
-    private fun truncate(observation: String): String {
+    private fun truncate(toolName: String, observation: String): String {
         val budget = config.observationBudgetChars
+        // Saved whole and previewed (start, end, handle), unless this is the
+        // read tool itself: its output is already sized to the budget, and
+        // saving a read of a saved result would only nest handles.
+        val store = observationStore
+        if (observation.length > budget && store != null && toolName != ObservationStore.READ_TOOL) {
+            val id = runCatching { store.put(toolName, observation) }.getOrNull()
+            if (id != null) {
+                log("saved $toolName result ${observation.length} chars as obs#$id; the model gets a ${budget}-char preview")
+                return ObservationTruncator.preview(observation, budget, id)
+            }
+        }
         return when {
             observation.length <= budget -> observation
             // ObservationTruncator takes (budget - 40) and throws below 40.
@@ -1568,6 +1596,9 @@ class AgentController(
 
     private companion object {
         const val COMPACT_AT = 0.65
+
+        /** How a saved result's preview names its handle; see ObservationTruncator.preview. */
+        const val OBS_HANDLE = "[obs#"
 
         /** Conversation the turn limit always leaves room for, past the system prompt. */
         const val MIN_CONVERSATION_TOKENS = 800

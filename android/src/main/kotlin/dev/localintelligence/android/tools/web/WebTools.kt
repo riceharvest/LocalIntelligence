@@ -87,9 +87,14 @@ import javax.net.ssl.SSLException
 /** Hard ceiling on the raw body we will pull off the socket, in bytes. */
 internal const val MAX_BODY_BYTES: Int = 256 * 1024
 
-/** Model-visible character budget for the extracted text. */
-internal const val DEFAULT_MAX_CHARS: Int = 2000
-internal const val MAX_MAX_CHARS: Int = 8000
+/**
+ * Characters of page text a fetch returns. Generous on purpose: the agent loop
+ * saves a long result whole and shows the model its start and end with a handle
+ * (`observations.read` pages through the rest), so cutting the page here would
+ * only throw away the part the model could have asked for.
+ */
+internal const val DEFAULT_MAX_CHARS: Int = 60_000
+internal const val MAX_MAX_CHARS: Int = 60_000
 internal const val MIN_MAX_CHARS: Int = 100
 
 /** A phone on mobile data needs both of these, and neither is generous. */
@@ -942,13 +947,10 @@ internal class WebFetcher(
 ) {
 
     fun fetch(url: String, maxChars: Int, context: ToolContext, grant: PlatformGrant): ToolResult {
-        // The caller's knob is clamped to MAX_MAX_CHARS, and then to the
-        // contract ceiling. The ceiling always wins: a model asking for 8000
-        // characters does not get to decide that the 2048-char observation
-        // budget is optional, and the truncator below is the backstop.
-        val budget = maxChars
-            .coerceIn(MIN_MAX_CHARS, MAX_MAX_CHARS)
-            .coerceAtMost(ObservationTruncator.DEFAULT_BUDGET_CHARS)
+        // The caller's knob is clamped to MAX_MAX_CHARS. The context budget is
+        // not applied here: the loop saves a long result and gives the model a
+        // preview with a handle, which is where the observation budget holds.
+        val budget = maxChars.coerceIn(MIN_MAX_CHARS, MAX_MAX_CHARS)
         var current = url
         var redirects = 0
         var response: OpenedResponse? = null
@@ -1262,9 +1264,8 @@ class WebFetchTool private constructor(
                                 "description",
                                 JsonPrimitive(
                                     "Characters of text to return, $DEFAULT_MAX_CHARS by default, " +
-                                        "at most $MAX_MAX_CHARS. The whole response is also capped " +
-                                        "at the observation budget, so a larger value may not " +
-                                        "return more text.",
+                                        "at most $MAX_MAX_CHARS. A long page is saved: you see its " +
+                                        "start and end, and observations.read gives the rest.",
                                 ),
                             )
                         },

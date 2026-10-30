@@ -39,6 +39,8 @@ data class CompactedState(
     val actionsTaken: List<String> = emptyList(),
     val failures: List<String> = emptyList(),
     val remainingWork: List<String> = emptyList(),
+    /** Saved tool results the model can still read, as `obs#41 from web.fetch (18,240 chars)`. */
+    val openHandles: List<String> = emptyList(),
 ) {
     fun render(): String = buildString {
         appendLine("Task: $task")
@@ -47,6 +49,9 @@ data class CompactedState(
         if (actionsTaken.isNotEmpty()) appendLine("Actions already taken: ${actionsTaken.joinToString("; ")}")
         if (failures.isNotEmpty()) appendLine("Failures: ${failures.joinToString("; ")}")
         if (remainingWork.isNotEmpty()) appendLine("Remaining work: ${remainingWork.joinToString("; ")}")
+        if (openHandles.isNotEmpty()) {
+            appendLine("Saved results (read with observations.read): ${openHandles.joinToString("; ")}")
+        }
     }.trim()
 }
 

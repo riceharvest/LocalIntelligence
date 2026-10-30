@@ -7,8 +7,9 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Room schema for LocalIntelligence. Exactly four tables, per docs/architecture.md section 14:
- * `sessions`, `messages`, `memories`, `session_summaries`.
+ * Room schema for LocalIntelligence. Four tables here, per docs/architecture.md section 14:
+ * `sessions`, `messages`, `memories`, `session_summaries`. The fifth, `observations`
+ * (full text of long tool results), is in Observations.kt with its DAO.
  *
  * There is deliberately NO embeddings table. v0 memory search is lexical (FTS5) only.
  * See [MemoryQueries] for the search SQL and [MemoryFtsSchema] for the virtual table.
