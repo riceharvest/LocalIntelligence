@@ -158,4 +158,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSetMedia(
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeMediaMarker(JNIEnv * env, jclass);
 
+JNIEXPORT jbyteArray JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeSpeak(
+        JNIEnv * env, jclass, jlong handle, jstring text, jstring lang, jstring voice, jint max_frames);
+
 }  // extern "C"
