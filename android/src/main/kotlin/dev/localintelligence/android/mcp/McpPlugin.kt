@@ -75,10 +75,15 @@ object McpSettings {
         SettingSection.PLUGINS, default = "", maxLength = 300, simple = slot == 1,
     )
 
+    /**
+     * Simple for slot 1, like its address. The address is read through Simple mode, so
+     * the token must be too: otherwise a token set in Technical mode is read as empty,
+     * no Authorization header is sent, and the server refuses the calls.
+     */
     private fun tokenRow(slot: Int) = SettingDef.Secret(
         tokenKey(slot), if (slot == 1) "Bearer token" else "Server $slot bearer token",
         "Optional. Sent to the server as Authorization: Bearer. Stored encrypted and never shown back.",
-        SettingSection.PLUGINS,
+        SettingSection.PLUGINS, simple = slot == 1,
     )
 
     /** Address rows, index 0 is server 1. */
