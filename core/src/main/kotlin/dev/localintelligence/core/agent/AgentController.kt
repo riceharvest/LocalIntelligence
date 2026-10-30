@@ -1011,11 +1011,12 @@ class AgentController(
      * Prices the step about to run, applies the plan, and stops the run if it
      * still does not fit.
      *
-     * This is [StepEnforcer.cheapestReduction]'s stop condition, taken
-     * literally: a step that cannot be made to fit is not retried, and it is
-     * not run. The run ends with the arithmetic in the reason, because "the
-     * agent gave up" is not a thing the user can act on and "this call needed
-     * 4180 tokens and the window holds 3644" is.
+     * A step that cannot be made to fit is not retried, and it is not run. The
+     * run ends with the arithmetic in the reason, because "the agent gave up" is
+     * not a thing the user can act on and "this call needed 4180 tokens and the
+     * window holds 3644" is. Only a step still over the limit AFTER [priceStep]
+     * has applied every fold the window allows gets here, so a step the planned
+     * drops would have fitted is not stopped.
      *
      * WHY THIS IS RARE RATHER THAN IMPOSSIBLE: the observation estimate alone
      * is [config.observationBudgetChars] (512 tokens by default), so the step
@@ -1060,9 +1061,15 @@ class AgentController(
 
     /**
      * Prices the step against the mid-answer limit; over it, compacts once and
-     * prices again against the prompt the compaction actually produced. A step
-     * that still does not fit is one whose own reply and arguments overflow the
-     * window, and [refuseUnaffordableStep] stops the run with the arithmetic.
+     * prices again against the prompt the compaction actually produced. If the
+     * plan still asks for drops, it applies them by folding further: each fold
+     * keeps one recent message fewer, and the step is re-priced after each one.
+     * A step that still does not fit once nothing more can be folded is left for
+     * [refuseUnaffordableStep] to stop the run with the arithmetic.
+     *
+     * WHY FOLDING AND NOT DROPPING ONE ITEM: a drop from the middle of the prompt
+     * shifts every later token, so the next prefill pays for the whole prompt
+     * again. The same reduction as one fold rewrites the prompt once.
      */
     private suspend fun priceStep(call: PendingCall, reply: String, observation: String): StepVerdict? {
         var state = contextOf(lastPrompt)
@@ -1089,6 +1096,20 @@ class AgentController(
         // rewrite, after which the prompt grows at its end again.
         if (plan is StepPlan.Trim && compactNow("step ${call.name} needs ${plan.projectedTokens} of ${plan.limit} tokens")) {
             folded = 1
+            lastPrompt = buildPrompt(lastVisible)
+            state = contextOf(lastPrompt)
+            plan = enforcer.evaluate(state, proposed)
+        }
+        // Still over, and the plan names something it can give up (an empty
+        // adjustment list is the planner saying the step alone overflows). Fold
+        // further, one recent message fewer each time, and re-price, until the
+        // step fits or there is nothing left to fold. Without this the planned
+        // drops were never taken, and an over-budget step ended the run.
+        var keep = sessions.keepRecent.coerceAtLeast(1)
+        while (plan is StepPlan.Trim && !plan.unfixable && keep > 1) {
+            keep -= 1
+            if (!compactNow("step ${call.name} still needs ${plan.projectedTokens} of ${plan.limit} tokens", keep)) break
+            folded += 1
             lastPrompt = buildPrompt(lastVisible)
             state = contextOf(lastPrompt)
             plan = enforcer.evaluate(state, proposed)
