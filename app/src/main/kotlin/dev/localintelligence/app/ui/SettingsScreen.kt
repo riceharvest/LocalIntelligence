@@ -90,6 +90,7 @@ import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingSection
+import dev.localintelligence.core.hub.formatBytes
 import dev.localintelligence.core.settings.SettingsMode
 import dev.localintelligence.core.settings.mode
 import java.util.Locale
@@ -109,6 +110,8 @@ fun SettingsScreen(
     store: SettingsStore,
     plugins: List<AgentPlugin>,
     suggestion: SuggestedModel,
+    /** True when the suggested file is already in the model list; the card is then hidden. */
+    suggestionInstalled: Boolean = false,
     onOpenHub: (repo: String, file: String) -> Unit,
     /** Opens the skills screen. Defaulted so a caller that predates skills still compiles. */
     onOpenSkills: () -> Unit = {},
@@ -158,7 +161,7 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 ModeSwitch(store)
-                if (!technical) SuggestionCard(suggestion) { onOpenHub(suggestion.repo, suggestion.file) }
+                if (!technical && !suggestionInstalled) SuggestionCard(suggestion) { onOpenHub(suggestion.repo, suggestion.file) }
 
                 val context = LocalContext.current
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -259,12 +262,18 @@ private fun ModeSwitch(store: SettingsStore) {
 
 @Composable
 private fun SuggestionCard(suggestion: SuggestedModel, onOpenHub: () -> Unit) {
+    // A friendly name from the file: "Qwen3-1.7B-Q4_K_M.gguf" -> "Qwen3 1.7B Q4_K_M".
+    val name = suggestion.file.removeSuffix(".gguf").replace('-', ' ')
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Suggested for this phone", style = MaterialTheme.typography.labelLarge)
-            Text(suggestion.file, style = MaterialTheme.typography.titleMedium)
+            Text("Recommended for this phone", style = MaterialTheme.typography.titleMedium)
+            Text(name, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "about ${formatBytes(suggestion.sizeBytes)}",
+                style = MaterialTheme.typography.bodySmall,
+            )
             Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
-            FilledTonalButton(onClick = onOpenHub) { Text("Get it from ${suggestion.repo}") }
+            FilledTonalButton(onClick = onOpenHub) { Text("Download") }
         }
     }
 }

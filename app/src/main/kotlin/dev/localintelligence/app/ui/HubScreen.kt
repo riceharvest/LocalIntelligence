@@ -30,10 +30,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -70,7 +76,14 @@ import java.util.Locale
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
+fun HubScreen(
+    viewModel: HubViewModel,
+    onBack: () -> Unit,
+    /** Returns to the chat once a download is loaded. */
+    onStartChat: () -> Unit = {},
+    /** True in Technical mode; Simple shows the verdict and the recommended file only. */
+    technical: Boolean = false,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val suggestions by viewModel.searchResults.collectAsStateWithLifecycle()
     // WHY a local: `HubUiState.blocked` and `HubUiState.stopped` are computed
@@ -78,6 +91,8 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
     // recomposition boundary.
     val blocked = state.blocked
     val stopped = state.stopped
+    // Simple mode starts with the recommended file only; this reveals the rest.
+    var showAllVersions by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -135,7 +150,7 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                     onClick = viewModel::submit,
                     enabled = !state.loading && !state.downloading,
                 ) {
-                    Text("List files")
+                    Text("Search")
                 }
                 if (state.loading) {
                     // Labelled, because a bare spinner next to a button is a
@@ -168,7 +183,22 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
         if (selected != null && plan != null) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (!technical) {
+                            Text(
+                                text = if (plan.ram.fits) "Fits on this phone" else "Too big for this phone",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = if (plan.ram.fits) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                },
+                            )
+                            Text(
+                                "${formatBytes(selected.sizeBytes)} download",
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        } else {
                         Text(selected.fileName, style = MaterialTheme.typography.titleSmall)
                         Text(
                             "Download size: ${formatBytes(selected.sizeBytes)}",
@@ -250,6 +280,7 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        }
                     }
                 }
             }
@@ -265,7 +296,7 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
         // name, the real byte size (a fact about the server's bytes, not a
         // memory estimate), and the reason the app cannot fetch it.
         val nonGguf = state.nonGgufFiles
-        state.nonGgufNotice?.let { notice ->
+        state.nonGgufNotice?.takeIf { technical }?.let { notice ->
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -274,7 +305,7 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                     ),
                 ) {
                     Column(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
@@ -324,15 +355,40 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
             }
         }
 
+        if (!technical && state.files.isEmpty() && state.nonGgufNotice != null) {
+            item {
+                Text(
+                    "No models in this repository can run on this phone.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
         if (state.files.isNotEmpty()) {
-            item { Text("Available files", style = MaterialTheme.typography.titleSmall) }
-            items(state.files, key = { it.fileName + it.sizeBytes }) { file ->
+            item { Text(if (technical) "Available files" else "Versions", style = MaterialTheme.typography.titleSmall) }
+            // Simple: the recommended file (and whatever is selected), with the rest behind a button.
+            val recommended = state.recommended
+            val collapse = !technical && !showAllVersions && recommended != null
+            val shown = if (collapse) {
+                state.files.filter { it == recommended || it.fileName == state.selected?.fileName }
+            } else {
+                state.files
+            }
+            items(shown, key = { it.fileName + it.sizeBytes }) { file ->
                 QuantRow(
+                    technical = technical,
+                    recommended = file == recommended,
                     file = file,
                     selected = state.selected?.fileName == file.fileName,
                     enabled = !state.downloading,
                     onSelect = { viewModel.select(file) },
                 )
+            }
+            if (collapse && shown.size < state.files.size) {
+                item {
+                    TextButton(onClick = { showAllVersions = true }) { Text("Show all versions") }
+                }
             }
         }
 
@@ -363,11 +419,31 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                     // storage" does not answer it. `registeredNote` carries the
                     // registrar's own answer, including its failure cases.
                     val note = state.registeredNote
-                    Text(
-                        note ?: "Downloaded. Open Models to load it.",
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                    if (state.ready) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "Ready to use",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            if (technical) {
+                                (state.progress as? DownloadProgress.Done)?.let { done ->
+                                    Text(
+                                        "Saved to ${done.file.fileName}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = FontFamily.Monospace,
+                                    )
+                                }
+                            }
+                            Button(onClick = onStartChat) { Text("Start chatting") }
+                        }
+                    } else {
+                        Text(
+                            note ?: "Downloaded. Open Models to load it.",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
                 // WHY THE STOPPED STATE IS RENDERED RATHER THAN FALLING THROUGH
                 // TO THE IDLE BUTTON: the transfer is resumable and the bytes
@@ -384,12 +460,9 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                         )
                         Text(
                             text = if (state.partialBytesKept > 0) {
-                                "${formatBytes(state.partialBytesKept)} is already on " +
-                                    "this phone and is kept. The button below resumes " +
-                                    "from there rather than starting again."
+                                "${formatBytes(state.partialBytesKept)} saved. You can resume."
                             } else {
-                                "Nothing was kept, so the button below starts from " +
-                                    "the beginning."
+                                "Nothing was saved, so the button below starts again."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -414,7 +487,11 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                     // The refusal is shown in full, not summarised: the user is
                     // being refused a 2 GB download and deserves the reason.
                     Text(
-                        blocked.message,
+                        if (!technical && plan?.ram?.fits == false) {
+                            "Too big for this phone. Try a smaller version."
+                        } else {
+                            blocked.message
+                        },
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -427,30 +504,32 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                     // and saw nothing had no way to learn what the field wanted
                     // in it.
                     Text(
-                        text = "Start typing a model name and pick a match, or type a " +
-                            "full owner/name and tap List files. You see each file's " +
-                            "size and whether it fits in this phone's memory before " +
-                            "anything is downloaded. Gated repositories need a licence " +
-                            "accepted on huggingface.co first.",
+                        text = if (technical) {
+                            "Start typing a model name and pick a match, or type a " +
+                                "full owner/name and tap Search. You see each file's " +
+                                "size and whether it fits in this phone's memory before " +
+                                "anything is downloaded. Gated repositories need a licence " +
+                                "accepted on huggingface.co first."
+                        } else {
+                            "Search for a model. You'll see what fits your phone before " +
+                                "anything downloads."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    // The second format, named before the user goes looking for
-                    // it. A repository such as
-                    // `litert-community/gemma-4-E4B-it-litert-lm` is public and
-                    // ungated and hosts a real model, and before this it
-                    // rendered as "no GGUF files this app can use" — which reads
-                    // as an empty repository rather than as a capability the
-                    // app has and cannot yet feed. Saying it up front costs two
-                    // sentences and saves the user a search.
-                    Text(
-                        text = "LiteRT-LM (.litertlm) files in a repository are " +
-                            "listed with their size and can be downloaded and " +
-                            "added to Models.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
+                    // The second format, named before the user goes looking for it: a
+                    // repository such as `litert-community/gemma-4-E4B-it-litert-lm` is
+                    // public and hosts a real model, and would otherwise read as empty.
+                    if (technical) {
+                        Text(
+                            text = "LiteRT-LM (.litertlm) files in a repository are " +
+                                "listed with their size and can be downloaded and " +
+                                "added to Models.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
                 }
                 else -> {
                     Button(
@@ -497,6 +576,8 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
  */
 @Composable
 private fun QuantRow(
+    technical: Boolean,
+    recommended: Boolean,
     file: HubGgufFile,
     selected: Boolean,
     enabled: Boolean,
@@ -521,16 +602,41 @@ private fun QuantRow(
     ) {
         RadioButton(selected = selected, onClick = null, enabled = enabled)
         Column(Modifier.padding(start = 8.dp)) {
-            Text(
-                file.quant?.label ?: "unknown quant",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Text(
-                "${formatBytes(file.sizeBytes)} — ${file.fileName}",
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    file.quant?.label ?: "unknown quant",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                if (recommended) {
+                    // A plain label, not a chip: the whole row is already the tap target.
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.padding(start = 8.dp),
+                    ) {
+                        Text(
+                            "Recommended",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+            }
+            if (technical) {
+                Text(
+                    "${formatBytes(file.sizeBytes)} — ${file.fileName}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    formatBytes(file.sizeBytes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -585,10 +691,9 @@ private fun DownloadProgressBlock(
             // to the user.
             text = if (progress.totalBytes > 0) {
                 "${formatBytes(progress.bytesDownloaded)} of " +
-                    "${formatBytes(progress.totalBytes)} — $rateLabel"
+                    "${formatBytes(progress.totalBytes)} · $rateLabel"
             } else {
-                "${formatBytes(progress.bytesDownloaded)} downloaded — " +
-                    "the server did not say how big this file is — $rateLabel"
+                "${formatBytes(progress.bytesDownloaded)} downloaded · $rateLabel"
             },
             style = MaterialTheme.typography.bodySmall,
         )
