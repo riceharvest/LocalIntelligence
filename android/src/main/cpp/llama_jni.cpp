@@ -1072,6 +1072,9 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     llama_sampler * grammar_smpl = build_grammar(vocab, grammar_str);
 
     constexpr llama_seq_id kPromptSeq = 0;
+    // How far before a prompt's end a hybrid model's state is copied: past the
+    // assistant turn's opening, whose tokens change once a reply follows it.
+    constexpr int32_t kSnapshotTail = 16;
 
     const int64_t start = now_ms();
     int32_t pos = 0;
@@ -1111,29 +1114,58 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
 
     // ---- prefill --------------------------------------------------------------
     // Prompt-prefix reuse. Every agent step rebuilds the prompt, and the new
-    // one usually starts with the whole previous prompt (same system part,
-    // same history, plus the last action and its observation). When the new
-    // prompt extends the previous prompt's exact tokens, only the new tokens
-    // are processed. An attention-only model still has the previous prompt in
-    // its KV cache, followed by the reply: the reply is cut off and the cache
-    // reused in place. A hybrid model (LFM's short convolutions) keeps
-    // recurrent state that cannot be cut back to an earlier position, so its
-    // state right after the previous prefill was copied and is restored.
+    // one starts like the previous one (same system part, same history) and
+    // grows by the last action and its observation. The tokens where the two
+    // agree are not processed again. They rarely agree to the very end: the
+    // previous prompt ended in the assistant turn's opening, which tokenizes
+    // differently once the reply follows it.
+    //
+    // An attention-only model still holds the previous prompt, and the reply
+    // after it, in its KV cache: the cache is cut back to where the prompts
+    // part and reused in place. A hybrid model (LFM's short convolutions)
+    // keeps recurrent state that cannot be cut back, so its state was copied
+    // during the previous prefill, kSnapshotTail tokens before the end, and is
+    // restored when the new prompt agrees at least that far.
+    //
+    // Only a longer prompt reuses anything: an agent step always grows, and a
+    // repeated identical prompt (the speed test) is processed in full.
     llama_memory_t mem = llama_get_memory(ctx);
     int32_t reused = 0;
-    const bool extends = !mm_chunks && !h->snap_tokens.empty() && h->snap_tokens.size() < tokens.size() &&
-        std::equal(h->snap_tokens.begin(), h->snap_tokens.end(), tokens.begin());
-    const int32_t shared = static_cast<int32_t>(h->snap_tokens.size());
-    if (extends && !h->state_snapshots && llama_memory_seq_rm(mem, kPromptSeq, shared, -1)) {
-        reused = shared;
+    const int32_t previous = static_cast<int32_t>(h->snap_tokens.size());
+    const int32_t common = mm_chunks ? 0 : static_cast<int32_t>(
+        std::mismatch(h->snap_tokens.begin(), h->snap_tokens.end(), tokens.begin(),
+                      tokens.end()).first - h->snap_tokens.begin());
+    const bool grows = !mm_chunks && previous > 0 && prompt_tokens > previous;
+    // A sliding-window model (Gemma) evicts positions that fall out of its
+    // window; the first new token attends back n_swa positions, so those must
+    // still be cached (the rule llama-server uses).
+    const int32_t n_swa = llama_model_n_swa(as_model(h->model));
+    const llama_pos window_from = std::max(0, n_swa > 0 ? common - n_swa + 2 : common);
+    const llama_pos cached_from = llama_memory_seq_pos_min(mem, kPromptSeq);
+    const bool window_ok = cached_from >= 0 && cached_from <= window_from;
+    if (grows && !h->state_snapshots && common > 0 && window_ok &&
+        llama_memory_seq_rm(mem, kPromptSeq, common, -1)) {
+        reused = common;
     } else {
         llama_memory_clear(mem, true);
-        if (extends && h->state_snapshots) {
+        if (grows && h->state_snapshots && !h->snap_state.empty() && h->snap_at > 0 && common >= h->snap_at) {
             if (llama_state_seq_set_data(ctx, h->snap_state.data(), h->snap_state.size(), kPromptSeq) > 0) {
-                reused = shared;
+                reused = h->snap_at;
             } else {
                 llama_memory_clear(mem, true);
             }
+        }
+    }
+    // Where this prompt's state is copied for the next step (hybrid models
+    // only). When that point is already covered by the restored copy, the copy
+    // is that state and is kept as it is.
+    int32_t snap_at = 0;
+    bool snapped = false;
+    if (h->state_snapshots && !mm_chunks) {
+        snap_at = std::max(0, prompt_tokens - kSnapshotTail);
+        if (snap_at <= reused) {
+            snap_at = reused;
+            snapped = reused > 0;
         }
     }
     pos = reused;
@@ -1153,12 +1185,14 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             pos = static_cast<int32_t>(new_n_past);
         }
     }
-    for (int32_t off = reused; !mm_chunks && off < prompt_tokens; off += batch_limit) {
+    for (int32_t off = reused, n = 0; !mm_chunks && off < prompt_tokens; off += n) {
         if (h->cancelled.load()) {
             outcome.stop = static_cast<int32_t>(StopCode::CANCELLED);
             break;
         }
-        const int32_t n = std::min(batch_limit, prompt_tokens - off);
+        n = std::min(batch_limit, prompt_tokens - off);
+        // A batch ends exactly where the state is to be copied.
+        if (snap_at > off && snap_at < off + n) n = snap_at - off;
         llama_batch batch = llama_batch_init(n, 0, 1);
         for (int32_t i = 0; i < n; ++i) {
             batch.token[i] = tokens[static_cast<size_t>(off + i)];
@@ -1185,33 +1219,31 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             break;
         }
         pos += n;
+        if (!snapped && snap_at > 0 && off + n == snap_at) {
+            const size_t size = llama_state_seq_get_size(ctx, kPromptSeq);
+            h->snap_state.resize(size);
+            snapped = size > 0 && llama_state_seq_get_data(ctx, h->snap_state.data(), size, kPromptSeq) == size;
+        }
     }
 
     // Remember the prompt for the next step. A media prompt is not
     // represented by its tokens, so it is never reused.
-    if (!failed && outcome.stop != static_cast<int32_t>(StopCode::CANCELLED) && !mm_chunks &&
-        !h->state_snapshots) {
+    if (!failed && outcome.stop != static_cast<int32_t>(StopCode::CANCELLED) && !mm_chunks) {
         h->snap_tokens = tokens;
-        h->snap_state.clear();
-    } else if (!failed && outcome.stop != static_cast<int32_t>(StopCode::CANCELLED) && !mm_chunks) {
-        const size_t size = llama_state_seq_get_size(ctx, kPromptSeq);
-        h->snap_state.resize(size);
-        if (size > 0 && llama_state_seq_get_data(ctx, h->snap_state.data(), size, kPromptSeq) == size) {
-            h->snap_tokens = tokens;
-        } else {
-            h->snap_tokens.clear();
-            h->snap_state.clear();
-        }
+        h->snap_at = snapped ? snap_at : 0;
+        if (!snapped) h->snap_state.clear();
     } else {
         h->snap_tokens.clear();
         h->snap_state.clear();
+        h->snap_at = 0;
     }
 
     const int64_t after_prefill = now_ms();
     if (!failed) {
         outcome.prefill_ms = after_prefill - start;
-        __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "prefill: %d tokens, %d reused, %lld ms",
-                            prompt_tokens, reused, static_cast<long long>(outcome.prefill_ms));
+        __android_log_print(ANDROID_LOG_INFO, "LocalLlama",
+                            "prefill: %d tokens, %d reused (%d of the last %d agree), %lld ms",
+                            prompt_tokens, reused, common, previous, static_cast<long long>(outcome.prefill_ms));
     }
 
     // ---- decode loop ----------------------------------------------------------

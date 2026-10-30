@@ -73,6 +73,8 @@ struct LlamaHandle {
     // a copy (snap_state). Attention-only models trim their KV cache in place
     // and keep no copy, which the RAM estimate does not price.
     bool state_snapshots = false;
+    // The prompt position snap_state was copied at, 0 when there is none.
+    int32_t snap_at = 0;
     bool backend_initialised = false;
 
     // The SAF descriptor's /proc/self/fd path is valid only while the

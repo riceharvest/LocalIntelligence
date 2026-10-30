@@ -79,6 +79,8 @@ data class SpeedTestResult(
     val compared: List<ComputeRun> = emptyList(),
     /** [SpeedTestTarget.note], carried to the screen. */
     val note: String? = null,
+    /** The prompt's length in this model's tokens; it differs between tokenizers. */
+    val promptTokens: Int = 0,
 )
 
 /** Where the speed test is right now. */
@@ -103,7 +105,8 @@ sealed interface SpeedTestStatus {
  *
  * ## What one run does
  *
- * Two passes. Each pass sends the same fixed prompt of about 256 tokens and asks for
+ * Two passes. Each pass sends the same fixed prompt (about 160 to 260 tokens, by
+ * tokenizer; the result records the exact count) and asks for
  * 64 generated tokens. Prefill and decode come from the backend's own timings when it
  * reports them (llama.cpp does, from its native clock), and from wall-clock time when
  * it does not. The reported figure is the median of the passes. With two passes the
@@ -202,6 +205,7 @@ class SpeedTestRunner(
                     measuredAtMillis = System.currentTimeMillis(),
                     compared = compared,
                     note = target.note,
+                    promptTokens = headline.promptTokens,
                 )
                 _status.value = SpeedTestStatus.Idle
             } catch (e: CancellationException) {
@@ -222,22 +226,22 @@ class SpeedTestRunner(
     }
 
     /** [text] is the reply, kept so a GPU's output can be checked against the CPU's. */
-    private class PassRates(val prefill: Double, val decode: Double, val text: String = "")
+    private class PassRates(val prefill: Double, val decode: Double, val text: String = "", val promptTokens: Int = 0)
 
     /** [PASSES] passes on [backend], their medians, and the first pass's reply. */
     private suspend fun measure(backend: ModelBackend, on: String?): PassRates {
         val prefill = ArrayList<Double>(PASSES)
         val decode = ArrayList<Double>(PASSES)
-        var text = ""
+        var first: PassRates? = null
         for (pass in 1..PASSES) {
             coroutineContext.ensureActive()
             _status.value = SpeedTestStatus.Running(pass, PASSES, on)
             val rates = measurePass(backend)
             prefill += rates.prefill
             decode += rates.decode
-            if (pass == 1) text = rates.text
+            if (first == null) first = rates
         }
-        return PassRates(median(prefill), median(decode), text)
+        return PassRates(median(prefill), median(decode), first?.text.orEmpty(), first?.promptTokens ?: 0)
     }
 
     /**
@@ -302,7 +306,7 @@ class SpeedTestRunner(
     }
 
     /**
-     * One pass: the 256-token prompt with 64 generated tokens.
+     * One pass: the fixed prompt with 64 generated tokens.
      *
      * When the backend reports both phases, its clock is used and nothing else runs.
      * When it does not, a second 1-token run gives the prefill wall-clock, and the
@@ -319,6 +323,7 @@ class SpeedTestRunner(
                 prefill = promptTokens * 1000.0 / full.result.prefillMs,
                 decode = full.result.completionTokens * 1000.0 / full.result.decodeMs,
                 text = full.result.text,
+                promptTokens = promptTokens,
             )
         }
 
@@ -333,6 +338,7 @@ class SpeedTestRunner(
             prefill = promptTokens * 1000.0 / one.wallMs,
             decode = decodeTokens * 1000.0 / decodeMs,
             text = full.result.text,
+            promptTokens = promptTokens,
         )
     }
 
@@ -386,7 +392,7 @@ class SpeedTestRunner(
         private const val STEP_OUTPUT_TOKENS = 128.0
 
         /**
-         * About 256 tokens of prompt, ending in a request that keeps the model writing.
+         * About 160 to 260 tokens of prompt, by tokenizer, ending in a request that keeps the model writing.
          * A numbered list is used on purpose: it does not end early, so the 64-token
          * decode is measured in full rather than cut short by an end-of-text token.
          * The exact prompt token count is taken from the backend on each pass.

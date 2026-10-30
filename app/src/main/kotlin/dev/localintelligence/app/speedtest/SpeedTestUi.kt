@@ -68,7 +68,8 @@ fun SpeedTestButton(runner: SpeedTestRunner, modifier: Modifier = Modifier) {
  * A finished result: the summary line, and the date it was measured on this phone.
  *
  * The method is printed because a number without it cannot be compared with another:
- * two passes of a 256-token prompt, 64 generated, and the median (the mean, for two).
+ * two passes of one fixed prompt (its length in this model's tokens is shown), 64
+ * generated, and the median (the mean, for two).
  */
 @Composable
 fun SpeedTestResultBlock(result: SpeedTestResult, modifier: Modifier = Modifier) {
@@ -86,7 +87,7 @@ fun SpeedTestResultBlock(result: SpeedTestResult, modifier: Modifier = Modifier)
         }
         Text(
             text = buildString {
-                append("${result.measuredOn()}. Median of 2 runs: 256-token prompt, 64 tokens generated.")
+                append("${result.measuredOn()}. Median of 2 runs: ${result.promptTokens}-token prompt, 64 tokens generated.")
                 if (!result.countsExact) append(" Token counts are estimated by this backend.")
             },
             style = MaterialTheme.typography.labelSmall,
