@@ -919,6 +919,8 @@ class CalendarCreateTool internal constructor(
             put("required", buildJsonArray { add("title"); add("start") })
         },
         risk = ToolRisk.REVERSIBLE,
+        // WHY: the observation is the app's own wording, not page text; fencing it made the model repeat the action.
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf("calendar", "add event", "schedule", "reminder", "book", "appointment", "meeting"),
         requiredPermission = "android.permission.WRITE_CALENDAR",
     )

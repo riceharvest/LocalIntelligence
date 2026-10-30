@@ -676,6 +676,8 @@ class AppsShareTool(private val appContext: Context) : AgentTool {
             put("additionalProperties", false)
         },
         risk = ToolRisk.EXTERNAL_COMMUNICATION,
+        // WHY: the observation is the app's own wording, not page text; fencing it made the model repeat the action.
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf("share", "send", "attach", "share file", "share text", "pass to another app", "forward"),
         requiredPermission = null,
     )

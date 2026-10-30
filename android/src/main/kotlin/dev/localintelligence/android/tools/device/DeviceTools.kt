@@ -801,6 +801,8 @@ class DeviceVibrateTool(
         category = "device",
         schema = VIBRATE_SCHEMA,
         risk = ToolRisk.REVERSIBLE,
+        // WHY: the observation is the app's own wording, not page text; fencing it made the model repeat the action.
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "vibrate", "buzz", "vibration", "shake", "ringer", "find my phone", "ring",
         ),
@@ -898,6 +900,8 @@ class DeviceOpenSettingsTool(private val platform: DevicePlatform) : AgentTool {
         category = "device",
         schema = OPEN_SETTINGS_SCHEMA,
         risk = ToolRisk.REVERSIBLE,
+        // WHY: the observation is the app's own wording, not page text; fencing it made the model repeat the action.
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "open settings", "settings", "wifi settings", "turn on bluetooth", "display settings",
             "battery saver", "sound settings", "system settings",

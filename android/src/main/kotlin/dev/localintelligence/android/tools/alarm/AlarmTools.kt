@@ -711,6 +711,8 @@ class AlarmCreateTool(
         category = "alarm",
         schema = CREATE_SCHEMA,
         risk = ToolRisk.REVERSIBLE,
+        // WHY: the observation is the app's own wording, not page text; fencing it made the model repeat the action.
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "alarm", "set an alarm", "wake me up", "remind me at", "timer", "ring at",
             "wake up call", "set a reminder",
@@ -966,6 +968,8 @@ class AlarmCancelTool(private val platform: AlarmPlatform) : AgentTool {
         // ambiguity guard — it can only ever cancel one alarm, and only one the tool
         // itself created, and it refuses rather than guessing.
         risk = ToolRisk.REVERSIBLE,
+        // WHY: the observation is the app's own wording, not page text; fencing it made the model repeat the action.
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "cancel alarm", "delete alarm", "remove alarm", "turn off alarm",
             "cancel my alarm", "remove the wake up", "stop the alarm",
