@@ -76,6 +76,7 @@ import dev.localintelligence.app.isActive
 import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.ShownAttachment
 import dev.localintelligence.app.media.encodePickedPicture
+import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.app.ui.components.ApprovalRow
 import dev.localintelligence.app.ui.components.ChatComposer
 import dev.localintelligence.app.ui.components.MarkdownText
@@ -88,6 +89,7 @@ import dev.localintelligence.app.ui.components.TranscriptEntry
 import dev.localintelligence.app.ui.components.clipLength
 import dev.localintelligence.app.ui.components.groupToolCalls
 import dev.localintelligence.app.ui.components.rememberMotionEnabled
+import dev.localintelligence.core.hub.formatBytes
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
@@ -128,6 +130,10 @@ fun ChatScreen(
     skills: SkillRepository? = null,
     /** The name from Settings, used in the empty chat's first line. Blank: no name. */
     assistantName: String = "",
+    /** The model Simple mode recommends, offered on the empty chat when there is no model. */
+    suggestion: SuggestedModel? = null,
+    /** Opens the download screen for [suggestion]. */
+    onGetSuggested: () -> Unit = {},
 ) {
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
@@ -365,6 +371,11 @@ fun ChatScreen(
                 onRemoveAttachment = viewModel::removeAttachment,
                 onOpenSettings = onOpenSettings,
                 showBlockedReason = messages.isNotEmpty(),
+                blockedAction = when (modelState) {
+                    ModelAvailability.None -> "Download a model" to onOpenModels
+                    is ModelAvailability.Failed -> "Choose another model" to onOpenModels
+                    else -> null
+                },
             )
         },
     ) { padding ->
@@ -389,8 +400,11 @@ fun ChatScreen(
                         // rejected left the user on a dead end with no way to
                         // reach the one screen that lists the alternatives.
                         isMissingModel = modelState is ModelAvailability.None,
+                        isLoading = modelState is ModelAvailability.Loading,
                         onOpenModels = onOpenModels,
                         assistantName = assistantName,
+                        suggestion = suggestion,
+                        onGetSuggested = onGetSuggested,
                     )
                 }
             }
@@ -691,8 +705,11 @@ private fun progressLine(state: RunState): String? = when (state) {
 private fun EmptyState(
     blockedReason: String?,
     isMissingModel: Boolean,
+    isLoading: Boolean,
     onOpenModels: () -> Unit,
     assistantName: String,
+    suggestion: SuggestedModel?,
+    onGetSuggested: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -709,14 +726,35 @@ private fun EmptyState(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        if (blockedReason != null) {
+        if (isLoading) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        } else if (isMissingModel && suggestion != null) {
+            // First run: the model picked for this phone is one tap away, and
+            // the download screen still shows its size and fit before anything
+            // is fetched.
+            Button(
+                onClick = onGetSuggested,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text("Download ${suggestion.name} · ${formatBytes(suggestion.sizeBytes)}")
+            }
+            Text(
+                text = suggestion.reason,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            TextButton(onClick = onOpenModels, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("Other models")
+            }
+        } else if (blockedReason != null) {
             // 48dp: the minimum touch target. A plain TextButton would be 40dp
             // and sit below the platform accessibility floor.
             Button(
                 onClick = onOpenModels,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text(if (isMissingModel) "Get a model" else "Choose another model")
+                Text(if (isMissingModel) "Download a model" else "Choose another model")
             }
         }
     }

@@ -62,6 +62,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -226,7 +227,7 @@ fun PendingToolRow(
                         onDecline()
                     },
                     enabled = !answered,
-                ) { Text("Deny") }
+                ) { Text("Don't allow") }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Details") }
             }
@@ -449,11 +450,31 @@ private fun ToolRow(
     }
 }
 
-/** Input and output, both monospace, both copyable where it matters. */
+/**
+ * Whether the chat shows developer detail (tool ids, raw input and output).
+ * Provided by the host from the Settings mode; Simple by default.
+ */
+val LocalTechnicalDetail = compositionLocalOf { false }
+
+/**
+ * What came back, behind the row's tap. Simple mode shows the first lines of the
+ * result in the normal font; Technical shows the tool id, the timing, and the
+ * input and output verbatim.
+ */
 @Composable
 private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate: Boolean) {
-    val input = inputLines(step.args)
     val output = if (state == ToolRowState.Refused) step.detail else step.observation.orEmpty()
+    if (!LocalTechnicalDetail.current) {
+        Text(
+            text = output.lines().filter { it.isNotBlank() }.take(SIMPLE_DETAIL_LINES).joinToString("\n")
+                .ifBlank { "Nothing came back." },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 8.dp, bottom = 6.dp),
+        )
+        return
+    }
+    val input = inputLines(step.args)
     var showAll by rememberSaveable(step.toolName, step.args) { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
 
@@ -740,7 +761,7 @@ internal fun approvalQuestion(toolName: String): String =
 
 /** "You allowed: delete a file" in the transcript after an approval. */
 private fun approvalRecord(toolName: String, approved: Boolean): String =
-    (if (approved) "You allowed: " else "You declined: ") + verbFor(toolName).base
+    (if (approved) "You allowed: " else "You didn't allow: ") + verbFor(toolName).base
 
 /** The mark by tool family: the part of the name before the first dot. */
 private fun markFor(toolName: String): ImageVector =
@@ -792,6 +813,7 @@ internal fun formatDuration(ms: Long): String? = when {
 
 private const val AUTO_FOLD_DELAY_MS = 450L
 private const val OUTPUT_FOLD_LINES = 10
+private const val SIMPLE_DETAIL_LINES = 4
 private const val MAX_STACKED_MARKS = 4
 
 /**
