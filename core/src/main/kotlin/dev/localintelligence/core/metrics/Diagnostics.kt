@@ -40,7 +40,7 @@ import dev.localintelligence.core.model.gguf.ModelMemoryEstimator
  * third one to be drawn.
  *
  * [UNKNOWN] is not a failure. It is the honest answer to a question this build
- * cannot answer, and it is the state [the speed test] exists to
+ * cannot answer, and it is the state [docs/measure/measure_ram.sh] exists to
  * move.
  */
 enum class Provenance(
@@ -286,7 +286,7 @@ data class DiagnosticReport(
  * Whether the model will actually load. That is a native call, it takes tens of
  * seconds and gigabytes, and this check must stay cheap enough to run on every
  * screen open. The number that would settle it is `dumpsys meminfo` with the
- * model resident, and `the speed test` is the procedure.
+ * model resident, and `docs/measure/measure_ram.sh` is the procedure.
  */
 object RamGateCrossCheck {
 
@@ -462,7 +462,7 @@ object RamGateCrossCheck {
                 "process's real resident cost: no dumpsys meminfo number has ever been " +
                 "taken on a phone in this project, because the emulator on the " +
                 "development host SIGSEGVs at boot. The speed test is the " +
-                "procedure, and it prints '?' rather than inventing a value.",
+                "procedure.",
             findings = findings,
             nextAction = when {
                 disagreement != null || needsSmallerModel -> DiagnosticAction.OpenModels
