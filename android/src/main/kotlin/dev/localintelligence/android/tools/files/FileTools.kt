@@ -68,11 +68,17 @@ import kotlinx.coroutines.CancellationException
 // =====================================================================================
 
 /**
- * The model-visible observation budget. Every tool in this file funnels its final
- * string through [ObservationTruncator] at this width, so a bug in a formatter
- * degrades one observation rather than blowing the agent's context window.
+ * The safety net on a file tool's observation, not the model's budget.
+ *
+ * The model-visible budget is the `agent.observation_budget` setting, and the agent
+ * loop applies it: an observation over that budget is saved to the observation store
+ * and the model gets a preview with a handle to read the rest. A file tool that cut
+ * its own output to a fixed width would make the setting do nothing, so the tools
+ * return what they read (their hard caps still bound the read) and this constant
+ * only stops a formatter bug from producing something unbounded. It matches the
+ * setting's maximum, so the net never cuts a result the setting allows.
  */
-internal const val OBSERVATION_BUDGET = ObservationTruncator.DEFAULT_BUDGET_CHARS
+internal const val OBSERVATION_CEILING = 20_000
 
 /**
  * The single place an exception is allowed to stop being an exception.
@@ -104,7 +110,7 @@ internal object ToolSafety {
             val result = block()
             // The final net: a formatter bug that produced a 40 KB observation is
             // still bounded before it reaches the prompt.
-            result.copy(observation = ObservationTruncator.truncate(result.observation, OBSERVATION_BUDGET))
+            result.copy(observation = ObservationTruncator.truncate(result.observation, OBSERVATION_CEILING))
         } catch (t: SecurityException) {
             ToolResult(
                 success = false,
@@ -570,13 +576,13 @@ object FileListing {
     const val MAX_ROWS = 40
 
     /**
-     * How much of [OBSERVATION_BUDGET] the row block may consume.
+     * How much of [OBSERVATION_CEILING] the row block may consume.
      *
      * The head of the string (count line) and the tail (the "and N more" line) are
      * reserved out of this, so a listing can never be cut by the truncator in a way
      * that hides the fact that rows were withheld.
      */
-    private const val ROW_BUDGET = OBSERVATION_BUDGET - 320
+    private const val ROW_BUDGET = OBSERVATION_CEILING - 320
 
     /**
      * @param rows the rows to render, already limited by the caller.
@@ -681,8 +687,9 @@ data class DecodedText(
  * 8 KiB is the cap because that is what still fits the job: it is roughly 2 000 tokens,
  * enough for the head of a log, a config file or a document's first page, and small
  * enough that the model is not being handed a wall of text it cannot act on. The
- * observation budget (2 048 chars) is a *separate*, tighter limit applied afterwards —
- * the 8 KiB cap bounds the read and the heap, the 2 048 budget bounds the prompt.
+ * prompt budget is a *separate* limit, the `agent.observation_budget` setting, applied
+ * afterwards by the agent loop: the 8 KiB cap bounds the read and the heap, the setting
+ * bounds the prompt.
  *
  * The cap is enforced by the number of bytes pulled off the stream, not by truncating
  * the decoded string, so a 1 GB file costs one 8 KiB buffer.
@@ -727,28 +734,11 @@ object FileText {
     private const val REPLACEMENT = '�'
 
     /**
-     * How many characters of file text are actually placed in the observation.
-     *
-     * Distinct from [READ_CAP_BYTES] on purpose. The read cap is a HEAP and I/O bound:
-     * it is the largest string this tool will ever materialise, and it is what the
-     * tests pin (1 MB in, 8 KiB out). The preview is a PROMPT bound: the whole
-     * observation has to fit the 2048-char budget, header and truncation notice
-     * included, so the content gets what is left. If the preview and the read cap
-     * were the same number, a file that fills the cap would be silently cut by
-     * ObservationTruncator with a generic "…[truncated]" and the tool's own, far more
-     * useful truncation notice would never reach the model.
-     */
-    const val PREVIEW_CHARS = 1400
-
-    /** Header + notice + preview, comfortably inside [OBSERVATION_BUDGET]. */
-    const val MAX_OBSERVATION_CHARS = OBSERVATION_BUDGET
-
-    /**
      * The header line stating what is being shown and what was withheld.
      *
-     * States BOTH caps, because the model needs to know that what it is reading is a
-     * prefix and by how much: the 8 KiB read cap, and the preview cut applied to get
-     * below the observation budget.
+     * The text is everything the capped read produced. The prompt budget is applied by
+     * the agent loop, which saves an over-budget observation and previews it with a
+     * handle, so this tool does not cut the text a second time.
      *
      * @param name display name of the document.
      * @param totalBytes the file's full size when the provider reported one.
@@ -760,31 +750,18 @@ object FileText {
         } else {
             "unknown size"
         }
-        val preview = if (decoded.text.length > PREVIEW_CHARS) {
-            decoded.text.take(PREVIEW_CHARS)
-        } else {
-            decoded.text
-        }
-        val previewCut = decoded.text.length - preview.length
-
-        val notices = StringBuilder()
-        if (decoded.truncated) {
+        val notice = if (decoded.truncated) {
             val dropped = if (decoded.droppedPartialChar) {
                 " A partial character at the cut point was dropped."
             } else {
                 ""
             }
-            notices.append("Only the first ").append(READ_CAP_BYTES)
-                .append(" bytes of this file were read").append(dropped)
+            "\n[$TRUNCATION_MARKER: Only the first ${READ_CAP_BYTES} bytes of this file were read$dropped]"
+        } else {
+            ""
         }
-        if (previewCut > 0) {
-            if (notices.isNotEmpty()) notices.append(' ')
-            notices.append("A further ").append(previewCut)
-                .append(" characters were held back to stay inside the response budget.")
-        }
-        val note = if (notices.isEmpty()) "" else "\n[$TRUNCATION_MARKER: ${notices}]"
 
-        return "$name ($size) — ${decoded.text.length} characters read$note\n\n$preview"
+        return "$name ($size) — ${decoded.text.length} characters read$notice\n\n${decoded.text}"
     }
 }
 

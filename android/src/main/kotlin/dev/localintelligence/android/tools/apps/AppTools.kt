@@ -7,7 +7,6 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.net.Uri
-import dev.localintelligence.android.tools.files.OBSERVATION_BUDGET
 import dev.localintelligence.android.tools.files.ToolSafety
 import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
