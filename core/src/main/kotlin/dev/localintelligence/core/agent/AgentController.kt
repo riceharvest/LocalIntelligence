@@ -1188,6 +1188,7 @@ class AgentController(
             ObservationStore.READ_TOOL.takeIf { it in byName && observationStore != null },
             ToolFinder.NAME.takeIf { config.toolLookup && it in byName },
         )
+        if (useNativeToolFormat) return planNativeTurnTools(wanted, mustHave, byName)
         if (kept.isEmpty() || kept.size != sessions.epochTools.size) {
             val next = (mustHave + wanted.map { it.definition.name }).distinct()
             log("tool list set: ${next.joinToString()} (the prompt is prefilled from the tool list on)")
@@ -1197,6 +1198,35 @@ class AgentController(
             return emptyList()
         }
         val listed = kept.toSet() + sessions.discoveredTools
+        val extra = wanted.filter { it.definition.name !in listed }
+        if (extra.isNotEmpty()) {
+            sessions.discoveredTools += extra.map { it.definition.name }
+            log("tools described in this turn instead of the list: ${extra.joinToString { it.definition.name }}")
+        }
+        return extra
+    }
+
+    /**
+     * [planTurnTools] for the model's own tool format: the list is the same core set in
+     * every conversation (see [NATIVE_CORE_TOOLS]), and each tool the picker wants beyond
+     * it is described in this turn, callable like the rest.
+     *
+     * WHY: the listed tools are part of the prompt's cached prefix. A list that differs
+     * per conversation prefills the whole prefix again for each new chat.
+     */
+    private fun planNativeTurnTools(
+        wanted: List<AgentTool>,
+        mustHave: List<String>,
+        byName: Map<String, AgentTool>,
+    ): List<AgentTool> {
+        val core = (mustHave + NATIVE_CORE_TOOLS.filter { it in byName }).distinct()
+        if (core != sessions.epochTools.toList()) {
+            log("tool list set (native core): ${core.joinToString()} (the prompt is prefilled from the tool list on)")
+            sessions.epochTools.clear()
+            sessions.epochTools += core
+            sessions.discoveredTools.clear()
+        }
+        val listed = core.toSet() + sessions.discoveredTools
         val extra = wanted.filter { it.definition.name !in listed }
         if (extra.isNotEmpty()) {
             sessions.discoveredTools += extra.map { it.definition.name }
@@ -1216,8 +1246,30 @@ class AgentController(
         if (extra.isEmpty()) return null
         return "Also available for this request:\n" + extra.joinToString("\n") { tool ->
             val def = tool.definition
-            val args = (def.schema["properties"] as? kotlinx.serialization.json.JsonObject)?.keys.orEmpty()
-            "- ${def.name}: ${def.description}" + if (args.isEmpty()) "" else " (arguments: ${args.joinToString()})"
+            val args = argumentHints(def.schema)
+            "- ${def.name}: ${def.description}" + if (args.isEmpty()) "" else " (arguments: ${args.joinToString("; ")})"
+        }
+    }
+
+    /**
+     * One entry per argument of [schema], as `name (type, required): description`: the parts
+     * the schema does not give are left out. WHY: a small model calls a described tool
+     * correctly when the hint says what each argument means ("seconds: integer, length in
+     * seconds; ten minutes is 600"); a bare name did not get the arguments right.
+     */
+    private fun argumentHints(schema: kotlinx.serialization.json.JsonObject): List<String> {
+        val props = schema["properties"] as? kotlinx.serialization.json.JsonObject ?: return emptyList()
+        val required = (schema["required"] as? kotlinx.serialization.json.JsonArray)
+            ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            .orEmpty()
+            .toSet()
+        return props.map { (name, value) ->
+            val spec = value as? kotlinx.serialization.json.JsonObject
+            val type = (spec?.get("type") as? kotlinx.serialization.json.JsonPrimitive)?.content
+            val description = (spec?.get("description") as? kotlinx.serialization.json.JsonPrimitive)?.content
+            val tags = listOfNotNull(type, "required".takeIf { name in required }).joinToString(", ")
+            val head = if (tags.isEmpty()) name else "$name ($tags)"
+            if (description.isNullOrBlank()) head else "$head: $description"
         }
     }
 
@@ -1374,8 +1426,8 @@ class AgentController(
     private suspend fun compactIfNeeded(boundary: Boolean, visible: List<AgentTool>) {
         val window = model.capabilities.contextLength
         val prompt = buildPrompt(visible)
-        val tokens = promptTokens(prompt)
-        val limit = if (boundary) turnLimit(prompt, window) else hardLimit(window)
+        val tokens = requestTokens(prompt, visible)
+        val limit = if (boundary) turnLimit(prompt, visible, window) else hardLimit(window)
         if (tokens <= limit) return
         foldUntilUnder(limit, visible, tokens, if (boundary) "turn" else "mid-answer")
     }
@@ -1386,8 +1438,8 @@ class AgentController(
      * small working limit the system prompt and tools alone can fill it, and
      * the turn limit would then compact on every message, each one a prefill.
      */
-    private fun turnLimit(prompt: List<ChatMessage>, window: Int): Int {
-        val fixed = prompt.firstOrNull()?.let { promptTokens(listOf(it)) } ?: 0
+    private fun turnLimit(prompt: List<ChatMessage>, visible: List<AgentTool>, window: Int): Int {
+        val fixed = prompt.firstOrNull()?.let { requestTokens(listOf(it), visible) } ?: 0
         return maxOf(workingLimit(window), fixed + MIN_CONVERSATION_TOKENS).coerceAtMost(hardLimit(window))
     }
 
@@ -1404,7 +1456,7 @@ class AgentController(
             val reason = "$now tokens over the $label limit $limit " +
                 "(window ${model.capabilities.contextLength}), keeping $keep"
             if (!compactNow(reason, keep)) break
-            now = promptTokens(buildPrompt(visible))
+            now = requestTokens(buildPrompt(visible), visible)
             if (now <= (limit * REFOLD_BELOW).toInt() || keep <= 1) break
             keep -= 1
         }
@@ -1424,12 +1476,12 @@ class AgentController(
         if (visible.isEmpty()) return
         val window = model.capabilities.contextLength
         val prompt = buildPrompt(visible)
-        val tokens = promptTokens(prompt)
-        val limit = turnLimit(prompt, window)
+        val tokens = requestTokens(prompt, visible)
+        val limit = turnLimit(prompt, visible, window)
         if (tokens <= (limit * IDLE_COMPACT_AT).toInt()) return
         foldUntilUnder(limit, visible, tokens, "idle turn")
         val next = buildPrompt(visible)
-        log("idle: prefilling the compacted prompt (${promptTokens(next)} tokens) while the answer is read")
+        log("idle: prefilling the compacted prompt (${requestTokens(next, visible)} tokens) while the answer is read")
         model.warm(request(next, visible))
     }
 
@@ -1468,6 +1520,14 @@ class AgentController(
         log(detail)
         return true
     }
+
+    /**
+     * The tokens of [prompt] as the model is given it for [visible]: the backend's exact
+     * count of the request when it has one (the native tool format counts the tool
+     * schemas the app's text lacks), else [promptTokens].
+     */
+    private fun requestTokens(prompt: List<ChatMessage>, visible: List<AgentTool>): Int =
+        model.countRequestTokens(request(prompt, visible)) ?: promptTokens(prompt)
 
     /**
      * The prompt's size in this model's own tokens, the whole of it: system,
@@ -1690,6 +1750,27 @@ class AgentController(
 
     private companion object {
         const val COMPACT_AT = 0.65
+
+        /**
+         * The tools a native-format conversation lists, in this order, when they exist.
+         *
+         * WHY A FIXED SET: the listed tools sit in the prompt's cached prefix. Measured on
+         * a Samsung A05s with LFM3-1.7B: a list that differed per conversation prefilled
+         * 842 new tokens (81 s) on the first message, against 33-38 s before; with the same
+         * list every time, a new chat prefills only its own user turn. These eight are the
+         * everyday tools, about 1,250 tokens of schema together. The picker's other picks
+         * are described in the turn and are callable (see [planNativeTurnTools]).
+         */
+        val NATIVE_CORE_TOOLS: List<String> = listOf(
+            "device.battery",
+            "timer.set",
+            "alarm.create",
+            "message.draft",
+            "web.search",
+            "web.fetch",
+            "calendar.search",
+            "location.get",
+        )
 
         /** How much of a memory's start identifies it in an earlier turn. */
         const val MEMORY_MATCH_CHARS = 80

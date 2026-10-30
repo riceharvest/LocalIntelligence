@@ -200,6 +200,13 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatResult(JNIEnv * env, jclass, jlong handle);
 
+// The token count of the prompt nativeChatPrepare would render for these messages and
+// prompt tools, without preparing anything (the handle's prepared session is left as it
+// is). -1 when the model cannot render tools or on any failure.
+JNIEXPORT jint JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatCount(
+        JNIEnv * env, jclass, jlong handle, jstring messages_json, jstring prompt_tools_json);
+
 // Where the system prompt's state is saved between runs, and the key that
 // names this model load. Call after a successful load; empty disables it.
 JNIEXPORT void JNICALL

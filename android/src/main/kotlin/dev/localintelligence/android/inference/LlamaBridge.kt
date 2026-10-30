@@ -249,6 +249,14 @@ object LlamaBridge {
     fun chatResult(handle: Handle): String? =
         if (isAvailable && !handle.isClosed) nativeChatResult(handle.ptr) else null
 
+    /**
+     * The token count of the prompt [chatPrepare] would render for these messages and
+     * tools, or -1 when native does not apply. Prepares nothing, so it is safe while the
+     * handle's prepared reply is still in use.
+     */
+    fun chatCount(handle: Handle, messagesJson: String, promptToolsJson: String): Int =
+        if (isAvailable && !handle.isClosed) nativeChatCount(handle.ptr, messagesJson, promptToolsJson) else -1
+
     /** Takes the last outcome, or null if the handle is gone. */
     fun takeResult(handle: Handle): GenerationOutcome? {
         if (!isAvailable) return null
@@ -350,6 +358,7 @@ object LlamaBridge {
         ptr: Long, messagesJson: String, promptToolsJson: String, callableToolsJson: String,
     ): String?
     @JvmStatic private external fun nativeChatResult(ptr: Long): String?
+    @JvmStatic private external fun nativeChatCount(ptr: Long, messagesJson: String, promptToolsJson: String): Int
     @JvmStatic private external fun nativeSetPrefixCache(ptr: Long, dir: String, key: String)
 
     /**

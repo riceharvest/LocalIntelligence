@@ -548,7 +548,25 @@ class LlamaCppBackend(
             TAG,
             "native tools: ${fields.string("format").orEmpty()}, prompt ${listed.size} tools, callable ${request.tools.size}",
         )
-        return NativeTurn(prompt, nativeStableBytes(request, prompt), request.tools)
+        // llama.cpp's own boundary first: the system message rendered alone with the prompt's
+        // tools (see nativeChatPrepare). The text-based one is the fallback when it is 0.
+        val stable = fields.string("stable_bytes")?.toIntOrNull()?.takeIf { it > 0 }
+            ?: nativeStableBytes(request, prompt)
+        return NativeTurn(prompt, stable, request.tools)
+    }
+
+    /**
+     * The token count of the prompt [nativeTurn] would render for [request], or null when
+     * native does not apply to it. The compaction gate prices the prompt the model really
+     * gets, and for a native request the tool schemas are most of what the app's own text
+     * prompt lacks. Prepares nothing (see LlamaBridge.chatCount).
+     */
+    override fun countRequestTokens(request: GenerationRequest): Int? {
+        if (request.tools.isEmpty() || !request.useNativeToolFormat) return null
+        val h = handle
+        if (h == null || h.isClosed) return null
+        val listed = request.tools.take(request.listedToolCount)
+        return LlamaBridge.chatCount(h, nativeMessages(request), toolsJson(listed)).takeIf { it >= 0 }
     }
 
     /**
@@ -652,6 +670,8 @@ class LlamaCppBackend(
     /**
      * The tools as OpenAI function definitions. Dots in the names become underscores,
      * because the model writes its calls as code and a dot breaks them (see [wireName]).
+     *
+     * The schemas go through [trimSchema]: the same text every turn costs fewer tokens.
      */
     private fun toolsJson(tools: List<ToolDefinition>): String =
         JsonArray(
@@ -663,12 +683,34 @@ class LlamaCppBackend(
                         buildJsonObject {
                             put("name", wireName(def.name))
                             put("description", def.description)
-                            put("parameters", def.schema)
+                            put("parameters", trimSchema(def.schema))
                         },
                     )
                 }
             },
         ).toString()
+
+    /**
+     * A tool schema without the keywords the grammar does not need (length, range and
+     * default limits). Those keywords cost about a tenth of the tokens of these tools.
+     * The keys of a `properties` object are argument names, not keywords, so they are
+     * kept: only the schemas under them are trimmed.
+     */
+    private fun trimSchema(element: JsonElement): JsonElement = when (element) {
+        is JsonObject -> JsonObject(
+            element
+                .filterKeys { it !in DROPPED_SCHEMA_KEYS }
+                .mapValues { (key, value) ->
+                    if (key == "properties" && value is JsonObject) {
+                        JsonObject(value.mapValues { trimSchema(it.value) })
+                    } else {
+                        trimSchema(value)
+                    }
+                },
+        )
+        is JsonArray -> JsonArray(element.map { trimSchema(it) })
+        else -> element
+    }
 
     /**
      * The reply llama.cpp parsed (`{"content", "tool_calls"}`) as the app's own markup:
@@ -905,6 +947,9 @@ class LlamaCppBackend(
 
         /** A reply in the app's own markup. */
         private val NATIVE_RESPOND = Regex("""<respond>([\s\S]*)</respond>""")
+
+        /** Schema keywords [trimSchema] drops: limits the grammar does not need for these tools. */
+        private val DROPPED_SCHEMA_KEYS = setOf("maxLength", "minimum", "maximum", "default", "minItems", "maxItems")
 
         /**
          * A tool's name on the wire to the model. Dots become underscores: the model

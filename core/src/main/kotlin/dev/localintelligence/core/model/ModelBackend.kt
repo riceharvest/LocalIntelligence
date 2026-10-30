@@ -215,6 +215,16 @@ interface ModelBackend {
     /** Best-effort token count. Used for context budgeting. */
     fun countTokens(text: String): Int
 
+    /**
+     * The exact token count of the whole prompt [request] would prefill, when the backend
+     * renders it in a form it can count (native tool format: the tool schemas are part of
+     * the prompt). Null when it cannot, and the caller keeps [countTokens] of the text.
+     *
+     * WHY: the app's text prompt leaves out what the model's own template adds (about a
+     * thousand tokens of tool schemas), so a gate on the text alone compacts too late.
+     */
+    fun countRequestTokens(request: GenerationRequest): Int? = null
+
     /** Cooperative cancellation. Must be safe to call when idle. */
     fun cancel()
 

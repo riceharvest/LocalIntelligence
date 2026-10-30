@@ -456,10 +456,12 @@ class ModelMemoryEstimator(
         private const val MIB: Long = 1024L * 1024
 
         /**
-         * Tokens of the system prompt whose state is kept (rules, profile; the
-         * tools come after it): a generous bound on what SystemPrompts produces.
+         * Tokens of the prompt whose state is kept: the system prompt (rules, about 234
+         * tokens), then in native tool format the core tool list (about 1,250, see
+         * AgentController.NATIVE_CORE_TOOLS), then an "About you" profile of up to about
+         * 340. Raised from 1,536 for the native core list, which is in the kept prefix.
          */
-        const val ANCHOR_TOKENS: Long = 1_536L
+        const val ANCHOR_TOKENS: Long = 2_048L
 
         /** Vocabulary assumed when the file has no token list. */
         private const val DEFAULT_VOCAB: Long = 152_000L

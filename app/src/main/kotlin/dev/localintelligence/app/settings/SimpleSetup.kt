@@ -97,12 +97,15 @@ object SimpleSetup {
     fun defaults(facts: DeviceFacts): SimpleDefaults {
         val ram = facts.totalRamBytes
         val speed = facts.speedClass
+        // The working limit of the 4096-context rows is 2600 tokens. WHY: the fixed prefix
+        // (system prompt and the native core tool list, about 1,500 tokens) is cached, so a
+        // longer prompt costs only its new tokens. 2600 stays under 0.65 x 4096.
         return when {
-            ram < 3.2 * GIB -> SimpleDefaults(4096, 2000, 256, 4, 1200, 3)
+            ram < 3.2 * GIB -> SimpleDefaults(4096, 2600, 256, 4, 1200, 3)
             ram < 4.6 * GIB ->
-                if (speed == SpeedClass.SLOW) SimpleDefaults(4096, 1500, 256, 4, 1200, 3)
-                else SimpleDefaults(4096, 2000, 384, 5, 1600, 3)
-            speed == SpeedClass.SLOW -> SimpleDefaults(4096, 2000, 256, 5, 1600, 3)
+                if (speed == SpeedClass.SLOW) SimpleDefaults(4096, 2600, 256, 4, 1200, 3)
+                else SimpleDefaults(4096, 2600, 384, 5, 1600, 3)
+            speed == SpeedClass.SLOW -> SimpleDefaults(4096, 2600, 256, 5, 1600, 3)
             // 12 GB and up, fast: the roomy row. A slower CPU on a big phone keeps the 6-8 GB row.
             ram >= 9.5 * GIB && speed == SpeedClass.FAST -> SimpleDefaults(8192, 4000, 512, 6, 3000, 5)
             else -> SimpleDefaults(8192, if (speed == SpeedClass.FAST) 4000 else 3000, 512, 6, 2048, 5)

@@ -503,6 +503,86 @@ std::string joined_parts(const std::vector<common_chat_prompt_part> & parts) {
     return out;
 }
 
+// A native request as llama.cpp reads it: the messages and the tool lists.
+struct NativeRequest {
+    std::vector<common_chat_msg> msgs;
+    std::vector<common_chat_tool> prompt_tools;
+    std::vector<common_chat_tool> callable_tools;
+};
+
+// Parses a native request's JSON. Control-token text in the messages and in the tool
+// descriptions is broken first, as the templatePrompt path does, so the template's own
+// markers are the only control tokens the prompt can carry. nativeChatPrepare and
+// nativeChatCount both read requests here, so a count is the count of the prompt that
+// prepare renders. `callable_tools_json` may be null (counting needs only the prompt's
+// tools). Throws on malformed JSON; the callers catch it.
+void parse_native_request(const llama_vocab * vocab, const std::string & messages_json,
+                          const std::string & prompt_tools_json, const std::string * callable_tools_json,
+                          NativeRequest & out) {
+    const std::vector<std::string> specials = control_token_texts(vocab);
+    out.msgs = common_chat_msgs_parse_oaicompat(common_json::parse(messages_json));
+    for (common_chat_msg & msg : out.msgs) {
+        msg.content = neutralise_control_text(msg.content, specials);
+        for (common_chat_msg_content_part & part : msg.content_parts) {
+            part.text = neutralise_control_text(part.text, specials);
+        }
+        for (common_chat_tool_call & call : msg.tool_calls) {
+            call.arguments = neutralise_control_text(call.arguments, specials);
+        }
+    }
+    out.prompt_tools = common_chat_tools_parse_oaicompat(common_json::parse(prompt_tools_json));
+    for (common_chat_tool & tool : out.prompt_tools) {
+        tool.description = neutralise_control_text(tool.description, specials);
+    }
+    if (callable_tools_json != nullptr) {
+        out.callable_tools = common_chat_tools_parse_oaicompat(common_json::parse(*callable_tools_json));
+        for (common_chat_tool & tool : out.callable_tools) {
+            tool.description = neutralise_control_text(tool.description, specials);
+        }
+    }
+}
+
+// The template inputs for a native prompt rendered with [tools]. Thinking is off and
+// the tool choice is automatic, for every native render.
+common_chat_templates_inputs native_inputs(const std::vector<common_chat_msg> & msgs,
+                                           const std::vector<common_chat_tool> & tools) {
+    common_chat_templates_inputs inputs;
+    inputs.messages = msgs;
+    inputs.use_jinja = true;
+    inputs.add_generation_prompt = true;
+    inputs.parallel_tool_calls = false;
+    inputs.tool_choice = COMMON_CHAT_TOOL_CHOICE_AUTO;
+    // Thinking off: decoding is 7 tokens/s on the slowest phones, and the models this
+    // app runs answer well without it.
+    inputs.enable_thinking = false;
+    // Thinking off is a request, not a guarantee: LFM3 still writes a thought and a
+    // closing </think> now and then. The parser takes any thought out of the reply
+    // (llama-server's default), so the user sees only the answer.
+    inputs.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+    inputs.tools = tools;
+    return inputs;
+}
+
+// How many bytes of the whole prompt `full` are the system message rendered alone with
+// the prompt's tools and no generation prompt: the part every conversation with these
+// tools starts with, whose state nativeGenerate keeps (stable_bytes). Returns 0 when that
+// text is not a prefix of `full`, or when the template cannot render a system message
+// without a user turn (the exception is caught here, so the prompt itself still prepares).
+int32_t system_prefix_bytes(common_chat_templates * tmpls, const NativeRequest & req, const std::string & full) {
+    if (req.msgs.empty() || req.msgs.front().role != "system") return 0;
+    try {
+        common_chat_templates_inputs head = native_inputs(std::vector<common_chat_msg>{req.msgs.front()}, req.prompt_tools);
+        head.add_generation_prompt = false;
+        const std::string text = joined_parts(common_chat_templates_apply(tmpls, head).prompt.parts);
+        if (!text.empty() && text.size() < full.size() && full.compare(0, text.size(), text) == 0) {
+            return static_cast<int32_t>(text.size());
+        }
+    } catch (const std::exception &) {
+        return 0;
+    }
+    return 0;
+}
+
 // A JSON string literal. Bytes that are not valid UTF-8 pass through unchanged:
 // the Java side decodes the whole JSON text with to_jstring, which replaces them.
 std::string json_quote(const std::string & s) {
@@ -1297,53 +1377,19 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
     nc->session.reset();
     const llama_vocab * vocab = as_vocab(h->vocab);
     try {
-        // Control-token text in the messages and the tool descriptions is broken
-        // before rendering, as the templatePrompt path does, so the template's own
-        // markers are the only control tokens the prompt can carry.
-        const std::vector<std::string> specials = control_token_texts(vocab);
-        std::vector<common_chat_msg> msgs = common_chat_msgs_parse_oaicompat(common_json::parse(messages));
-        for (common_chat_msg & msg : msgs) {
-            msg.content = neutralise_control_text(msg.content, specials);
-            for (common_chat_msg_content_part & part : msg.content_parts) {
-                part.text = neutralise_control_text(part.text, specials);
-            }
-            for (common_chat_tool_call & call : msg.tool_calls) {
-                call.arguments = neutralise_control_text(call.arguments, specials);
-            }
-        }
-        std::vector<common_chat_tool> prompt_list = common_chat_tools_parse_oaicompat(common_json::parse(prompt_tools));
-        std::vector<common_chat_tool> callable_list = common_chat_tools_parse_oaicompat(common_json::parse(callable_tools));
-        for (common_chat_tool & tool : prompt_list) {
-            tool.description = neutralise_control_text(tool.description, specials);
-        }
-        for (common_chat_tool & tool : callable_list) {
-            tool.description = neutralise_control_text(tool.description, specials);
-        }
-
-        common_chat_templates_inputs inputs;
-        inputs.messages = msgs;
-        inputs.use_jinja = true;
-        inputs.add_generation_prompt = true;
-        inputs.parallel_tool_calls = false;
-        inputs.tool_choice = COMMON_CHAT_TOOL_CHOICE_AUTO;
-        // Thinking off: decoding is 7 tokens/s on the slowest phones, and the
-        // models this app runs answer well without it.
-        inputs.enable_thinking = false;
-        // Thinking off is a request, not a guarantee: LFM3 still writes a thought
-        // and a closing </think> now and then. The parser takes any thought out of
-        // the reply (llama-server's default), so the user sees only the answer.
-        inputs.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+        NativeRequest req;
+        parse_native_request(vocab, messages, prompt_tools, &callable_tools, req);
 
         // The prompt lists the conversation's fixed tools, so its start does not
         // change when a tool is described in one turn (see planTurnTools).
-        inputs.tools = prompt_list;
-        const common_chat_params rendered = common_chat_templates_apply(nc->tmpls.get(), inputs);
+        const common_chat_params rendered =
+            common_chat_templates_apply(nc->tmpls.get(), native_inputs(req.msgs, req.prompt_tools));
 
         // The reply may call any callable tool, so the grammar and the parser are
         // built from that list. The prompt above is not rendered from it.
-        inputs.tools = callable_list;
-        auto session = std::make_unique<common_chat_session>(nc->tmpls.get(), vocab, inputs);
-        if (!callable_list.empty() &&
+        auto session = std::make_unique<common_chat_session>(
+            nc->tmpls.get(), vocab, native_inputs(req.msgs, req.callable_tools));
+        if (!req.callable_tools.empty() &&
             (rendered.format == COMMON_CHAT_FORMAT_CONTENT_ONLY ||
              session->format() == COMMON_CHAT_FORMAT_CONTENT_ONLY)) {
             __android_log_print(ANDROID_LOG_INFO, "LocalLlama",
@@ -1363,11 +1409,60 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
         nc->session = std::move(session);
         nc->prepared = true;
 
-        return to_jstring(env, "{\"prompt\":" + json_quote(joined_parts(nc->parts)) +
-                               ",\"format\":" + json_quote(nc->format) + "}");
+        // Where the conversation-independent start of the prompt ends (see
+        // system_prefix_bytes); nativeGenerate keeps the state there.
+        const std::string full = joined_parts(nc->parts);
+        const int32_t stable = system_prefix_bytes(nc->tmpls.get(), req, full);
+        return to_jstring(env, "{\"prompt\":" + json_quote(full) +
+                               ",\"format\":" + json_quote(nc->format) +
+                               ",\"stable_bytes\":" + std::to_string(stable) + "}");
     } catch (const std::exception & e) {
         __android_log_print(ANDROID_LOG_WARN, "LocalLlama", "native tools: prepare failed: %s", e.what());
         return nullptr;
+    }
+}
+
+// The number of tokens of the prompt nativeChatPrepare would render for these messages
+// and prompt tools, tokenised as nativeGenerate tokenises a native prompt. It writes
+// nothing into the handle's prepared session (a running generation reads that), so it
+// may be called between generations. -1 when native does not apply or on any failure.
+// WHY: the compaction gate prices the prompt the model really gets; the tool schemas
+// are most of the difference from the app's own text prompt.
+JNIEXPORT jint JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatCount(
+        JNIEnv * env, jclass, jlong handle, jstring messages_json, jstring prompt_tools_json) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr || messages_json == nullptr || prompt_tools_json == nullptr) {
+        return -1;
+    }
+    std::string messages;
+    std::string prompt_tools;
+    if (!jstring_utf8(env, messages_json, messages) || !jstring_utf8(env, prompt_tools_json, prompt_tools)) {
+        return -1;
+    }
+
+    std::lock_guard<std::mutex> lock(h->state);
+    auto * nc = static_cast<NativeChat *>(h->chat);
+    if (!h->loaded || nc == nullptr || h->vocab == nullptr) {
+        return -1;
+    }
+    try {
+        const llama_vocab * vocab = as_vocab(h->vocab);
+        NativeRequest req;
+        parse_native_request(vocab, messages, prompt_tools, nullptr, req);
+        const common_chat_params rendered =
+            common_chat_templates_apply(nc->tmpls.get(), native_inputs(req.msgs, req.prompt_tools));
+        if (!req.prompt_tools.empty() && rendered.format == COMMON_CHAT_FORMAT_CONTENT_ONLY) {
+            return -1;
+        }
+        std::vector<llama_token> tokens;
+        std::string err;
+        if (!tokenize_parts(vocab, rendered.prompt.parts, tokens, err)) {
+            return -1;
+        }
+        return static_cast<jint>(tokens.size());
+    } catch (const std::exception &) {
+        return -1;
     }
 }
 
