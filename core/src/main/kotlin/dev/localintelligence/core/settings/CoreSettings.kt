@@ -254,6 +254,12 @@ object CoreSettings {
         "agent.max_visible_tools", "Tools shown per step", "How many tools the model sees at once.",
         SettingSection.AGENT, default = 6, min = 1, max = 25,
     )
+    val TOOL_LOOKUP = Toggle(
+        "agent.tool_lookup", "Let the model look up tools",
+        "The prompt lists a few tools and a lookup tool; the model asks for others when it needs them. " +
+            "A shorter prompt, but a small model may not look up the right tool.",
+        SettingSection.AGENT, default = false,
+    )
     val MAX_MALFORMED_RETRIES = IntValue(
         "agent.retries", "Retries on a bad reply",
         "Malformed replies in a row before the agent gives up. 1 means no retry.",
@@ -281,7 +287,7 @@ object CoreSettings {
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
         COMPUTE, GPU_LAYERS, CONTEXT_LENGTH,
         SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE,
-        MAX_STEPS, MAX_VISIBLE_TOOLS, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
+        MAX_STEPS, MAX_VISIBLE_TOOLS, TOOL_LOOKUP, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
     )
 }
 
@@ -292,6 +298,7 @@ fun SettingsReader.agentConfig(): AgentConfig = AgentConfig(
     workingTokenLimit = this[CoreSettings.WORKING_TOKEN_LIMIT],
     memoryResults = this[CoreSettings.MEMORY_RESULTS],
     observationBudgetChars = this[CoreSettings.OBSERVATION_BUDGET],
+    toolLookup = this[CoreSettings.TOOL_LOOKUP],
 )
 
 fun SettingsReader.samplingParams(): SamplingParams = SamplingParams(

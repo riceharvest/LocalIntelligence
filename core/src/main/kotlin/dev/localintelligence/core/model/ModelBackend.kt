@@ -197,6 +197,14 @@ interface ModelBackend {
 
     /** Cooperative cancellation. Must be safe to call when idle. */
     fun cancel()
+
+    /**
+     * Processes [request]'s prompt without generating, so a later request that
+     * starts with the same prompt reuses it. The agent calls this between
+     * messages, while the user reads; [cancel] stops it. A backend that keeps no
+     * state between requests does nothing.
+     */
+    suspend fun warm(request: GenerationRequest) {}
 }
 
 /** A backend that can stream tokens. Optional capability, not required. */

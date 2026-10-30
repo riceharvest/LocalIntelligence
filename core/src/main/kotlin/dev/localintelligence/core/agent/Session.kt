@@ -167,6 +167,13 @@ class Session(
     val epochTools: MutableList<String> = mutableListOf()
 
     /**
+     * Tools the model found with `tools.find`: callable though the system prompt
+     * does not list them (their descriptions are in the lookup's result).
+     * Cleared at a compaction, which folds that result away.
+     */
+    val discoveredTools: MutableList<String> = mutableListOf()
+
+    /**
      * Runtime-to-model message: a malformed-output correction, a loop warning, or
      * a declined confirmation.
      *
@@ -282,6 +289,7 @@ class Session(
         messages.clear()
         workingSummary = null
         epochTools.clear()
+        discoveredTools.clear()
     }
 
     /**
