@@ -203,39 +203,51 @@ Build order. A box is ticked only with an observation behind it, as everywhere
 in this file.
 
 ```
-[?] llama.cpp b4661 -> b11988                   builds; not run on a device
-[?] settings schema, Simple/Technical modes, plugin seam, approvals
-      auto-accept per tier; tool families as plugins      builds; not run
-[ ] tool-call rows in the uiarc style (verb title, shape-coded status,
-      folding input/output, "Used N tools" group, inline Allow/Deny, Retry)
-[ ] llama.cpp sampler: top-k, penalty window, frequency/presence penalties
-[ ] external plugins: SKILL.md skills and sandboxed scripts (DeepSeek Harness
-      style: tools + hooks + settings rows, switchable)
-[ ] the vertical slice on a real device          (see "Now" above)
-[ ] voice: omni model through libmtmd            LFM3-Omni-2B: audio in, speech out
-      fallback: a text model + PocketTTS/Soprano through the same libmtmd API
-      last resort: Android SpeechRecognizer / TextToSpeech
-[ ] vision input (photo, camera)                 libmtmd
-[ ] default-assistant overlay + screenshot       AnythingLLM
-[ ] text-selection toolbar (PROCESS_TEXT)        AnythingLLM
-[?] share-sheet entry                            implemented; not seen on a device
-[ ] quick-settings tile, "reply done" notification
-[ ] OpenRouter key: image.generate, video.generate (async job + notification),
-      speech, optional remote chat model         opt-in; no key = no network call
-[ ] web.search                                   PocketPal, Off Grid, AnythingLLM
-[ ] location, timers/reminders, message/email drafts
-[ ] skills (SKILL.md, also personas) + "save as skill" after a successful run
-[ ] user profile memory + past-chat search       Hermes
-[ ] document chat on device                      embedding GGUF, vectors in Room
-[ ] document generation (PDF, Markdown) + chat export
-[ ] per-phone model picks + backend speed test   Off Grid
-[ ] MCP client for remote servers                opt-in
-[?] LiteRT-LM 0.13.1 -> 0.17.1 + Tensor NPU      builds; not run on a device
-      Gemma 4 E2B Tensor G5 build on the NPU     see acceleration.md
-[ ] .litertlm download from the in-app hub       today: adb push or file import
-[ ] LFM3 on the Tensor NPU                       needs a Tensor-compiled build;
-      none is published, compiling one needs Google's Tensor SDK (beta)
-[ ] KV estimate for hybrid models                per-layer head_count_kv (LFM3)
+Status as of 2026-10-30. `[?]` = built and merged, compiles and packages, NOT
+run on a device (that is the final test pass, see "Model test plan"). PR numbers
+in brackets.
+
+[?] llama.cpp b4661 -> b11988, JNI port                          [#68]
+[?] settings schema, Simple/Technical modes, plugin seam, per-tier
+      auto-accept; tool families as switchable plugins           [#70]
+[?] llama.cpp sampler: top-k, penalty window, freq/presence      [#72]
+[?] tool-call rows: verb titles, shape-coded status, folding
+      Input/Output, "Used N tools" groups, live running row,
+      inline Allow/Deny (dialog removed)                         [#77, #82]
+[?] Google Tensor NPU via LiteRT-LM 0.17.1 (Gemma 4 E2B G5)      [#69]
+[?] .litertlm download + import from the in-app hub              [#78]
+[?] KV estimate for hybrid models (per-layer head_count_kv)      [#73]
+[?] vision + audio input through libmtmd (mmproj next to model)  [#85]
+[?] composer: attach photos, record voice / dictate              [#93]
+[?] speech out in the model's own voice (LFM3 TTS via libmtmd),
+      read replies aloud, phone-TTS fallback                     [#86, #87, #92]
+[?] model's own chat format (llama_chat_apply_template)          [#90]
+[?] default-assistant overlay + screen capture to vision         [#79, #93]
+[?] text-selection toolbar, quick-settings tile, share entry     [#71]
+[?] web.search (DuckDuckGo HTML, no key)                         [#74, #80]
+[?] location.get, timer.set, message.draft, email.draft          [#75]
+[?] skills (SKILL.md) + "save as skill"                          [#83]
+[?] "About you" profile + history.search                         [#81]
+[?] document chat on device (txt/md/csv/pdf, BM25)               [#89]
+[?] chat export: Markdown, JSON, PDF                             [#76]
+[?] OpenRouter (own key): image.generate, video.generate         [#84]
+[?] MCP client, one remote server, off by default                [#88]
+[?] Simple-mode model suggestion + hub prefill, speed test       [#80, #91]
+[?] JNI UTF-8 both ways (emoji no longer abort CheckJNI)         [#92]
+
+Open:
+[ ] the vertical slice and every feature above on the Pixel 10 Pro (final pass)
+[ ] llama.cpp CPU build targets plain armv8-a: no dotprod/fp16/i8mm, no repack.
+      Likely the biggest speed win left. Options: GGML_CPU_ALL_VARIANTS with
+      runtime-loaded backends, or one armv8.2+ build (drops armv8.0 phones).
+[ ] OpenRouter as an optional remote chat model (same key)
+[ ] external plugins as sandboxed scripts (DeepSeek Harness style); skills and
+      MCP cover the declarative and remote cases today
+[ ] document search with embeddings (EmbeddingGemma 2) next to BM25
+[ ] hands-free voice mode / wake word
+[ ] LFM3 on the Tensor NPU: needs a Tensor-compiled build (Google's Tensor SDK, beta)
+[ ] .litertlm through the file picker (content:// is refused today)
+[ ] MCP: more than one server; video.status for long video jobs
 ```
 
 Not chased, even though a competitor has it: a Linux terminal, Accessibility or
