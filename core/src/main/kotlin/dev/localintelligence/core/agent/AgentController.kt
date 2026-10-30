@@ -398,6 +398,12 @@ class AgentController(
             memory.search(task, config.memoryResults)
         } catch (t: Throwable) {
             emptyList()
+        }.let { found ->
+            // A memory already shown in an earlier turn of this conversation is
+            // still in the prompt there; repeating it only grows the prompt.
+            val shown = sessions.messages.mapNotNull { (it as? ChatMessage.User)?.rendered }
+            // Matched on the start of the text: a long memory is shown cut.
+            found.filter { memory -> val head = memory.text.trim().take(MEMORY_MATCH_CHARS); shown.none { head in it } }
         }
         val hints = hooks.contextForStep(task).filter { it.isNotBlank() }
         val rendered = try {
@@ -1126,11 +1132,6 @@ class AgentController(
 
     // ------------------------------------------------------------ collaborators
 
-    /** Whether a saved-result handle (`[obs#N: …]`) is in the conversation or the working state. */
-    private fun handleInContext(): Boolean =
-        sessions.messages.any { it is ChatMessage.ToolObservation && it.observation.contains(OBS_HANDLE) } ||
-            sessions.workingSummary?.render()?.contains(OBS_HANDLE) == true
-
     /**
      * The tools for this step: the session's list, plus any this task needs that
      * it lacks.
@@ -1154,12 +1155,22 @@ class AgentController(
         }
         val byName = all.associateBy { it.definition.name }
         val kept = sessions.epochTools.filter { it in byName }
-        // A saved result's preview names observations.read; the model must be
-        // able to call it while such a handle is in the conversation, whatever
-        // the selector thought of the task.
-        val mustHave = listOfNotNull(ObservationStore.READ_TOOL.takeIf { it in byName && handleInContext() })
+        // A saved result's preview names observations.read, and a result can be
+        // saved mid-answer, when the list must not change; so the read tool is
+        // always on the list when the store is there.
+        val mustHave = listOfNotNull(
+            ObservationStore.READ_TOOL.takeIf { it in byName && observationStore != null },
+        )
         val wantedNames = (mustHave + wanted.map { it.definition.name }).distinct()
         val added = wantedNames.filter { it !in kept }
+        // Mid-answer the list stays as it is: a changed system prompt there is a
+        // full prefill on a hybrid model (no state survives an earlier change),
+        // paid while the user waits. A tool the selector wants now is added at
+        // the next message.
+        if (step > 1 && kept.size == sessions.epochTools.size && kept.isNotEmpty()) {
+            if (added.isNotEmpty()) log("tool set: ${added.joinToString()} wanted mid-answer, deferred to the next message")
+            return kept.mapNotNull { byName[it] }
+        }
         if (added.isNotEmpty() || kept.size != sessions.epochTools.size) {
             val room = cap + mustHave.size
             val appended = kept.size + added.size <= room
@@ -1197,14 +1208,14 @@ class AgentController(
         // trigger — and never shown to the model.
         val history = withWorkingSummary(sessions.messages)
         val built = try {
-            contextBuilder.build(task, history, emptyList(), visible.map { it.definition })
+            contextBuilder.build(task, history, emptyList(), visible.map { it.definition }, sessionLines())
         } catch (t: Throwable) {
             // The fallback keeps the summary, because losing the working state
             // to a builder that threw is the one thing worse than an untrimmed
             // prompt.
             history
         }
-        return withPluginContext(built)
+        return built
     }
 
     private fun request(prompt: List<ChatMessage>, visible: List<AgentTool>): GenerationRequest {
@@ -1252,21 +1263,11 @@ class AgentController(
     }
 
     /**
-     * Folds the plugins' session lines (the profile) into the system message,
-     * not a message of their own: small models handle one system prompt far
-     * better than several. Per-task lines (skills) are in the user turn.
+     * The plugins' session lines (the profile), for the system prompt. They go
+     * before the tools there (see [SystemPrompts.forTools]), so the part of the
+     * prompt llama.cpp keeps across restarts does not depend on the tool list.
      */
-    private fun withPluginContext(prompt: List<ChatMessage>): List<ChatMessage> {
-        val lines = hooks.contextForSession().filter { it.isNotBlank() }
-        if (lines.isEmpty()) return prompt
-        val extra = lines.joinToString("\n")
-        val first = prompt.firstOrNull()
-        return if (first is ChatMessage.System) {
-            listOf(ChatMessage.System(first.text + "\n\n" + extra)) + prompt.drop(1)
-        } else {
-            listOf(ChatMessage.System(extra)) + prompt
-        }
-    }
+    private fun sessionLines(): List<String> = hooks.contextForSession().filter { it.isNotBlank() }
 
     private fun parse(raw: String, visible: List<AgentTool>): ActionParseResult = try {
         parser.parse(raw, visible.map { it.definition.name }.toSet())
@@ -1335,10 +1336,20 @@ class AgentController(
             hardLimit(window)
         }
         if (tokens <= limit) return
-        compactNow(
-            "$tokens tokens over the ${if (boundary) "turn" else "mid-answer"} limit $limit " +
-                "(window $window)",
-        )
+        // Fold until the prompt is well under the limit, keeping fewer recent
+        // messages each time. One fold that leaves it just under would compact
+        // again at the next message, and every compaction is a prefill; well
+        // under, several turns fit before the next one.
+        var keep = sessions.keepRecent.coerceAtLeast(1)
+        var now = tokens
+        while (true) {
+            val reason = "$now tokens over the ${if (boundary) "turn" else "mid-answer"} limit $limit " +
+                "(window $window), keeping $keep"
+            if (!compactNow(reason, keep)) break
+            now = promptTokens(buildPrompt(visible))
+            if (now <= (limit * REFOLD_BELOW).toInt() || keep <= 1) break
+            keep -= 1
+        }
     }
 
     /**
@@ -1349,11 +1360,10 @@ class AgentController(
      * next prefill starts there; that is the price, paid once, for a prompt
      * that then only grows at its end for the next several turns.
      */
-    private suspend fun compactNow(reason: String): Boolean {
+    private suspend fun compactNow(reason: String, keep: Int = sessions.keepRecent.coerceAtLeast(1)): Boolean {
         // Nothing to fold, nothing to compact. A window that trips the trigger
         // holding two messages is a model whose context is smaller than its own
         // request, and folding would only duplicate the task.
-        val keep = sessions.keepRecent.coerceAtLeast(1)
         if (sessions.messages.size <= keep + 1) return false
         val before = sessions.messages.size
 
@@ -1597,8 +1607,11 @@ class AgentController(
     private companion object {
         const val COMPACT_AT = 0.65
 
-        /** How a saved result's preview names its handle; see ObservationTruncator.preview. */
-        const val OBS_HANDLE = "[obs#"
+        /** How much of a memory's start identifies it in an earlier turn. */
+        const val MEMORY_MATCH_CHARS = 80
+
+        /** After a compaction the prompt should be under this share of its limit. */
+        const val REFOLD_BELOW = 0.6
 
         /** Conversation the turn limit always leaves room for, past the system prompt. */
         const val MIN_CONVERSATION_TOKENS = 800

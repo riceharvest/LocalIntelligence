@@ -17,6 +17,8 @@ interface ContextBuilder {
         history: List<ChatMessage>,
         memories: List<Memory>,
         tools: List<ToolDefinition>,
+        /** Lines for the system prompt that do not depend on the task (the profile). */
+        sessionLines: List<String> = emptyList(),
     ): List<ChatMessage>
 
     /**
@@ -87,17 +89,32 @@ response is to report it.
         "Now: ${NOW_FORMAT.format(now)}, time zone ${now.zone.id}. Times without an offset are local."
 
     /**
-     * The system prompt: the rules, the reply format and the session's tools.
-     * Nothing in it changes from one message to the next (the clock moved to
-     * [nowLine], in the user turn), so llama.cpp can reuse it.
+     * Where the tool part of the system prompt starts. Everything before it (the
+     * name, the rules, the profile) changes only when the user edits Settings;
+     * the tools after it change with the conversation. llama.cpp keeps the state
+     * at this point, in memory and on disk (llama_jni.cpp, "system prompt
+     * anchor"), so a restart or a new tool prefills only from here.
+     */
+    const val TOOLS_START: String = "Reply with <respond>"
+
+    /**
+     * The system prompt, from what changes least to what changes most: the
+     * name, the rules and [sessionLines] (the profile), then the reply format
+     * and the session's tools from [TOOLS_START] on. Nothing in it changes from
+     * one message to the next (the clock is in the user turn, [nowLine]).
      */
     fun forTools(
         tools: List<ToolDefinition>,
         /** The name the user gave the assistant in Settings. Blank: no name line. */
         assistantName: String = "",
+        sessionLines: List<String> = emptyList(),
     ): String = buildString {
         if (assistantName.isNotBlank()) appendLine("Your name is ${assistantName.trim()}.")
         appendLine(BASE)
+        sessionLines.filter { it.isNotBlank() }.takeIf { it.isNotEmpty() }?.let { lines ->
+            appendLine()
+            lines.forEach { appendLine(it) }
+        }
         appendLine()
         // The wire format the parser accepts. A grammar backend is held to it
         // anyway; a backend without one only knows it from this line.
