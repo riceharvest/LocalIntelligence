@@ -103,7 +103,7 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                 placeholder = { Text("qwen3 0.6b, gemma, LiquidAI/LFM3…") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { viewModel.resolve() }),
+                keyboardActions = KeyboardActions(onSearch = { viewModel.submit() }),
                 modifier = Modifier.fillMaxWidth(),
                 // WHY enabled while downloading: cancelling is a button, not a
                 // reason to lock the user out of the screen they are on.
@@ -132,7 +132,7 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = viewModel::resolve,
+                    onClick = viewModel::submit,
                     enabled = !state.loading && !state.downloading,
                 ) {
                     Text("List files")

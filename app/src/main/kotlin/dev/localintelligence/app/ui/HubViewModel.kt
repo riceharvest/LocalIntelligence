@@ -306,6 +306,20 @@ class HubViewModel(
         }
     }
 
+    /**
+     * The search key or List files: a full owner/name is listed as typed, and a
+     * partial name ("qwen3 0.6") takes the top match instead of failing as an
+     * invalid repository id.
+     */
+    fun submit() {
+        val top = _searchResults.value.firstOrNull()
+        if (top != null && HubRepoId.parse(_state.value.repoInput) !is HubRepoId.Result.Valid) {
+            pickSearchHit(top)
+        } else {
+            resolve()
+        }
+    }
+
     /** A suggestion was tapped: it becomes the input and its files are listed. */
     fun pickSearchHit(hit: HuggingFaceClient.HubSearchHitPublic) {
         _state.update { it.copy(repoInput = hit.repoId.id) }
