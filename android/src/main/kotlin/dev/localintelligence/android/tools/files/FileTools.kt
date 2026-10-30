@@ -589,12 +589,14 @@ object FileListing {
      * @param total exact number of matching rows when known, else null.
      * @param withheld number of matching rows not shown (result set was cut).
      * @param what noun phrase for the empty case, e.g. "documents".
+     * @param atLeast true when [total] is the cap, not the real count: the provider had more.
      */
     fun format(
         rows: List<FileRow>,
         total: Int?,
         withheld: Int,
         what: String,
+        atLeast: Boolean = false,
     ): String {
         if (rows.isEmpty()) {
             return if (withheld > 0) {
@@ -606,36 +608,37 @@ object FileListing {
             }
         }
 
-        val sb = StringBuilder()
-        val countLine = when {
-            withheld > 0 && total != null -> "Showing X of $total $what ($withheld more matched)."
-            withheld > 0 -> "Showing the first $total $what."
-            else -> "${rows.size} $what."
-        }
-        // The count line is rendered first with a placeholder so the length is known
-        // before the rows are appended, and a second time once the real number of
-        // shown rows is known. Building it twice is cheaper than being wrong.
-        sb.append(countLine.replace("X", rows.size.toString())).append('\n')
-
+        // The header is built after the rows so it states the number actually shown. It is
+        // never produced by a text replace over the header, because the query inside [what]
+        // may contain any character.
+        val body = StringBuilder()
         var shown = 0
         var used = 0
         for (row in rows) {
             if (shown >= MAX_ROWS) break
             val line = "- " + describe(row) + "\n"
             if (used + line.length > ROW_BUDGET) break
-            sb.append(line)
+            body.append(line)
             used += line.length
             shown++
+        }
+
+        // "at least" is said only when the cap was hit: a count that stops at the cap
+        // must not read as the complete number of matches.
+        val bound = if (atLeast) "at least " else ""
+        val header = when {
+            withheld > 0 && total != null -> "Showing $shown of $bound$total $what ($bound$withheld more matched).\n"
+            withheld > 0 -> "Showing the first $total $what.\n"
+            atLeast -> "Showing $shown of at least ${rows.size} $what.\n"
+            else -> "$shown $what.\n"
         }
 
         // The withheld tally has to account for the rows the caller's limit dropped AND
         // the rows this renderer dropped, or the model is told a smaller number than
         // was actually hidden.
         val hidden = rows.size - shown + withheld
-        if (hidden > 0) {
-            sb.append("- …and ").append(hidden).append(" more, not listed.")
-        }
-        return sb.toString().trimEnd()
+        val tail = if (hidden > 0) "- …and $hidden more, not listed." else ""
+        return (header + body.toString() + tail).trimEnd()
     }
 
     /** One row, one line. The URI at the end is the handle files.read_text and files.delete take back. */
@@ -1071,7 +1074,7 @@ class FilesListTool(
                 )
             }
             ok(
-                FileListing.format(rows.items, rows.matched, rows.withheld, "documents"),
+                FileListing.format(rows.items, rows.matched, rows.withheld, "documents", rows.capped),
                 jsonOf("count" to rows.items.size.toString(), "withheld" to rows.withheld.toString()),
             )
         }
@@ -1183,7 +1186,7 @@ class FilesSearchTool(
                 if (mime != null) append(" of type $mime")
             }
             ok(
-                FileListing.format(rows.items, rows.matched, rows.withheld, what),
+                FileListing.format(rows.items, rows.matched, rows.withheld, what, rows.capped),
                 jsonOf("count" to rows.items.size.toString(), "withheld" to rows.withheld.toString()),
             )
         }
@@ -1496,6 +1499,8 @@ private class RowPage(
     val matched: Int,
     /** How many of those were dropped for the limit. */
     val withheld: Int,
+    /** True when the provider had more rows than [FileArgs.MAX_LIMIT], so [matched] is a floor. */
+    val capped: Boolean,
 )
 
 /**
@@ -1533,9 +1538,13 @@ private suspend fun readRows(
         FileQuery.ORDER_BY,
     ) ?: return@withContext null
     try {
-        val rows = materialise(cursor, FileArgs.MAX_LIMIT)
+        // One row past the cap is read only to learn that the result is larger than the
+        // cap. It is then dropped, so every caller sees at most MAX_LIMIT rows.
+        val probed = materialise(cursor, FileArgs.MAX_LIMIT + 1)
+        val capped = probed.size > FileArgs.MAX_LIMIT
+        val rows = if (capped) probed.take(FileArgs.MAX_LIMIT) else probed
         val matched = rows.size
-        RowPage(rows.take(limit), matched, (matched - limit).coerceAtLeast(0))
+        RowPage(rows.take(limit), matched, (matched - limit).coerceAtLeast(0), capped)
     } finally {
         runCatching { cursor.close() }
     }
