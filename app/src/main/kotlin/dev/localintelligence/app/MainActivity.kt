@@ -47,6 +47,7 @@ import dev.localintelligence.app.ui.HubScreen
 import dev.localintelligence.app.ui.SettingsScreen
 import dev.localintelligence.app.ui.DocumentsScreen
 import dev.localintelligence.app.ui.SkillsScreen
+import dev.localintelligence.app.ui.ScriptPluginsScreen
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
@@ -419,6 +420,7 @@ class MainActivity : ComponentActivity() {
                             onOpenSkills = { nav.navigate(ROUTE_SKILLS) },
                             speedTest = container.speedTest,
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
+                            onOpenScripts = { nav.navigate(ROUTE_SCRIPTS) },
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -427,6 +429,15 @@ class MainActivity : ComponentActivity() {
                         SkillsScreen(
                             store = container.settings,
                             repository = container.skills,
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
+                    composable(ROUTE_SCRIPTS) {
+                        ScriptPluginsScreen(
+                            store = container.settings,
+                            repository = container.scriptRepository,
+                            runner = container.scriptRunner,
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -482,6 +493,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_REDACTION = "redaction"
         const val ROUTE_SETTINGS = "settings"
         const val ROUTE_SKILLS = "skills"
+        const val ROUTE_SCRIPTS = "scripts"
         const val ROUTE_DOCUMENTS = "documents"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */

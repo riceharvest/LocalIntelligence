@@ -124,6 +124,14 @@ object CatalogueAgreement {
     const val DYNAMIC_TOOL_PREFIX = "mcp."
 
     /**
+     * Name prefix of tools that come from a user-installed script plugin. The same
+     * exemption as [DYNAMIC_TOOL_PREFIX], for the same reason: the set of installed
+     * scripts is only known at run start, from the disk. A built-in tool must never
+     * use this prefix either.
+     */
+    const val SCRIPT_TOOL_PREFIX = "script."
+
+    /**
      * Compares [shipped] against [catalogue] and returns every disagreement.
      *
      * Never throws and never short-circuits: it reports all four classes at once,
@@ -138,7 +146,9 @@ object CatalogueAgreement {
         val catalogueByName = catalogue.associateBy { it.name }
 
         val unlisted = shippedByName.keys
-            .filterNot { it in catalogueByName || it.startsWith(DYNAMIC_TOOL_PREFIX) }
+            .filterNot {
+                it in catalogueByName || it.startsWith(DYNAMIC_TOOL_PREFIX) || it.startsWith(SCRIPT_TOOL_PREFIX)
+            }
             .sorted()
         val unimplemented = catalogueByName.keys.filterNot { it in shippedByName }.sorted()
 
