@@ -241,8 +241,10 @@ interface ModelBackend {
      * with (the system prompt and the fixed tool list). Unlike [warm], a real request
      * WAITS for it instead of cancelling it: the real request needs the same prefix,
      * and a cancelled prefill is thrown away whole (a hybrid model cannot keep a
-     * partial prefill), so the work would be paid twice. Loading, unloading, speech
-     * and the speed test still stop it. A backend that keeps no state does nothing.
+     * partial prefill), so the work would be paid twice. Loading, unloading and speech
+     * still stop it; the speed test waits for it like any request (its figures come from
+     * the backend's own timings, so the wait does not count). A backend that keeps no
+     * state does nothing.
      */
     suspend fun warmPrefix(request: GenerationRequest) {}
 }
