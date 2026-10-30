@@ -240,7 +240,10 @@ fun ModelManagerScreen(
                 // and then imported from there, the same way a downloaded model is.
                 // The copy is announced with its size, because these files are GBs.
                 ModelContainer.LITERTLM -> {
-                    val name = displayNameOf(context, uri) ?: uri.lastPathSegment ?: "model.litertlm"
+                    // The name query goes to the document provider, which a cloud-backed one can answer
+                    // slowly, so it runs off the main thread like the sniff above.
+                    val name = withContext(Dispatchers.IO) { displayNameOf(context, uri) }
+                        ?: uri.lastPathSegment ?: "model.litertlm"
                     val copied = try {
                         copyLiteRtLm(uri, name) { done, total ->
                             // Hop to the composition's dispatcher: this runs on the copy thread.
