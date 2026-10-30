@@ -132,7 +132,7 @@ internal object MeasuredArchitectures {
      * element counts, not the number in the model card: for TinyLlama-1.1B the
      * card says 1.1B and the table sums to 1,100,048,384.
      */
-    val MEASURED: List<ModelArchitecture> = listOf(
+    val MEASURED: List<ModelArchitecture> = listOf<ModelArchitecture>(
         ModelArchitecture(630_139_776L, layers = 24, kvWidth = 128, embeddingLength = 896, source = ModelArchitecture.Source.MEASURED),
         ModelArchitecture(999_885_952L, layers = 26, kvWidth = 256, embeddingLength = 1_152, source = ModelArchitecture.Source.MEASURED),
         ModelArchitecture(1_100_048_384L, layers = 22, kvWidth = 256, embeddingLength = 2_048, source = ModelArchitecture.Source.MEASURED),
@@ -142,7 +142,22 @@ internal object MeasuredArchitectures {
         ModelArchitecture(3_821_079_552L, layers = 32, kvWidth = 3_072, embeddingLength = 3_072, source = ModelArchitecture.Source.MEASURED),
         ModelArchitecture(7_241_732_096L, layers = 32, kvWidth = 1_024, embeddingLength = 4_096, source = ModelArchitecture.Source.MEASURED),
         ModelArchitecture(8_030_261_312L, layers = 32, kvWidth = 1_024, embeddingLength = 4_096, source = ModelArchitecture.Source.MEASURED),
-    )
+        // ---- 2026 rows (research-context-defaults.md 1.1, read from the GGUF headers) ----
+        // `layers` here is the number of layers that keep a per-token cache at the app's
+        // swa_full = false: hybrids count only their global-attention layers, Gemma 4
+        // only the global layers among the first 15 (the rest share KV). The fixed
+        // sliding-window and recurrent parts (8-110 MiB) are not in this table; the
+        // post-download ModelMemoryEstimator prices them. Parameter counts are the
+        // nominal sizes, not tensor-table sums.
+        ModelArchitecture(230_000_000L, layers = 6, kvWidth = 512, embeddingLength = 1_024, source = ModelArchitecture.Source.MEASURED),   // LFM2.5-230M
+        ModelArchitecture(1_700_000_000L, layers = 6, kvWidth = 512, embeddingLength = 2_048, source = ModelArchitecture.Source.MEASURED), // LFM3-1.7B (6 global + 5 SWA)
+        ModelArchitecture(1_750_000_000L, layers = 7, kvWidth = 512, embeddingLength = 2_048, source = ModelArchitecture.Source.MEASURED), // Spark-X2.6-1.7B (7 global + 21 SWA)
+        ModelArchitecture(2_000_000_000L, layers = 6, kvWidth = 512, embeddingLength = 2_048, source = ModelArchitecture.Source.MEASURED), // Qwen3.5-2B (6 attention + 18 DeltaNet)
+        ModelArchitecture(2_400_000_000L, layers = 42, kvWidth = 256, embeddingLength = 2_304, source = ModelArchitecture.Source.MEASURED), // MiniCPM5-2B
+        ModelArchitecture(3_000_000_000L, layers = 40, kvWidth = 512, embeddingLength = 2_560, source = ModelArchitecture.Source.MEASURED), // Granite 4.2 3B
+        ModelArchitecture(4_000_000_000L, layers = 9, kvWidth = 1_024, embeddingLength = 2_560, source = ModelArchitecture.Source.MEASURED), // Spark-X2.6-4B (9 global + 27 SWA)
+        ModelArchitecture(5_100_000_000L, layers = 3, kvWidth = 512, embeddingLength = 1_536, source = ModelArchitecture.Source.MEASURED), // Gemma 4 E2B (3 global KV layers + 12 SWA)
+    ).sortedBy { it.parameters }
 
     /**
      * Which measured architecture a parameter count is close enough to that its
@@ -179,7 +194,18 @@ internal object MeasuredArchitectures {
         if (nearest != null) {
             val ratio = nearest.parameters.toDouble() / parameters.toDouble()
             val distance = if (ratio >= 1.0) ratio else 1.0 / ratio
-            if (distance <= MATCH_TOLERANCE) return nearest
+            if (distance <= MATCH_TOLERANCE) {
+                // The 2026 rows put hybrids (6 cached layers) next to dense models
+                // (28-42) at the same size. When several rows are in tolerance, take the
+                // one with the largest per-token cache: the safe direction.
+                return MEASURED
+                    .filter { row ->
+                        val r = row.parameters.toDouble() / parameters.toDouble()
+                        (if (r >= 1.0) r else 1.0 / r) <= MATCH_TOLERANCE
+                    }
+                    .maxByOrNull { it.layers.toLong() * it.kvWidth }
+                    ?: nearest
+            }
             // Between two measured rows and within tolerance of neither: take
             // the wider of the two, which is the conservative direction.
             val second = MEASURED.filter { it !== nearest }

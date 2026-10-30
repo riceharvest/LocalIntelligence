@@ -16,6 +16,12 @@ data class ModelSpec(
     val quantType: String? = null,
     /** Backend ids that declare they can run this model. */
     val supportedBackends: Set<String> = emptySet(),
+    /**
+     * The context length the app wants allocated, chosen by the context-length setting
+     * and the phone. Null: the backend's own default. The same number prices the RAM
+     * gate, so what is checked is what is loaded.
+     */
+    val contextLength: Int? = null,
 )
 
 data class ModelCapabilities(

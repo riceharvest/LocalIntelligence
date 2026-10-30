@@ -287,7 +287,7 @@ object GgufParser {
             )
         }
 
-        if (elementType.isInteger && count <= limits.maxRetainedIntegerArrayElements) {
+        if ((elementType.isInteger || elementType == GgufValueType.BOOL) && count <= limits.maxRetainedIntegerArrayElements) {
             // Short integer arrays are kept whole: per-layer head counts are the case that
             // needs every entry. Each element still goes through readValue, so the same
             // bounds checks apply as to a scalar.
@@ -296,7 +296,11 @@ object GgufParser {
             for (i in 0 until count.toInt()) {
                 val element = readValue(elementType, limits, truncation, warnings)
                 if (i < limits.maxArrayPreviewElements) preview += element
-                retained += (element as? GgufValue.Signed)?.bits ?: 0L
+                retained += when (element) {
+                    is GgufValue.Signed -> element.bits
+                    is GgufValue.Bool -> if (element.value) 1L else 0L
+                    else -> 0L
+                }
             }
             return GgufValue.Array(elementType, count, preview, retained)
         }
