@@ -472,9 +472,21 @@ private fun httpFailure(tool: String, reply: Reply, key: String, jobId: String? 
     )
 }
 
+/**
+ * How many generated files are kept. Nothing in the app lists or removes them yet, so an
+ * unbounded folder would be storage the user can never see or free; each save drops the rest.
+ */
+private const val MAX_GENERATED_FILES = 20
+
 private fun saveBytes(dir: File, bytes: ByteArray, extension: String): File {
     dir.mkdirs()
-    return File(dir, "${System.currentTimeMillis()}.$extension").apply { writeBytes(bytes) }
+    val file = File(dir, "${System.currentTimeMillis()}.$extension").apply { writeBytes(bytes) }
+    // Newest first by modification time, so the file just written is always among those kept.
+    dir.listFiles()
+        ?.sortedByDescending { it.lastModified() }
+        ?.drop(MAX_GENERATED_FILES)
+        ?.forEach { it.delete() }
+    return file
 }
 
 private class Reply(val status: Int, val body: ByteArray) {
