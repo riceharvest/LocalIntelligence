@@ -10,7 +10,8 @@ import dev.localintelligence.core.tool.ToolError
  * Rules (see docs/architecture.md):
  *  - same normalized call twice  -> warn the model
  *  - same normalized call 3x      -> block
- *  - same error twice             -> mark unavailable, stop re-prompting
+ *  - same error twice             -> refuse that tool for the rest of the run, with
+ *                                    an observation the model can act on
  *  - N consecutive calls that changed nothing -> terminate the step
  */
 class LoopDetector(
@@ -28,7 +29,12 @@ class LoopDetector(
     private var noProgressStreak = 0
     private var lastObservation: String? = null
 
-    enum class Verdict { ALLOW, WARN, BLOCK }
+    /**
+     * BLOCK ends the run: the same call with identical arguments a third time.
+     * REFUSE does not: the tool failed twice, so this call is not run, and the
+     * model is told so and can try something else or answer.
+     */
+    enum class Verdict { ALLOW, WARN, BLOCK, REFUSE }
 
     /**
      * Canonical form used for identity: tool name + normalized arguments.
@@ -48,12 +54,17 @@ class LoopDetector(
         }
 
     fun check(toolName: String, args: ToolArgs): Verdict {
-        if (toolName in unavailable) return Verdict.BLOCK
         val key = Key(toolName, normalize(args))
         val count = (seen[key] ?: 0) + 1
         seen[key] = count
+        // WHY the failure refusal is keyed on the tool but the block is keyed on the
+        // arguments: two failures say the tool is not working for the input it was
+        // given, not that every later input is hopeless. A model that fetches a
+        // different URL after a timeout should get to try it. Only the same call
+        // again, a third time, ends the run.
         return when {
             count >= blockAfter -> Verdict.BLOCK
+            toolName in unavailable -> Verdict.REFUSE
             count >= warnAfter -> Verdict.WARN
             else -> Verdict.ALLOW
         }

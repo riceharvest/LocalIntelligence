@@ -761,13 +761,27 @@ class AgentController(
         )
         return when (loopDetector.check(action.name, action.arguments)) {
             LoopDetector.Verdict.BLOCK -> Stop(
-                if (loopDetector.isUnavailable(action.name)) {
-                    "${action.name} is unavailable after repeated failures"
-                } else {
-                    "loop detected: ${action.name} repeated with identical arguments"
-                },
+                "loop detected: ${action.name} repeated with identical arguments",
                 trace.toList(),
             )
+
+            // A tool that failed twice is not run again in this run, but the run
+            // goes on: the failure is the tool's, not the whole task's, and the
+            // model can still answer or use another tool. Same shape as a policy
+            // refusal, so the model reads it the same way.
+            LoopDetector.Verdict.REFUSE -> {
+                trace += StepTrace(
+                    step, StepTrace.Kind.TOOL_CALL,
+                    "refused ${action.name}: failed twice in this run",
+                    success = false,
+                    toolName = action.name,
+                )
+                sessions.observe(
+                    "${action.name} failed twice in this run, so it will not run again. " +
+                        "Do something else, or answer without it.",
+                )
+                null
+            }
 
             LoopDetector.Verdict.WARN -> {
                 sessions.observe(
