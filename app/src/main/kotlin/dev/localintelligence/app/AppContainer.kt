@@ -8,6 +8,7 @@ import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.cloud.OpenRouterPlugin
+import dev.localintelligence.android.mcp.McpPlugin
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.android.skills.SkillsPlugin
 import dev.localintelligence.android.tools.androidToolPlugins
@@ -150,7 +151,8 @@ class AppContainer(private val context: Context) {
         // catalogue would fail whenever any plugin is off, which is the default for
         // the cloud plugin.
         CatalogueAgreement.require(families.flatMap { it.tools() } + cloud.shippedTools(), V0ToolCatalogue.definitions)
-        families + ProfilePlugin() + SkillsPlugin(skills) + cloud
+        val remote = McpPlugin(settings)
+        families + ProfilePlugin() + SkillsPlugin(skills) + cloud + remote
     }
 
     /** Skills on disk under filesDir/skills. Shared by the plugin, the skills screen and "Save as skill". */
