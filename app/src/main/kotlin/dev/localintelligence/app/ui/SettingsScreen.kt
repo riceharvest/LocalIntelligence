@@ -57,6 +57,7 @@ import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.settings.SettingsMode
+import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.core.settings.mode
 import java.util.Locale
 
@@ -78,6 +79,8 @@ fun SettingsScreen(
     speedTest: SpeedTestRunner? = null,
     /** Opens the documents screen. Defaulted, like [onOpenSkills]. */
     onOpenDocuments: () -> Unit = {},
+    /** Opens the script plugins screen. Defaulted, like [onOpenSkills]. */
+    onOpenScripts: () -> Unit = {},
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -128,7 +131,9 @@ fun SettingsScreen(
                 SectionHeader(if (technical) "Plugins" else "What the assistant can use")
                 FilledTonalButton(onClick = onOpenSkills, modifier = Modifier.fillMaxWidth()) { Text("Skills") }
                 FilledTonalButton(onClick = onOpenDocuments, modifier = Modifier.fillMaxWidth()) { Text("Documents") }
-                plugins.forEach { plugin ->
+                FilledTonalButton(onClick = onOpenScripts, modifier = Modifier.fillMaxWidth()) { Text("Script plugins") }
+                // Script plugins have their own screen, with the same switch, so they are not repeated here.
+                plugins.filterNot { it is ScriptPlugin }.forEach { plugin ->
                     SwitchRow(
                         title = plugin.title,
                         help = plugin.summary,

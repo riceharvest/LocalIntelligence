@@ -591,6 +591,27 @@ switched off.
 Nothing loads code at runtime. External plugins (`SKILL.md` skills, sandboxed
 scripts) adapt to this interface.
 
+**Script plugins** (`:android` `scripts/`, screen "Script plugins" under
+Settings). A user installs a folder `plugins/<id>/` holding `plugin.json` (id,
+title, summary, version, tools with a JSON-schema `parameters` and a `risk`)
+and `main.js` (one global function per tool, `function f(args)` returning
+text). Each installed folder is an `AgentPlugin` with id `script.<id>` and tools
+`script.<id>.<tool>`. Install is by pasting the two files or by a URL to a .zip
+(http/https only, same fetch rules as skills, 256 KB cap, no `..` in any path);
+both files are shown for review before anything is written. The plugin is off
+until switched on. The **sandbox** is the AndroidX JavaScript engine
+(`androidx.javascriptengine`): JavaScript in a separate process with no
+network, no file system and no Java bridge. Each call gets its own isolate, is
+stopped after 5 s and capped at 32 MB; the result is capped by the observation
+budget. Where the phone has no JavaScript sandbox (`JavaScriptSandbox.isSupported()`
+is false) the plugin is listed with that reason and offers no tools. **Tiers:**
+only `read_only` and `reversible` are accepted from a manifest; a script cannot
+be a riskier tier because nothing it can reach is outside the sandbox.
+**Fencing:** every script tool is `NETWORK` origin, so its output is fenced as
+untrusted text, and its description is neutralised and labelled "(from a script
+plugin)". The `script.` tool-name prefix is exempt from the catalogue check the
+same way `mcp.` is, because installed scripts are known only at run start.
+
 **Settings** (`:core` `settings/`). Every option is a `SettingDef` row: key,
 type, default, range, section, whether Simple mode shows it, and when it takes
 effect. The settings screen is generated from the rows, so a feature adds a

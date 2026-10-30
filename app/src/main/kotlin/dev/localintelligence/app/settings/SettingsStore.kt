@@ -119,6 +119,12 @@ class SettingsStore(
         _changes.value += 1
     }
 
+    /** Clears a plugin's on/off value, so a plugin installed later under the same id starts from its default. */
+    fun forgetPlugin(plugin: AgentPlugin) {
+        prefs.edit().remove(pluginKey(plugin)).apply()
+        _changes.value += 1
+    }
+
     /**
      * A copy for one run: each value is read once, on first use, and then held,
      * so a toggle while a run is going cannot change it halfway.

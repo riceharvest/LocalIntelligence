@@ -14,6 +14,9 @@ import dev.localintelligence.android.mcp.McpPlugin
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.android.skills.SkillsPlugin
 import dev.localintelligence.android.tools.androidToolPlugins
+import dev.localintelligence.android.scripts.ScriptPlugin
+import dev.localintelligence.android.scripts.ScriptPluginRepository
+import dev.localintelligence.android.scripts.ScriptRunner
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.SimpleSetup
@@ -158,7 +161,24 @@ class AppContainer(private val context: Context) {
      * Everything that can be switched on and off. The built-in tool families
      * are the first plugins; features add theirs here.
      */
-    val plugins: List<AgentPlugin> by lazy {
+    val plugins: List<AgentPlugin>
+        get() = builtInPlugins + scriptPluginsNow()
+
+    /**
+     * Installed script plugins, read from disk on each call. Read per call rather
+     * than once, so a plugin installed on the Plugins screen is offered from the
+     * next message without a restart. Its on/off switch is read by [PluginSet].
+     */
+    fun scriptPluginsNow(): List<ScriptPlugin> =
+        scriptRepository.list().map { ScriptPlugin(it, scriptRunner, settings) }
+
+    /** The JavaScript sandbox script plugins run in. One per process; see ScriptRunner. */
+    val scriptRunner: ScriptRunner by lazy { ScriptRunner(context) }
+
+    /** Script plugins on disk under filesDir/plugins. */
+    val scriptRepository: ScriptPluginRepository by lazy { ScriptPluginRepository(File(context.filesDir, "plugins")) }
+
+    private val builtInPlugins: List<AgentPlugin> by lazy {
         val families = androidToolPlugins(context)
         val cloud = OpenRouterPlugin(context, settings)
         // Checked here, against everything shipped and switched on or not. A run's
