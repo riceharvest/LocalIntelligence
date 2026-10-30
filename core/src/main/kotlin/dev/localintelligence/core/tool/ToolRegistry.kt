@@ -243,6 +243,73 @@ object ObservationTruncator {
         val head = observation.take(budget - marker.length)
         return head + marker
     }
+
+    /**
+     * A head-and-tail view of [text] within [budget], for a result whose full text
+     * is kept in an [ObservationStore] under [id].
+     *
+     * ## WHY HEAD AND TAIL
+     *
+     * The head says what the result is; the tail is often the answer (a total, the
+     * last rows, an error at the end of a log). About 70 % of the room goes to the
+     * head and 20 % to the tail, joined by a marker line that says how much was cut.
+     *
+     * When [id] is not null a footer names the handle and the tool that reads the
+     * rest: `[obs#41: 18,240 chars. More: observations.read with id 41 and a query
+     * or an offset]`. The footer and the marker count inside [budget], so the
+     * result is never longer than [budget]. Text that fits is returned unchanged:
+     * nothing was cut, so there is nothing more to read. A budget too small for the
+     * frame falls back to [truncate]. Cuts never split a surrogate pair.
+     */
+    fun preview(text: String, budget: Int = DEFAULT_BUDGET_CHARS, id: Long?): String {
+        if (budget <= 0) return ""
+        if (text.length <= budget) return text
+        val footer = if (id == null) "" else
+            "[obs#$id: ${groupedCount(text.length)} chars. More: ${ObservationStore.READ_TOOL} " +
+                "with id $id and a query or an offset]"
+        // The cut count is at most text.length, so its marker is the longest one possible.
+        val frame = cutMarker(text.length).length + 2 + (if (footer.isEmpty()) 0 else footer.length + 1)
+        val room = budget - frame
+        if (room < MIN_PREVIEW_ROOM) {
+            if (footer.isNotEmpty() && budget - footer.length - 1 >= MIN_PREVIEW_ROOM) {
+                return truncate(text, budget - footer.length - 1) + "\n" + footer
+            }
+            return truncate(text, budget)
+        }
+        val head = headOf(text, room * 7 / 9)
+        val tail = tailOf(text, room - room * 7 / 9)
+        val marker = cutMarker(text.length - head.length - tail.length)
+        return buildString {
+            append(head).append('\n').append(marker).append('\n').append(tail)
+            if (footer.isNotEmpty()) append('\n').append(footer)
+        }
+    }
+
+    /** Below this much room for text, a head-and-tail split shows too little of either to be worth it. */
+    private const val MIN_PREVIEW_ROOM = 64
+
+    /** How far a cut may move back to land on a line or word break. */
+    private const val SNAP_CHARS = 48
+
+    private fun cutMarker(cut: Int): String = "[…${groupedCount(cut)} chars cut…]"
+
+    /** The first [n] characters, ending at a line or word break when one is near. */
+    private fun headOf(text: String, n: Int): String {
+        var end = n.coerceIn(0, text.length)
+        val brk = text.lastIndexOfAny(charArrayOf('\n', ' '), end - 1)
+        if (brk >= 0 && end - brk <= SNAP_CHARS) end = brk
+        if (end > 0 && text[end - 1].isHighSurrogate()) end--
+        return text.substring(0, end).trimEnd()
+    }
+
+    /** The last [n] characters, starting after a line or word break when one is near. */
+    private fun tailOf(text: String, n: Int): String {
+        var start = (text.length - n).coerceIn(0, text.length)
+        val brk = text.indexOfAny(charArrayOf('\n', ' '), start)
+        if (brk >= 0 && brk + 1 - start <= SNAP_CHARS) start = brk + 1
+        if (start < text.length && text[start].isLowSurrogate()) start++
+        return text.substring(start).trimStart()
+    }
 }
 
 /**
