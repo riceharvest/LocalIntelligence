@@ -41,6 +41,7 @@ static void log_to_logcat(enum ggml_log_level level, const char * text, void * /
 }
 
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <cstring>
 #include <memory>
@@ -51,6 +52,11 @@ namespace {
 
 constexpr int32_t kDefaultContext = 4096;
 constexpr int32_t kDefaultBatch = 512;
+
+// Context for an embedding model. A document passage is about 800 characters,
+// which is a few hundred tokens; 1024 covers that with room for other scripts,
+// and the trained length caps it below that anyway.
+constexpr int32_t kEmbeddingContext = 1024;
 
 // Headroom left at the end of the context window for generation, so a prompt
 // that exactly fills the window still has somewhere to put an answer.
@@ -129,6 +135,7 @@ void free_model_locked(LlamaHandle * h) {
     h->n_ctx = 0;
     h->n_vocab = 0;
     h->eog_token = -1;
+    h->n_embd = 0;
 }
 
 // Phones are asymmetric (big.LITTLE). Leaving the prime core free matters:
@@ -1318,3 +1325,201 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSpeak(
     h->generating.store(false);
     return result;
 }
+
+extern "C" {
+
+// ---- embeddings -----------------------------------------------------------------
+
+JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadEmbeddingModel(
+        JNIEnv * env, jclass, jlong handle, jstring path, jint n_threads) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr) {
+        return to_jstring(env, "null handle");
+    }
+    if (path == nullptr) {
+        return to_jstring(env, "null model path");
+    }
+    std::string model_path;
+    if (!jstring_utf8(env, path, model_path)) {
+        return to_jstring(env, "could not read the model path");
+    }
+
+    std::lock_guard<std::mutex> lock(h->state);
+    free_model_locked(h);
+
+    ggml_log_set(log_to_logcat, nullptr);
+    llama_backend_init();
+    h->backend_initialised = true;
+
+    llama_model_params mparams = llama_model_default_params();
+    mparams.n_gpu_layers = 0;
+    // Same reasoning as nativeLoadModel: MMAP, never MMAP_MLOCK.
+    mparams.load_mode = LLAMA_LOAD_MODE_MMAP;
+    mparams.vocab_only = false;
+
+    const int32_t threads = pick_threads(n_threads);
+
+    llama_model * model = llama_model_load_from_file(model_path.c_str(), mparams);
+    if (model == nullptr) {
+        return to_jstring(env, "could not load an embedding model from " + model_path);
+    }
+
+    const int32_t trained_ctx = llama_model_n_ctx_train(model);
+    int32_t ctx_len = kEmbeddingContext;
+    if (trained_ctx > 0 && ctx_len > trained_ctx) {
+        ctx_len = trained_ctx;
+    }
+
+    llama_context_params cparams = llama_context_default_params();
+    cparams.n_ctx = static_cast<uint32_t>(ctx_len);
+    // One passage per decode, so the batch holds a whole passage.
+    cparams.n_batch = static_cast<uint32_t>(ctx_len);
+    cparams.n_ubatch = static_cast<uint32_t>(ctx_len);
+    cparams.n_threads = threads;
+    cparams.n_threads_batch = threads;
+    // Pooled embeddings: llama_get_embeddings_seq returns one vector per sequence.
+    // UNSPECIFIED lets the model's GGUF choose its pooling (mean for EmbeddingGemma).
+    cparams.embeddings = true;
+    cparams.pooling_type = LLAMA_POOLING_TYPE_UNSPECIFIED;
+    cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+    cparams.offload_kqv = false;
+
+    llama_context * ctx = llama_init_from_model(model, cparams);
+    if (ctx == nullptr) {
+        llama_model_free(model);
+        return to_jstring(env, "could not create an embedding context for " + model_path);
+    }
+
+    const llama_vocab * vocab = llama_model_get_vocab(model);
+    if (vocab == nullptr) {
+        llama_free(ctx);
+        llama_model_free(model);
+        return to_jstring(env, "the embedding model has no vocabulary");
+    }
+
+    h->model = model;
+    h->context = ctx;
+    h->vocab = const_cast<void *>(static_cast<const void *>(vocab));
+    h->n_ctx = static_cast<int32_t>(llama_n_ctx(ctx));
+    h->n_batch = static_cast<int32_t>(cparams.n_batch);
+    h->n_vocab = llama_vocab_n_tokens(vocab);
+    h->eog_token = static_cast<int32_t>(llama_vocab_eot(vocab));
+    h->n_embd = llama_model_n_embd_out(model);
+    h->path = model_path;
+    h->n_threads = threads;
+    h->loaded = true;
+    h->cancelled.store(false);
+
+    return nullptr;
+}
+
+JNIEXPORT jint JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeEmbeddingSize(JNIEnv *, jclass, jlong handle) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(h->state);
+    return h->loaded ? h->n_embd : 0;
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeEmbed(
+        JNIEnv * env, jclass, jlong handle, jobjectArray texts) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr || texts == nullptr) {
+        return nullptr;
+    }
+    std::lock_guard<std::mutex> lock(h->state);
+    if (!h->loaded || h->context == nullptr || h->vocab == nullptr || h->n_embd <= 0) {
+        return nullptr;
+    }
+
+    llama_context * ctx = as_context(h->context);
+    const llama_vocab * vocab = as_vocab(h->vocab);
+    const size_t dim = static_cast<size_t>(h->n_embd);
+    const jsize count = env->GetArrayLength(texts);
+    const int32_t limit = h->n_ctx;
+
+    std::vector<float> flat;
+    flat.reserve(static_cast<size_t>(count) * dim);
+    // One batch, reused for every text: each text is at most `limit` tokens.
+    llama_batch batch = llama_batch_init(limit, 0, 1);
+    bool ok = true;
+
+    for (jsize i = 0; i < count && ok; ++i) {
+        jstring js = static_cast<jstring>(env->GetObjectArrayElement(texts, i));
+        std::string text;
+        const bool read = jstring_utf8(env, js, text);
+        if (js != nullptr) env->DeleteLocalRef(js);
+        if (!read || env->ExceptionCheck()) {
+            ok = false;
+            break;
+        }
+
+        std::vector<llama_token> tokens;
+        std::string err;
+        if (!tokenize(vocab, text, tokens, err)) {
+            __android_log_print(ANDROID_LOG_ERROR, "LocalLlama", "embedding tokenize: %s", err.c_str());
+            ok = false;
+            break;
+        }
+        if (static_cast<int32_t>(tokens.size()) > limit) {
+            tokens.resize(static_cast<size_t>(limit));
+        }
+        if (tokens.empty()) {
+            // Nothing to embed: a zero vector, which ranks as no similarity at all.
+            flat.insert(flat.end(), dim, 0.0f);
+            continue;
+        }
+
+        // Each text is its own sequence, so nothing from the previous text is attended to.
+        llama_memory_clear(llama_get_memory(ctx), true);
+        const int32_t n = static_cast<int32_t>(tokens.size());
+        for (int32_t t = 0; t < n; ++t) {
+            batch.token[t] = tokens[static_cast<size_t>(t)];
+            batch.pos[t] = t;
+            batch.n_seq_id[t] = 1;
+            batch.seq_id[t][0] = 0;
+            // Every token is output: pooling needs all of them.
+            batch.logits[t] = 1;
+        }
+        batch.n_tokens = n;
+        const int32_t rc = llama_decode(ctx, batch);
+        if (rc != 0) {
+            __android_log_print(ANDROID_LOG_ERROR, "LocalLlama", "embedding decode failed with %d", rc);
+            ok = false;
+            break;
+        }
+
+        const float * vec = llama_get_embeddings_seq(ctx, 0);
+        if (vec == nullptr) {
+            // Pooling NONE, or a model that is not an embedding model at all.
+            __android_log_print(ANDROID_LOG_ERROR, "LocalLlama", "the model returned no pooled embedding");
+            ok = false;
+            break;
+        }
+        double norm = 0.0;
+        for (size_t d = 0; d < dim; ++d) {
+            norm += static_cast<double>(vec[d]) * static_cast<double>(vec[d]);
+        }
+        const float inv = norm > 0.0 ? static_cast<float>(1.0 / std::sqrt(norm)) : 0.0f;
+        for (size_t d = 0; d < dim; ++d) {
+            flat.push_back(vec[d] * inv);
+        }
+    }
+
+    llama_batch_free(batch);
+    if (!ok) {
+        return nullptr;
+    }
+
+    jfloatArray out = env->NewFloatArray(static_cast<jsize>(flat.size()));
+    if (out != nullptr && !flat.empty()) {
+        env->SetFloatArrayRegion(out, 0, static_cast<jsize>(flat.size()), flat.data());
+    }
+    return out;
+}
+
+}  // extern "C"

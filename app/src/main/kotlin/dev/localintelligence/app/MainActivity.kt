@@ -468,6 +468,10 @@ class MainActivity : ComponentActivity() {
                     composable(ROUTE_DOCUMENTS) {
                         DocumentsScreen(
                             repository = container.documents,
+                            embeddingModelReady = container.documentModelFile() != null,
+                            onOpenHub = { repo, file ->
+                                nav.navigate("$ROUTE_HUB?repo=${Uri.encode(repo)}&file=${Uri.encode(file)}")
+                            },
                             onBack = { nav.popBackStack() },
                         )
                     }

@@ -58,6 +58,8 @@ struct LlamaHandle {
     // libmtmd context for the loaded model's projector (mtmd_context *), or null.
     void * mtmd = nullptr;
     int32_t n_threads = 0;
+    // Output width of an embedding model loaded by nativeLoadEmbeddingModel; 0 otherwise.
+    int32_t n_embd = 0;
     // Encoded images/audio (jpg, png, wav, mp3...) for the next generate only.
     std::vector<std::vector<uint8_t>> pending_media;
     bool backend_initialised = false;
@@ -175,5 +177,25 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeMediaMarker(JNIEn
 JNIEXPORT jbyteArray JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeSpeak(
         JNIEnv * env, jclass, jlong handle, jstring text, jstring lang, jstring voice, jint max_frames);
+
+// ---- embeddings ----------------------------------------------------------------
+
+// Loads an embedding GGUF (for example EmbeddingGemma) into this handle with the
+// context set up for pooled embeddings. Replaces any model already loaded here.
+// Returns null on success, else an error string. Keep it on its own handle: the
+// chat model and the embedding model are separate handles so both can be resident.
+JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadEmbeddingModel(
+        JNIEnv * env, jclass, jlong handle, jstring path, jint n_threads);
+
+// Width of each vector nativeEmbed returns. 0 when no embedding model is loaded.
+JNIEXPORT jint JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeEmbeddingSize(JNIEnv * env, jclass, jlong handle);
+
+// Embeds each text as one sequence and returns the L2-normalised vectors as one flat
+// array of texts.length * nativeEmbeddingSize floats, in input order. Null on failure.
+JNIEXPORT jfloatArray JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeEmbed(
+        JNIEnv * env, jclass, jlong handle, jobjectArray texts);
 
 }  // extern "C"

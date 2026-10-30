@@ -246,6 +246,27 @@ object LlamaBridge {
         )
     }
 
+    /**
+     * Loads an embedding model (a GGUF such as EmbeddingGemma) into [handle]. Use a
+     * handle of its own, not the chat model's, so both can stay resident. Returns
+     * null on success, or the error.
+     */
+    fun loadEmbeddingModel(handle: Handle, path: String, threads: Int = 0): String? =
+        if (isAvailable) nativeLoadEmbeddingModel(handle.ptr, path, threads)
+        else "the llama.cpp native library is not available on this device"
+
+    /** Width of each vector [embed] returns, or 0 when no embedding model is loaded. */
+    fun embeddingSize(handle: Handle): Int =
+        if (isAvailable && !handle.isClosed) nativeEmbeddingSize(handle.ptr) else 0
+
+    /**
+     * Embeds [texts] and returns their unit-length vectors as one flat array of
+     * `texts.size * embeddingSize(handle)` floats, in input order. Null on failure.
+     * Blocking; the native side holds the handle's lock for the whole call.
+     */
+    fun embed(handle: Handle, texts: List<String>): FloatArray? =
+        if (isAvailable && !handle.isClosed) nativeEmbed(handle.ptr, texts.toTypedArray()) else null
+
     // ---- native methods --------------------------------------------------------
     // All guarded by [isAvailable]; calling one when the library is absent
     // throws UnsatisfiedLinkError, which is why every caller checks first.
@@ -277,6 +298,9 @@ object LlamaBridge {
         ptr: Long, text: String, language: String?, voice: String?, maxFrames: Int,
     ): ByteArray?
     @JvmStatic private external fun nativeCancel(ptr: Long)
+    @JvmStatic private external fun nativeLoadEmbeddingModel(ptr: Long, path: String, threads: Int): String?
+    @JvmStatic private external fun nativeEmbeddingSize(ptr: Long): Int
+    @JvmStatic private external fun nativeEmbed(ptr: Long, texts: Array<String>): FloatArray?
     @JvmStatic private external fun nativeIsGenerating(ptr: Long): Boolean
 }
 

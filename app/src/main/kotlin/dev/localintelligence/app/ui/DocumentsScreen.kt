@@ -33,6 +33,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.android.documents.DEFAULT_EMBEDDING_FILE
+import dev.localintelligence.android.documents.DEFAULT_EMBEDDING_REPO
 import dev.localintelligence.android.documents.DocumentEntry
 import dev.localintelligence.android.documents.DocumentImport
 import dev.localintelligence.android.documents.DocumentImportException
@@ -56,6 +58,8 @@ import kotlinx.coroutines.withContext
 @Composable
 fun DocumentsScreen(
     repository: DocumentStore,
+    embeddingModelReady: Boolean,
+    onOpenHub: (repo: String, file: String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -124,6 +128,24 @@ fun DocumentsScreen(
                     "on this phone.",
                 style = MaterialTheme.typography.bodySmall,
             )
+            // Without the model, search is keyword only. The hub download is the one place the
+            // model arrives, and it is kept for search rather than loaded as the chat model.
+            if (embeddingModelReady) {
+                Text(
+                    "The document search model is on this phone. Hybrid search uses it to find " +
+                        "passages by meaning as well as by words. Search mode is in Settings.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                Text(
+                    "Search uses keywords only. Get the document search model to also find passages " +
+                        "by meaning, when the question uses different words from the document.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                FilledTonalButton(onClick = { onOpenHub(DEFAULT_EMBEDDING_REPO, DEFAULT_EMBEDDING_FILE) }) {
+                    Text("Get the document search model")
+                }
+            }
             FilledTonalButton(
                 onClick = { picker.launch(DocumentImport.PICKER_TYPES) },
                 enabled = !busy,
