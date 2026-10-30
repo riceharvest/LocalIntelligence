@@ -47,19 +47,71 @@ object LlamaBridge {
         fun onToken(piece: String)
     }
 
-    /** A native handle plus the close that must accompany it. */
+    /**
+     * A native handle plus the close that must accompany it.
+     *
+     * Calls that cannot wait for the backend's lock (cancel, the token counts) use
+     * [withPinned]. A generation holds that lock for its whole run, and a cancel has to
+     * reach it while it runs, so these calls read the handle without the lock. The pin
+     * keeps the native memory alive for the length of the call: [close] only marks the
+     * handle, and the memory is freed when the last pin is released, never under a call
+     * that is still using it.
+     *
+     * One atomic int holds both facts. Zero or more is the number of pins; once closed,
+     * [CLOSED] is added to it, so the value is negative and no new pin can be taken.
+     */
     class Handle internal constructor(internal val ptr: Long) : AutoCloseable {
-        private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+        private val state = java.util.concurrent.atomic.AtomicInteger(0)
 
-        val isClosed: Boolean get() = closed.get()
+        val isClosed: Boolean get() = state.get() < 0
+
+        /** Takes a pin, or returns false once the handle is closed. Never blocks. */
+        internal fun pin(): Boolean {
+            while (true) {
+                val current = state.get()
+                if (current < 0) return false
+                if (state.compareAndSet(current, current + 1)) return true
+            }
+        }
+
+        internal fun unpin() {
+            if (state.decrementAndGet() == CLOSED) destroy()
+        }
+
+        /**
+         * Runs [call] with the native pointer while the handle is open, or returns null
+         * once it is closed. Never blocks on anything but the call itself.
+         */
+        internal inline fun <R> withPinned(call: (Long) -> R): R? {
+            if (!pin()) return null
+            try {
+                return call(ptr)
+            } finally {
+                unpin()
+            }
+        }
 
         override fun close() {
-            // destroy() frees the model and the context; it is safe on an
-            // already-freed pointer, but the guard keeps a double close from
-            // becoming a double free of the handle itself.
-            if (closed.compareAndSet(false, true) && ptr != 0L) {
-                nativeDestroy(ptr)
+            while (true) {
+                val current = state.get()
+                // Closing twice is a no-op: destroy() must run exactly once.
+                if (current < 0) return
+                if (state.compareAndSet(current, current + CLOSED)) {
+                    // No pins held: nothing can be using the memory, so free it now.
+                    // Otherwise the last unpin does.
+                    if (current == 0) destroy()
+                    return
+                }
             }
+        }
+
+        private fun destroy() {
+            if (ptr != 0L) nativeDestroy(ptr)
+        }
+
+        private companion object {
+            /** Added to the pin count on close. Far below any real pin count, so the value stays negative. */
+            const val CLOSED = Int.MIN_VALUE
         }
     }
 
@@ -123,7 +175,7 @@ object LlamaBridge {
      * budgeting has to work before a model is resident.
      */
     fun countTokens(handle: Handle, text: String): Int =
-        if (isAvailable) nativeCountTokens(handle.ptr, text) else -1
+        if (isAvailable) handle.withPinned { nativeCountTokens(it, text) } ?: -1 else -1
 
     /**
      * Loads a multimodal projector (an `mmproj-*.gguf`) for the loaded model.
@@ -255,7 +307,11 @@ object LlamaBridge {
      * handle's prepared reply is still in use.
      */
     fun chatCount(handle: Handle, messagesJson: String, promptToolsJson: String): Int =
-        if (isAvailable && !handle.isClosed) nativeChatCount(handle.ptr, messagesJson, promptToolsJson) else -1
+        if (isAvailable) {
+            handle.withPinned { nativeChatCount(it, messagesJson, promptToolsJson) } ?: -1
+        } else {
+            -1
+        }
 
     /** Takes the last outcome, or null if the handle is gone. */
     fun takeResult(handle: Handle): GenerationOutcome? {
@@ -264,9 +320,12 @@ object LlamaBridge {
         return parseOutcome(raw)
     }
 
-    /** Cooperative cancellation. Safe when idle. */
+    /**
+     * Cooperative cancellation. Safe when idle, and safe to call while a generation holds
+     * the backend's lock: it does not wait for that lock (see [Handle]).
+     */
     fun cancel(handle: Handle) {
-        if (isAvailable) nativeCancel(handle.ptr)
+        if (isAvailable) handle.withPinned { nativeCancel(it) }
     }
 
     /** True while a generation is in flight on another thread. */

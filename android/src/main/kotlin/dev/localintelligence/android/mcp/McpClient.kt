@@ -20,12 +20,10 @@ import java.net.URL
 // ===========================================================================
 // A minimal client for one remote MCP server, Streamable HTTP transport.
 //
-// One [McpSession] lives for one run. The plugin opens it when the run's tool
-// list is built, lists the server's tools, and the tools call through the same
-// session, so the Mcp-Session-Id the server issued at initialize is kept for the
-// run and dropped after it. No session outlives a run, and nothing is cached
-// across runs: a server that changes its tools shows the change at the next
-// message.
+// A [McpSession] is opened for each listing and for each tool call, and lives for
+// that one exchange only. The Mcp-Session-Id the server issues at initialize is
+// never reused, so a session the server has expired cannot fail a later call.
+// McpPlugin caches the listing for a few minutes, not the session.
 //
 // What leaves the phone: every JSON-RPC body, the tool arguments the model
 // chose, and the bearer token in the Authorization header. Redirects are not
@@ -39,8 +37,15 @@ import java.net.URL
 /** The protocol revision this client speaks. Sent at initialize and on every request. */
 internal const val MCP_PROTOCOL_VERSION = "2025-06-18"
 
-/** Connect and read timeout for each request, in milliseconds. */
+/** Connect and read timeout for each tool call, in milliseconds. */
 private const val TIMEOUT_MS = 20_000
+
+/**
+ * Connect and read timeout for the listing, in milliseconds. Shorter than a call: a
+ * listing runs before every message that has no cached tools, so a server that is
+ * slow to answer must not hold up the reply for as long as a tool call may wait.
+ */
+internal const val LISTING_TIMEOUT_MS = 5_000
 
 /** Largest reply accepted, in bytes. A tool list is the biggest thing a server sends. */
 private const val MAX_REPLY_BYTES = 1024 * 1024
@@ -58,6 +63,7 @@ internal class McpException(message: String) : IOException(message)
 internal class McpSession private constructor(
     private val url: String,
     private val token: String?,
+    private val timeoutMs: Int,
 ) {
     @Volatile
     private var sessionId: String? = null
@@ -136,8 +142,8 @@ internal class McpSession private constructor(
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
-            connection.connectTimeout = TIMEOUT_MS
-            connection.readTimeout = TIMEOUT_MS
+            connection.connectTimeout = timeoutMs
+            connection.readTimeout = timeoutMs
             connection.instanceFollowRedirects = false
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
@@ -244,7 +250,7 @@ internal class McpSession private constructor(
          * Opens a session: initialize, then notifications/initialized. Throws
          * [McpException] or an [IOException] if the server does not answer.
          */
-        fun open(url: String, token: String?): McpSession =
-            McpSession(url, token).also { it.handshake() }
+        fun open(url: String, token: String?, timeoutMs: Int = TIMEOUT_MS): McpSession =
+            McpSession(url, token, timeoutMs).also { it.handshake() }
     }
 }
