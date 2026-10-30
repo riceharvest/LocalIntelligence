@@ -698,7 +698,7 @@ class DeviceBatteryTool(private val platform: DevicePlatform) : AgentTool {
     override val definition = ToolDefinition(
         name = "device.battery",
         description = "Return the current battery percentage, whether the phone is charging, " +
-            "and the estimated time until the battery is empty or full.",
+            "and the time until full while charging. Android gives no time-to-empty estimate.",
         category = "device",
         schema = BATTERY_SCHEMA,
         risk = ToolRisk.READ_ONLY,
