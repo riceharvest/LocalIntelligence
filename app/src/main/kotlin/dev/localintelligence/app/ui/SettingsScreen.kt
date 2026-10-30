@@ -81,6 +81,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.localintelligence.android.scripts.ScriptPlugin
+import dev.localintelligence.android.tools.OBSERVATIONS_FAMILY_ID
 import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.openAssistantSettings
 import dev.localintelligence.app.settings.SettingsStore
@@ -199,7 +200,8 @@ fun SettingsScreen(
                 if (technical) {
                     SectionHeader("Plugins")
                     // Script plugins have their own screen, with the same switch, so they are not repeated here.
-                    plugins.filterNot { it is ScriptPlugin }.forEach { plugin ->
+                    // Saved results are always on: every long tool result's preview names their tool.
+                    plugins.filterNot { it is ScriptPlugin || it.id == OBSERVATIONS_FAMILY_ID }.forEach { plugin ->
                         SwitchRow(
                             title = plugin.title,
                             help = plugin.summary,

@@ -1,6 +1,7 @@
 package dev.localintelligence.android.tools
 
 import android.content.Context
+import dev.localintelligence.android.data.lazyObservationStore
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.android.tools.alarm.alarmTools
 import dev.localintelligence.android.tools.apps.appTools
@@ -13,6 +14,7 @@ import dev.localintelligence.android.tools.history.historyTools
 import dev.localintelligence.android.tools.location.locationTools
 import dev.localintelligence.android.tools.files.fileTools
 import dev.localintelligence.android.tools.notifications.notificationTools
+import dev.localintelligence.android.tools.observations.observationTools
 import dev.localintelligence.android.tools.web.webTools
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.catalogue.V0ToolCatalogue
@@ -66,6 +68,7 @@ fun androidTools(context: Context): List<AgentTool> {
         addAll(webTools(grant))
         addAll(locationTools(appContext, grant))
         addAll(draftTools(appContext))
+        addAll(observationTools(lazyObservationStore(appContext)))
         addAll(historyTools(appContext))
     }
     return requireCatalogueAgreement(tools)
@@ -97,6 +100,12 @@ fun androidToolPlugins(context: Context): List<AgentPlugin> {
         ToolFamily("tools.web", "Web", "Search the web and fetch pages") { webTools(grant) },
         ToolFamily("tools.location", "Location", "Current approximate location") { locationTools(app, grant) },
         ToolFamily("tools.drafts", "Drafts", "Open a message or email draft for you to send") { draftTools(app) },
+        // Not a user switch: a long result's preview tells the model to call this tool,
+        // so turning it off would leave that instruction pointing at nothing. The
+        // Settings screen skips it; see OBSERVATIONS_FAMILY_ID.
+        ToolFamily(OBSERVATIONS_FAMILY_ID, "Saved results", "Read more of a long tool result") {
+            observationTools(lazyObservationStore(app))
+        },
         ToolFamily("memory.history", "Past chats", "Search what was said in earlier conversations") {
             historyTools(app)
         },
@@ -104,6 +113,12 @@ fun androidToolPlugins(context: Context): List<AgentPlugin> {
     requireCatalogueAgreement(families.flatMap { it.tools() })
     return families
 }
+
+/**
+ * Id of the saved-results family (`observations.read`). Always on and not listed in
+ * Settings, because the preview of every long tool result names the tool.
+ */
+const val OBSERVATIONS_FAMILY_ID: String = "tools.observations"
 
 private class ToolFamily(
     override val id: String,

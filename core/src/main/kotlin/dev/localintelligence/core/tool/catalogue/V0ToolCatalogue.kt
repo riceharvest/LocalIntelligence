@@ -1131,6 +1131,44 @@ object V0ToolCatalogue {
             ),
             requiredPermission = null,
         ),
+        // -------------------------------------------------------- observations
+        // Reads back the full text of a long tool result the model saw as a preview.
+        // NETWORK origin: the stored text is whatever a tool returned, web pages included.
+        ToolDefinition(
+            name = "observations.read",
+            description = "Reads more of a long tool result that was cut short, by its obs number. " +
+                "Returns the passages matching a query, or the text from an offset.",
+            category = "observations",
+            schema = objSchema(required = listOf("id")) {
+                putJsonObject("id") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("description", "The obs number, for example 41 for obs#41.")
+                }
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "Words to look for in it. Leave out to read in order.")
+                }
+                putJsonObject("offset") {
+                    put("type", "integer")
+                    put("minimum", 0)
+                    put("description", "Character to start reading at, 0 by default. Not used with a query.")
+                }
+                putJsonObject("max_chars") {
+                    put("type", "integer")
+                    put("minimum", 400)
+                    put("maximum", 2000)
+                    put("description", "Characters to return, 2000 by default and at most.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "obs", "read more", "rest of", "more of the page", "cut short", "truncated", "next part",
+            ),
+            requiredPermission = null,
+        ),
 
         ToolDefinition(
             name = "documents.search",
