@@ -181,7 +181,17 @@ class Session(
      * model's own last turn. It is the runtime speaking, never the user — the
      * user only ever produces the one [ChatMessage.User] turn.
      */
-    fun observe(text: String) = appendAssistant(text)
+    /**
+     * A note from the loop to the model ("that was not a valid action", "the
+     * user declined"). It goes in as a user-side turn the model reads, with
+     * blank display text so it is not shown or stored as conversation: recorded
+     * as the model's own words it read as if the model had said them, filled the
+     * summary's progress slot, and left a prompt ending on an assistant turn,
+     * which LiteRT-LM refuses.
+     */
+    fun observe(text: String) {
+        if (text.isNotBlank()) record(ChatMessage.User("", text, note = true))
+    }
 
     fun appendAssistant(text: String, rendered: String? = null) =
         record(ChatMessage.Assistant(text, rendered?.takeIf { it != text }))
