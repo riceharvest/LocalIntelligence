@@ -6,12 +6,11 @@ import dev.localintelligence.android.tools.web.WebUrls
 import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.plugin.AgentPlugin
-import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.settings.SettingsReader
 import dev.localintelligence.core.tool.AgentTool
-import dev.localintelligence.core.tool.ObservationTruncator
+import dev.localintelligence.core.tool.ObservationStore
 import dev.localintelligence.core.tool.ToolContext
 import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
@@ -117,7 +116,6 @@ class McpPlugin(
      * `mcp.<slot>.<name>`.
      */
     override fun tools(): List<AgentTool> {
-        val budget = reader[CoreSettings.OBSERVATION_BUDGET]
         val servers = McpSettings.urls.indices.mapNotNull { index ->
             val address = reader[McpSettings.urls[index]].trim().takeIf { it.isNotEmpty() }
                 ?: return@mapNotNull null
@@ -132,18 +130,18 @@ class McpPlugin(
         // their names cannot collide, and the slot keeps a name stable when another
         // server is changed or fails.
         val numbered = servers.size > 1
-        return servers.flatMap { server -> toolsFrom(server, numbered, budget) }
+        return servers.flatMap { server -> toolsFrom(server, numbered) }
     }
 
     /** One configured server: its slot number (1 to 5), checked address and optional token. */
     private class Server(val slot: Int, val url: String, val token: String?)
 
-    private fun toolsFrom(server: Server, numbered: Boolean, budget: Int): List<AgentTool> {
+    private fun toolsFrom(server: Server, numbered: Boolean): List<AgentTool> {
         val prefix = if (numbered) "${CatalogueAgreement.DYNAMIC_TOOL_PREFIX}${server.slot}."
         else CatalogueAgreement.DYNAMIC_TOOL_PREFIX
         return try {
             val session = McpSession.open(server.url, server.token)
-            remoteTools(session, session.listTools(), budget, prefix)
+            remoteTools(session, session.listTools(), prefix)
         } catch (e: IOException) {
             emptyList()
         } catch (e: RuntimeException) {
@@ -173,7 +171,6 @@ class McpPlugin(
 internal fun remoteTools(
     session: McpSession,
     listed: List<JsonObject>,
-    budget: Int,
     prefix: String = CatalogueAgreement.DYNAMIC_TOOL_PREFIX,
 ): List<AgentTool> {
     val taken = HashSet<String>()
@@ -182,7 +179,7 @@ internal fun remoteTools(
             ?: return@mapNotNull null
         val name = toolName(remoteName, prefix) ?: return@mapNotNull null
         if (!taken.add(name)) return@mapNotNull null
-        McpRemoteTool(session, remoteName, definition(name, remoteName, tool), budget)
+        McpRemoteTool(session, remoteName, definition(name, remoteName, tool))
     }
 }
 
@@ -226,12 +223,17 @@ private fun definition(name: String, remoteName: String, tool: JsonObject): Tool
     )
 }
 
-/** One remote tool. Calls go through the run's [McpSession]. */
+/**
+ * One remote tool. Calls go through the run's [McpSession].
+ *
+ * The full text goes out, up to the store's limit, and the loop decides what the
+ * model sees: a long result is saved and previewed with a handle (see
+ * [ObservationStore]). Cutting it here would leave the store nothing to keep.
+ */
 private class McpRemoteTool(
     private val session: McpSession,
     private val remoteName: String,
     override val definition: ToolDefinition,
-    private val budget: Int,
 ) : AgentTool {
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
@@ -246,10 +248,8 @@ private class McpRemoteTool(
             try {
                 val result = session.callTool(remoteName, args)
                 val text = contentText(result)
-                val observation = ObservationTruncator.truncate(
-                    text.ifEmpty { "(the server returned no text)" },
-                    budget,
-                )
+                val observation = text.ifEmpty { "(the server returned no text)" }
+                    .take(ObservationStore.MAX_STORED_CHARS)
                 if ((result["isError"] as? JsonPrimitive)?.booleanOrNull == true) {
                     ToolResult(
                         success = false,
