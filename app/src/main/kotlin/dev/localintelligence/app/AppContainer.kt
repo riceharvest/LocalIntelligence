@@ -528,10 +528,11 @@ class AppContainer(private val context: Context) {
      * Only between runs: [session] is not guarded (see its KDoc), so the caller
      * checks that nothing is running first.
      */
-    fun startNewConversation() {
-        // The between-messages work reads this session; stop it first.
-        idleWork?.cancel()
-        residentBackend().cancel()
+    suspend fun startNewConversation() {
+        // The between-messages work folds this session; it is stopped and joined
+        // first, or a fold still running could write the old conversation back
+        // into the new one.
+        stopIdleWork()
         session.clear()
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .edit()

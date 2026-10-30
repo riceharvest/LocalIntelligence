@@ -210,7 +210,8 @@ class ContextCompactor(
     private fun unansweredRequest(history: List<ChatMessage>): String? {
         val last = history.indexOfLast { it is ChatMessage.User && it.text.isNotBlank() }
         if (last < 0) return null
-        val answered = history.subList(last + 1, history.size).any { it is ChatMessage.Assistant }
+        // A tool call's own turn (blank text, Session.recordCall) is not an answer.
+        val answered = history.subList(last + 1, history.size).any { it is ChatMessage.Assistant && it.text.isNotBlank() }
         if (answered) return null
         return "answer: " + truncate(collapse((history[last] as ChatMessage.User).text), MAX_ENTRY_CHARS)
     }

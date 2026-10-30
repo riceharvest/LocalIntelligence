@@ -535,9 +535,11 @@ class MainActivity : ComponentActivity() {
                                 null
                             } else {
                                 {
-                                    container.startNewConversation()
-                                    chat.clear()
-                                    nav.popBackStack(ROUTE_CHAT, inclusive = false)
+                                    exportScope.launch {
+                                        container.startNewConversation()
+                                        chat.clear()
+                                        nav.popBackStack(ROUTE_CHAT, inclusive = false)
+                                    }
                                 }
                             },
                             onExportChat = if (messages.isEmpty()) {

@@ -383,8 +383,8 @@ class Session(
 
     private fun render(message: ChatMessage): String = when (message) {
         is ChatMessage.System -> message.text
-        is ChatMessage.User -> message.text
-        is ChatMessage.Assistant -> message.text
+        is ChatMessage.User -> message.rendered ?: message.text
+        is ChatMessage.Assistant -> message.rendered ?: message.text
         is ChatMessage.ToolObservation -> message.modelFacing()
     }
 
