@@ -316,8 +316,6 @@ class HubViewModel(
     private val _showingPopular = MutableStateFlow(false)
     val showingPopular: StateFlow<Boolean> = _showingPopular.asStateFlow()
 
-    private var popular: List<HuggingFaceClient.HubSearchHitPublic>? = null
-
     init {
         // Something to choose from before anything is typed.
         runSearch("", delayMs = 0)
@@ -362,13 +360,13 @@ class HubViewModel(
     private fun runSearch(query: String, delayMs: Long, openSingle: Boolean = false) {
         searchJob?.cancel()
         if (query.isEmpty()) {
-            popular?.let {
-                _searchResults.value = it
-                _showingPopular.value = true
-                _searchNote.value = null
-                _searching.value = false
-                return
-            }
+            // Before typing: the models that run well on a phone, not the hub's
+            // most downloaded overall (those are 9B-35B, or audio and music models).
+            _searchResults.value = PHONE_MODELS
+            _showingPopular.value = true
+            _searchNote.value = null
+            _searching.value = false
+            return
         }
         _searching.value = true
         searchJob = viewModelScope.launch {
@@ -377,9 +375,8 @@ class HubViewModel(
                 client.browse(query, limit = if (query.isEmpty()) POPULAR_LIMIT else SEARCH_LIMIT, token = tokenSource.token())
             }
             _searching.value = false
-            if (query.isEmpty() && hits != null) popular = hits
             _searchResults.value = hits.orEmpty()
-            _showingPopular.value = query.isEmpty() && hits != null
+            _showingPopular.value = false
             _searchNote.value = when {
                 hits == null -> "Couldn't reach Hugging Face. Check the connection and try again."
                 hits.isEmpty() && query.isNotEmpty() -> "No models found for \u201c$query\u201d."
@@ -954,6 +951,27 @@ class HubViewModel(
 
         /** Models listed before anything is typed. */
         const val POPULAR_LIMIT = 10
+
+        /**
+         * Listed before anything is typed: phone-sized models this app is tested
+         * with (docs/roadmap.md, "Model test plan"), the recommended one first.
+         */
+        private val PHONE_MODELS: List<HuggingFaceClient.HubSearchHitPublic> = listOf(
+            "LiquidAI/LFM3-1.7B-GGUF",
+            "google/gemma-4-E2B-it-qat-q4_0-gguf",
+            "unsloth/Qwen3.5-2B-GGUF",
+            "openbmb/MiniCPM5-2B-GGUF",
+            "XHToken/Spark-X2.6-1.7B-GGUF",
+            "XHToken/Spark-X2.6-4B-GGUF",
+            "ibm-granite/granite-4.2-3b-GGUF",
+            "LiquidAI/LFM3-VL-2B-GGUF",
+            "LiquidAI/LFM3-Omni-2B-GGUF",
+            "LiquidAI/LFM2.5-230M-GGUF",
+        ).mapNotNull { id ->
+            (HubRepoId.parse(id) as? HubRepoId.Result.Valid)?.let {
+                HuggingFaceClient.HubSearchHitPublic(it.repoId, downloads = 0, likes = 0, pipelineTag = null)
+            }
+        }
 
         /**
          * Mirrors `HubSibling.MAX_PLAIN_GIT_BLOB_BYTES` in `:core`: below this,

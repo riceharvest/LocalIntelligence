@@ -151,7 +151,7 @@ fun HubScreen(
         // models), most downloaded first. A tap lists that repo's files.
         if (suggestions.isNotEmpty() && !state.downloading && state.files.isEmpty()) {
             if (showingPopular) {
-                item { Text("Most downloaded", style = MaterialTheme.typography.labelLarge) }
+                item { Text("Good on phones", style = MaterialTheme.typography.labelLarge) }
             }
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -159,7 +159,10 @@ fun HubScreen(
                         ListItem(
                             headlineContent = { Text(hit.repoId.name) },
                             supportingContent = {
-                                Text("${hit.repoId.owner} · ${compactCount(hit.downloads)} downloads")
+                                Text(
+                                    if (hit.downloads > 0) "${hit.repoId.owner} · ${compactCount(hit.downloads)} downloads"
+                                    else hit.repoId.owner,
+                                )
                             },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.clickable { viewModel.pickSearchHit(hit) },
