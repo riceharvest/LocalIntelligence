@@ -248,7 +248,7 @@ Open:
 [ ] external plugins as sandboxed scripts (DeepSeek Harness style); skills and
       MCP cover the declarative and remote cases today
 [ ] document search with embeddings (EmbeddingGemma 2) next to BM25
-[ ] hands-free voice mode / wake word
+[ ] wake word: not built; it needs an always-on keyword model. Hands-free starts with a tap
 [ ] LFM3 on the Tensor NPU: needs a Tensor-compiled build (Google's Tensor SDK, beta)
 [ ] .litertlm through the file picker (content:// is refused today)
 [ ] MCP: more than one server; video.status for long video jobs

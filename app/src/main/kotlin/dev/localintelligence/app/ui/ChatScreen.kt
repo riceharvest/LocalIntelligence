@@ -67,6 +67,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.RunState
@@ -224,6 +227,8 @@ fun ChatScreen(
     val attached by viewModel.attachments.collectAsStateWithLifecycle()
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val voiceSeconds by viewModel.voiceSeconds.collectAsStateWithLifecycle()
+    val handsFree by viewModel.handsFree.collectAsStateWithLifecycle()
+    val handsFreeOn = handsFree.phase != HandsFreePhase.Off
     val canReadAudio = remember(modelState) { viewModel.modelCapabilities().supportsAudioInput }
     val dictation = remember { LiveDictation(context.applicationContext) }
     DisposableEffect(dictation) { onDispose { dictation.release() } }
@@ -247,6 +252,30 @@ fun ChatScreen(
     val onAttach: () -> Unit = {
         pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
+    // Hands-free mode needs the same microphone grant as the mic button. It is not
+    // offered while the mic button is in use, and it stops when the app leaves the screen.
+    val onHandsFree: () -> Unit = {
+        when {
+            handsFreeOn -> viewModel.stopHandsFree()
+            dictating || voiceSeconds != null -> viewModel.showNotice("Finish the voice input first.")
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED -> viewModel.startHandsFree()
+            else -> {
+                whenMicGranted = { viewModel.startHandsFree() }
+                micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && viewModel.handsFree.value.phase != HandsFreePhase.Off) {
+                viewModel.stopHandsFree("Hands-free stopped because the app went to the background.")
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val onMic: () -> Unit = {
         fun startCapture() {
             if (canReadAudio) {
@@ -268,6 +297,12 @@ fun ChatScreen(
     }
     val liveStatus = voiceSeconds?.let { "Recording ${clipLength(it)} (tap the mic to stop)" }
         ?: if (dictating) "Listening (tap the mic to stop)" else null
+        ?: when (handsFree.phase) {
+            HandsFreePhase.Off -> null
+            HandsFreePhase.Listening -> "Listening…"
+            HandsFreePhase.Thinking -> "Thinking…"
+            HandsFreePhase.Speaking -> "Speaking…"
+        }
     val export: (ChatExporter.Format) -> Unit = { format ->
         exportMenuOpen = false
         scope.launch {
@@ -428,12 +463,15 @@ fun ChatScreen(
                 compact = compactComposer,
                 attachments = attached,
                 canAttach = !busy && pictureCount < MAX_PICTURES_PER_MESSAGE,
-                canUseMic = !busy,
+                canUseMic = !busy && !handsFreeOn,
                 micActive = dictating || voiceSeconds != null,
                 liveStatus = liveStatus,
-                notice = notice,
+                notice = notice ?: handsFree.notice,
+                handsFreeOn = handsFreeOn,
+                canHandsFree = handsFreeOn || (!busy && !dictating && voiceSeconds == null),
                 onAttach = onAttach,
                 onMic = onMic,
+                onHandsFree = onHandsFree,
                 onRemoveAttachment = viewModel::removeAttachment,
             )
         },

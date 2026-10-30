@@ -40,6 +40,7 @@ import android.net.Uri
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
 import dev.localintelligence.core.settings.CoreSettings
+import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.ui.ChatScreen
 import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
@@ -47,6 +48,7 @@ import dev.localintelligence.app.ui.HubScreen
 import dev.localintelligence.app.ui.SettingsScreen
 import dev.localintelligence.app.ui.DocumentsScreen
 import dev.localintelligence.app.ui.SkillsScreen
+import dev.localintelligence.app.ui.ScriptPluginsScreen
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
@@ -116,6 +118,8 @@ class MainActivity : ComponentActivity() {
                             capabilities = { container.residentBackend().capabilities },
                             speaker = container.speaker,
                             readRepliesAloud = { container.settings[CoreSettings.READ_REPLIES_ALOUD] },
+                            dictation = LiveDictation(applicationContext),
+                            handsFreeSilence = { container.settings[CoreSettings.HANDS_FREE_SILENCE] },
                         )
                     },
                 )
@@ -222,13 +226,25 @@ class MainActivity : ComponentActivity() {
                         // The resident model's URI, so only its row offers the speed test.
                         val modelState by container.modelAvailability.state
                             .collectAsStateWithLifecycle()
+                        // Re-read when a setting changes, so the OpenRouter entry appears
+                        // once a key is saved and disappears when the plugin is switched off.
+                        val settingsVersion by container.settings.changes.collectAsStateWithLifecycle()
+                        val remoteModel = remember(settingsVersion) { container.remoteChatModelOrNull() }
                         ModelManagerScreen(
                             models = models,
                             speedTest = container.speedTest,
-                            loadedModelUri = if (modelState is ModelAvailability.Ready) {
+                            loadedModelUri = if (modelState is ModelAvailability.Ready && !container.remoteChatActive) {
                                 container.selectedModel?.uri?.toString()
                             } else {
                                 null
+                            },
+                            remoteChatModel = remoteModel,
+                            remoteChatActive = container.remoteChatActive,
+                            onUseRemoteChat = {
+                                withContext(Dispatchers.IO) { container.useRemoteChat() }
+                            },
+                            onUseModel = { model ->
+                                withContext(Dispatchers.IO) { container.loadModel(model) }
                             },
                             onImport = { uri ->
                                 // Suspending off the composition: the header read
@@ -282,6 +298,14 @@ class MainActivity : ComponentActivity() {
                                 withContext(Dispatchers.IO) {
                                     container.loadModel(model)
                                 }
+                            },
+                            copyLiteRtLm = { uri, name, progress ->
+                                // The copy is GBs of I/O: the copier runs on IO itself.
+                                // The screen then imports the copy like a hub download.
+                                dev.localintelligence.android.inference.LiteRtLmImportCopier(
+                                    this@MainActivity.contentResolver,
+                                    container.modelsDir,
+                                ).copy(uri, name, progress)
                             },
                             onScanLocal = {
                                 // Adopt GGUF files already in app storage. A model
@@ -419,6 +443,7 @@ class MainActivity : ComponentActivity() {
                             onOpenSkills = { nav.navigate(ROUTE_SKILLS) },
                             speedTest = container.speedTest,
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
+                            onOpenScripts = { nav.navigate(ROUTE_SCRIPTS) },
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -427,6 +452,15 @@ class MainActivity : ComponentActivity() {
                         SkillsScreen(
                             store = container.settings,
                             repository = container.skills,
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
+                    composable(ROUTE_SCRIPTS) {
+                        ScriptPluginsScreen(
+                            store = container.settings,
+                            repository = container.scriptRepository,
+                            runner = container.scriptRunner,
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -486,6 +520,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_REDACTION = "redaction"
         const val ROUTE_SETTINGS = "settings"
         const val ROUTE_SKILLS = "skills"
+        const val ROUTE_SCRIPTS = "scripts"
         const val ROUTE_DOCUMENTS = "documents"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */

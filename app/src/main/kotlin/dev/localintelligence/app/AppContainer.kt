@@ -7,8 +7,10 @@ import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
+import dev.localintelligence.android.cloud.OpenRouterChatBackend
 import dev.localintelligence.android.cloud.OpenRouterPlugin
 import dev.localintelligence.android.documents.DocumentEmbedder
+import dev.localintelligence.android.cloud.OpenRouterSettings
 import dev.localintelligence.android.documents.DocumentStore
 import dev.localintelligence.android.documents.DocumentsPlugin
 import dev.localintelligence.android.documents.DOCUMENT_EMBEDDING_MODEL
@@ -18,6 +20,9 @@ import dev.localintelligence.android.mcp.McpPlugin
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.android.skills.SkillsPlugin
 import dev.localintelligence.android.tools.androidToolPlugins
+import dev.localintelligence.android.scripts.ScriptPlugin
+import dev.localintelligence.android.scripts.ScriptPluginRepository
+import dev.localintelligence.android.scripts.ScriptRunner
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.SimpleSetup
@@ -162,9 +167,26 @@ class AppContainer(private val context: Context) {
      * Everything that can be switched on and off. The built-in tool families
      * are the first plugins; features add theirs here.
      */
-    val plugins: List<AgentPlugin> by lazy {
+    val plugins: List<AgentPlugin>
+        get() = builtInPlugins + scriptPluginsNow()
+
+    /**
+     * Installed script plugins, read from disk on each call. Read per call rather
+     * than once, so a plugin installed on the Plugins screen is offered from the
+     * next message without a restart. Its on/off switch is read by [PluginSet].
+     */
+    fun scriptPluginsNow(): List<ScriptPlugin> =
+        scriptRepository.list().map { ScriptPlugin(it, scriptRunner, settings) }
+
+    /** The JavaScript sandbox script plugins run in. One per process; see ScriptRunner. */
+    val scriptRunner: ScriptRunner by lazy { ScriptRunner(context) }
+
+    /** Script plugins on disk under filesDir/plugins. */
+    val scriptRepository: ScriptPluginRepository by lazy { ScriptPluginRepository(File(context.filesDir, "plugins")) }
+
+    private val builtInPlugins: List<AgentPlugin> by lazy {
         val families = androidToolPlugins(context)
-        val cloud = OpenRouterPlugin(context, settings)
+        val cloud = openRouterPlugin
         // Checked here, against everything shipped and switched on or not. A run's
         // registry holds only the enabled tools, so checking it against the
         // catalogue would fail whenever any plugin is off, which is the default for
@@ -606,6 +628,63 @@ class AppContainer(private val context: Context) {
     val modelBackend: ModelBackend by lazy { LlamaCppBackend(importer) }
 
     /**
+     * The OpenRouter plugin, one instance for the plugin list and the remote chat model.
+     * The chat model reads the same switch and key, so the two cannot disagree.
+     */
+    val openRouterPlugin: OpenRouterPlugin by lazy { OpenRouterPlugin(context, settings) }
+
+    /**
+     * The remote chat model. It is never loaded by [loadModel]: it becomes the resident
+     * backend only when the user picks it on the Models screen ([useRemoteChat]).
+     */
+    val remoteChatBackend: OpenRouterChatBackend by lazy {
+        OpenRouterChatBackend(
+            reader = settings,
+            enabled = { settings.isPluginEnabled(openRouterPlugin) },
+        )
+    }
+
+    /**
+     * True when the remote chat model is the one answering. Checked by the speed test and
+     * the Models screen, which both describe the resident model and must not describe a
+     * local file that is not in memory.
+     */
+    val remoteChatActive: Boolean get() = loadedBackend === remoteChatBackend
+
+    /**
+     * The chat model id to offer on the Models screen, or null when the option is off:
+     * the plugin is switched off, or no key is stored.
+     */
+    fun remoteChatModelOrNull(): String? {
+        val key = settings[OpenRouterSettings.API_KEY]
+        return if (settings.isPluginEnabled(openRouterPlugin) && key.isNotBlank()) {
+            settings[OpenRouterSettings.CHAT_MODEL]
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Makes the remote chat model the resident backend, unloading whatever local model
+     * was holding the memory. Returns false, changing nothing, when the option is off.
+     *
+     * WHY THE CHOICE IS NOT SAVED: a restart comes back to the local model the user had
+     * selected. Sending a conversation to a third party should be a choice made again each
+     * time, not one that survives a restart unnoticed.
+     */
+    suspend fun useRemoteChat(): Boolean = readinessLock.withLock {
+        val model = remoteChatModelOrNull() ?: return@withLock false
+        val previous = loadedBackend
+        if (previous != null && previous !== remoteChatBackend) {
+            loadedBackend = null
+            previous.unload()
+        }
+        loadedBackend = remoteChatBackend
+        modelAvailability.set(ModelAvailability.Ready(displayName = "OpenRouter: $model"))
+        true
+    }
+
+    /**
      * The backend that ACTUALLY loaded the resident model, or null when nothing
      * is loaded.
      *
@@ -654,6 +733,8 @@ class AppContainer(private val context: Context) {
      */
     private fun speedTestTarget(): SpeedTestTarget? {
         if (modelAvailability.current !is ModelAvailability.Ready) return null
+        // The remote model has no file on this phone to measure.
+        if (remoteChatActive) return null
         val model = selectedModel ?: return null
         val file = model.uri.path?.takeIf { model.uri.scheme == "file" }?.let { File(it).name }
         return SpeedTestTarget(
