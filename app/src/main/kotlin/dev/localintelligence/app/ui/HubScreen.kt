@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -89,6 +90,9 @@ fun HubScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val suggestions by viewModel.searchResults.collectAsStateWithLifecycle()
+    val searching by viewModel.searching.collectAsStateWithLifecycle()
+    val searchNote by viewModel.searchNote.collectAsStateWithLifecycle()
+    val showingPopular by viewModel.showingPopular.collectAsStateWithLifecycle()
     // WHY a local: `HubUiState.blocked` and `HubUiState.stopped` are computed
     // properties, and a computed property cannot be smart-cast across a
     // recomposition boundary.
@@ -129,8 +133,26 @@ fun HubScreen(
             )
         }
 
-        // Matches for what is typed so far, most downloaded first. A tap lists that repo's files.
-        if (suggestions.isNotEmpty() && !state.downloading) {
+        if (searching && !state.downloading) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text("Searching…", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+        searchNote?.let { note ->
+            if (!state.downloading) {
+                item { Text(note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+        }
+
+        // Matches for what is typed so far (or, before typing, the most downloaded
+        // models), most downloaded first. A tap lists that repo's files.
+        if (suggestions.isNotEmpty() && !state.downloading && state.files.isEmpty()) {
+            if (showingPopular) {
+                item { Text("Most downloaded", style = MaterialTheme.typography.labelLarge) }
+            }
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     suggestions.forEach { hit ->
