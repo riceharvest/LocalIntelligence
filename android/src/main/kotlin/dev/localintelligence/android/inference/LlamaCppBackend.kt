@@ -104,6 +104,14 @@ class LlamaCppBackend(
     @Volatile
     private var residentSpec: ModelSpec? = null
 
+    /**
+     * Loads [model], replacing the resident one. The resident model is freed before the
+     * new one is read in, so the peak is one model's memory, not two: the RAM gate prices
+     * only the new model. The trade-off is that a load which fails leaves nothing
+     * resident. The caller reloads the old model if it wants it back (see AppContainer).
+     * A file that cannot be opened is caught before anything is freed, so the old model
+     * survives that case.
+     */
     override suspend fun load(model: ModelSpec) {
         stopWarmUp()
         loadOn(model, computeSource.forNextLoad(), cpuFallback = true)
@@ -191,6 +199,15 @@ class LlamaCppBackend(
             computeSource.loadReturned(compute, error)
             return error
         }
+        // Free the resident model before the new one is read in (see load). cancel() first,
+        // so a generation on the old model stops rather than holding the lock for its whole reply.
+        cancel()
+        synchronized(lock) {
+            residentSpec = null
+            releaseLocked()
+            currentCapabilities = ModelCapabilities.UNKNOWN
+        }
+
         var compute = wanted
         var loadError = loadNative(compute)
         if (loadError != null && compute.isGpu && cpuFallback) {
@@ -225,7 +242,8 @@ class LlamaCppBackend(
         }
 
         synchronized(lock) {
-            // One model resident at a time.
+            // One model resident at a time. Normally nothing is left to release here, since
+            // it was freed before the load; this keeps the invariant if a load raced it.
             releaseLocked()
             handle = bridgeHandle
             loaded = opened

@@ -1000,11 +1000,12 @@ class AppContainer(private val context: Context) {
         // A prefix build for the model being replaced must not run on it, or on the
         // next load's backend, while this one is released.
         stopPrefixWork()
-        // A file-path model gets a new backend on every load, and a backend only
-        // releases the model it holds itself. Without this the previous model
-        // stays resident while the RAM gate above priced only the new one.
+        // The previous model is freed even when it is the same backend object, as for a
+        // content:// model on the shared llama.cpp backend: a backend only releases the
+        // model it holds, and the RAM gate above priced only the new one. Without this
+        // the old model stays resident while the new one is read in.
         val previous = loadedBackend
-        if (previous != null && previous !== backend) {
+        if (previous != null) {
             loadedBackend = null
             previous.unload()
         }
