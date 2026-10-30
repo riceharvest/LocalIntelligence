@@ -50,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -141,7 +142,7 @@ fun ChatScreen(
     // "Save as skill" draft for the answer on screen, if the run used 2+ tools.
     // Shown in SkillEditorDialog; nothing is written until the user taps Save.
     val skillDraft = remember(messages) { saveAsSkillDraft(messages) }
-    var editingSkill by remember { mutableStateOf<String?>(null) }
+    var editingSkill by rememberSaveable { mutableStateOf<String?>(null) }
     editingSkill?.let { draft ->
         val store = skills
         val dialogContext = LocalContext.current
