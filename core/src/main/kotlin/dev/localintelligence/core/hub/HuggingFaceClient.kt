@@ -476,9 +476,12 @@ class HuggingFaceClient(
          * falls back to estimating from the file name for seven files out of
          * ten, which is precisely the accuracy this gate exists to provide.
          *
-         * The cost at 8 MiB is 0.4% of a 2 GB file and 0.1% of a 7B Q4_K_M.
+         * 2026 update: 8 MiB is no longer enough. The Gemma 4 and EmbeddingGemma 2
+         * headers are 15.8 MB, Qwen3.5-2B and MiniCPM-V-4.7 are 11.0 MB, and LFM3 clears
+         * 8 MiB by 141 KB. 16 MiB covers every file measured (research-context-defaults.md 1.3).
+         * The cost is still under 1% of any model worth downloading.
          */
-        const val HEADER_PROBE_BYTES: Long = 8L * 1024 * 1024
+        const val HEADER_PROBE_BYTES: Long = 16L * 1024 * 1024
 
         /**
          * Reads a parameter count out of a file name, e.g. `Qwen3-4B-Instruct`.
