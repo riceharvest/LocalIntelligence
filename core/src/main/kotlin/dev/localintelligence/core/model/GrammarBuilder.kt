@@ -50,7 +50,13 @@ object GrammarBuilder {
 
     /** Shared JSON value rules. Identical to the shape llama.cpp's json.gbnf uses. */
     private val SHARED_RULES = listOf(
-        "ws" to """ws ::= [ \t\n]*""",
+        // Bounded, unlike json.gbnf's `[ \t\n]*`. Measured on a Samsung A05s
+        // (LFM3 1.7B): for a tool with no arguments the model filled the space
+        // between the braces with whitespace until the 256-token output limit,
+        // 36 s of decoding, and the chat template trims it when the reply is
+        // replayed, so the next prompt diverged and 642 tokens were prefilled
+        // again. Four characters is room for any formatting a model uses.
+        "ws" to """ws ::= [ \t\n]{0,4}""",
         "value" to """value ::= object | array | string | number | boolean | "null"""",
         "object" to """object ::= "{" ws ( string ws ":" ws value (ws "," ws string ws ":" ws value)* )? ws "}"""",
         "array" to """array ::= "[" ws ( value (ws "," ws value)* )? ws "]"""",
