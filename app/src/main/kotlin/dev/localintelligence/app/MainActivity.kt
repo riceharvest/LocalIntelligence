@@ -156,11 +156,13 @@ class MainActivity : ComponentActivity() {
                 // once so recomposition or rotation does not repeat the action.
                 LaunchedEffect(deliveredIntent) {
                     val incoming = deliveredIntent ?: return@LaunchedEffect
-                    // On a cold start the saved model is still loading; text sent
-                    // before it is resident would be refused, so wait for it.
+                    // Shared text goes into the message box and is never sent by
+                    // itself. This activity is exported, so any app on the phone
+                    // can start it with ACTION_SEND; the user has to tap Send (#150).
+                    // Waits for the restore so a cold start does not race it.
                     sharedText(incoming)?.let { text ->
                         container.launchRestore.await()
-                        chat.send(text)
+                        chat.offerSharedText(text)
                     }
                     destination(incoming)?.let { nav.navigate(it) }
                     deliveredIntent = null

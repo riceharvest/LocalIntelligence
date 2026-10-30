@@ -835,7 +835,23 @@ class ChatViewModel(
     }
 
     /**
-     * Convenience for a SEND intent or a suggestion tap. Text that cannot go now
+     * Puts text handed to the app from outside (a share, or "Ask" from another
+     * app's text selection) into the message box, for the user to send.
+     *
+     * Never sends. The entry point is exported, so any app can supply this text
+     * and it must not become a user turn without the user tapping Send. Text
+     * already typed is kept, with the shared text after it.
+     */
+    fun offerSharedText(text: String) {
+        val shared = text.trim()
+        if (shared.isEmpty()) return
+        val typed = _input.value
+        _input.value = if (typed.isBlank()) shared else "$typed\n\n$shared"
+        showNotice("Shared text is in the message box. Tap Send to ask.")
+    }
+
+    /**
+     * Sends text the user chose to send, such as a suggestion tap. Text that cannot go now
      * (no model, or an answer still running) is put in the field rather than
      * dropped, so the user only has to tap Send.
      */
