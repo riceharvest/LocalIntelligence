@@ -179,7 +179,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
+            observationOrigin = ObservationOrigin.NETWORK,
             tags = setOf(
                 "files", "documents", "downloads", "folder",
                 "what files do i have", "list my files",
@@ -219,7 +219,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
+            observationOrigin = ObservationOrigin.NETWORK,
             tags = setOf(
                 "search", "find", "look for", "where is",
                 "pdf", "report", "downloaded", "my note",
@@ -239,7 +239,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
+            observationOrigin = ObservationOrigin.NETWORK,
             tags = setOf(
                 "read", "open file", "contents", "text",
                 "preview", "what does it say", "summarize this file", "show me the file",

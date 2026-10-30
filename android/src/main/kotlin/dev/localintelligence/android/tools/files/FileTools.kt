@@ -1053,7 +1053,8 @@ class FilesListTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
+        // Document text is third-party data (downloads, shared files), so it is fenced as untrusted.
+        observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf(
             "files", "documents", "downloads", "storage", "browse", "my files", "what files do i have",
             "note", "my note", "notes",
@@ -1131,7 +1132,8 @@ class FilesSearchTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
+        // Document text is third-party data (downloads, shared files), so it is fenced as untrusted.
+        observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf(
             "search", "find", "look for", "filename", "extension", "mime type", "recent files", "modified",
             "note", "my note", "notes",
@@ -1223,7 +1225,8 @@ class FilesReadTextTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
+        // Document text is third-party data (downloads, shared files), so it is fenced as untrusted.
+        observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf(
             "read", "open", "text", "contents", "preview", "file content", "what does the file say",
             "note", "my note", "notes",
