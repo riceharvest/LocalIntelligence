@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -161,6 +163,7 @@ fun ChatScreen(
         }
     }
     val runState by viewModel.runState.collectAsStateWithLifecycle()
+    val speakingText by viewModel.speakingText.collectAsStateWithLifecycle()
     val rawStreaming by viewModel.streamingText.collectAsStateWithLifecycle()
     val running by viewModel.runningTool.collectAsStateWithLifecycle()
     // What the live bubble shows. Everything below reads this, so the bubble,
@@ -393,6 +396,8 @@ fun ChatScreen(
                         is ChatMessage.User -> UserBubble(message.text)
                         is ChatMessage.Assistant -> AssistantBubble(
                             text = message.text,
+                            speaking = speakingText == message.text,
+                            onSpeak = { viewModel.toggleSpeak(message.text) },
                             onSaveAsSkill = if (skills != null && skillDraft != null && message === messages.last()) {
                                 { editingSkill = skillDraft }
                             } else {
@@ -488,7 +493,12 @@ private fun UserBubble(text: String) {
 }
 
 @Composable
-private fun AssistantBubble(text: String, onSaveAsSkill: (() -> Unit)? = null) {
+private fun AssistantBubble(
+    text: String,
+    speaking: Boolean,
+    onSpeak: () -> Unit,
+    onSaveAsSkill: (() -> Unit)? = null,
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = MaterialTheme.shapes.medium,
@@ -496,8 +506,16 @@ private fun AssistantBubble(text: String, onSaveAsSkill: (() -> Unit)? = null) {
     ) {
         Column(Modifier.padding(12.dp)) {
             Text(text, style = MaterialTheme.typography.bodyMedium)
-            if (onSaveAsSkill != null) {
-                TextButton(onClick = onSaveAsSkill) { Text("Save as skill") }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                if (onSaveAsSkill != null) {
+                    TextButton(onClick = onSaveAsSkill) { Text("Save as skill") }
+                }
+                IconButton(onClick = onSpeak) {
+                    Icon(
+                        imageVector = if (speaking) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                        contentDescription = if (speaking) "Stop reading" else "Read aloud",
+                    )
+                }
             }
         }
     }

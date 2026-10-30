@@ -14,6 +14,7 @@ import dev.localintelligence.android.tools.androidToolPlugins
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.SimpleSetup
+import dev.localintelligence.app.speech.Speaker
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.plugin.PluginSet
 import dev.localintelligence.core.policy.BlastRadiusTracker
@@ -137,6 +138,9 @@ class AppContainer(private val context: Context) {
 
     /** Every setting in the app. See [SettingsStore]. */
     val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
+
+    /** Reads replies aloud with the platform text-to-speech. The engine starts on first use. */
+    val speaker: Speaker by lazy { Speaker(context, settings) }
 
     /**
      * Everything that can be switched on and off. The built-in tool families
