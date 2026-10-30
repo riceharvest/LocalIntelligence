@@ -66,17 +66,19 @@ enum class EstimateBasis {
  * into one number:
  *
  * ```
- * weights  = sum over tensors of ceil(elements / blockElements) * blockBytes
- * kv cache = 2 * layers * kvHeads * headDim * contextLength * bytesPerElement
- * overhead = max(RUNTIME_BUFFER_FLOOR, RUNTIME_BUFFER_RATIO * weights)
- * total    = weights + kvCache + overhead
+ * weights   = sum over tensors of ceil(elements / blockElements) * blockBytes,
+ *             minus the lookup-only tables (mmap-backed, see [lookupOnlyBytes])
+ * kv cache  = per attention layer: cells * kvHeads * (keyDim + valueDim) * bytesPerElement,
+ *             where cells is the context for full-attention layers and
+ *             pad256(window + ubatch) for sliding-window layers
+ * recurrent = fixed per-sequence state of the conv / Gated DeltaNet layers
+ * overhead  = the compute buffer: n_vocab * n_outputs_max * 4 + a size-dependent base
+ * total     = weights + kvCache + recurrentState + overhead
  * ```
  *
- * `2` is K and V. [overheadBytes] is the one genuinely hand-picked number here, and it
- * is isolated in [ModelMemoryEstimator.RUNTIME_BUFFER_FLOOR] and
- * [RUNTIME_BUFFER_RATIO] with the reasoning attached, because a constant nobody can
- * trace is how a memory model becomes a superstition. Everything else is either read
- * from the file or exact block arithmetic.
+ * [overheadBytes] is the one fitted number here; the fit and its error are documented
+ * on [ModelMemoryEstimator]. Everything else is either read from the file or exact
+ * block arithmetic, priced the way llama.cpp sizes it with `swa_full = false`.
  *
  * [isEstimate] is `true` by construction. This type never claims to be a measurement
  * of what a runtime will allocate, because it cannot be: allocator behaviour, page-in
@@ -85,11 +87,14 @@ enum class EstimateBasis {
  */
 data class MemoryEstimate(
     val basis: EstimateBasis,
-    /** Bytes of weights. 0 when [basis] is [EstimateBasis.UNKNOWN]. */
+    /**
+     * Bytes of weights that stay resident. 0 when [basis] is [EstimateBasis.UNKNOWN].
+     * Excludes [lookupOnlyBytes].
+     */
     val weightsBytes: Long,
     val kvCacheBytes: Long,
     val overheadBytes: Long,
-    /** Sum of the three, saturating rather than wrapping. */
+    /** Sum of weights, KV, recurrent state and overhead, saturating rather than wrapping. */
     val totalBytes: Long,
     /** Bytes of the weights section as the file itself declares it, when the tensor table was readable. */
     val declaredWeightBytes: Long?,
@@ -109,6 +114,14 @@ data class MemoryEstimate(
     val headDimensionDerived: Boolean,
     val inputs: List<EstimateInput>,
     val warnings: List<GgufWarning>,
+    /** Fixed conv / Gated DeltaNet state, f32, independent of the context length. Part of [totalBytes]. */
+    val recurrentStateBytes: Long = 0L,
+    /**
+     * Lookup-only tensors (an untied `token_embd`, Gemma's `per_layer_token_embd`). They
+     * are mmap-backed and only touched row by row, so they are NOT in [weightsBytes] or
+     * [totalBytes]; the page cache can drop them under pressure.
+     */
+    val lookupOnlyBytes: Long = 0L,
 ) {
     /** Always true. Present so a UI cannot accidentally present this as a measurement. */
     val isEstimate: Boolean get() = true
@@ -150,7 +163,8 @@ data class MemoryEstimate(
     /** One-line human summary. Deliberately says "estimate"; see [isEstimate]. */
     fun describe(): String =
         "${formatBytes(totalBytes)} estimated (${confidence.name.lowercase()}, " +
-            "${weightsLabel()} weights, ${formatBytes(kvCacheBytes)} KV, ${formatBytes(overheadBytes)} overhead)"
+            "${weightsLabel()} weights, ${formatBytes(kvCacheBytes)} KV, " +
+            "${formatBytes(recurrentStateBytes)} recurrent, ${formatBytes(overheadBytes)} compute)"
 
     private fun weightsLabel(): String = quantType?.label ?: "unquantized"
 

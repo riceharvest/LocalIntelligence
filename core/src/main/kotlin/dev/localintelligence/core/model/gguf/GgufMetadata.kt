@@ -188,6 +188,80 @@ class GgufMetadata internal constructor(
             return List(layers.toInt()) { uniform }
         }
 
+    // ---- sliding window, shared KV, hybrid layers (llama.cpp sizes the cache from these) ----
+
+    /** `<arch>.attention.sliding_window` — tokens a sliding-window layer can see. Null or 0: no SWA. */
+    val slidingWindow: Long? get() = archLong("attention.sliding_window")?.takeIf { it > 0 }
+
+    /** `<arch>.attention.key_length_swa` — key width of a sliding-window layer when it differs from [keyLength]. */
+    val keyLengthSwa: Long? get() = archLong("attention.key_length_swa")?.takeIf { it > 0 }
+
+    /** `<arch>.attention.value_length_swa` — value width of a sliding-window layer. */
+    val valueLengthSwa: Long? get() = archLong("attention.value_length_swa")?.takeIf { it > 0 }
+
+    /**
+     * `<arch>.attention.shared_kv_layers` — how many of the LAST layers reuse an earlier
+     * layer's KV instead of storing their own (Gemma 4: 20 of 35).
+     */
+    val sharedKvLayers: Long? get() = archLong("attention.shared_kv_layers")?.takeIf { it > 0 }
+
+    /** `<arch>.full_attention_interval` — hybrid models: every Nth layer is attention, the rest recurrent. */
+    val fullAttentionInterval: Long? get() = archLong("full_attention_interval")?.takeIf { it > 0 }
+
+    /**
+     * Which layers are sliding-window, in block order, or null when the file does not
+     * say (callers then treat every layer as full attention, the conservative reading).
+     *
+     * `sliding_window_pattern` is a per-layer bool array (retained by the parser) or a
+     * scalar N. llama.cpp's scalar rule (`set_swa_pattern(N)`, dense_first = false) makes
+     * layer `il` sliding-window unless `il % N == N - 1`.
+     */
+    val swaLayers: List<Boolean>?
+        get() {
+            if (slidingWindow == null) return null
+            val layers = blockCount?.takeIf { it in 1..MAX_LAYERS } ?: return null
+            when (val raw = archValue("attention.sliding_window_pattern")) {
+                is GgufValue.Array -> {
+                    val values = raw.retained ?: return null
+                    if (values.size.toLong() != layers) return null
+                    return values.map { it != 0L }
+                }
+                is GgufValue.Signed -> {
+                    val n = raw.bits
+                    if (n <= 0) return null
+                    return List(layers.toInt()) { it % n < n - 1 }
+                }
+                else -> return null
+            }
+        }
+
+    /**
+     * Which layers are recurrent (Gated DeltaNet, short-conv) rather than attention, or
+     * null when the model has none. From an explicit `recurrent_layers` array when the
+     * file has one; otherwise from [fullAttentionInterval] (llama.cpp's qwen35 rule:
+     * layer `il` is attention when `(il + 1) % interval == 0`); otherwise a layer whose
+     * per-layer KV head count is 0.
+     */
+    val recurrentLayers: List<Boolean>?
+        get() {
+            val layers = blockCount?.takeIf { it in 1..MAX_LAYERS } ?: return null
+            val explicit = (archValue("attention.recurrent_layers") as? GgufValue.Array)?.retained
+            if (explicit != null && explicit.size.toLong() == layers) return explicit.map { it != 0L }
+            fullAttentionInterval?.let { n -> return List(layers.toInt()) { (it + 1) % n != 0L } }
+            val perLayer = headCountKvArray?.takeIf { it.size.toLong() == layers } ?: return null
+            if (perLayer.none { it == 0L }) return null
+            return perLayer.map { it == 0L }
+        }
+
+    /** `<arch>.shortconv.l_cache` — short-convolution kernel length (LFM2/LFM3). */
+    val shortConvCache: Long? get() = archLong("shortconv.l_cache")?.takeIf { it > 0 }
+
+    /** `<arch>.ssm.conv_kernel`, `.state_size`, `.inner_size`, `.group_count` — Gated DeltaNet / Mamba state geometry. */
+    val ssmConvKernel: Long? get() = archLong("ssm.conv_kernel")
+    val ssmStateSize: Long? get() = archLong("ssm.state_size")
+    val ssmInnerSize: Long? get() = archLong("ssm.inner_size")
+    val ssmGroupCount: Long? get() = archLong("ssm.group_count")
+
     /**
      * The head dimension to use, and where it came from.
      *
