@@ -64,7 +64,8 @@ class TimerSetTool(private val appContext: Context) : AgentTool {
         tags = setOf(
             "timer", "countdown", "set a timer", "timer for", "minute timer", "time me",
         ),
-        // ACTION_SET_TIMER needs no permission from this app: the clock app runs the timer.
+        // ACTION_SET_TIMER needs SET_ALARM, a normal permission the manifest declares
+        // (granted at install), so there is nothing to ask the user for.
         requiredPermission = null,
     )
 

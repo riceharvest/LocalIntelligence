@@ -28,4 +28,11 @@
     -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!--
+      timer.set sends AlarmClock.ACTION_SET_TIMER, which the clock app only accepts
+      from an app holding SET_ALARM (a normal permission, granted at install).
+      Without it Samsung's clock refused every timer with a SecurityException.
+    -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
 </manifest>
