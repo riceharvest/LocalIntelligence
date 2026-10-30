@@ -119,7 +119,7 @@ class OpenRouterPlugin(
     context: Context,
     private val reader: SettingsReader,
 ) : AgentPlugin {
-    private val generatedDir = File(context.applicationContext.filesDir, GENERATED_DIR)
+    private val generatedDir = generatedMediaDir(context)
 
     override val id: String = OpenRouterSettings.PLUGIN_ID
     override val title: String = "Cloud images, video and chat (OpenRouter)"
@@ -150,6 +150,20 @@ class OpenRouterPlugin(
 }
 
 private const val GENERATED_DIR = "generated"
+
+/**
+ * The folder the generated images and videos are saved in. The Settings storage row reads and
+ * clears the same folder, so both name it through here.
+ */
+fun generatedMediaDir(context: Context): File = File(context.applicationContext.filesDir, GENERATED_DIR)
+
+/** Bytes the generated files take. Zero when nothing has been generated yet. */
+fun generatedMediaBytes(dir: File): Long = dir.listFiles()?.sumOf { it.length() } ?: 0L
+
+/** Deletes every generated file. The folder stays, so the next save needs no setup. */
+fun clearGeneratedMedia(dir: File) {
+    dir.listFiles()?.forEach { it.delete() }
+}
 
 // ---------------------------------------------------------------------------
 // image.generate

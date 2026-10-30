@@ -66,8 +66,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -82,6 +85,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.android.cloud.clearGeneratedMedia
+import dev.localintelligence.android.cloud.generatedMediaBytes
 import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.android.tools.OBSERVATIONS_FAMILY_ID
 import dev.localintelligence.app.export.ChatExporter
@@ -100,6 +105,10 @@ import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.hub.formatBytes
 import dev.localintelligence.core.settings.SettingsMode
 import dev.localintelligence.core.settings.mode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 /**
@@ -130,6 +139,8 @@ fun SettingsScreen(
     onOpenDocuments: () -> Unit = {},
     /** Opens the script plugins screen. Defaulted, like [onOpenSkills]. */
     onOpenScripts: () -> Unit = {},
+    /** The folder of generated images and videos, for the Storage row. Null hides the row. */
+    generatedMedia: File? = null,
     onOpenModels: () -> Unit = {},
     onOpenSchedule: () -> Unit = {},
     onOpenTrace: () -> Unit = {},
@@ -217,6 +228,11 @@ fun SettingsScreen(
                         )
                     }
 
+                    generatedMedia?.let { dir ->
+                        SectionHeader("Storage")
+                        GeneratedMediaRow(dir)
+                    }
+
                     SectionHeader("Diagnostics")
                     Card(modifier = Modifier.fillMaxWidth()) {
                         NavRow(Icons.Filled.Timeline, "Last run trace", onOpenTrace)
@@ -226,6 +242,46 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * How much space the generated images and videos take, and a way to delete them. The app
+ * keeps the newest files only, but nothing else in the app shows or removes them.
+ */
+@Composable
+private fun GeneratedMediaRow(dir: File) {
+    val scope = rememberCoroutineScope()
+    var refresh by remember { mutableIntStateOf(0) }
+    var asking by remember { mutableStateOf(false) }
+    // Read off the main thread: a folder of videos is many files to stat.
+    val bytes by produceState<Long?>(initialValue = null, dir, refresh) {
+        value = withContext(Dispatchers.IO) { generatedMediaBytes(dir) }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        RowTitle(
+            title = "Generated images and videos",
+            help = "Pictures and clips made with OpenRouter are saved on this phone. The newest 20 are kept.",
+            valueText = bytes?.let { formatBytes(it) },
+        )
+        OutlinedButton(enabled = (bytes ?: 0L) > 0L, onClick = { asking = true }) { Text("Delete all") }
+    }
+    if (asking) {
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text("Delete generated images and videos?") },
+            text = { Text("They are removed from this phone and cannot be recovered.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    asking = false
+                    scope.launch {
+                        withContext(Dispatchers.IO) { clearGeneratedMedia(dir) }
+                        refresh++
+                    }
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
+        )
     }
 }
 

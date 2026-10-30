@@ -44,6 +44,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
+import dev.localintelligence.android.cloud.generatedMediaDir
 import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.encodePickedPicture
@@ -523,6 +524,7 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenSkills = { nav.navigate(ROUTE_SKILLS) },
                             speedTest = container.speedTest,
+                            generatedMedia = generatedMediaDir(applicationContext),
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
                             onOpenScripts = { nav.navigate(ROUTE_SCRIPTS) },
                             onOpenModels = { nav.navigate(ROUTE_MODELS) },
