@@ -344,6 +344,16 @@ class LlamaCppBackend(
         return if (exact >= 0) exact else approximateTokenCount(text)
     }
 
+    /**
+     * Prefills [request]'s prompt and stops before the first token (a negative
+     * token limit, see nativeGenerate). The prompt's state stays in the cache,
+     * with the copies the next request restores, so a request that continues
+     * this prompt prefills only what it adds.
+     */
+    override suspend fun warm(request: GenerationRequest) {
+        generateInternal(request.copy(params = request.params.copy(maxOutputTokens = -1), grammar = null), null)
+    }
+
     override fun cancel() {
         cancelRequested.set(true)
         val h = handle ?: return

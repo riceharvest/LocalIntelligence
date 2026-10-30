@@ -34,6 +34,7 @@ import dev.localintelligence.core.policy.RiskPolicy
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.CancellationSignal
 import dev.localintelligence.core.tool.ObservationStore
+import dev.localintelligence.core.tool.ToolFinder
 import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
 import dev.localintelligence.core.tool.ToolError
@@ -264,6 +265,12 @@ class AgentController(
      * with `observations.read`. Null: the result is cut to its head, as before.
      */
     private val observationStore: ObservationStore? = null,
+    /**
+     * Called when a run has answered, with this controller, so its owner can
+     * run [prepareNextTurn] while the user reads. Not called for a run that
+     * stopped, failed or waits on an approval.
+     */
+    private val afterAnswer: ((AgentController) -> Unit)? = null,
 ) {
     /**
      * Run state. It outlives a single call because
@@ -436,6 +443,7 @@ class AgentController(
             }
             RetainedHistory.bound(sessions.messages)
         }
+        if (outcome is AgentResult.Success) afterAnswer?.invoke(this)
         outcome
     }
 
@@ -533,6 +541,7 @@ class AgentController(
             }
             RetainedHistory.bound(sessions.messages)
         }
+        if (outcome is AgentResult.Success) afterAnswer?.invoke(this)
         outcome
     }
 
@@ -563,7 +572,11 @@ class AgentController(
             // Stream only when somebody is listening. generate() is the same
             // code path with a null sink, so this is not a second implementation
             // to keep in sync - it is the same call with the callback attached.
-            val request = buildRequest(visible)
+            // What the model may call: the listed tools plus any it found with
+            // tools.find, which the prompt does not list (their descriptions are
+            // in the lookup's result).
+            val callable = withDiscovered(visible)
+            val request = buildRequest(visible, callable)
             // StreamingModelBackend is a separate, OPTIONAL interface, so the
             // loop asks whether this backend has it rather than assuming. A
             // backend that cannot stream still works, it just returns one blob:
@@ -599,7 +612,7 @@ class AgentController(
             // A Stop that landed before the generation began is not reported as CANCELLED.
             if (cancelled) return AgentResult.Cancelled
 
-            when (val parsed = parse(generation.text, visible)) {
+            when (val parsed = parse(generation.text, callable)) {
                 is ActionParseResult.Malformed -> {
                     malformedStreak += 1
                     trace += StepTrace(step, StepTrace.Kind.MALFORMED, parsed.reason, success = false)
@@ -607,7 +620,7 @@ class AgentController(
                         return Stop("no valid action in $malformedStreak attempts", trace.toList())
                     }
                     sessions.observe(
-                        "That was not a valid action (${parsed.reason}). ${actionHint(visible)}",
+                        "That was not a valid action (${parsed.reason}). ${actionHint(callable)}",
                     )
                 }
 
@@ -615,7 +628,7 @@ class AgentController(
                     malformedStreak = 0
                     when (val action = parsed.action) {
                         is AgentAction.Respond -> {
-                            sessions.appendAssistant(action.text)
+                            sessions.appendAssistant(action.text, rendered = generation.text)
                             // The one place a turn is offered to durable memory.
                             // See [rememberTurn] for why it is here and nowhere
                             // else.
@@ -623,8 +636,10 @@ class AgentController(
                             return AgentResult.Success(action.text, trace.toList())
                         }
 
-                        is AgentAction.CallTool ->
-                            handleCall(action, visible, generation.text)?.let { return it }
+                        is AgentAction.CallTool -> {
+                            sessions.recordCall(generation.text)
+                            handleCall(action, callable, generation.text)?.let { return it }
+                        }
                     }
                 }
             }
@@ -1147,7 +1162,8 @@ class AgentController(
      */
     private fun selectTools(): List<AgentTool> {
         val all = tools.all()
-        val cap = config.maxVisibleTools
+        // With tool lookup on, the prompt lists a few tools and tools.find.
+        val cap = if (config.toolLookup) minOf(LOOKUP_LISTED, config.maxVisibleTools) else config.maxVisibleTools
         val wanted = try {
             toolSelector.select(task, sessions.currentKeywords(), all, cap)
         } catch (t: Throwable) {
@@ -1160,6 +1176,7 @@ class AgentController(
         // always on the list when the store is there.
         val mustHave = listOfNotNull(
             ObservationStore.READ_TOOL.takeIf { it in byName && observationStore != null },
+            ToolFinder.NAME.takeIf { config.toolLookup && it in byName },
         )
         val wantedNames = (mustHave + wanted.map { it.definition.name }).distinct()
         val added = wantedNames.filter { it !in kept }
@@ -1186,13 +1203,21 @@ class AgentController(
         return sessions.epochTools.mapNotNull { byName[it] }
     }
 
-    private fun buildRequest(visible: List<AgentTool>): GenerationRequest {
+    private fun buildRequest(visible: List<AgentTool>, callable: List<AgentTool> = visible): GenerationRequest {
         val prompt = buildPrompt(visible)
         // Retained so the step gate prices the context the model is about to be
         // given rather than a reconstruction of it. See [lastPrompt].
         lastPrompt = prompt
         lastVisible = visible
-        return request(prompt, visible)
+        return request(prompt, callable)
+    }
+
+    /** [visible] plus the tools found with tools.find this conversation, if they still exist. */
+    private fun withDiscovered(visible: List<AgentTool>): List<AgentTool> {
+        if (sessions.discoveredTools.isEmpty()) return visible
+        val listed = visible.map { it.definition.name }.toSet()
+        val byName = tools.all().associateBy { it.definition.name }
+        return visible + sessions.discoveredTools.filter { it !in listed }.mapNotNull { byName[it] }
     }
 
     /**
@@ -1325,31 +1350,62 @@ class AgentController(
         val window = model.capabilities.contextLength
         val prompt = buildPrompt(visible)
         val tokens = promptTokens(prompt)
-        val limit = if (boundary) {
-            // Never below the system prompt plus some conversation: with a small
-            // working limit the system prompt and tools alone can fill it, and
-            // the turn limit would then compact on every message, each one a
-            // full prefill.
-            val fixed = prompt.firstOrNull()?.let { promptTokens(listOf(it)) } ?: 0
-            maxOf(workingLimit(window), fixed + MIN_CONVERSATION_TOKENS).coerceAtMost(hardLimit(window))
-        } else {
-            hardLimit(window)
-        }
+        val limit = if (boundary) turnLimit(prompt, window) else hardLimit(window)
         if (tokens <= limit) return
-        // Fold until the prompt is well under the limit, keeping fewer recent
-        // messages each time. One fold that leaves it just under would compact
-        // again at the next message, and every compaction is a prefill; well
-        // under, several turns fit before the next one.
+        foldUntilUnder(limit, visible, tokens, if (boundary) "turn" else "mid-answer")
+    }
+
+    /**
+     * The limit a prompt is held to at the start of a message: the working
+     * limit, but never below the system prompt plus some conversation. With a
+     * small working limit the system prompt and tools alone can fill it, and
+     * the turn limit would then compact on every message, each one a prefill.
+     */
+    private fun turnLimit(prompt: List<ChatMessage>, window: Int): Int {
+        val fixed = prompt.firstOrNull()?.let { promptTokens(listOf(it)) } ?: 0
+        return maxOf(workingLimit(window), fixed + MIN_CONVERSATION_TOKENS).coerceAtMost(hardLimit(window))
+    }
+
+    /**
+     * Folds until the prompt is well under [limit], keeping fewer recent
+     * messages each time. One fold that leaves it just under would compact
+     * again at the next message, and every compaction is a prefill; well
+     * under, several turns fit before the next one.
+     */
+    private suspend fun foldUntilUnder(limit: Int, visible: List<AgentTool>, tokens: Int, label: String) {
         var keep = sessions.keepRecent.coerceAtLeast(1)
         var now = tokens
         while (true) {
-            val reason = "$now tokens over the ${if (boundary) "turn" else "mid-answer"} limit $limit " +
-                "(window $window), keeping $keep"
+            val reason = "$now tokens over the $label limit $limit " +
+                "(window ${model.capabilities.contextLength}), keeping $keep"
             if (!compactNow(reason, keep)) break
             now = promptTokens(buildPrompt(visible))
             if (now <= (limit * REFOLD_BELOW).toInt() || keep <= 1) break
             keep -= 1
         }
+    }
+
+    /**
+     * Between messages, while the user reads the answer: if the conversation is
+     * close to the turn limit, compact it now and prefill the compacted prompt,
+     * so the next message pays only for itself instead of for the compaction's
+     * prefill too. The next message continues this prompt (its turn goes after
+     * it), so the work carries over. Cancelling at any point is safe: an
+     * unfinished prefill only means the next message starts from the kept
+     * system prompt, as it would have anyway.
+     */
+    suspend fun prepareNextTurn() {
+        val visible = lastVisible
+        if (visible.isEmpty()) return
+        val window = model.capabilities.contextLength
+        val prompt = buildPrompt(visible)
+        val tokens = promptTokens(prompt)
+        val limit = turnLimit(prompt, window)
+        if (tokens <= (limit * IDLE_COMPACT_AT).toInt()) return
+        foldUntilUnder(limit, visible, tokens, "idle turn")
+        val next = buildPrompt(visible)
+        log("idle: prefilling the compacted prompt (${promptTokens(next)} tokens) while the answer is read")
+        model.warm(request(next, visible))
     }
 
     /**
@@ -1375,6 +1431,8 @@ class AgentController(
                 .copy(task = truncateTask(task))
         sessions.workingSummary = state
         foldWindow(keep)
+        // The lookups' results are folded away, so what they made callable goes too.
+        sessions.discoveredTools.clear()
 
         val detail = "compacted $before messages into working state ($reason): " +
             "${state.progress.size} progress, ${state.actionsTaken.size} actions, " +
@@ -1609,6 +1667,12 @@ class AgentController(
 
         /** How much of a memory's start identifies it in an earlier turn. */
         const val MEMORY_MATCH_CHARS = 80
+
+        /** Tools the prompt lists when the model looks up the rest (plus the lookup tool itself). */
+        const val LOOKUP_LISTED = 3
+
+        /** Between messages, compact ahead when the prompt is past this share of the turn limit. */
+        const val IDLE_COMPACT_AT = 0.8
 
         /** After a compaction the prompt should be under this share of its limit. */
         const val REFOLD_BELOW = 0.6

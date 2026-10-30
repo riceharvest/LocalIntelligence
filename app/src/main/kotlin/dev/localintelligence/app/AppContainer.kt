@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.core.tool.ToolFinder
 import dev.localintelligence.android.data.lazyObservationStore
 import dev.localintelligence.core.tool.ObservationStore
 import android.content.Context
@@ -90,6 +91,8 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -526,6 +529,9 @@ class AppContainer(private val context: Context) {
      * checks that nothing is running first.
      */
     fun startNewConversation() {
+        // The between-messages work reads this session; stop it first.
+        idleWork?.cancel()
+        residentBackend().cancel()
         session.clear()
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .edit()
@@ -586,7 +592,10 @@ class AppContainer(private val context: Context) {
         // `Session.writtenIds` is the set of message identities already handed
         // to the store, so a trim, a fold, or a repeated call are all naturally
         // idempotent and nothing is inferred from positions.
+        // A tool call's own turn (blank text, see Session.recordCall) is prompt
+        // plumbing, not conversation: it is not stored or shown after a restart.
         return session.messages.filter { session.writtenIds.add(session.idOf(it)) }
+            .filterNot { it is ChatMessage.Assistant && it.text.isBlank() }
     }
 
     private suspend fun writeSnapshot(pending: List<ChatMessage>) {
@@ -1045,7 +1054,45 @@ class AppContainer(private val context: Context) {
      * in seconds, on a thread that is already doing background work. Restoring
      * is once per process; the write is a handful of rows per turn.
      */
-    suspend fun ensureModelReady(): ModelAvailability = readinessLock.withLock {
+    suspend fun ensureModelReady(): ModelAvailability {
+        // A new run: stop the between-messages work first. The prefill is
+        // cancelled in the backend so the run does not wait for it, and the job
+        // is joined so its compaction is finished before the run reads the session.
+        stopIdleWork()
+        return ensureModelReadyLocked()
+    }
+
+    /**
+     * The work done between messages (see AgentController.prepareNextTurn), on
+     * the process scope so it outlives the run's service; one at a time.
+     */
+    @Volatile
+    private var idleWork: Job? = null
+
+    private fun startIdleWork(controller: AgentController, model: ModelBackend) {
+        idleWork?.cancel()
+        idleWork = appScope.launch {
+            try {
+                controller.prepareNextTurn()
+            } catch (e: CancellationException) {
+                model.cancel()
+                throw e
+            } catch (t: Throwable) {
+                android.util.Log.w(TAG, "idle preparation failed", t)
+            }
+        }
+    }
+
+    private suspend fun stopIdleWork() {
+        val job = idleWork ?: return
+        if (job.isActive) {
+            residentBackend().cancel()
+            job.cancelAndJoin()
+        }
+        idleWork = null
+    }
+
+    private suspend fun ensureModelReadyLocked(): ModelAvailability = readinessLock.withLock {
         restoreConversationOnce()
         persistConversation()
         // Reuse the RESIDENT identity, not a bare Ready: the early return is the
@@ -1193,14 +1240,27 @@ class AppContainer(private val context: Context) {
         val pluginSet = PluginSet(plugins, snapshot, settings::isPluginEnabled)
         // No catalogue here: the enabled subset is smaller than the catalogue by design.
         // The full set is checked once, in `plugins`.
-        val runTools: ToolRegistry = RedactingToolRegistry(SimpleToolRegistry(pluginSet.tools(), catalogue = emptyList()))
         val config = snapshot.agentConfig()
+        val pluginTools = pluginSet.tools()
+        // With "Let the model look up tools" on, tools.find searches the same
+        // enabled tools the run may call.
+        val finder = if (config.toolLookup) {
+            ToolFinder(SimpleToolRegistry(pluginTools, catalogue = emptyList()), LexicalToolSelector(), session)
+        } else {
+            null
+        }
+        val runTools: ToolRegistry = RedactingToolRegistry(
+            SimpleToolRegistry(pluginTools + listOfNotNull(finder), catalogue = emptyList()),
+        )
         return AgentController(
         onToken = onToken,
         onToolStart = onToolStart,
         onToolDone = onToolDone,
         log = { line -> android.util.Log.i("LocalAgent", line) },
         observationStore = observationStore,
+        // Between messages, compact ahead and prefill while the answer is read.
+        // Not for scheduled runs: nobody is about to type.
+        afterAnswer = if (background) null else { controller -> startIdleWork(controller, model) },
         // Persist whenever the loop trims the window, not only at run
         // boundaries: a message removed by a mid-run fold is unrecoverable
         // afterwards. See AgentController.onWindowChanged.

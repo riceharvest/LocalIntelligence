@@ -743,6 +743,7 @@ private val toolVerbs: Map<String, ToolVerb> = mapOf(
     "web.search" to ToolVerb("Searching the web", "Searched the web", "search the web"),
     "documents.search" to ToolVerb("Searching your documents", "Searched your documents", "search your documents"),
     "history.search" to ToolVerb("Searching past chats", "Searched past chats", "search past chats"),
+    "tools.find" to ToolVerb("Looking up tools", "Looked up tools", "look up tools"),
     "observations.read" to ToolVerb("Reading saved result", "Read saved result", "read a saved result"),
     "image.generate" to ToolVerb("Creating image", "Created image", "create an image"),
     "video.generate" to ToolVerb("Creating video", "Started video", "create a video"),

@@ -28,4 +28,9 @@ data class AgentConfig(
     val memoryResults: Int = 5,
     /** The only tool output the model ever sees. */
     val observationBudgetChars: Int = ObservationTruncator.DEFAULT_BUDGET_CHARS,
+    /**
+     * The prompt lists a few tools and `tools.find`, and the model looks up the
+     * rest (see ToolFinder). Off: the prompt lists [maxVisibleTools] tools.
+     */
+    val toolLookup: Boolean = false,
 )
