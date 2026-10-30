@@ -452,8 +452,26 @@ class AgentController(
             }
             RetainedHistory.bound(sessions.messages)
         }
-        if (outcome is AgentResult.Success) afterAnswer?.invoke(this)
+        if (outcome is AgentResult.Success) {
+            settleWorkingState()
+            afterAnswer?.invoke(this)
+        }
         outcome
+    }
+
+    /**
+     * Clears the open-work lines of the working state once a run has answered.
+     *
+     * WHY: the state was written mid-run, when the task was still open, so its
+     * `Task` and `Remaining work` describe a question that is now answered. Left
+     * alone they are prepended to every later prompt, and the model is told twice
+     * that a finished question is still open. The progress, facts and failures
+     * stay: they are still true, and the next compaction rebuilds remaining work
+     * from the newest turn anyway.
+     */
+    private fun settleWorkingState() {
+        val state = sessions.workingSummary ?: return
+        sessions.workingSummary = state.copy(task = "", remainingWork = emptyList())
     }
 
     /**
@@ -550,7 +568,10 @@ class AgentController(
             }
             RetainedHistory.bound(sessions.messages)
         }
-        if (outcome is AgentResult.Success) afterAnswer?.invoke(this)
+        if (outcome is AgentResult.Success) {
+            settleWorkingState()
+            afterAnswer?.invoke(this)
+        }
         outcome
     }
 
