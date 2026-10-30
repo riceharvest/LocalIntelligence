@@ -1,5 +1,6 @@
 package dev.localintelligence.android.scripts
 
+import dev.localintelligence.android.io.readUpTo
 import dev.localintelligence.core.tool.ToolRisk
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -149,7 +150,7 @@ object ScriptPackages {
                     val base = parts.last()
                     if (base != "plugin.json" && base != "main.js") continue
                     val room = MAX_PACKAGE_BYTES - total
-                    val content = zip.readNBytes(room + 1)
+                    val content = zip.readUpTo(room + 1)
                     total += content.size
                     if (content.size > room) return Unzip.Refused("The zip is larger than 256 KB.")
                     val text = String(content, Charsets.UTF_8)

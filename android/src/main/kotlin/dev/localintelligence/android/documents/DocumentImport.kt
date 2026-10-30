@@ -7,6 +7,7 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import com.tom_roush.pdfbox.text.PDFTextStripper
+import dev.localintelligence.android.io.readUpTo
 import java.io.InputStream
 
 /** A failure the Documents screen shows as one sentence. */
@@ -75,7 +76,7 @@ object DocumentImport {
     }
 
     private fun readText(input: InputStream, title: String): String {
-        val bytes = input.readNBytes((MAX_TEXT_BYTES + 1).toInt())
+        val bytes = input.readUpTo((MAX_TEXT_BYTES + 1).toInt())
         if (bytes.size > MAX_TEXT_BYTES) {
             throw DocumentImportException("$title is larger than 20 MB. Split it and add the parts.")
         }
@@ -86,7 +87,7 @@ object DocumentImport {
 
     private fun extractPdf(context: Context, input: InputStream, title: String): String {
         ensurePdfBox(context)
-        val bytes = input.readNBytes((MAX_PDF_BYTES + 1).toInt())
+        val bytes = input.readUpTo((MAX_PDF_BYTES + 1).toInt())
         if (bytes.size > MAX_PDF_BYTES) {
             throw DocumentImportException("$title is larger than 50 MB. Add a smaller file.")
         }
