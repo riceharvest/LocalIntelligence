@@ -745,13 +745,24 @@ class AppContainer(private val context: Context) {
         val model = selectedModel ?: return null
         val file = model.uri.path?.takeIf { model.uri.scheme == "file" }?.let { File(it).name }
         val backend = residentBackend()
+        // On a GPU the weights sit in driver memory, and while the drivers start,
+        // compile their kernels and repack the weights they briefly hold more.
+        // MEASURED Samsung A05s (3.6 GB RAM, LFM3-1.7B Q4_K_M at ~1.2 GB): trying
+        // Vulkan and then OpenCL got the app killed by the low-memory killer. So the
+        // GPUs are only tried when the usable RAM holds the model twice.
+        val gpuRoom = model.estimate.totalBytes(ModelImporter.DEFAULT_CONTEXT_LENGTH) * 2 <=
+            RamEstimate.usableDeviceBytes()
+        val llama = (backend as? LlamaCppBackend)?.takeIf { computeChoice.isAuto }
         return SpeedTestTarget(
             backend = backend,
             modelUri = model.uri.toString(),
             modelFile = file ?: displayNameOf(context, model.uri) ?: model.displayName,
-            comparison = (backend as? LlamaCppBackend)
-                ?.takeIf { computeChoice.isAuto }
-                ?.let { ComputeComparison(it, computeChoice) },
+            comparison = llama?.takeIf { gpuRoom }?.let { ComputeComparison(it, computeChoice) },
+            note = if (llama != null && !gpuRoom) {
+                "GPU not tried: this phone does not have the memory to hold this model on the GPU."
+            } else {
+                null
+            },
         )
     }
 

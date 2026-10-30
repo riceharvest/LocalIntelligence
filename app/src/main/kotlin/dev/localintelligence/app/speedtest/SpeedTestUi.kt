@@ -81,6 +81,9 @@ fun SpeedTestResultBlock(result: SpeedTestResult, modifier: Modifier = Modifier)
         result.comparison()?.let {
             Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
         }
+        result.note?.let {
+            Text(text = it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Text(
             text = buildString {
                 append("${result.measuredOn()}. Median of 2 runs: 256-token prompt, 64 tokens generated.")

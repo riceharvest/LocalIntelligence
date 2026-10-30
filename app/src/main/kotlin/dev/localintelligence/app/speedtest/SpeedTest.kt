@@ -37,6 +37,8 @@ class SpeedTestTarget(
     val modelFile: String,
     /** Set when Compute is Auto: the test then also measures the model's other places to run. */
     val comparison: ComputeComparison? = null,
+    /** Why nothing was compared although Compute is Auto, shown with the result. */
+    val note: String? = null,
 )
 
 /**
@@ -75,6 +77,8 @@ data class SpeedTestResult(
     val measuredAtMillis: Long,
     /** Every place Auto compared, the winner included. Empty when nothing was compared. */
     val compared: List<ComputeRun> = emptyList(),
+    /** [SpeedTestTarget.note], carried to the screen. */
+    val note: String? = null,
 )
 
 /** Where the speed test is right now. */
@@ -197,6 +201,7 @@ class SpeedTestRunner(
                     modelUri = target.modelUri,
                     measuredAtMillis = System.currentTimeMillis(),
                     compared = compared,
+                    note = target.note,
                 )
                 _status.value = SpeedTestStatus.Idle
             } catch (e: CancellationException) {

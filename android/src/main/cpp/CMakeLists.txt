@@ -156,8 +156,11 @@ if(PIDROID_GPU)
         set(_ndk_host "windows-x86_64")
     endif()
     set(Vulkan_INCLUDE_DIR "${li_vulkan_headers_SOURCE_DIR}/include" CACHE PATH "" FORCE)
-    find_library(_li_libvulkan vulkan)
-    set(Vulkan_LIBRARY "${_li_libvulkan}" CACHE FILEPATH "" FORCE)
+    # Linked against the API 28 libvulkan stub, not the minSdk one: ggml-vulkan
+    # calls vkGetPhysicalDeviceFeatures2, which Android's loader exports from
+    # Android 9 on. On an older phone libggml-vulkan.so then fails to load,
+    # and the model runs on the CPU (or OpenCL) as on a phone without Vulkan.
+    set(Vulkan_LIBRARY "${CMAKE_SYSROOT}/usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/28/libvulkan.so" CACHE FILEPATH "" FORCE)
     set(Vulkan_GLSLC_EXECUTABLE "${ANDROID_NDK}/shader-tools/${_ndk_host}/glslc" CACHE FILEPATH "" FORCE)
     set(GGML_VULKAN ON CACHE BOOL "" FORCE)
 
@@ -309,6 +312,14 @@ endif()
 # ---------------------------------------------------------------------------
 if(NOT _llama_src_dir_from_fetchcontent)
     add_subdirectory("${_llama_src_dir}" llama.cpp EXCLUDE_FROM_ALL)
+endif()
+
+# ggml-vulkan includes <spirv/unified1/spirv.hpp> but only find_package()s
+# SPIRV-Headers without linking it: it counts on a Vulkan SDK, whose include
+# directory has spirv/ next to vulkan/. The Khronos headers fetched above are
+# two separate trees, so the SPIRV one is added to the target here.
+if(PIDROID_GPU AND TARGET ggml-vulkan)
+    target_include_directories(ggml-vulkan PRIVATE "${li_spirv_headers_SOURCE_DIR}/include")
 endif()
 
 # -----------------------------------------------------------------------

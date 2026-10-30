@@ -41,6 +41,12 @@ static void log_to_logcat(enum ggml_log_level level, const char * text, void * /
     }
 }
 
+// llama.cpp's messages, minus its per-tensor debug lines.
+static void llama_log_to_logcat(enum ggml_log_level level, const char * text, void * ud) {
+    if (level == GGML_LOG_LEVEL_DEBUG) return;
+    log_to_logcat(level, text, ud);
+}
+
 #include <algorithm>
 #include <dirent.h>
 #include <dlfcn.h>
@@ -592,6 +598,9 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeCreate(JNIEnv *, 
     static std::once_flag backends_loaded;
     std::call_once(backends_loaded, [] {
         ggml_log_set(log_to_logcat, nullptr);
+        // llama.cpp's own messages (model load, layers offloaded, buffer sizes)
+        // otherwise go to stderr, which an app never sees.
+        llama_log_set(llama_log_to_logcat, nullptr);
         const std::string dir = native_lib_dir();
         if (dir.empty()) {
             ggml_backend_load_all();
