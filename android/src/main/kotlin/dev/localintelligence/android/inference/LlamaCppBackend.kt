@@ -241,6 +241,9 @@ class LlamaCppBackend(
     }
 
     override suspend fun unload() {
+        // A prefix warm-up can hold the lock for the whole prefill; stop it first so a
+        // model switch does not wait for it.
+        stopWarmUp()
         synchronized(lock) {
             residentSpec = null
             releaseLocked()
@@ -259,11 +262,17 @@ class LlamaCppBackend(
     private suspend fun generateInternal(
         request: GenerationRequest,
         onToken: ((String) -> Unit)?,
+        prefixOnly: Boolean = false,
     ): GenerationResult = withContext(ioDispatcher) {
-        // A real request stops a warm-up rather than waiting for its prefill.
-        if (request.params.maxOutputTokens >= 0) stopWarmUp()
+        // A real request stops a warm-up rather than waiting for its prefill, but it
+        // waits for a prefix warm-up: it needs the same prefix, which is then reused.
+        if (request.params.maxOutputTokens >= 0) stopWarmUp(includePrefix = false)
         cancelRequested.set(false)
         synchronized(lock) {
+            // A prefix warm-up that was stopped while it waited for the lock does not run.
+            if (prefixOnly && prefixCancelled) {
+                return@withContext GenerationResult(text = "", stopReason = StopReason.CANCELLED)
+            }
             val h = handle
             if (h == null || h.isClosed) {
                 return@withContext GenerationResult(
@@ -394,8 +403,46 @@ class LlamaCppBackend(
     @Volatile
     private var warming = false
 
-    private fun stopWarmUp() {
+    /**
+     * Prefills the conversation's shared prefix (see [ModelBackend.warmPrefix]). Unlike
+     * [warm], a real request queues behind it rather than cancelling it, because the
+     * real request needs the same prefix and a cancelled prefill is thrown away whole.
+     * Loading, unloading and speech still stop it.
+     */
+    override suspend fun warmPrefix(request: GenerationRequest) {
+        prefixCancelled = false
+        prefixWarming = true
+        try {
+            generateInternal(
+                request.copy(params = request.params.copy(maxOutputTokens = -1), grammar = null),
+                onToken = null,
+                prefixOnly = true,
+            )
+        } finally {
+            prefixWarming = false
+        }
+    }
+
+    @Volatile
+    private var prefixWarming = false
+
+    /**
+     * Set by [stopWarmUp] when it stops the prefix warm-up, so a warm-up that is still
+     * queued on the lock gives up instead of prefilling after the model was replaced.
+     */
+    @Volatile
+    private var prefixCancelled = false
+
+    /**
+     * Stops a running warm-up. A real request passes [includePrefix] = false: it queues
+     * behind the prefix warm-up rather than cancelling it.
+     */
+    private fun stopWarmUp(includePrefix: Boolean = true) {
         if (warming) cancel()
+        if (includePrefix && prefixWarming) {
+            prefixCancelled = true
+            cancel()
+        }
     }
 
     override fun cancel() {

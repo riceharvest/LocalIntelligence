@@ -235,6 +235,16 @@ interface ModelBackend {
      * state between requests does nothing.
      */
     suspend fun warm(request: GenerationRequest) {}
+
+    /**
+     * Prefills [request]'s prompt like [warm], for the part every conversation starts
+     * with (the system prompt and the fixed tool list). Unlike [warm], a real request
+     * WAITS for it instead of cancelling it: the real request needs the same prefix,
+     * and a cancelled prefill is thrown away whole (a hybrid model cannot keep a
+     * partial prefill), so the work would be paid twice. Loading, unloading, speech
+     * and the speed test still stop it. A backend that keeps no state does nothing.
+     */
+    suspend fun warmPrefix(request: GenerationRequest) {}
 }
 
 /** A backend that can stream tokens. Optional capability, not required. */

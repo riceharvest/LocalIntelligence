@@ -1181,14 +1181,8 @@ class AgentController(
         }
         val byName = all.associateBy { it.definition.name }
         val kept = sessions.epochTools.filter { it in byName }
-        // A saved result's preview names observations.read, and a result can be
-        // saved mid-answer; so the read tool is always on the list when the
-        // store is there.
-        val mustHave = listOfNotNull(
-            ObservationStore.READ_TOOL.takeIf { it in byName && observationStore != null },
-            ToolFinder.NAME.takeIf { config.toolLookup && it in byName },
-        )
-        if (useNativeToolFormat) return planNativeTurnTools(wanted, mustHave, byName)
+        if (useNativeToolFormat) return planNativeTurnTools(wanted, all, byName)
+        val mustHave = mustHaveTools(byName)
         if (kept.isEmpty() || kept.size != sessions.epochTools.size) {
             val next = (mustHave + wanted.map { it.definition.name }).distinct()
             log("tool list set: ${next.joinToString()} (the prompt is prefilled from the tool list on)")
@@ -1207,19 +1201,41 @@ class AgentController(
     }
 
     /**
+     * The tools every conversation lists, whatever the task: the saved-result reader and
+     * the tool finder, when they exist. A saved result's preview names observations.read,
+     * and a result can be saved mid-answer, so the read tool is always on the list when the
+     * store is there.
+     */
+    private fun mustHaveTools(byName: Map<String, AgentTool>): List<String> = listOfNotNull(
+        ObservationStore.READ_TOOL.takeIf { it in byName && observationStore != null },
+        ToolFinder.NAME.takeIf { config.toolLookup && it in byName },
+    )
+
+    /**
+     * The tool list of a native-format conversation: [mustHaveTools] then [NATIVE_CORE_TOOLS].
+     * Shared by [planNativeTurnTools] and [warmPrefix], so the prefix that is built after a
+     * model load is the prefix the first message uses.
+     */
+    private fun nativeCoreTools(byName: Map<String, AgentTool>): List<String> =
+        (mustHaveTools(byName) + NATIVE_CORE_TOOLS.filter { it in byName }).distinct()
+
+    /**
      * [planTurnTools] for the model's own tool format: the list is the same core set in
      * every conversation (see [NATIVE_CORE_TOOLS]), and each tool the picker wants beyond
      * it is described in this turn, callable like the rest.
      *
      * WHY: the listed tools are part of the prompt's cached prefix. A list that differs
      * per conversation prefills the whole prefix again for each new chat.
+     *
+     * When the selector scores tools, an extra is described only if it scores higher than
+     * every core tool, at most [MAX_NATIVE_EXTRA_TOOLS] of them (see that constant).
      */
     private fun planNativeTurnTools(
         wanted: List<AgentTool>,
-        mustHave: List<String>,
+        all: List<AgentTool>,
         byName: Map<String, AgentTool>,
     ): List<AgentTool> {
-        val core = (mustHave + NATIVE_CORE_TOOLS.filter { it in byName }).distinct()
+        val core = nativeCoreTools(byName)
         if (core != sessions.epochTools.toList()) {
             log("tool list set (native core): ${core.joinToString()} (the prompt is prefilled from the tool list on)")
             sessions.epochTools.clear()
@@ -1227,7 +1243,18 @@ class AgentController(
             sessions.discoveredTools.clear()
         }
         val listed = core.toSet() + sessions.discoveredTools
-        val extra = wanted.filter { it.definition.name !in listed }
+        val picks = wanted.filter { it.definition.name !in listed }
+        val scores = try {
+            toolSelector.scores(task, sessions.currentKeywords(), all)
+        } catch (t: Throwable) {
+            null
+        }
+        val extra = if (scores == null) {
+            picks
+        } else {
+            val best = core.maxOfOrNull { scores[it] ?: 0 } ?: 0
+            picks.filter { (scores[it.definition.name] ?: 0) > best }.take(MAX_NATIVE_EXTRA_TOOLS)
+        }
         if (extra.isNotEmpty()) {
             sessions.discoveredTools += extra.map { it.definition.name }
             log("tools described in this turn instead of the list: ${extra.joinToString { it.definition.name }}")
@@ -1294,14 +1321,18 @@ class AgentController(
      * The prompt for [visible]. Memories are not searched here: they were found
      * once, for the turn, and are part of its rendered text ([run]).
      */
-    private fun buildPrompt(visible: List<AgentTool>): List<ChatMessage> {
+    private fun buildPrompt(
+        visible: List<AgentTool>,
+        task: String = this.task,
+        history: List<ChatMessage> = withWorkingSummary(sessions.messages),
+    ): List<ChatMessage> {
         // The working state goes in BEFORE the builder, because
         // [DefaultContextBuilder] recognises a summary by position and prefix
         // and reserves slot 2 for it. That is a contract the builder's own KDoc
         // assigns to "the agent loop", and this is the line that keeps it:
         // without it the compacted state is built, stored, counted by the
-        // trigger — and never shown to the model.
-        val history = withWorkingSummary(sessions.messages)
+        // trigger — and never shown to the model. (The prefix warm-up passes its
+        // own history: a new conversation has no working state.)
         val built = try {
             contextBuilder.build(task, history, emptyList(), visible.map { it.definition }, sessionLines())
         } catch (t: Throwable) {
@@ -1483,6 +1514,38 @@ class AgentController(
         val next = buildPrompt(visible)
         log("idle: prefilling the compacted prompt (${requestTokens(next, visible)} tokens) while the answer is read")
         model.warm(request(next, visible))
+    }
+
+    /**
+     * Prefills the prompt a NEW conversation starts with, so it is ready when the first
+     * message comes. Called on the background scope right after a model loads (see
+     * AppContainer), and only in the model's own tool format: there the listed tools are
+     * fixed, so the system prompt and tool schemas are the same in every conversation.
+     *
+     * WHY: measured on a Samsung A05s with LFM3-1.7B, that prefix (system prompt plus the
+     * fixed core tool schemas, 1,460 tokens) is saved on disk the first time a message
+     * prefills it, and a later conversation restores it in about a second. Without this the
+     * first build happens inside the user's first message after an install, a model switch or
+     * a settings change: 159 s before anything appears. Built here, the first message prefills
+     * only its own turn (about 18 s).
+     *
+     * The prompt goes through the same path a real first message does, but its history is a
+     * placeholder turn, not [sessions]: nothing is written to the session, persisted, or
+     * handed to [afterAnswer].
+     */
+    suspend fun warmPrefix() {
+        if (!useNativeToolFormat) return
+        val all = tools.all()
+        val byName = all.associateBy { it.definition.name }
+        val core = nativeCoreTools(byName).mapNotNull { byName[it] }
+        log("prefix: prefilling the system prompt and ${core.size} core tools after the model load")
+        val prompt = buildPrompt(
+            core,
+            task = PREFIX_TASK,
+            history = listOf(ChatMessage.User(PREFIX_TASK)),
+        )
+        // No media: an attachment belongs to a real message, and the prefix must not carry one.
+        model.warmPrefix(request(prompt, core, core).copy(media = emptyList()))
     }
 
     /**
@@ -1771,6 +1834,24 @@ class AgentController(
             "calendar.search",
             "location.get",
         )
+
+        /**
+         * The task the prefix warm-up places in its placeholder turn. Any text works: only the
+         * system prompt and tool list are kept, and the turn is never shown.
+         */
+        const val PREFIX_TASK = "Hello"
+
+        /**
+         * How many tools beyond the core list a native-format turn describes, when the selector
+         * scores tools (see [planNativeTurnTools]).
+         *
+         * WHY: measured offline on 32 tasks with the real tool definitions, describing an extra
+         * only when it scores higher than every core tool, at most 2, keeps every tool the picker
+         * finds today (calendar.create, alarm.cancel/list, email.draft, contacts.search, apps.open,
+         * files.read_text, device.info, ...) and cuts described tools from 80 to 20. Each described
+         * tool adds prefill to every message that carries it, on a phone where prefill is the cost.
+         */
+        const val MAX_NATIVE_EXTRA_TOOLS = 2
 
         /** How much of a memory's start identifies it in an earlier turn. */
         const val MEMORY_MATCH_CHARS = 80

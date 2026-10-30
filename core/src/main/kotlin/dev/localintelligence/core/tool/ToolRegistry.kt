@@ -76,6 +76,16 @@ fun interface ToolSelector {
         available: List<AgentTool>,
         maxTools: Int,
     ): List<AgentTool>
+
+    /**
+     * How well each tool matches [task], by tool name: a higher score matches better. Null
+     * when the selector does not score tools, so a caller falls back to [select] alone.
+     */
+    fun scores(
+        task: String,
+        sessionKeywords: List<String>,
+        available: List<AgentTool>,
+    ): Map<String, Int>? = null
 }
 
 /**
@@ -174,6 +184,25 @@ class LexicalToolSelector : ToolSelector {
         if (available.isEmpty()) return emptyList()
         if (available.size <= maxTools) return available
 
+        val score = scorer(task, sessionKeywords)
+        val scored = available.map { tool -> tool to score(tool) }
+
+        return scored.sortedWith(
+            compareByDescending<Pair<AgentTool, Int>> { it.second }.thenBy { it.first.definition.name },
+        ).take(maxTools).map { it.first }
+    }
+
+    override fun scores(
+        task: String,
+        sessionKeywords: List<String>,
+        available: List<AgentTool>,
+    ): Map<String, Int> {
+        val score = scorer(task, sessionKeywords)
+        return available.associate { tool -> tool.definition.name to score(tool) }
+    }
+
+    /** The per-tool score of [select] and [scores], the same arithmetic for both. */
+    private fun scorer(task: String, sessionKeywords: List<String>): (AgentTool) -> Int {
         val taskTokens = tokenize(task).toSet()
         val keywordTokens = sessionKeywords.flatMap { tokenize(it) }.toSet()
         // A file name ("groceries.txt") has the same shape as a domain; its
@@ -183,7 +212,7 @@ class LexicalToolSelector : ToolSelector {
                 match.value.substringAfterLast('.').lowercase() !in FILE_EXTENSIONS
         }
 
-        val scored = available.map { tool ->
+        return { tool ->
             val def = tool.definition
             val nameTokens = tokenize(def.name).toSet()
             val descTokens = tokenize(def.description).toSet()
@@ -203,12 +232,8 @@ class LexicalToolSelector : ToolSelector {
             // above predate this boost.
             val addressHit = if (taskHasAddress && "url" in def.tags) 10 else 0
 
-            tool to (overlap + substringHit + addressHit)
+            overlap + substringHit + addressHit
         }
-
-        return scored.sortedWith(
-            compareByDescending<Pair<AgentTool, Int>> { it.second }.thenBy { it.first.definition.name },
-        ).take(maxTools).map { it.first }
     }
 
     /** A `scheme://` address or a `word.tld` domain. `1.5` and `e.g.` do not match: the TLD is letters. */
