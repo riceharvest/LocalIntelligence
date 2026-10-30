@@ -114,10 +114,16 @@ object MemoryWritePolicy {
             "private[_ -]?key|security[_ -]?code|otp|seed[_ -]?phrase|" +
             "recovery[_ -]?code|pass[_ -]?phrase)"
 
-    private val CREDENTIAL = Regex(
-        """\b(?:my|our|the|his|her|its|this)\s+(?:$WORD[\s:=]+){0,2}?$SECRET\b\s*(?:is|are|was|=|:)""",
-        RegexOption.IGNORE_CASE,
-    )
+    /**
+     * Any secret keyword as a whole word, with or without a copula.
+     *
+     * WHY no copula: "my wifi password hunter2-kiwi" and "the door code 4417"
+     * hand over a credential just as plainly as "password is hunter2-kiwi".
+     * A check that needs `is`/`=`/`:` after the keyword misses those, and the
+     * turn then matches a preference or context pattern and is stored in
+     * plain text. The keyword itself is the signal, so it is checked alone.
+     */
+    private val CREDENTIAL = Regex("""\b$SECRET\b""", RegexOption.IGNORE_CASE)
     private val IDENTITY = Regex(
         """\b(?:my|our)\s+(?:$WORD\s+){0,2}?(?:name|address|email|phone|birthday|birthdate|home|wife|husband|partner|dog|cat|allergy|doctor|sister|brother)\b\s*(?:is|are|=|:)""",
         RegexOption.IGNORE_CASE,
