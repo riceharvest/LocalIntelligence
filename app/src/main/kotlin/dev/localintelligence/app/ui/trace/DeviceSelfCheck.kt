@@ -892,9 +892,6 @@ class DeviceSelfCheck(
             RuntimePermission("android.permission.READ_CONTACTS", 1),
             RuntimePermission("android.permission.READ_CALENDAR", 1),
             RuntimePermission("android.permission.WRITE_CALENDAR", 1),
-            RuntimePermission("android.permission.READ_MEDIA_IMAGES", 33),
-            RuntimePermission("android.permission.READ_MEDIA_VIDEO", 33),
-            RuntimePermission("android.permission.READ_MEDIA_AUDIO", 33),
         )
     }
 

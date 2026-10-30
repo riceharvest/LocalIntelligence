@@ -22,12 +22,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- Needed to read files the user picked via the Storage Access Framework
-         and to search shared media. Scoped, not broad. -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-
     <!-- Voice input: a clip for a model that reads audio, or live dictation into the
          composer for one that does not. Requested at first use from the mic button,
          never at launch. -->

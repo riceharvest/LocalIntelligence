@@ -382,9 +382,9 @@ private val NOTIFICATIONS = PlatformRequirement(
  *
  * ## The one omission worth naming
  *
- * `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO` and `READ_MEDIA_AUDIO` are declared in
- * the manifest and have [ToolPermissions] constants — and **no tool declares a
- * requirement on any of them**. The file tools gate on
+ * The media-read permissions (`READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`,
+ * `READ_MEDIA_AUDIO`) are not declared in the manifest, because no tool needs them.
+ * The file tools gate on
  * `ToolPermissions.DOCUMENT_READ`, which is deliberately `permission = null`
  * because on Android 13+ none of those media permissions can reach a document.
  *
