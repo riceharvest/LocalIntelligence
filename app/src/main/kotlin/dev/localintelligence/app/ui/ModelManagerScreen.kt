@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +53,9 @@ import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.inference.RamEstimate
 import dev.localintelligence.app.describeLoadFailure
+import dev.localintelligence.app.speedtest.SpeedTestButton
+import dev.localintelligence.app.speedtest.SpeedTestResultBlock
+import dev.localintelligence.app.speedtest.SpeedTestRunner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -123,6 +127,10 @@ fun ModelManagerScreen(
      * makes a pushed model usable without re-downloading 668 MB.
      */
     onScanLocal: (suspend () -> Unit)? = null,
+    /** The in-app speed test. Null hides the button. */
+    speedTest: SpeedTestRunner? = null,
+    /** URI of the model that is resident, so its row gets the speed test button. */
+    loadedModelUri: String? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -359,6 +367,8 @@ fun ModelManagerScreen(
                     ModelRow(
                         model = model,
                         onDelete = { pendingDelete = model },
+                        speedTest = speedTest,
+                        isLoaded = model.uri.toString() == loadedModelUri,
                     )
                 }
             }
@@ -428,7 +438,12 @@ private fun ImportErrorBanner(message: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun ModelRow(model: ImportedModel, onDelete: () -> Unit) {
+private fun ModelRow(
+    model: ImportedModel,
+    onDelete: () -> Unit,
+    speedTest: SpeedTestRunner?,
+    isLoaded: Boolean,
+) {
     val context = LocalContext.current
     // WHY THIS IS `DEFAULT_CONTEXT_LENGTH` AND NOT THE MODEL'S TRAINED ONE:
     // it is the context the app will actually allocate. `AppContainer.loadModel`
@@ -556,8 +571,24 @@ private fun ModelRow(model: ImportedModel, onDelete: () -> Unit) {
             if (resolved != null && resolved != model.displayName) {
                 FactLine("File", resolved)
             }
+
+            // The speed test sits under the resident model only: it measures the
+            // loaded backend, so the button on any other row would describe a model
+            // that is not in memory. The last result stays under its model after it
+            // is unloaded, labelled with the date, so it is not lost.
+            if (speedTest != null) {
+                SpeedTestSection(model = model, runner = speedTest, isLoaded = isLoaded)
+            }
         }
     }
+}
+
+@Composable
+private fun SpeedTestSection(model: ImportedModel, runner: SpeedTestRunner, isLoaded: Boolean) {
+    val last by runner.last.collectAsState()
+    val mine = last?.takeIf { it.modelUri == model.uri.toString() }
+    if (isLoaded) SpeedTestButton(runner)
+    mine?.let { SpeedTestResultBlock(it) }
 }
 
 @Composable
@@ -748,7 +779,7 @@ private fun formatParams(count: Long): String = when {
     else -> count.toString()
 }
 
-private fun displayNameOf(context: Context, uri: Uri): String? = runCatching {
+internal fun displayNameOf(context: Context, uri: Uri): String? = runCatching {
     context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
         val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null

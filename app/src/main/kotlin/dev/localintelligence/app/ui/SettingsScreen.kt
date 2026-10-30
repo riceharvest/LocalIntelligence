@@ -47,6 +47,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.localintelligence.app.openAssistantSettings
+import dev.localintelligence.app.speedtest.SpeedTestButton
+import dev.localintelligence.app.speedtest.SpeedTestResultBlock
+import dev.localintelligence.app.speedtest.SpeedTestRunner
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.core.plugin.AgentPlugin
@@ -71,6 +74,8 @@ fun SettingsScreen(
     onOpenHub: (repo: String, file: String) -> Unit,
     /** Opens the skills screen. Defaulted so a caller that predates skills still compiles. */
     onOpenSkills: () -> Unit = {},
+    /** The speed test, shown as a row in the Technical Model section. Null hides it. */
+    speedTest: SpeedTestRunner? = null,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -108,9 +113,14 @@ fun SettingsScreen(
                     .filter { it !== CoreSettings.MODE && (technical || it.simple) }
                 for (section in SettingSection.entries) {
                     val inSection = rows.filter { it.section == section }
-                    if (inSection.isEmpty()) continue
+                    // The Model section has no SettingDef rows, so the loop would skip
+                    // it and the speed test row would never render. It gets its header
+                    // here when the speed test is present, Technical mode only.
+                    val speedTestHere = technical && speedTest != null && section == SettingSection.MODEL
+                    if (inSection.isEmpty() && !speedTestHere) continue
                     SectionHeader(section.title)
                     inSection.forEach { SettingRow(store, it, technical) }
+                    if (speedTestHere) speedTest?.let { SpeedTestRow(it) }
                 }
 
                 SectionHeader(if (technical) "Plugins" else "What the assistant can use")
@@ -178,6 +188,26 @@ private fun SectionHeader(title: String) {
     Column(Modifier.padding(top = 12.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
         HorizontalDivider(Modifier.padding(top = 4.dp))
+    }
+}
+
+/**
+ * The speed test as a button row. Not a [SettingDef]: it changes nothing, it measures.
+ * The help text says what it does to the conversation, because that is the question
+ * a user has about a button that runs the model.
+ */
+@Composable
+private fun SpeedTestRow(runner: SpeedTestRunner) {
+    val last by runner.last.collectAsState()
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        RowTitle(
+            title = "Speed test",
+            help = "Runs the loaded model twice: a 256-token prompt, then 64 tokens generated. " +
+                "Measures prefill and decode speed on this phone. Refused while an agent run " +
+                "is active. The conversation is not changed.",
+        )
+        SpeedTestButton(runner)
+        last?.let { SpeedTestResultBlock(it) }
     }
 }
 
