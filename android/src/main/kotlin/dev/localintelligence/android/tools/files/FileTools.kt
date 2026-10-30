@@ -1373,13 +1373,27 @@ class FilesWriteTextTool(
             when (plan) {
                 is WritePlan.Refused -> return@guard fail(plan.reason, ToolError.Unavailable(plan.reason.take(80)))
                 is WritePlan.OverwriteUri -> {
-                    val written = withContext(Dispatchers.IO) { overwrite(appContext, Uri.parse(plan.uri), content) }
-                    if (!written) {
-                        return@guard fail(
+                    val target = Uri.parse(plan.uri)
+                    when (withContext(Dispatchers.IO) { overwrite(appContext, target, content) }) {
+                        OverwriteOutcome.NOT_OPENED -> return@guard fail(
                             "Could not open that document for writing. It may be read-only, " +
-                                "deleted, or not granted to this app.",
+                                "deleted, or not granted to this app. Nothing was changed.",
                             ToolError.Unavailable("openOutputStream failed"),
                         )
+                        OverwriteOutcome.WRITE_FAILED -> {
+                            // Opening with "wt" already cleared the document, so a failed write
+                            // leaves it empty or partly written. Say so, and name it, so the
+                            // reply to the user does not claim the old text is still there.
+                            val name = withContext(Dispatchers.IO) { describeDocument(appContext, target)?.name }
+                                ?: plan.uri.take(120)
+                            return@guard fail(
+                                "Writing to $name failed part-way. Its earlier text was cleared " +
+                                    "when it was opened, so it may now be empty or partly written. " +
+                                    "Tell the user this; do not retry without asking.",
+                                ToolError.Unavailable("write failed after the document was opened"),
+                            )
+                        }
+                        OverwriteOutcome.WRITTEN -> Unit
                     }
                     ok("Wrote ${content.length} characters to ${plan.uri.take(120)}.")
                 }
@@ -1651,23 +1665,29 @@ private fun columnsLongOrNull(cursor: android.database.Cursor, name: String): Lo
 }
 
 /**
- * Overwrites a document through SAF. Returns false when the provider refused.
+ * How an overwrite ended. The middle case matters: opening with "wt" truncates the
+ * document, so a write that fails after the open has already destroyed the old text.
+ */
+private enum class OverwriteOutcome { WRITTEN, NOT_OPENED, WRITE_FAILED }
+
+/**
+ * Overwrites a document through SAF.
  *
  * The stream is closed in a `finally`; a failed write on a throwaway Uri can otherwise
  * leak a ParcelFileDescriptor, and Android counts those against a per-process limit.
  */
-private fun overwrite(context: Context, uri: Uri, content: String): Boolean {
+private fun overwrite(context: Context, uri: Uri, content: String): OverwriteOutcome {
     val stream = try {
         context.contentResolver.openOutputStream(uri, "wt")
     } catch (t: Exception) {
-        return false
-    } ?: return false
+        return OverwriteOutcome.NOT_OPENED
+    } ?: return OverwriteOutcome.NOT_OPENED
     return try {
         stream.write(content.toByteArray(Charsets.UTF_8))
         stream.flush()
-        true
+        OverwriteOutcome.WRITTEN
     } catch (t: Exception) {
-        false
+        OverwriteOutcome.WRITE_FAILED
     } finally {
         runCatching { stream.close() }
     }
