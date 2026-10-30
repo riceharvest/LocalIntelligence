@@ -78,13 +78,94 @@ beyond "it compiles".
 
 ## Three decisions worth knowing about
 
-### 1. A conversation per request, not one long-lived context
+### 1. One conversation kept across requests, rebuilt only when the transcript is rewritten
 
-`GenerationRequest` carries the whole transcript, and `AgentController` compacts
-it between turns. A persistent server-side conversation would mean the engine
-believed in a transcript the core may already have rewritten. Rebuilding from
-the supplied transcript is the only way the backend cannot be wrong about what
-the model has seen. The cost is that the KV cache is not reused across turns.
+**Before:** a new LiteRT-LM `Conversation` per request, seeded with the whole
+transcript, so every turn prefilled the whole prompt again. The reason was that
+the core could rewrite the transcript between turns, and a kept conversation
+would then hold a transcript the core no longer believed in.
+
+**Why that reason is gone.** Since PRs #114 and #117, the agent's prompt only grows
+at its end within an epoch:
+- the system message is stable: name, rules, profile, then the session's tools;
+- each user turn is rendered once and replayed with the same text
+  (`ChatMessage.User.rendered`);
+- the prompt is rewritten only at a compaction (the working-state summary
+  changes and older messages are folded away) or when the tool list changes at
+  the start of a message.
+
+A rewrite is therefore rare, and it is detectable: the request is no longer the
+previous request's turns plus new ones at the end.
+
+**Now.** `LiteRtLmBackend` keeps the conversation after a request that completed
+cleanly, together with the system instruction, the sampler and the exact turns
+(`LiteRtLmTurn`: role, text, tool name) it was given, plus the reply the model
+produced. For the next request (`planReuse`):
+
+- **Same turns plus one new user or tool turn at the end:** only that turn is sent
+  to the kept conversation, and LiteRT-LM prefills just it on top of the KV
+  cache it holds.
+- **The model's reply.** The reply is already in the conversation. How the next
+  request carries it back depends on the kind of turn:
+  - *After an answer*, the agent stores `Assistant(X)`, where X is the
+    `<respond>` body. That MODEL turn is skipped as already held when it equals
+    the raw reply (ignoring surrounding whitespace) or the `Respond` text that
+    `ActionParserImpl` gets from the raw reply. Any other MODEL turn, such as a
+    runtime correction or a changed answer, is a mismatch and starts over.
+  - *After a tool call*, the agent stores no assistant turn. The next request is
+    the previous one plus the observation, which is appended. The model's own
+    `<tool …>` line stays in the conversation ahead of the result.
+
+    **This is a judgment call.** A rebuilt conversation does not show the
+    call, so on the reuse path the model sees slightly more than the core's
+    transcript: which call produced the result, a few dozen tokens per step
+    that the core does not count. The token check below covers that gap.
+- **Start over** with a new conversation from the full transcript, as before,
+  when:
+  - there is no kept conversation (first request, model loaded or unloaded);
+  - the last send did not complete cleanly (cancelled, cut at the output budget,
+    failed). The runtime does not roll a cancel back (b/450903294), and a
+    cancelled conversation treats every later send as cancelled;
+  - `reusePrefix` is false (the speed test measures a full prefill);
+  - the request carries media;
+  - the system instruction changed (a compaction changes the summary, which is
+    hoisted into it; a new tool list changes the system prompt);
+  - the sampling settings changed (fixed when a conversation is created);
+  - the transcript is not the kept turns plus new ones;
+  - the stored reply is not the one the model produced;
+  - more than one new user or tool turn was added;
+  - the kept conversation's own token count, plus the new turn and the output
+    budget, would exceed the context length.
+- **A reused send that fails before producing any output** is retried once on a
+  new conversation within the same request. Two examples: a full context, or
+  LiteRT-LM's own "the new rendered template string does not start with the
+  previous" check. Nothing reached the caller's token sink, so the retry is
+  invisible, and reuse cannot turn a request that works today into an error.
+
+**One turn per send is a limit of the 0.17.1 API, not a choice.** These
+facts were checked against the 0.17.1 Kotlin API, which `gradle/libs.versions.toml`
+pins (the dependency section above still describes 0.13.1), and against
+`runtime/conversation/conversation.cc` at tag v0.17.1:
+- `Conversation.sendMessageAsync` takes one `Message`. It always prefills it
+  and then decodes.
+- The C++ runtime can append a message without decoding (`has_pending_message`),
+  but the Kotlin and JNI surface does not expose it.
+
+**Media.** Neither path attaches media to a LiteRT-LM turn today
+(`supportsVision` is false). A request carrying media starts over, so media never
+goes through the append path.
+
+**Grammar.** LiteRT-LM requests still carry no grammar. A request with one is
+refused as before (see section 3), and a refused request leaves the kept
+conversation untouched.
+
+**Logging.** Each request logs one line under the tag `LocalLiteRt`: either
+`reused conversation, sent 1 new message` or `new conversation (<reason>)`.
+The reason is one of the start-over cases above.
+
+**Not verified on a device**, like the rest of this backend. The prefill saving,
+the runtime's real behaviour after a completed send, and `getTokenCount()` are
+all read from the source, not measured.
 
 The transcript must end on a user or tool turn. A transcript that ends on the
 model's own turn is refused before the engine is called, because it would ask the

@@ -1,5 +1,9 @@
 package dev.localintelligence.inference.litertlm
 
+import android.util.Log
+import dev.localintelligence.core.agent.ActionParseResult
+import dev.localintelligence.core.agent.ActionParserImpl
+import dev.localintelligence.core.agent.AgentAction
 import dev.localintelligence.core.model.AcceleratorAware
 import dev.localintelligence.core.model.AcceleratorKind
 import dev.localintelligence.core.model.AcceleratorPreference
@@ -34,12 +38,15 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * ## The differences that actually matter from llama.cpp
  *
- * **Conversation per request, not one long-lived context.** `GenerationRequest`
- * carries the entire transcript, and `AgentController` compacts it between turns.
- * A persistent server-side conversation would mean the engine held a transcript
- * the core may already have rewritten. Rebuilding from the supplied transcript is
- * the only way this backend can never be wrong about what the model has seen. See
- * [LiteRtLmEngineFactory].
+ * **One conversation kept across requests, while the transcript only grows.**
+ * `GenerationRequest` carries the entire transcript. Within an epoch the agent's
+ * prompt only grows at its end (stable system message, user turns stored as
+ * rendered), so a request is usually the previous one plus one new turn. Then
+ * only that turn is sent to the kept conversation, and LiteRT-LM prefills just
+ * it instead of the whole transcript. Anything else -- a compaction, a changed
+ * system message or tool list, changed sampling, media, a cancel or an error --
+ * closes the conversation and builds a new one from the full transcript, so the
+ * engine never holds a transcript the core has rewritten. See [planReuse].
  *
  * **The model must be a real file.** LiteRT-LM opens the model by path and
  * cannot use a SAF descriptor, so a SAF-picked GGUF will not work here. See
@@ -188,8 +195,25 @@ class LiteRtLmBackend(
     /** Set by [cancel]; observed once per chunk so a stop is not a busy-wait. */
     private val cancelRequested = AtomicBoolean(false)
 
-    /** The conversation currently generating, so [cancel] can reach the runtime. */
+    /**
+     * The conversation currently generating, so [cancel] can reach the runtime.
+     *
+     * Set only for the length of one send. A [cancel] while idle must not reach
+     * the kept conversation: its cancel flag never resets, so the next send on it
+     * would be treated as cancelled from the start.
+     */
     private val activeConversation = AtomicReference<LiteRtLmConversation?>(null)
+
+    /**
+     * The conversation kept between requests, or null. Read and written only
+     * with [generationLock] held. Taken out (set to null) for the length of a
+     * send and put back only when that send completed cleanly, so any way a send
+     * can end badly leaves nothing behind to reuse.
+     */
+    private var live: LiveConversation? = null
+
+    /** Why [live] was last dropped; the next request's "new conversation" log line names it. */
+    private var retiredBecause: String = "no conversation yet"
 
     override suspend fun load(model: ModelSpec): Unit = withContext(ioDispatcher) {
         // Resolve and validate BEFORE claiming the load slot: a bad path should
@@ -230,6 +254,10 @@ class LiteRtLmBackend(
             }
             synchronized(generationLock) {
                 val previous = engine
+                // The kept conversation belongs to the old engine and must be
+                // closed before it: a conversation outliving its engine is a
+                // native handle into freed memory.
+                retireLive("a model was loaded")
                 engine = outcome.engine
                 currentCapabilities = deriveCapabilities(baseConfig.contextLength)
                 acceleratorReport = outcome.report
@@ -424,6 +452,7 @@ class LiteRtLmBackend(
 
     override suspend fun unload() = withContext(ioDispatcher) {
         synchronized(generationLock) {
+            retireLive("the model was unloaded")
             releaseLocked()
             currentCapabilities = ModelCapabilities.UNKNOWN
             // Nothing is running, so there is no accelerator to report. Leaving
@@ -450,6 +479,7 @@ class LiteRtLmBackend(
         synchronized(generationLock) {
             val active = engine
             if (active == null || !active.isAlive) {
+                retireLive("the engine was not loaded")
                 return@withContext GenerationResult(
                     text = "",
                     stopReason = StopReason.ERROR,
@@ -463,6 +493,8 @@ class LiteRtLmBackend(
 
             cancelRequested.set(false)
 
+            // A refused request sends nothing, so the kept conversation stays
+            // exactly as it was and the next valid request can still reuse it.
             val prepared = prepare(request)
             if (prepared.failure != null) {
                 return@withContext GenerationResult(text = prepared.failure, stopReason = StopReason.ERROR)
@@ -471,69 +503,308 @@ class LiteRtLmBackend(
 
             val budget = request.params.maxOutputTokens
                 .coerceIn(MIN_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS)
-            val tracker = LiteRtLmDeltaTracker()
-            val outcome = AtomicReference<GenerationOutcome>()
-            val firstTokenAt = AtomicReference(0L)
-            val budgetHit = AtomicBoolean(false)
-            val conversation = try {
-                active.openConversation(plan.conversation)
-            } catch (_: Throwable) {
-                // The runtime refused the conversation. generate() must not throw.
-                return@withContext GenerationResult(text = "", stopReason = StopReason.ERROR)
-            }
-            activeConversation.set(conversation)
+
+            // Checked out for the length of this request. It goes back into
+            // `live` only if the send below completes cleanly.
+            val kept = live
+            live = null
+            var conversation: LiteRtLmConversation? = null
+            var sent: SendOutcome? = null
+            val logLine: String
 
             try {
-                conversation.send(plan.turn, object : LiteRtLmListener {
-                    override fun onDelta(text: String) {
-                        // The runtime's output budget is enforced here, not passed
-                        // through, because LiteRT-LM's SamplerConfig has no
-                        // max-tokens field. Ignoring it would let one turn run for
-                        // minutes on a phone.
-                        val fresh = tracker.accept(text)
-                        if (fresh.isEmpty()) return
-                        if (firstTokenAt.get() == 0L) firstTokenAt.set(System.nanoTime())
-                        onToken?.invoke(fresh)
-                        if (approximateTokenCount(tracker.text()) > budget) {
-                            budgetHit.set(true)
-                            conversation.cancel()
+                when (val decision = planReuse(request, plan, kept, budget)) {
+                    is ReuseDecision.Append -> {
+                        conversation = decision.live.conversation
+                        val attempt = sendOn(decision.live.conversation, decision.turn, budget, onToken)
+                        if (attempt.failedBeforeOutput && !cancelRequested.get()) {
+                            // The kept conversation refused the turn before a single
+                            // token reached the caller -- a full context, or the
+                            // runtime's own "rendered prompt no longer extends the
+                            // previous one" check. Nothing was shown, so the request
+                            // is rebuilt once instead of failing a turn that a fresh
+                            // conversation would have answered.
+                            closeQuietly(decision.live.conversation)
+                            conversation = null
+                            logLine = "new conversation (the kept one refused the next turn: " +
+                                "${attempt.errorText()})"
+                        } else {
+                            sent = attempt
+                            logLine = "reused conversation, sent ${decision.sentCount} new " +
+                                if (decision.sentCount == 1) "message" else "messages"
                         }
                     }
 
-                    override fun onDone() {
-                        outcome.compareAndSet(null, GenerationOutcome.COMPLETED)
+                    is ReuseDecision.StartOver -> {
+                        kept?.let { closeQuietly(it.conversation) }
+                        logLine = "new conversation (${decision.reason})"
                     }
+                }
 
-                    override fun onError(error: Throwable) {
-                        outcome.compareAndSet(null, GenerationOutcome.ERROR)
+                if (sent == null) {
+                    val fresh = try {
+                        active.openConversation(plan.conversation)
+                    } catch (_: Throwable) {
+                        // The runtime refused the conversation. generate() must not throw.
+                        Log.i(TAG, logLine)
+                        retiredBecause = "the runtime refused to open the last conversation"
+                        return@withContext GenerationResult(text = "", stopReason = StopReason.ERROR)
                     }
-                })
+                    conversation = fresh
+                    sent = sendOn(fresh, plan.turn, budget, onToken)
+                }
             } catch (e: CancellationException) {
                 // Structured concurrency: a cancelled coroutine must keep
                 // propagating, or the caller's scope is silently ignored and the
-                // UI waits on a result nobody is waiting for.
-                conversation.cancel()
+                // UI waits on a result nobody is waiting for. A conversation
+                // interrupted this way is in no known state, so it is not kept.
+                conversation?.let { closeQuietly(it) }
+                retiredBecause = "the last generation was interrupted"
                 throw e
-            } catch (_: Throwable) {
-                // The runtime can fail in native code on a malformed prompt or a
-                // model that does not support the requested features. The
-                // interface says do not throw; say ERROR.
-                conversation.cancel()
-                outcome.compareAndSet(null, GenerationOutcome.ERROR)
-            } finally {
-                activeConversation.compareAndSet(conversation, null)
-                closeQuietly(conversation)
+            }
+            Log.i(TAG, logLine)
+
+            // Kept only after a clean finish. A cancel (the user's, or this
+            // backend's own at the output budget) leaves the runtime's KV with a
+            // partial reply it does not roll back (b/450903294), and an error
+            // leaves it in no known state; either way the next request starts
+            // over from the transcript.
+            val used = conversation!!
+            val finished = sent!!
+            val clean = finished.outcome == GenerationOutcome.COMPLETED &&
+                !finished.budgetHit && !cancelRequested.get()
+            if (clean) {
+                live = LiveConversation(
+                    conversation = used,
+                    systemInstruction = plan.conversation.systemInstruction,
+                    sampler = plan.conversation.sampler,
+                    given = plan.conversation.history + plan.turn,
+                    reply = finished.tracker.text(),
+                )
+            } else {
+                closeQuietly(used)
+                retiredBecause = when {
+                    cancelRequested.get() -> "the last generation was cancelled"
+                    finished.budgetHit -> "the last generation was cut at the output limit"
+                    else -> "the last generation failed"
+                }
             }
 
             buildResult(
                 request = request,
-                tracker = tracker,
-                outcome = outcome.get(),
+                tracker = finished.tracker,
+                outcome = finished.outcome,
                 startedAt = startedAt,
-                firstTokenAt = firstTokenAt.get(),
-                budgetHit = budgetHit.get(),
+                firstTokenAt = finished.firstTokenAt,
+                budgetHit = finished.budgetHit,
             )
         }
+    }
+
+    /**
+     * Sends [turn] on [conversation] and collects the reply. Never closes the
+     * conversation: whether it is kept or closed is the caller's decision.
+     */
+    private fun sendOn(
+        conversation: LiteRtLmConversation,
+        turn: LiteRtLmTurn,
+        budget: Int,
+        onToken: ((String) -> Unit)?,
+    ): SendOutcome {
+        val tracker = LiteRtLmDeltaTracker()
+        val outcome = AtomicReference<GenerationOutcome>()
+        val firstTokenAt = AtomicReference(0L)
+        val budgetHit = AtomicBoolean(false)
+        val error = AtomicReference<Throwable?>(null)
+        activeConversation.set(conversation)
+        if (cancelRequested.get()) {
+            // A cancel that arrived before this send began (between a refused
+            // reuse and the rebuild, say) reached no decode. Honour it here
+            // instead of starting one nobody wants; the result is CANCELLED.
+            activeConversation.compareAndSet(conversation, null)
+            return SendOutcome(tracker, outcome = null, firstTokenAt = 0L, budgetHit = false, error = null)
+        }
+        try {
+            conversation.send(turn, object : LiteRtLmListener {
+                override fun onDelta(text: String) {
+                    // The runtime's output budget is enforced here, not passed
+                    // through, because LiteRT-LM's SamplerConfig has no
+                    // max-tokens field. Ignoring it would let one turn run for
+                    // minutes on a phone.
+                    val fresh = tracker.accept(text)
+                    if (fresh.isEmpty()) return
+                    if (firstTokenAt.get() == 0L) firstTokenAt.set(System.nanoTime())
+                    onToken?.invoke(fresh)
+                    if (approximateTokenCount(tracker.text()) > budget) {
+                        budgetHit.set(true)
+                        conversation.cancel()
+                    }
+                }
+
+                override fun onDone() {
+                    outcome.compareAndSet(null, GenerationOutcome.COMPLETED)
+                }
+
+                override fun onError(error: Throwable) {
+                    // A stop this backend asked for -- the user's cancel, or the
+                    // output budget -- comes back from the runtime as an error
+                    // (a CancellationException, or the native adapter's "did not
+                    // acknowledge the cancel"). It is the stop that was asked for,
+                    // so it is left to buildResult's CANCELLED and MAX_TOKENS
+                    // branches rather than reported as a failed model.
+                    if (cancelRequested.get() || budgetHit.get()) return
+                    errorOf(error)
+                }
+
+                private fun errorOf(cause: Throwable) {
+                    error.compareAndSet(null, cause)
+                    outcome.compareAndSet(null, GenerationOutcome.ERROR)
+                }
+            })
+        } catch (e: CancellationException) {
+            conversation.cancel()
+            throw e
+        } catch (e: Throwable) {
+            // The runtime can fail in native code on a malformed prompt or a
+            // model that does not support the requested features. The
+            // interface says do not throw; say ERROR.
+            conversation.cancel()
+            error.compareAndSet(null, e)
+            outcome.compareAndSet(null, GenerationOutcome.ERROR)
+        } finally {
+            activeConversation.compareAndSet(conversation, null)
+        }
+        return SendOutcome(
+            tracker = tracker,
+            outcome = outcome.get(),
+            firstTokenAt = firstTokenAt.get(),
+            budgetHit = budgetHit.get(),
+            error = error.get(),
+        )
+    }
+
+    /**
+     * Whether this request can go to the kept conversation as an appended turn,
+     * and if not, why not.
+     *
+     * ## Why reuse is safe now
+     *
+     * The old rule was a new conversation per request, because the core could
+     * rewrite the transcript between turns. Since the agent's prompt became
+     * append-only within an epoch, a rewrite happens only at a compaction or a
+     * tool-list change, and it is detectable: the request is no longer the kept
+     * conversation's transcript plus new turns at the end. Every check below is
+     * a way the kept conversation could disagree with the request, and every
+     * one of them answers "start over" -- the slow path that was always correct.
+     *
+     * ## The reply the model produced
+     *
+     * After a send, the conversation holds the model's reply. The agent replays
+     * what the model produced (ChatMessage.Assistant.rendered): its `<respond>`
+     * answer and its `<tool>` call, each as the next request's MODEL turn. That
+     * turn is skipped as already held when it is the same reply ([isSameReply],
+     * which also accepts the bare `<respond>` body an older session stored); any
+     * other MODEL turn (a runtime correction, a changed answer) is a mismatch.
+     * After a tool call the request is then the previous one, the call, and the
+     * observation: one new turn.
+     *
+     * ## One new turn, or none of this
+     *
+     * `Conversation.sendMessageAsync` (0.17.1) takes one `Message` and always
+     * prefills it and then decodes; the Kotlin API has no way to append a turn
+     * without generating a reply to it. So a request that adds more than one
+     * user or tool turn starts over.
+     */
+    private fun planReuse(
+        request: GenerationRequest,
+        plan: GenerationPlan,
+        kept: LiveConversation?,
+        budget: Int,
+    ): ReuseDecision {
+        val held = kept ?: return ReuseDecision.StartOver(retiredBecause)
+        if (!request.reusePrefix) {
+            // The speed test turns reuse off to measure a full prefill.
+            return ReuseDecision.StartOver("the request asks for a full prefill")
+        }
+        if (request.media.isNotEmpty()) {
+            // The appended turn is sent as text only. A request carrying media is
+            // built the one way a request has always been built.
+            return ReuseDecision.StartOver("the request carries media")
+        }
+        if (!held.conversation.isAlive) {
+            return ReuseDecision.StartOver("the kept conversation is no longer alive")
+        }
+        if (held.systemInstruction != plan.conversation.systemInstruction) {
+            // A compaction changes the working-state summary, which is hoisted
+            // into the system instruction with the system prompt; a new tool
+            // list changes the system prompt itself.
+            return ReuseDecision.StartOver("the system message changed")
+        }
+        if (held.sampler != plan.conversation.sampler) {
+            // Fixed when the conversation is created; there is no per-send sampler.
+            return ReuseDecision.StartOver("the sampling settings changed")
+        }
+        val turns = plan.conversation.history + plan.turn
+        if (turns.size <= held.given.size) {
+            return ReuseDecision.StartOver("the transcript is no longer than what the conversation holds")
+        }
+        val diverged = held.given.indices.firstOrNull { held.given[it] != turns[it] }
+        if (diverged != null) {
+            return ReuseDecision.StartOver("the transcript was rewritten at turn ${diverged + 1}")
+        }
+        var fresh = turns.subList(held.given.size, turns.size)
+        if (fresh.first().role == LiteRtLmRole.MODEL) {
+            if (!isSameReply(fresh.first().text, held.reply)) {
+                return ReuseDecision.StartOver("the stored reply is not the one the model produced")
+            }
+            fresh = fresh.drop(1)
+        }
+        if (fresh.size != 1) {
+            return ReuseDecision.StartOver(
+                "${fresh.size} new turns; the engine takes one turn per generation",
+            )
+        }
+        val turn = fresh.single()
+        val contextLength = currentCapabilities.contextLength
+        val tokensHeld = held.conversation.tokenCount
+        if (tokensHeld != null && contextLength > 0 &&
+            tokensHeld + approximateTokenCount(turn.text) + budget > contextLength
+        ) {
+            return ReuseDecision.StartOver(
+                "the conversation holds $tokensHeld tokens; the next turn and its answer " +
+                    "may not fit in $contextLength",
+            )
+        }
+        return ReuseDecision.Append(held, turn, sentCount = 1)
+    }
+
+    /**
+     * Whether [stored], a MODEL turn in a request, is the reply the kept
+     * conversation already holds ([produced]).
+     *
+     * The agent does not store the raw generation: for `<respond>X</respond>` it
+     * keeps X, exactly as [ActionParserImpl] extracts it. So the turn is the same
+     * reply when it equals the raw text (ignoring surrounding whitespace) or that
+     * parser's `Respond` text for it. Anything else is a different message, and a
+     * mismatch costs only a rebuild.
+     */
+    internal fun isSameReply(stored: String, produced: String): Boolean {
+        if (stored.trim() == produced.trim()) return true
+        val parsed = ActionParserImpl.parse(produced, emptySet()) as? ActionParseResult.Parsed
+            ?: return false
+        val answer = parsed.action as? AgentAction.Respond ?: return false
+        return answer.text == stored
+    }
+
+    /**
+     * Closes the kept conversation, if any, and records [reason] for the next
+     * "new conversation" log line. Only ever called with [generationLock] held.
+     */
+    private fun retireLive(reason: String) {
+        retiredBecause = reason
+        val current = live ?: return
+        live = null
+        closeQuietly(current.conversation)
     }
 
     override fun countTokens(text: String): Int = approximateTokenCount(text)
@@ -768,6 +1039,9 @@ class LiteRtLmBackend(
     companion object {
         const val BACKEND_LITERTLM = "litertlm"
 
+        /** One line per request: whether the kept conversation was reused, or why not. */
+        private const val TAG = "LocalLiteRt"
+
         /**
          * `topK` for every request. 40 is the usual "greedy-ish but not
          * degenerate" default for 1-4B instruct models; it is a backend-level
@@ -815,3 +1089,61 @@ internal class GenerationPlan(
     val conversation: LiteRtLmConversationRequest,
     val turn: LiteRtLmTurn,
 )
+
+/**
+ * The conversation kept between requests, and what it was given.
+ *
+ * [given] is the request's non-system turns exactly as they were sent or
+ * replayed, so the next request is compared turn by turn with what the runtime
+ * actually received. [reply] is the model's answer to the last of them: it is
+ * inside the conversation, and the next request may or may not carry it back.
+ */
+internal class LiveConversation(
+    val conversation: LiteRtLmConversation,
+    val systemInstruction: String?,
+    val sampler: LiteRtLmSampler,
+    val given: List<LiteRtLmTurn>,
+    val reply: String,
+)
+
+/** What [LiteRtLmBackend] does with a request: append to the kept conversation, or start over. */
+internal sealed interface ReuseDecision {
+    /** Send [turn] on [live]'s conversation. [sentCount] is what the log line reports. */
+    class Append(val live: LiveConversation, val turn: LiteRtLmTurn, val sentCount: Int) : ReuseDecision
+
+    /** Build a new conversation from the full transcript, for [reason]. */
+    class StartOver(val reason: String) : ReuseDecision
+}
+
+/** One send's result, before it becomes a `GenerationResult`. */
+internal class SendOutcome(
+    val tracker: LiteRtLmDeltaTracker,
+    val outcome: GenerationOutcome?,
+    val firstTokenAt: Long,
+    val budgetHit: Boolean,
+    val error: Throwable?,
+) {
+    /**
+     * The send ended without completing and without one character of output.
+     * Only then may a failed reuse be retried on a new conversation: nothing
+     * reached the caller's token sink, so the retry is invisible to it.
+     */
+    val failedBeforeOutput: Boolean
+        get() = outcome != GenerationOutcome.COMPLETED && !budgetHit && tracker.length() == 0
+
+    /**
+     * First line of the error, cut short. The runtime's template-mismatch error
+     * quotes both rendered prompts in full, and a log line must not carry the
+     * user's conversation.
+     */
+    fun errorText(): String {
+        val cause = error ?: return "no reply and no error"
+        val text = cause.message?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() }
+            ?: cause::class.java.simpleName
+        return text.take(ERROR_TEXT_CHARS)
+    }
+
+    private companion object {
+        const val ERROR_TEXT_CHARS = 160
+    }
+}
