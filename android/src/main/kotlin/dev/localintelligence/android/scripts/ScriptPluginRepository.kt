@@ -23,16 +23,19 @@ class ScriptPluginRepository(private val root: File) {
     /** Usable plugins, by title. */
     fun list(): List<Installed> {
         val folders = root.listFiles { f -> f.isDirectory } ?: return emptyList()
-        return folders.mapNotNull { folder ->
-            val manifest = File(folder, MANIFEST).takeIf { it.isFile }?.let { runCatching { it.readText() }.getOrNull() }
-                ?: return@mapNotNull null
-            val main = File(folder, MAIN).takeIf { it.isFile }?.let { runCatching { it.readText() }.getOrNull() }
-                ?: return@mapNotNull null
-            when (val checked = ScriptPackages.check(ScriptPackage(manifest, main))) {
-                is ScriptPackages.Check.Ok -> Installed(checked.manifest, checked.mainJs)
-                is ScriptPackages.Check.Refused -> null
-            }
-        }.sortedBy { it.manifest.title.lowercase() }
+        return folders.mapNotNull { readInstalled(it) }.sortedBy { it.manifest.title.lowercase() }
+    }
+
+    /** The plugin in [folder], or null when the folder is not a usable plugin. */
+    private fun readInstalled(folder: File): Installed? {
+        val manifest = File(folder, MANIFEST).takeIf { it.isFile }?.let { runCatching { it.readText() }.getOrNull() }
+            ?: return null
+        val main = File(folder, MAIN).takeIf { it.isFile }?.let { runCatching { it.readText() }.getOrNull() }
+            ?: return null
+        return when (val checked = ScriptPackages.check(ScriptPackage(manifest, main))) {
+            is ScriptPackages.Check.Ok -> Installed(checked.manifest, checked.mainJs)
+            is ScriptPackages.Check.Refused -> null
+        }
     }
 
     fun save(pkg: ScriptPackage): SaveResult {
@@ -43,14 +46,24 @@ class ScriptPluginRepository(private val root: File) {
         val id = checked.manifest.id
         val folder = folderFor(id) ?: return SaveResult.Refused("That id does not make a folder name.")
         if (folder.exists()) {
-            return SaveResult.Refused("A plugin with the id \"$id\" is already installed. Delete it first.")
+            if (readInstalled(folder) != null) {
+                return SaveResult.Refused("A plugin with the id \"$id\" is already installed. Delete it first.")
+            }
+            // A leftover from an install that failed part way. list() hides it, so the user
+            // could not delete it; clear it so the id is free again.
+            folder.deleteRecursively()
         }
         return runCatching {
             folder.mkdirs()
             writeAtomically(File(folder, MAIN), pkg.mainJs)
             writeAtomically(File(folder, MANIFEST), pkg.manifestText)
             SaveResult.Saved(id)
-        }.getOrElse { SaveResult.Refused("Could not write the plugin: ${it.message ?: it::class.java.simpleName}") }
+        }.getOrElse {
+            // This call created the folder (it did not exist above), so a failed write must not
+            // leave a half-written plugin behind to block the next install.
+            folder.deleteRecursively()
+            SaveResult.Refused("Could not write the plugin: ${it.message ?: it::class.java.simpleName}")
+        }
     }
 
     fun delete(id: String): Boolean {

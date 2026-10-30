@@ -25,15 +25,7 @@ class SkillRepository(private val root: File) {
     /** Usable skills only. A folder with a broken SKILL.md is skipped, not fatal. */
     fun list(): List<InstalledSkill> {
         val folders = root.listFiles { f -> f.isDirectory } ?: return emptyList()
-        return folders.mapNotNull { folder ->
-            val file = File(folder, FILE)
-            if (!file.isFile) return@mapNotNull null
-            val text = runCatching { file.readText() }.getOrNull() ?: return@mapNotNull null
-            when (val parsed = SkillParser.parse(text)) {
-                is SkillParser.Parsed.Ok -> InstalledSkill(folder.name, parsed.skill)
-                is SkillParser.Parsed.Rejected -> null
-            }
-        }.sortedBy { it.skill.name.lowercase() }
+        return folders.mapNotNull { readSkill(it) }.sortedBy { it.skill.name.lowercase() }
     }
 
     fun save(text: String, overwrite: Boolean = false): SaveResult {
@@ -44,8 +36,14 @@ class SkillRepository(private val root: File) {
         val slug = SkillSlug.of(skill.name)
         val folder = folderFor(slug) ?: return SaveResult.Refused("That name does not make a folder name.")
         if (folder.exists() && !overwrite) {
-            return SaveResult.Refused("A skill called \"${skill.name}\" is already installed. Change its name: line, or delete the old one first.")
+            if (readSkill(folder) != null) {
+                return SaveResult.Refused("A skill called \"${skill.name}\" is already installed. Change its name: line, or delete the old one first.")
+            }
+            // A leftover from a failed save: list() hides it, so clear it rather than block the name.
+            folder.deleteRecursively()
         }
+        // Only a folder this call creates is removed on failure. An overwrite must not wipe the old skill.
+        val createdHere = !folder.exists()
         return runCatching {
             folder.mkdirs()
             val target = File(folder, FILE)
@@ -56,7 +54,22 @@ class SkillRepository(private val root: File) {
                 temp.delete()
             }
             SaveResult.Saved(slug)
-        }.getOrElse { SaveResult.Refused("Could not write the skill: ${it.message ?: it::class.java.simpleName}") }
+        }.getOrElse {
+            // A folder this call made is removed, so a failed write does not block the name next time.
+            if (createdHere) folder.deleteRecursively()
+            SaveResult.Refused("Could not write the skill: ${it.message ?: it::class.java.simpleName}")
+        }
+    }
+
+    /** The skill in [folder], or null when the folder holds no usable SKILL.md. */
+    private fun readSkill(folder: File): InstalledSkill? {
+        val file = File(folder, FILE)
+        if (!file.isFile) return null
+        val text = runCatching { file.readText() }.getOrNull() ?: return null
+        return when (val parsed = SkillParser.parse(text)) {
+            is SkillParser.Parsed.Ok -> InstalledSkill(folder.name, parsed.skill)
+            is SkillParser.Parsed.Rejected -> null
+        }
     }
 
     fun delete(slug: String): Boolean {
