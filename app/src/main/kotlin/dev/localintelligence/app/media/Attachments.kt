@@ -17,5 +17,10 @@ sealed interface ShownAttachment {
     data class Voice(val seconds: Int) : ShownAttachment
 }
 
-/** One attachment waiting to travel with the next message: what the model reads, and what to draw. */
-class PendingAttachment(val media: MediaInput, val shown: ShownAttachment)
+/**
+ * One attachment waiting to travel with the next message: what the model reads, and what to draw.
+ *
+ * [pickedUri] is the content URI a picture was picked from. The chat keeps only these URIs across
+ * process death and reads the pictures again from them; a voice clip has none and is not kept.
+ */
+class PendingAttachment(val media: MediaInput, val shown: ShownAttachment, val pickedUri: String? = null)

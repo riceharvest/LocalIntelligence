@@ -106,9 +106,14 @@ class ChatViewModel(
     private val handsFreeSilence: () -> Float = { CoreSettings.HANDS_FREE_SILENCE.default },
     /**
      * Survives process death, which the system does often on a 3.6 GB phone while a model is
-     * resident. Only the typed draft is kept here; queued pictures and voice clips are not.
+     * resident. The typed draft and the queued pictures' URIs are kept here; voice clips are not.
      */
     private val savedState: SavedStateHandle = SavedStateHandle(),
+    /**
+     * Reads a picked picture again from its content URI, after process death. The host passes the
+     * same decoder the photo picker uses. Null (the default) means restored pictures are dropped.
+     */
+    private val readPicture: (String) -> PendingAttachment? = { null },
 ) : ViewModel() {
 
     private val scope: CoroutineScope = scopeOverride ?: viewModelScope
@@ -161,8 +166,17 @@ class ChatViewModel(
     val input: StateFlow<String> = _input.asStateFlow()
 
     init {
+        // Read before the attachment mirror starts: its first write would replace the saved list.
+        val restoredUris = savedState.get<List<String>>(PICTURE_URIS_KEY).orEmpty()
         // Mirror every draft change (typing, send clearing it) so a restored process shows the same text.
         scope.launch { _input.collect { savedState[DRAFT_KEY] = it } }
+        scope.launch { _attachments.collect { savedState[PICTURE_URIS_KEY] = it.mapNotNull { a -> a.pickedUri } } }
+        // One after another, not in parallel, so the pictures come back in the order they were picked.
+        if (restoredUris.isNotEmpty()) {
+            scope.launch {
+                for (uri in restoredUris) decodePicture(uri)?.let { addPicture(it) }
+            }
+        }
     }
 
     /**
@@ -924,29 +938,38 @@ class ChatViewModel(
     }
 
     /**
-     * Adds a picture from the photo picker.
+     * Adds a picture from the photo picker, by its content [uri].
      *
-     * [encode] runs on a background thread: decoding and re-encoding a photo is
-     * the expensive part and must not happen on the main thread. It returns null
-     * for a file that is not a picture this app can read.
+     * The decode runs on a background thread: decoding and re-encoding a photo is
+     * the expensive part and must not happen on the main thread.
      */
-    fun attachPicture(encode: () -> PendingAttachment?) {
+    fun attachPicture(uri: String) {
         if (pictureCount() >= MAX_PICTURES_PER_MESSAGE) {
             showNotice("A message can carry up to $MAX_PICTURES_PER_MESSAGE photos.")
             return
         }
         scope.launch {
-            val item = withContext(Dispatchers.Default) { runCatching { encode() }.getOrNull() }
+            val item = decodePicture(uri)
             if (item == null) {
                 showNotice("That file could not be read as a picture.")
                 return@launch
             }
-            _attachments.update { current ->
-                if (current.count { it.shown is ShownAttachment.Picture } >= MAX_PICTURES_PER_MESSAGE) {
-                    current
-                } else {
-                    current + item
-                }
+            addPicture(item)
+        }
+    }
+
+    /** Reads a picture from [uri] off the main thread. Null for a file that is not a readable picture. */
+    private suspend fun decodePicture(uri: String): PendingAttachment? {
+        val item = withContext(Dispatchers.Default) { runCatching { readPicture(uri) }.getOrNull() } ?: return null
+        return PendingAttachment(item.media, item.shown, pickedUri = uri)
+    }
+
+    private fun addPicture(item: PendingAttachment) {
+        _attachments.update { current ->
+            if (current.count { it.shown is ShownAttachment.Picture } >= MAX_PICTURES_PER_MESSAGE) {
+                current
+            } else {
+                current + item
             }
         }
     }
@@ -1080,6 +1103,7 @@ class ChatViewModel(
         private val readRepliesAloud: () -> Boolean = { false },
         private val dictation: LiveDictation? = null,
         private val handsFreeSilence: () -> Float = { CoreSettings.HANDS_FREE_SILENCE.default },
+        private val readPicture: (String) -> PendingAttachment? = { null },
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T = build(modelClass, SavedStateHandle())
 
@@ -1103,6 +1127,7 @@ class ChatViewModel(
                 dictation = dictation,
                 handsFreeSilence = handsFreeSilence,
                 savedState = savedState,
+                readPicture = readPicture,
             ) as T
         }
     }
@@ -1176,6 +1201,9 @@ internal const val MAX_PICTURES_PER_MESSAGE = 3
 
 /** Key of the typed draft in [SavedStateHandle]. */
 private const val DRAFT_KEY = "draft"
+
+/** Key of the content URIs of the queued pictures in [SavedStateHandle]. */
+private const val PICTURE_URIS_KEY = "pictureUris"
 
 /** What a run is told when the user sent only attachments and no words. */
 private const val DEFAULT_MEDIA_TASK = "Respond to what is attached."

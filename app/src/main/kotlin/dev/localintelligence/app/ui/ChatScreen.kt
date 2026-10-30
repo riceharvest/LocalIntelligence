@@ -76,7 +76,6 @@ import dev.localintelligence.app.blockingReason
 import dev.localintelligence.app.isActive
 import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.ShownAttachment
-import dev.localintelligence.app.media.encodePickedPicture
 import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.app.ui.components.ApprovalRow
 import dev.localintelligence.app.ui.components.ChatComposer
@@ -211,7 +210,7 @@ fun ChatScreen(
     }
     // The system photo picker needs no permission, and returns only the file the user chose.
     val pickPicture = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) viewModel.attachPicture { encodePickedPicture(context.contentResolver, uri) }
+        if (uri != null) viewModel.attachPicture(uri.toString())
     }
     val onAttach: () -> Unit = {
         pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))

@@ -46,6 +46,7 @@ import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
 import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.media.LiveDictation
+import dev.localintelligence.app.media.encodePickedPicture
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.app.ui.ChatMessage
@@ -132,6 +133,8 @@ class MainActivity : ComponentActivity() {
                             readRepliesAloud = { container.settings[CoreSettings.READ_REPLIES_ALOUD] },
                             dictation = LiveDictation(applicationContext),
                             handsFreeSilence = { container.settings[CoreSettings.HANDS_FREE_SILENCE] },
+                            // Picked pictures are read again from their URIs after process death.
+                            readPicture = { encodePickedPicture(applicationContext.contentResolver, Uri.parse(it)) },
                         )
                     },
                 )
