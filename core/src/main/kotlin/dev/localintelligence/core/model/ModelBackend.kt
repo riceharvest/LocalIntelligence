@@ -118,6 +118,12 @@ data class GenerationRequest(
     val allowedToolNames: List<String> = emptyList(),
     /** Images or audio attached to the user's message, in order. Empty for text only. */
     val media: List<MediaInput> = emptyList(),
+    /**
+     * Render the messages with the model's own chat template when it has one.
+     * Off, or a template the backend cannot render, uses the backend's flat
+     * transcript. Read by backends that have a template; others ignore it.
+     */
+    val useModelTemplate: Boolean = true,
 )
 
 /**

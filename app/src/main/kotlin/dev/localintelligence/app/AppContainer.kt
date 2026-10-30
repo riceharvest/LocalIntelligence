@@ -1001,6 +1001,7 @@ class AppContainer(private val context: Context) {
         sampling = snapshot.samplingParams(),
         hooks = pluginSet.hooks,
         constrainOutput = snapshot[CoreSettings.CONSTRAINED_OUTPUT],
+        useModelTemplate = snapshot[CoreSettings.MODEL_CHAT_TEMPLATE],
     )
     }
 

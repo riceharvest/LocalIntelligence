@@ -175,7 +175,7 @@ class LlamaCppBackend(
                 )
             }
 
-            val prompt = buildPrompt(request)
+            val rendered = buildPrompt(request, h)
             // Attachments travel next to the prompt; buildPrompt put one marker
             // per attachment where they belong.
             LlamaBridge.setMedia(h, request.media.map { it.bytes })
@@ -187,7 +187,7 @@ class LlamaCppBackend(
             val error = try {
                 LlamaBridge.generate(
                     handle = h,
-                    prompt = prompt,
+                    prompt = rendered.text,
                     grammar = request.grammar,
                     temperature = params.temperature,
                     topP = params.topP,
@@ -200,6 +200,7 @@ class LlamaCppBackend(
                     seed = params.seed,
                     maxTokens = params.maxOutputTokens,
                     onToken = sink,
+                    parseSpecial = rendered.fromTemplate,
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Structured concurrency: a cancelled coroutine must keep
@@ -353,13 +354,117 @@ class LlamaCppBackend(
         }
 
     /**
-     * Renders the conversation as the flat text llama.cpp tokenizes.
+     * A rendered prompt, and whether it came from the model's chat template.
+     * The template's control tokens must be parsed as special tokens; the flat
+     * transcript's text must not be, so the flag travels with the text.
+     */
+    internal class RenderedPrompt(val text: String, val fromTemplate: Boolean)
+
+    /**
+     * Renders the conversation for [handle]'s model.
      *
-     * Deliberately a simple, explicit transcript rather than the model's own
-     * chat template: the template lives in the GGUF as Jinja and rendering it
-     * needs either a template engine or native calls, and a wrong template is
-     * worse than an explicit one. The role markers are the portable subset
-     * every instruct model in the 1-4B range recognises.
+     * With [GenerationRequest.useModelTemplate] on, the model's own chat template
+     * is used (see [templatePrompt]). That is the format the model was trained
+     * on, and small instruct models answer noticeably better in it. When the
+     * model has no template, or llama.cpp does not recognise it, this falls back
+     * to [buildFlatPrompt], the same transcript the app has always sent.
+     *
+     * ## ROLE FORGERY, AND WHAT ACTUALLY STOPS IT
+     *
+     * The flat transcript has literal `### User` markers, so anything able to put
+     * text in a message could write a turn boundary. [UntrustedContent.neutralise]
+     * removes that for observation bodies, and the flat path depends on it.
+     *
+     * The template path does not depend on the markers being unforgeable in the
+     * same way, because its turn markers are the model's *control tokens*:
+     *
+     *  - Native code breaks every control token in the model's vocabulary inside
+     *    the message contents before rendering (`neutralise_control_text` in
+     *    llama_jni.cpp). That is the vocabulary's own list, so it is not limited
+     *    to ChatML's `<|` prefix.
+     *  - The rendered prompt is then tokenised with `parse_special = true`, so
+     *    the only control tokens left are the ones the template emitted.
+     *
+     * A message that contains `<|im_start|>` therefore reaches the model as the
+     * characters `< |im_start|>`, not as a turn boundary. The observation body is
+     * still fenced by [ChatMessage.ToolObservation.modelFacing], which is the
+     * right thing for the model to read whichever path renders it.
+     *
+     * ## WHAT IS NOT COVERED
+     *
+     * Attachments. With a projector loaded, the native path tokenises the prompt
+     * with `parse_special = true` whichever renderer produced it, so a flat
+     * transcript sent with an attachment can still produce a control token from
+     * message text. That behaviour predates this function and is unchanged here.
+     * A templated prompt is neutralised before that point, so it is covered.
+     *
+     * A renderer that writes BOS text itself gets a second BOS, because the
+     * tokenizer also adds one. Of the built-in renderers in llama-chat.cpp, only
+     * seed-oss does this for the first message; llama 2 writes `<s>` only between
+     * turns.
+     */
+    internal fun buildPrompt(request: GenerationRequest, handle: LlamaBridge.Handle): RenderedPrompt {
+        if (request.useModelTemplate) {
+            val templated = templatePrompt(request, handle)
+            if (templated != null) return RenderedPrompt(templated, fromTemplate = true)
+        }
+        return RenderedPrompt(buildFlatPrompt(request), fromTemplate = false)
+    }
+
+    /**
+     * The conversation rendered by the model's own chat template, or null when
+     * the model has none or llama.cpp cannot render it.
+     *
+     * Roles map as: system to "system", user to "user", assistant to "assistant".
+     * A tool observation is sent as a "user" turn with the same untrusted fence
+     * the flat transcript uses, because a template has no role for tool output.
+     * The attachment markers go at the start of the last user turn's content, the
+     * same place the flat transcript puts them.
+     */
+    private fun templatePrompt(request: GenerationRequest, handle: LlamaBridge.Handle): String? {
+        val lastUser = request.messages.lastOrNull { it is ChatMessage.User }
+        val roles = ArrayList<String>(request.messages.size)
+        val contents = ArrayList<String>(request.messages.size)
+        for (m in request.messages) {
+            when (m) {
+                is ChatMessage.System -> {
+                    roles += "system"
+                    contents += m.text
+                }
+                is ChatMessage.User -> {
+                    roles += "user"
+                    contents += buildString {
+                        if (m === lastUser) {
+                            repeat(request.media.size) { append(LlamaBridge.mediaMarker).append('\n') }
+                        }
+                        append(m.text)
+                    }
+                }
+                is ChatMessage.Assistant -> {
+                    roles += "assistant"
+                    contents += m.text
+                }
+                is ChatMessage.ToolObservation -> {
+                    roles += "user"
+                    contents += buildString {
+                        append("Observation (").append(m.toolName)
+                        append(if (m.success) "" else ", failed").append("):\n")
+                        append(m.modelFacing())
+                    }
+                }
+            }
+        }
+        return LlamaBridge.applyTemplate(handle, roles, contents, addAssistant = true)
+    }
+
+    /**
+     * Renders the conversation as the flat text llama.cpp tokenizes. This is the
+     * fallback when the model's own template is off or unavailable.
+     *
+     * Deliberately a simple, explicit transcript: the role markers are the
+     * portable subset every instruct model in the 1-4B range recognises, and it
+     * needs no template engine. Its text is tokenised with control tokens as
+     * plain characters, so the markers here are the only structure it has.
      *
      * ## THE COST OF THIS FORMAT, AND WHAT PAYS IT
      *
@@ -377,7 +482,7 @@ class LlamaCppBackend(
      * has exactly one way to render an observation, and cannot drift into a
      * second one that forgets the fence.
      */
-    internal fun buildPrompt(request: GenerationRequest): String = buildString {
+    internal fun buildFlatPrompt(request: GenerationRequest): String = buildString {
         val lastUser = request.messages.lastOrNull { it is ChatMessage.User }
         for (m in request.messages) {
             when (m) {
@@ -402,6 +507,7 @@ class LlamaCppBackend(
         }
         append("### Assistant\n")
     }
+
 
     companion object {
         const val DEFAULT_CONTEXT_LENGTH = 4096

@@ -127,6 +127,12 @@ object CoreSettings {
             "freely and relies on the parser.",
         SettingSection.SAMPLING, default = true,
     )
+    val MODEL_CHAT_TEMPLATE = Toggle(
+        "sampling.model_chat_template", "Use the model's chat format",
+        "llama.cpp only: the prompt uses the model's own turn markers, which small instruct " +
+            "models answer better in. Off uses a plain 'User / Assistant' transcript.",
+        SettingSection.SAMPLING, default = true,
+    )
 
     // ---- agent loop --------------------------------------------------------
 
@@ -163,7 +169,7 @@ object CoreSettings {
         TOOL_CALLS_AUTO_COLLAPSE,
         READ_REPLIES_ALOUD, SPEECH_RATE, SPEECH_PITCH,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
-        SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT,
+        SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE,
         MAX_STEPS, MAX_VISIBLE_TOOLS, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
     )
 }

@@ -215,11 +215,17 @@ struct TokenSinkRef {
 };
 
 // Tokenises, preferring the two-pass form: ask for the count, then fill.
+//
+// `parse_special` false (the default, and the flat transcript) keeps text such
+// as "<|im_start|>" as ordinary characters, so user text cannot become a control
+// token. True turns it into the special token; only a rendered chat template
+// may use that, and its contents must have been neutralised first.
 bool tokenize(const llama_vocab * vocab, const std::string & text,
-              std::vector<llama_token> & out, std::string & err) {
+              std::vector<llama_token> & out, std::string & err,
+              bool parse_special = false) {
     const int32_t len = static_cast<int32_t>(text.size());
     int32_t needed = llama_tokenize(vocab, text.data(), len, nullptr, 0,
-                                    /*add_special=*/true, /*parse_special=*/false);
+                                    /*add_special=*/true, parse_special);
     if (needed < 0) {
         needed = -needed;  // negative is "buffer too small, this is the size"
     }
@@ -229,13 +235,65 @@ bool tokenize(const llama_vocab * vocab, const std::string & text,
     }
     out.resize(static_cast<size_t>(needed));
     const int32_t got = llama_tokenize(vocab, text.data(), len, out.data(), needed,
-                                       /*add_special=*/true, /*parse_special=*/false);
+                                       /*add_special=*/true, parse_special);
     if (got < 0) {
         err = "llama_tokenize failed on a " + std::to_string(needed) + " token prompt";
         return false;
     }
     out.resize(static_cast<size_t>(got));
     return true;
+}
+
+// Copies a Java string into `out`. A null reference becomes "". False only if
+// the JVM could not hand over the characters.
+bool copy_jstring(JNIEnv * env, jstring js, std::string & out) {
+    if (js == nullptr) {
+        out.clear();
+        return true;
+    }
+    const char * chars = env->GetStringUTFChars(js, nullptr);
+    if (chars == nullptr) {
+        return false;
+    }
+    out.assign(chars);
+    env->ReleaseStringUTFChars(js, chars);
+    return true;
+}
+
+// The text of every control token in the vocabulary, longest first. With
+// parse_special on, these are the strings the tokenizer turns into one special
+// token each, so they are exactly what a message must not contain verbatim.
+std::vector<std::string> control_token_texts(const llama_vocab * vocab) {
+    std::vector<std::string> out;
+    const int32_t n = llama_vocab_n_tokens(vocab);
+    for (llama_token id = 0; id < n; ++id) {
+        if (!llama_vocab_is_control(vocab, id)) {
+            continue;
+        }
+        const char * text = llama_vocab_get_text(vocab, id);
+        // A one-character control token would match every occurrence of that
+        // character, and breaking it would corrupt ordinary text.
+        if (text != nullptr && std::strlen(text) >= 2) {
+            out.emplace_back(text);
+        }
+    }
+    std::sort(out.begin(), out.end(),
+              [](const std::string & a, const std::string & b) { return a.size() > b.size(); });
+    return out;
+}
+
+// Breaks every occurrence of a control token by inserting a space after its
+// first character. The model still reads the same characters, but the tokenizer
+// can no longer build the special token from them.
+std::string neutralise_control_text(std::string s, const std::vector<std::string> & specials) {
+    for (const std::string & sp : specials) {
+        size_t pos = 0;
+        while ((pos = s.find(sp, pos)) != std::string::npos) {
+            s.insert(pos + 1, " ");
+            pos += 1;
+        }
+    }
+    return s;
 }
 
 // Builds the sampling chain. Returns null only if llama.cpp cannot allocate one.
@@ -545,7 +603,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         JNIEnv * env, jclass, jlong handle, jstring prompt, jstring grammar, jfloat temperature,
         jfloat top_p, jint top_k, jfloat min_p, jfloat repeat_penalty, jint penalty_last_n,
         jfloat frequency_penalty, jfloat presence_penalty, jint seed, jint max_tokens,
-        jobject onToken) {
+        jobject onToken, jboolean parse_special) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
         return to_jstring(env, "null handle");
@@ -675,7 +733,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     // ---- tokenise -------------------------------------------------------------
     std::vector<llama_token> tokens;
     std::string tok_err;
-    if (!mm_chunks && !tokenize(vocab, prompt_str, tokens, tok_err)) {
+    if (!mm_chunks && !tokenize(vocab, prompt_str, tokens, tok_err, parse_special == JNI_TRUE)) {
         outcome.stop = static_cast<int32_t>(StopCode::ERROR);
         outcome.error = tok_err;
         publish();
@@ -995,6 +1053,81 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSetMedia(
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeMediaMarker(JNIEnv * env, jclass) {
     return env->NewStringUTF(mtmd_default_marker());
+}
+
+JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeApplyTemplate(
+        JNIEnv * env, jclass, jlong handle, jobjectArray roles, jobjectArray contents,
+        jboolean add_assistant) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr || roles == nullptr || contents == nullptr) {
+        return nullptr;
+    }
+    const jsize n = env->GetArrayLength(roles);
+    if (n == 0 || n != env->GetArrayLength(contents)) {
+        return nullptr;
+    }
+
+    std::lock_guard<std::mutex> lock(h->state);
+    if (!h->loaded || h->model == nullptr || h->vocab == nullptr) {
+        return nullptr;
+    }
+    // Null for a model with no template. A nullptr name asks for the default.
+    const char * tmpl = llama_model_chat_template(as_model(h->model), nullptr);
+    if (tmpl == nullptr) {
+        return nullptr;
+    }
+    const std::vector<std::string> specials = control_token_texts(as_vocab(h->vocab));
+
+    // Copy everything into owned strings first: the llama_chat_message pointers
+    // must stay valid across both render calls, and each jstring local ref is
+    // released as soon as its characters are copied.
+    std::vector<std::string> role_text(static_cast<size_t>(n));
+    std::vector<std::string> content_text(static_cast<size_t>(n));
+    size_t total = 0;
+    for (jsize i = 0; i < n; ++i) {
+        auto rj = static_cast<jstring>(env->GetObjectArrayElement(roles, i));
+        auto cj = static_cast<jstring>(env->GetObjectArrayElement(contents, i));
+        std::string r;
+        std::string c;
+        const bool ok = copy_jstring(env, rj, r) && copy_jstring(env, cj, c);
+        if (rj != nullptr) env->DeleteLocalRef(rj);
+        if (cj != nullptr) env->DeleteLocalRef(cj);
+        if (!ok) {
+            return nullptr;
+        }
+        role_text[static_cast<size_t>(i)] = std::move(r);
+        content_text[static_cast<size_t>(i)] = neutralise_control_text(std::move(c), specials);
+        total += role_text[static_cast<size_t>(i)].size() + content_text[static_cast<size_t>(i)].size();
+    }
+
+    std::vector<llama_chat_message> msgs(static_cast<size_t>(n));
+    for (size_t i = 0; i < msgs.size(); ++i) {
+        msgs[i].role = role_text[i].c_str();
+        msgs[i].content = content_text[i].c_str();
+    }
+
+    // llama.cpp returns the length it needs when the buffer is too small. Twice
+    // the input is nearly always enough; the retry covers the rest.
+    std::vector<char> buf(2 * total + 512);
+    int32_t len = llama_chat_apply_template(tmpl, msgs.data(), msgs.size(),
+                                            add_assistant == JNI_TRUE, buf.data(),
+                                            static_cast<int32_t>(buf.size()));
+    if (len < 0) {
+        // Not a template llama.cpp knows how to render.
+        return nullptr;
+    }
+    if (static_cast<size_t>(len) > buf.size()) {
+        buf.assign(static_cast<size_t>(len) + 1, '\0');
+        len = llama_chat_apply_template(tmpl, msgs.data(), msgs.size(),
+                                        add_assistant == JNI_TRUE, buf.data(),
+                                        static_cast<int32_t>(buf.size()));
+        if (len < 0 || static_cast<size_t>(len) > buf.size()) {
+            return nullptr;
+        }
+    }
+    const std::string rendered(buf.data(), static_cast<size_t>(len));
+    return env->NewStringUTF(rendered.c_str());
 }
 
 namespace {
