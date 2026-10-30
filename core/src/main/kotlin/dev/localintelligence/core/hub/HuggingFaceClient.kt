@@ -98,6 +98,7 @@ class HuggingFaceClient(
                 file = null,
                 errorCode = response.header("X-Error-Code"),
                 retryAfterSeconds = response.header("Retry-After")?.toLongOrNull(),
+                tokenSent = tokenOrNull(token) != null,
             )
         }
         // WHY the body is consumed inside a `use` and the close is NOT hoisted
@@ -129,13 +130,21 @@ class HuggingFaceClient(
      * "user knows the repo id".
      */
     fun search(query: String, limit: Int = 20, token: String? = null): List<HubSearchHitPublic> =
-        if (query.isBlank()) emptyList() else browse(query, limit, token).orEmpty()
+        if (query.isBlank()) emptyList() else try {
+            browse(query, limit, token).orEmpty()
+        } catch (_: HubError.Unauthorized) {
+            emptyList()
+        }
 
     /**
      * GGUF repositories matching [query], most downloaded first; with a blank
      * [query], the most downloaded GGUF repositories overall. Null when the hub
      * could not be reached or answered with an error, so the screen can say so
      * instead of showing an empty list as if nothing matched.
+     *
+     * @throws HubError.Unauthorized when a token was sent and HF rejected it. A
+     *   rejected token is not a network failure, and the screen must say which
+     *   one it is so the user goes to their token, not their Wi-Fi.
      */
     fun browse(query: String, limit: Int = 20, token: String? = null): List<HubSearchHitPublic>? {
         val trimmed = query.trim()
@@ -144,12 +153,16 @@ class HuggingFaceClient(
         // those is a dead row for a user who cannot read safetensors.
         val search = if (trimmed.isEmpty()) "" else "search=${encodeQuery(trimmed)}&"
         val url = "$baseUrl/api/models?${search}filter=gguf&limit=$limit&sort=downloads&direction=-1"
+        val sentToken = tokenOrNull(token)
         return try {
             val response = transport.open(
-                HubRequest(url, authToken = tokenOrNull(token)),
+                HubRequest(url, authToken = sentToken),
             )
             if (response.status !in 200..299) {
                 response.body?.close()
+                if (sentToken != null && (response.status == 401 || response.status == 403)) {
+                    throw HubError.Unauthorized(trimmed.ifEmpty { "HuggingFace" })
+                }
                 return null
             }
             val body = response.body ?: return null
@@ -166,6 +179,8 @@ class HuggingFaceClient(
                     null
                 }
             }
+        } catch (e: HubError.Unauthorized) {
+            throw e
         } catch (_: Exception) {
             null
         }

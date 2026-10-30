@@ -399,13 +399,22 @@ class HubViewModel(
         _searching.value = true
         searchJob = viewModelScope.launch {
             if (delayMs > 0) delay(delayMs)
+            var tokenRejected = false
             val hits = withContext(Dispatchers.IO) {
-                client.browse(query, limit = if (query.isEmpty()) POPULAR_LIMIT else SEARCH_LIMIT, token = tokenSource.token())
+                try {
+                    client.browse(query, limit = if (query.isEmpty()) POPULAR_LIMIT else SEARCH_LIMIT, token = tokenSource.token())
+                } catch (_: HubError.Unauthorized) {
+                    // A rejected token is not a dropped connection: say so, so the
+                    // user checks the token in Settings.
+                    tokenRejected = true
+                    null
+                }
             }
             _searching.value = false
             _searchResults.value = hits.orEmpty()
             _showingPopular.value = false
             _searchNote.value = when {
+                tokenRejected -> "Hugging Face rejected the access token. Check it in Settings."
                 hits == null -> "Couldn't reach Hugging Face. Check the connection and try again."
                 hits.isEmpty() && query.isNotEmpty() -> "No models found for \u201c$query\u201d."
                 else -> null

@@ -166,6 +166,7 @@ class ModelDownloader(
                         file = file.fileName,
                         errorCode = response.header("X-Error-Code"),
                         retryAfterSeconds = response.header("Retry-After")?.toLongOrNull(),
+                        tokenSent = token != null,
                     )
                     emit(DownloadProgress.Stopped(error, partialBytesKept = localBytes))
                     return@flow
