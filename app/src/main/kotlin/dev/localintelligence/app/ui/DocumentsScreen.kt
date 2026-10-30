@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -67,7 +68,10 @@ fun DocumentsScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val technical = (context.applicationContext as LocalIntelligenceApp).container.settings.mode == SettingsMode.TECHNICAL
+    val settingsVersion by (context.applicationContext as LocalIntelligenceApp).container.settings.changes.collectAsStateWithLifecycle()
+    val technical = remember(settingsVersion) {
+        (context.applicationContext as LocalIntelligenceApp).container.settings.mode == SettingsMode.TECHNICAL
+    }
     val scope = rememberCoroutineScope()
     // Adding or removing bumps this, which re-reads the list.
     var reload by remember { mutableIntStateOf(0) }

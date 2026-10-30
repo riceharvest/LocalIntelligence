@@ -35,7 +35,7 @@ object CoreSettings {
 
     val MODE = Choice(
         "mode", "Settings mode",
-        "Simple picks the model and settings for this phone and hides the technical ones. " +
+        "Simple keeps settings short and recommends a model for this phone. " +
             "Technical shows everything.",
         SettingSection.GENERAL, SettingsMode.SIMPLE.id,
         listOf(Choice.Option(SettingsMode.SIMPLE.id, "Simple"), Choice.Option(SettingsMode.TECHNICAL.id, "Technical")),

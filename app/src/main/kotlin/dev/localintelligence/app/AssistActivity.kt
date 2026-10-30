@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.core.settings.CoreSettings
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
@@ -62,9 +63,12 @@ class AssistActivity : ComponentActivity() {
         // Read once, when the overlay opens. The capture is what the user saw
         // when they invoked the assistant, and it may be replaced while they type.
         val screenshot = AssistantScreenshot.latest()
+        val assistantName = (application as LocalIntelligenceApp).container
+            .settings[CoreSettings.ASSISTANT_NAME].trim().ifBlank { "LocalIntelligence" }
         setContent {
             LocalIntelligenceTheme {
                 AssistOverlay(
+                    assistantName = assistantName,
                     screenshot = screenshot,
                     onSend = { text, screen ->
                         // The capture goes into the same holder the chat run takes from,
@@ -90,6 +94,7 @@ class AssistActivity : ComponentActivity() {
 
 @Composable
 private fun AssistOverlay(
+    assistantName: String,
     screenshot: Bitmap?,
     onSend: (text: String, screen: PendingAttachment?) -> Unit,
     onCancel: () -> Unit,
@@ -124,7 +129,7 @@ private fun AssistOverlay(
         tonalElevation = 6.dp,
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Ask LocalIntelligence", style = MaterialTheme.typography.titleMedium)
+            Text("Ask $assistantName", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
