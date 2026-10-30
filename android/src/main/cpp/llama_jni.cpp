@@ -1812,6 +1812,9 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     // repeated identical prompt (the speed test) is processed in full.
     llama_memory_t mem = llama_get_memory(ctx);
     int32_t reused = 0;
+    // Whether `reused` is the state held in snap_state. Only then is snap_state the state
+    // at `reused`; see the snap_at block below.
+    bool reused_from_snap = false;
     const int32_t previous = static_cast<int32_t>(h->snap_tokens.size());
     const int32_t common = mm_chunks ? 0 : static_cast<int32_t>(
         std::mismatch(h->snap_tokens.begin(), h->snap_tokens.end(), tokens.begin(),
@@ -1841,6 +1844,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             common >= h->snap_at) {
             if (llama_state_seq_set_data(ctx, h->snap_state.data(), h->snap_state.size(), kPromptSeq) > 0) {
                 reused = h->snap_at;
+                reused_from_snap = true;
             } else {
                 llama_memory_clear(mem, true);
             }
@@ -1867,6 +1871,18 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         if (snap_at <= reused) {
             snap_at = reused;
             snapped = reused > 0;
+            // WHY THE COPY: when `reused` came from the saved state after the last reply, or
+            // from the system prompt's anchor, snap_state still holds an OLDER prompt's state.
+            // Keeping it while snap_at = reused would make the next step restore that older
+            // state as if it were this prompt's: a wrong recurrent state, and garbage output.
+            // A prompt that adds fewer than kSnapshotTail tokens past the restored point hits
+            // this (the prefix warm-up's short placeholder turn, or "hi" in a new chat).
+            // The state restored just now IS the state at `reused`, so copy it.
+            if (snapped && !reused_from_snap) {
+                const size_t size = llama_state_seq_get_size(ctx, kPromptSeq);
+                h->snap_state.resize(size);
+                snapped = size > 0 && llama_state_seq_get_data(ctx, h->snap_state.data(), size, kPromptSeq) == size;
+            }
         }
     }
     pos = reused;

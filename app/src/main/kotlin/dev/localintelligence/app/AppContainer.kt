@@ -736,6 +736,7 @@ class AppContainer(private val context: Context) {
         val model = remoteChatModelOrNull() ?: return@withLock false
         val previous = loadedBackend
         if (previous != null && previous !== remoteChatBackend) {
+            stopPrefixWork()
             loadedBackend = null
             previous.unload()
         }
@@ -990,6 +991,9 @@ class AppContainer(private val context: Context) {
         // a GGUF needs llama.cpp, and loadModel is the only place that knows
         // which file it was handed.
         val backend = backendFor(model)
+        // A prefix build for the model being replaced must not run on it, or on the
+        // next load's backend, while this one is released.
+        stopPrefixWork()
         // A file-path model gets a new backend on every load, and a backend only
         // releases the model it holds itself. Without this the previous model
         // stays resident while the RAM gate above priced only the new one.
@@ -1026,7 +1030,10 @@ class AppContainer(private val context: Context) {
         ModelAvailability.Ready(
             displayName = model.displayName,
             quantType = model.quantType,
-        ).also { modelAvailability.set(it) }
+        ).also {
+            modelAvailability.set(it)
+            startPrefixWork(backend)
+        }
     } catch (e: CancellationException) {
         throw e
         } catch (t: Throwable) {
@@ -1063,7 +1070,55 @@ class AppContainer(private val context: Context) {
         // cancelled in the backend so the run does not wait for it, and the job
         // is joined so its compaction is finished before the run reads the session.
         stopIdleWork()
+        // The prefix build is joined, not cancelled: this run needs the same prefix,
+        // and cancelling would prefill those tokens again from zero.
+        prefixWork?.join()
         return ensureModelReadyLocked()
+    }
+
+    /**
+     * The prefix build started after a model load (see AgentController.warmPrefix).
+     * [prefixBackend] is the backend it runs on: cancelling the job alone does not stop a
+     * native prefill, which only the backend's cancel does, so the backend is cancelled first.
+     */
+    @Volatile
+    private var prefixWork: Job? = null
+
+    @Volatile
+    private var prefixBackend: ModelBackend? = null
+
+    /**
+     * Starts the prefix build for [backend] on the process scope. Never holds
+     * [readinessLock]: the build only reads the controller, and a run that arrives during it
+     * joins it instead of waiting on the lock.
+     */
+    private fun startPrefixWork(backend: ModelBackend) {
+        prefixBackend = backend
+        prefixWork = appScope.launch {
+            try {
+                newController(model = backend).warmPrefix()
+            } catch (e: CancellationException) {
+                backend.cancel()
+                throw e
+            } catch (t: Throwable) {
+                android.util.Log.w(TAG, "prefix warm-up failed", t)
+            }
+        }
+    }
+
+    /**
+     * Stops the prefix build before its model is unloaded or replaced, and waits for it to
+     * end, so the backend is not used while it is being released. Callers may hold
+     * [readinessLock]: the build never takes that lock, so waiting for it cannot deadlock.
+     */
+    private suspend fun stopPrefixWork() {
+        val job = prefixWork ?: return
+        if (job.isActive) {
+            prefixBackend?.cancel()
+            job.cancelAndJoin()
+        }
+        prefixWork = null
+        prefixBackend = null
     }
 
     /**
@@ -1496,6 +1551,7 @@ class AppContainer(private val context: Context) {
         readinessLock.withLock {
             val uriText = model.uri.toString()
             if (selectedModel?.uri == model.uri && loadedBackend !== remoteChatBackend) {
+                stopPrefixWork()
                 loadedBackend?.let { runCatching { it.unload() } }
                 loadedBackend = null
                 modelAvailability.set(ModelAvailability.None)
