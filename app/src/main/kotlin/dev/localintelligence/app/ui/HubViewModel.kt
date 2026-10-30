@@ -90,6 +90,8 @@ data class HubUiState(
     val error: String? = null,
     val files: List<HubGgufFile> = emptyList(),
     val selected: HubGgufFile? = null,
+    /** The file the app picked as the best fit for this phone when the repository was listed. */
+    val recommended: HubGgufFile? = null,
     /**
      * Non-GGUF model files the repository also publishes, when it publishes any.
      *
@@ -165,6 +167,16 @@ data class HubUiState(
      */
     val resumable: Boolean
         get() = partialBytesKept > 0 && progress is DownloadProgress.Stopped
+
+    /**
+     * True when the finished download is loaded and the chat can use it. A failure note
+     * ("Saved, but…", "Downloaded, but…") and the document-search model are saved but not
+     * chat-ready, so they keep their text and get no "Start chatting" button.
+     */
+    val ready: Boolean
+        get() = registeredNote?.let {
+            !it.startsWith("Saved") && !it.startsWith("Downloaded, but")
+        } == true
 
     /** The download stopped for a reason the user may be able to do something about. */
     val stopped: DownloadProgress.Stopped? get() = progress as? DownloadProgress.Stopped
@@ -343,7 +355,7 @@ class HubViewModel(
         when (val parsed = HubRepoId.parse(raw)) {
             is HubRepoId.Result.Invalid -> {
                 pendingPrefill = null
-                _state.update { it.copy(error = parsed.message, files = emptyList(), selected = null, plan = null) }
+                _state.update { it.copy(error = parsed.message, files = emptyList(), selected = null, recommended = null, plan = null) }
                 return
             }
             is HubRepoId.Result.Valid -> {
@@ -410,6 +422,7 @@ class HubViewModel(
                                 files = loadable,
                                 nonGgufFiles = nonGguf,
                                 selected = best,
+                                recommended = best,
                                 plan = planned?.first,
                                 exactFit = planned?.second == true,
                                 alreadyOnDevice = planned?.third == true,
@@ -428,6 +441,7 @@ class HubViewModel(
                                 files = emptyList(),
                                 nonGgufFiles = emptyList(),
                                 selected = null,
+                                recommended = null,
                                 plan = null,
                             )
                         }
@@ -809,9 +823,9 @@ class HubViewModel(
         // the file was saved but did not load, so "Open Models to load it" would
         // point the user at a file that is not usable there.
         return if (file.isLiteRtLm) {
-            "Saved to ${local.name}, but it did not load."
+            "Saved, but it did not load."
         } else {
-            "Saved to ${local.name}. Open Models to load it."
+            "Saved. Open Models to load it."
         }
     }
 

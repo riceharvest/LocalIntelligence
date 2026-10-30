@@ -60,6 +60,8 @@ import dev.localintelligence.app.ui.trace.RedactionScreen
 import dev.localintelligence.app.ui.trace.ScheduleScreen
 import dev.localintelligence.app.ui.trace.ScheduleViewModel
 import dev.localintelligence.core.settings.CoreSettings
+import dev.localintelligence.core.settings.SettingsMode
+import dev.localintelligence.core.settings.mode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
@@ -217,6 +219,7 @@ class MainActivity : ComponentActivity() {
                         val settingsVersion by container.settings.changes.collectAsStateWithLifecycle()
                         val remoteModel = remember(settingsVersion) { container.remoteChatModelOrNull() }
                         ModelManagerScreen(
+                            technical = remember(settingsVersion) { container.settings.mode == SettingsMode.TECHNICAL },
                             models = models,
                             speedTest = container.speedTest,
                             loadedModelUri = if (modelState is ModelAvailability.Ready && !container.remoteChatActive) {
@@ -415,16 +418,30 @@ class MainActivity : ComponentActivity() {
                         LaunchedEffect(repo, file) {
                             if (repo != null && file != null) vm.prefill(repo, file)
                         }
-                        HubScreen(viewModel = vm, onBack = { nav.popBackStack() })
+                        // Read so the screen follows a mode change made in Settings.
+                        val hubSettingsVersion by container.settings.changes.collectAsStateWithLifecycle()
+                        HubScreen(
+                            viewModel = vm,
+                            onBack = { nav.popBackStack() },
+                            onStartChat = { nav.popBackStack(ROUTE_CHAT, inclusive = false) },
+                            technical = remember(hubSettingsVersion) {
+                                container.settings.mode == SettingsMode.TECHNICAL
+                            },
+                        )
                     }
 
                     composable(ROUTE_SETTINGS) {
                         val messages by chat.messages.collectAsStateWithLifecycle()
                         val exportScope = rememberCoroutineScope()
+                        val suggestedModel = SimpleSetup.suggestedModel(container.deviceFacts)
                         SettingsScreen(
                             store = container.settings,
                             plugins = container.plugins,
-                            suggestion = SimpleSetup.suggestedModel(container.deviceFacts),
+                            suggestion = suggestedModel,
+                            suggestionInstalled = models.any { m ->
+                                m.displayName == suggestedModel.file ||
+                                    m.uri.lastPathSegment?.substringAfterLast('/') == suggestedModel.file
+                            },
                             onOpenHub = { repo, file ->
                                 nav.navigate("$ROUTE_HUB?repo=${Uri.encode(repo)}&file=${Uri.encode(file)}")
                             },

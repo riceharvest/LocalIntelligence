@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -25,7 +28,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.IconButton
@@ -58,6 +64,7 @@ import dev.localintelligence.app.describeLoadFailure
 import dev.localintelligence.app.speedtest.SpeedTestButton
 import dev.localintelligence.app.speedtest.SpeedTestResultBlock
 import dev.localintelligence.app.speedtest.SpeedTestRunner
+import dev.localintelligence.core.hub.formatBytes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -151,6 +158,11 @@ fun ModelManagerScreen(
      * model that does not fit is reported here rather than shown as a silent no-op.
      */
     onUseModel: (suspend (ImportedModel) -> ModelAvailability)? = null,
+    /**
+     * True in Technical mode. Simple mode shows one line per model and hides the speed
+     * test; Technical keeps every figure.
+     */
+    technical: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -184,6 +196,10 @@ fun ModelManagerScreen(
     // The total is -1 when the provider does not report a size.
     var copying by remember { mutableStateOf<Pair<String, Pair<Long, Long>>?>(null) }
 
+    // What the spinner row says: "Checking file…" for an import or scan, "Loading model…" for Use.
+    var busyLabel by remember { mutableStateOf("Checking file…") }
+    var menuOpen by remember { mutableStateOf(false) }
+
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -198,6 +214,7 @@ fun ModelManagerScreen(
         }
         importError = null
         scanNotice = null
+        busyLabel = "Checking file…"
         busy = true
         scope.launch {
             // The container is sniffed before `onImport`, because `onImport` reads a
@@ -216,7 +233,8 @@ fun ModelManagerScreen(
                             scope.launch { copying = name to (done to total) }
                         }
                     } catch (e: java.io.IOException) {
-                        importError = e.message ?: "\"$name\" could not be copied into the app."
+                        Log.w("ModelManager", "Copying $name failed", e)
+                        importError = "Couldn't add \"$name\". Check there is enough free space and try again."
                         null
                     } finally {
                         copying = null
@@ -250,69 +268,79 @@ fun ModelManagerScreen(
                     }
                 },
                 actions = {
-                    // WHY a text button and not another FAB: the FAB is
-                    // "import a file you already have", and this is "go get one
-                    // from the internet". Two floating buttons would collide on
-                    // a phone.
-                    onOpenHub?.let { open ->
-                        TextButton(onClick = open) { Text("Download") }
+                    // WHY an overflow menu: the main way to get a model is the
+                    // "Get a model" button below. Importing a file you already
+                    // have is the rarer path, and scanning for files the app can
+                    // already see is a developer path, so it is Technical only.
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "More options")
                     }
-                    // WHY next to Download rather than in the FAB: both of these
-                    // are "get a model" actions, so they belong together. The FAB
-                    // stays "import a file you already have somewhere else".
-                    onScanLocal?.let { scan ->
-                        TextButton(
-                            onClick = {
-                                busy = true
-                                importError = null
-                                scope.launch {
-                                    runCatching { scan() }
-                                        .onFailure { importError = describeLoadFailure(it) }
-                                        .onSuccess {
-                                            scanNotice = "Scanned this app's own storage for " +
-                                                "GGUF files. Anything found is now in the " +
-                                                "list."
-                                        }
-                                    busy = false
-                                }
-                            },
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Import a file") },
                             enabled = !busy,
-                        ) { Text("Scan storage") }
+                            onClick = {
+                                menuOpen = false
+                                // Guarded as well as disabled: a second picker on top of a
+                                // running header read gives two imports racing over the list.
+                                if (busy) return@DropdownMenuItem
+                                // "application/octet-stream" plus a wildcard: SAF does not
+                                // reliably tag .gguf, and a filter that is too narrow makes
+                                // the model look unimportable.
+                                picker.launch(arrayOf("application/octet-stream", "*/*"))
+                            },
+                        )
+                        if (technical) {
+                            onScanLocal?.let { scan ->
+                                DropdownMenuItem(
+                                    text = { Text("Find models on this phone") },
+                                    enabled = !busy,
+                                    onClick = {
+                                        menuOpen = false
+                                        busyLabel = "Checking file…"
+                                        busy = true
+                                        importError = null
+                                        scope.launch {
+                                            runCatching { scan() }
+                                                .onFailure { importError = describeLoadFailure(it) }
+                                                .onSuccess {
+                                                    scanNotice = "Scanned this app's own storage for " +
+                                                        "GGUF files. Anything found is now in the " +
+                                                        "list."
+                                                }
+                                            busy = false
+                                        }
+                                    },
+                                )
+                            }
+                        }
                     }
                 },
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    // Guarded rather than disabled: `FloatingActionButton` has
-                    // no `enabled` parameter, and a second picker launched on top
-                    // of a running header read gives two imports racing over
-                    // the same list.
-                    if (busy) return@FloatingActionButton
-                    // "application/octet-stream" plus a wildcard: SAF does not
-                    // reliably tag .gguf, and a filter that is too narrow makes
-                    // the model look unimportable.
-                    picker.launch(arrayOf("application/octet-stream", "*/*"))
-                },
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "Import a model file")
+            onOpenHub?.let { open ->
+                ExtendedFloatingActionButton(
+                    onClick = open,
+                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                    text = { Text("Get a model") },
+                )
             }
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            if (busy) {
+            if (busy && copying == null) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     CircularProgressIndicator(Modifier.padding(2.dp), strokeWidth = 2.dp)
-                    Text(if (copying == null) "Reading the model header…" else "Preparing the file…")
+                    Text(busyLabel)
                 }
             }
 
-            copying?.let { (name, progress) ->
+            copying?.let { (_, progress) ->
                 val (done, total) = progress
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -320,11 +348,9 @@ fun ModelManagerScreen(
                 ) {
                     Text(
                         text = if (total > 0) {
-                            "Copying $name into app storage: ${formatBytes(done)} of ${formatBytes(total)}. " +
-                                "This is a copy, so the file takes its size in the app."
+                            "Adding model… ${formatBytes(done)} of ${formatBytes(total)}"
                         } else {
-                            "Copying $name into app storage: ${formatBytes(done)} so far. " +
-                                "This is a copy, so the file takes its size in the app."
+                            "Adding model… ${formatBytes(done)}"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -357,49 +383,60 @@ fun ModelManagerScreen(
             }
 
             if (models.isEmpty() && !busy && importError == null) {
-                Column(Modifier.padding(16.dp)) {
+                // No top padding of its own below: the list under it adds none
+                // while it is empty, so the gap is 16 dp once and not twice.
+                Column(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     Text(
-                        text = "No models yet. Import a GGUF file to run the agent " +
-                            "on-device — nothing is sent anywhere.",
+                        text = if (technical) {
+                            "No models yet. Import a GGUF file to run the agent " +
+                                "on-device — nothing is sent anywhere."
+                        } else {
+                            "No models yet. Download one to chat privately on your phone."
+                        },
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    // A `.litertlm` is the second format this app has a backend for.
-                    // The picker copies it into the app's storage first, so it takes
-                    // as much free space as the file is large.
-                    Text(
-                        text = "Have a .litertlm (LiteRT-LM) model? Import it with + " +
-                            "like a GGUF. The app copies it into its own storage " +
-                            "first, which takes its size in free space and a while " +
-                            "for a multi-GB file. Download lists GGUFs only.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    // The hand-pushed case, named. A model can reach a phone
-                    // over USB, out of a backup, or from the Hub download, and
-                    // none of those go through the file picker. Without this
-                    // the only visible route to a model is a picker the user
-                    // may not know they have, and the screen reads as broken
-                    // for a phone that already has a perfectly good GGUF on
-                    // it. The Scan storage button above is the fix; this line
-                    // says so.
-                    if (onScanLocal != null) {
+                    if (onOpenHub != null) {
+                        Button(onClick = onOpenHub) { Text("Download a model") }
+                    }
+                    if (technical) {
+                        // A `.litertlm` is the second format this app has a backend for.
+                        // The picker copies it into the app's storage first, so it takes
+                        // as much free space as the file is large.
                         Text(
-                            text = "Copied a .gguf onto this phone with a cable, or " +
-                                "downloaded one already? Scan storage finds models " +
-                                "the app can already see.",
+                            text = "Have a .litertlm (LiteRT-LM) model? Import it from the " +
+                                "menu like a GGUF. The app copies it into its own storage " +
+                                "first, which takes its size in free space and a while " +
+                                "for a multi-GB file. Download lists GGUFs only.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 8.dp),
                         )
+                        // The hand-pushed case, named: a model can reach a phone over
+                        // USB or out of a backup without going through the picker.
+                        if (onScanLocal != null) {
+                            Text(
+                                text = "Copied a .gguf onto this phone with a cable, or " +
+                                    "downloaded one already? Find models on this phone in " +
+                                    "the menu finds models the app can already see.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = if (models.isEmpty() && remoteChatModel == null) 0.dp else 16.dp,
+                    bottom = 88.dp, // clears the extended button
+                ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (remoteChatModel != null && onUseRemoteChat != null) {
@@ -409,6 +446,7 @@ fun ModelManagerScreen(
                             active = remoteChatActive,
                             enabled = !busy,
                             onUse = {
+                                busyLabel = "Loading model…"
                                 busy = true
                                 importError = null
                                 scanNotice = null
@@ -421,14 +459,20 @@ fun ModelManagerScreen(
                         )
                     }
                 }
-                items(models, key = { it.uri.toString() }) { model ->
+                // The model in use is listed first; sortedBy is stable, so the rest keep their order.
+                items(
+                    models.sortedByDescending { it.uri.toString() == loadedModelUri },
+                    key = { it.uri.toString() },
+                ) { model ->
                     ModelRow(
+                        technical = technical,
                         model = model,
                         onDelete = { pendingDelete = model },
                         speedTest = speedTest,
                         isLoaded = model.uri.toString() == loadedModelUri,
                         onUse = onUseModel?.let { use ->
                             {
+                                busyLabel = "Loading model…"
                                 busy = true
                                 importError = null
                                 scanNotice = null
@@ -451,11 +495,7 @@ fun ModelManagerScreen(
             onDismissRequest = { pendingDelete = null },
             title = { Text("Remove ${target.displayName}?") },
             text = {
-                Text(
-                    "This forgets the model. The file itself is untouched — if you " +
-                        "picked it from cloud storage it stays there, and you will " +
-                        "have to grant access again to use it again.",
-                )
+                Text("Remove this model from the app?")
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -510,6 +550,7 @@ private fun ImportErrorBanner(message: String, onDismiss: () -> Unit) {
 
 @Composable
 private fun ModelRow(
+    technical: Boolean,
     model: ImportedModel,
     onDelete: () -> Unit,
     speedTest: SpeedTestRunner?,
@@ -536,7 +577,16 @@ private fun ModelRow(
     val totalBytes = model.estimate.totalBytes(loadContext)
     val fits = model.fitsOnDevice(loadContext)
 
-    Card(Modifier.fillMaxWidth()) {
+    // The model in use gets its own container colour, so the row that answers the chat
+    // is the one that stands out.
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = if (isLoaded) {
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        } else {
+            CardDefaults.cardColors()
+        },
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -548,14 +598,38 @@ private fun ModelRow(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
-                    Text(
-                        text = listOfNotNull(
+                    val subtitle = if (technical) {
+                        listOfNotNull(
                             model.quantType,
                             model.architecture,
                             model.parameterCount?.let { "${formatParams(it)} params" },
-                        ).joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ).joinToString(" · ")
+                    } else {
+                        model.parameterCount?.let { formatParams(it) }.orEmpty()
+                    }
+                    if (subtitle.isNotEmpty()) {
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isLoaded) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                }
+                if (isLoaded) {
+                    Icon(
+                        Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = "In use",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(start = 4.dp, end = 4.dp),
                     )
                 }
                 if (!isLoaded && onUse != null) {
@@ -566,42 +640,51 @@ private fun ModelRow(
                 }
             }
 
-            // "On disk" is the only number on this card that was measured: it
-            // is `File.length()` on the file itself. Everything below it is
-            // arithmetic on that number plus the header, and the card says so
-            // once, here, instead of leaving four confident figures looking
-            // equally solid.
-            FactLine("On disk (measured)", formatBytes(model.fileSizeBytes))
-            FactLine("Weights, estimated", formatBytes(model.estimate.weightBytes))
-            FactLine("RAM at load (estimated)", formatBytes(totalBytes))
-            // A LiteRT-LM file does not expose its KV geometry, so the line is
-            // omitted rather than shown as 0 B, which would read as a claim.
-            model.estimate.kvBytes(loadContext)?.let { kv ->
-                FactLine("  of which KV cache", formatBytes(kv))
+            if (!technical) {
+                // One line: the size and whether the phone can run it. A model that does
+                // not fit says so in the card below instead.
+                Text(
+                    text = if (fits) {
+                        "${formatBytes(model.fileSizeBytes)} · Fits this phone"
+                    } else {
+                        formatBytes(model.fileSizeBytes)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            } else {
+                // "On disk" is the only number on this card that was measured: it
+                // is `File.length()` on the file itself. Everything below it is
+                // arithmetic on that number plus the header, and the card says so
+                // once, here, instead of leaving four confident figures looking
+                // equally solid.
+                FactLine("On disk (measured)", formatBytes(model.fileSizeBytes))
+                FactLine("Weights, estimated", formatBytes(model.estimate.weightBytes))
+                FactLine("RAM at load (estimated)", formatBytes(totalBytes))
+                // A LiteRT-LM file does not expose its KV geometry, so the line is
+                // omitted rather than shown as 0 B, which would read as a claim.
+                model.estimate.kvBytes(loadContext)?.let { kv ->
+                    FactLine("  of which KV cache", formatBytes(kv))
+                }
+                FactLine("Context at load", "$loadContext tokens")
+                model.trainedContextLength?.let { trained ->
+                    // The trained length is a property of the file, and it is NOT
+                    // what this app will use. Shown because it is genuinely useful
+                    // to know the model is capable of more, labelled so that it is
+                    // never read as the size of the cache about to be allocated.
+                    FactLine("Model's own max context", "$trained tokens (not used)")
+                }
+                // The disclaimer the numbers above need: nothing has been profiled
+                // on a phone, so every RAM number is arithmetic on the file size and
+                // the header, and the load gate uses the same arithmetic.
+                Text(
+                    text = "RAM figures are calculated from the file size and the model's " +
+                        "header. They are not measured on this phone.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            FactLine("Context at load", "$loadContext tokens")
-            model.trainedContextLength?.let { trained ->
-                // The trained length is a property of the file, and it is NOT
-                // what this app will use. Shown because it is genuinely useful
-                // to know the model is capable of more, labelled so that it is
-                // never read as the size of the cache about to be allocated.
-                FactLine("Model's own max context", "$trained tokens (not used)")
-            }
-            // The disclaimer the numbers above need. There is no measured
-            // figure anywhere in this app: nothing has been profiled on a
-            // phone, so every RAM number here is arithmetic on the file size
-            // and the header. Saying so once per row is the difference
-            // between a number the user can reason about and one they have to
-            // take on faith — and the load gate uses the same arithmetic, so
-            // the row and the gate agree.
-            Text(
-                text = "RAM figures are calculated from the file size and the model's " +
-                    "header. They are not measured on this phone.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
 
-            if (!model.hasChatTemplate) {
+            if (technical && !model.hasChatTemplate) {
                 FactLine("Chat template", "missing — tool calls will be unreliable")
             }
 
@@ -612,31 +695,32 @@ private fun ModelRow(
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(
-                            text = "This model will not load on this phone. It needs " +
-                                "about ${formatBytes(totalBytes)} and this device has " +
-                                "${formatBytes(RamEstimate.usableDeviceBytes())} usable " +
-                                "for the app. The load gate refuses it rather than " +
-                                "letting the system kill the app part-way through a task.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        // The previous version told the user to "Lower the
-                        // context to 2048 or below" and offered "context could
-                        // go to 16384" as headroom. There is no context control
-                        // anywhere in this app: every load uses the fixed
-                        // 4096 above. Both sentences named a lever the user
-                        // does not have, so a refused model read as a
-                        // settings problem instead of the one thing it is —
-                        // too big for this phone, and the fix is a smaller
-                        // model. The one real lever is named instead.
-                        Text(
-                            text = "The only way to make this phone run something is a " +
-                                "smaller model. A lower quantization of the same " +
-                                "family is usually the cheapest way there.",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 6.dp),
-                        )
+                    Column(Modifier.padding(16.dp)) {
+                        if (!technical) {
+                            Text(
+                                text = "Too big for this phone. Try a smaller model.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        } else {
+                            Text(
+                                text = "This model will not load on this phone. It needs " +
+                                    "about ${formatBytes(totalBytes)} and this device has " +
+                                    "${formatBytes(RamEstimate.usableDeviceBytes())} usable " +
+                                    "for the app. The load gate refuses it rather than " +
+                                    "letting the system kill the app part-way through a task.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            // There is no context control anywhere in this app: every
+                            // load uses the fixed 4096 above. The one real lever is a
+                            // smaller model, so that is what is named.
+                            Text(
+                                text = "The only way to make this phone run something is a " +
+                                    "smaller model. A lower quantization of the same " +
+                                    "family is usually the cheapest way there.",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -644,7 +728,7 @@ private fun ModelRow(
             // The display name from a content provider is often useless (a hash),
             // so offer the real one from the provider when it disagrees.
             val resolved = remember(model.uri) { displayNameOf(context, model.uri) }
-            if (resolved != null && resolved != model.displayName) {
+            if (technical && resolved != null && resolved != model.displayName) {
                 FactLine("File", resolved)
             }
 
@@ -652,7 +736,7 @@ private fun ModelRow(
             // loaded backend, so the button on any other row would describe a model
             // that is not in memory. The last result stays under its model after it
             // is unloaded, labelled with the date, so it is not lost.
-            if (speedTest != null) {
+            if (technical && speedTest != null) {
                 SpeedTestSection(model = model, runner = speedTest, isLoaded = isLoaded)
             }
         }
@@ -723,19 +807,6 @@ private fun FactLine(label: String, value: String) {
             modifier = Modifier.weight(0.6f),
         )
     }
-}
-
-/** Binary units, because that is how model sizes are quoted. */
-internal fun formatBytes(bytes: Long): String {
-    if (bytes <= 0) return "unknown"
-    val units = listOf("B", "KiB", "MiB", "GiB", "TiB")
-    var value = bytes.toDouble()
-    var unit = 0
-    while (value >= 1024 && unit < units.lastIndex) {
-        value /= 1024
-        unit++
-    }
-    return if (unit == 0) "${bytes} B" else "%.1f %s".format(value, units[unit])
 }
 
 /**
