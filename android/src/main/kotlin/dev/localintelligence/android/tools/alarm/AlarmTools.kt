@@ -113,20 +113,30 @@ object AlarmIds {
     /**
      * Sanitises a model-supplied id, or generates one from the time.
      *
+     * Also used by alarm.cancel: the id the user or model gave at creation is stored in
+     * this form, so a cancel must reduce its id the same way or it can never match.
+     */
+     *
      * The generated form zero-pads both fields. An unpadded "alarm-70" is genuinely
      * ambiguous — hour 7 minute 0, or minute 70 of some hour — and an id the model
      * cannot read back is an id it will pass to alarm.cancel wrongly.
      */
     fun coerceId(raw: String?, hour: Int, minute: Int, nowMillis: Long): String {
+        val cleaned = normalise(raw)
+        return if (cleaned.isEmpty()) {
+            String.format(Locale.US, "alarm-%02d%02d-%d", hour, minute, nowMillis % 100_000)
+        } else {
+            cleaned
+        }
+    }
+
+    /** The stored form of an id, or "" when nothing usable is left. */
+    fun normalise(raw: String?): String {
         val cleaned = raw?.trim().orEmpty()
             .map { if (it.isISOControl() || it == ' ' || it == '/' || it == ':') '-' else it }
             .joinToString("")
             .trim('-')
-        return if (cleaned.isEmpty()) {
-            String.format(Locale.US, "alarm-%02d%02d-%d", hour, minute, nowMillis % 100_000)
-        } else {
-            ArgCoerce.ellipsize(cleaned, MAX_ID_CHARS)
-        }
+        return if (cleaned.isEmpty()) "" else ArgCoerce.ellipsize(cleaned, MAX_ID_CHARS)
     }
 
     fun coerceLabel(raw: String?): String {
@@ -255,7 +265,8 @@ object AlarmCancel {
         minute: Int?,
         label: String?,
     ): CancelDecision {
-        val wantedId = id?.trim()?.takeIf { it.isNotEmpty() }
+        // Normalised the way alarm.create stored it, so the id the user gave at creation matches.
+        val wantedId = AlarmIds.normalise(id).takeIf { it.isNotEmpty() }
         if (wantedId != null) {
             val matches = candidates.filter { it.id.equals(wantedId, ignoreCase = true) }
             return when (matches.size) {
