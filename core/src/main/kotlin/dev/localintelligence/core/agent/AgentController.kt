@@ -41,6 +41,7 @@ import dev.localintelligence.core.tool.ToolContext
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolRegistry
 import dev.localintelligence.core.tool.ToolResult
+import dev.localintelligence.core.tool.ToolRequest
 import dev.localintelligence.core.tool.ToolSelector
 import kotlinx.coroutines.CancellationException
 import kotlin.math.min
@@ -759,18 +760,15 @@ class AgentController(
         // The tool names what the call acts on before the policy reads it, so a
         // confirmation can say which conversation a reply goes to (#201).
         //
-        // WHY the score and not the model: the model chooses these calls itself, even when
-        // the message needs no tool. A tool the message does not match (score 0) is one the
-        // user did not ask for. A selector that scores nothing returns null, and that means
-        // "unknown", so the call is judged as requested, as it was before this guard.
-        val requested = toolSelector.scores(task, emptyList(), listOf(tool))
-            ?.get(tool.definition.name)?.let { it > 0 } ?: true
+        // WHY the message and not the model: the model chooses these calls itself, even when
+        // the message needs no tool (measured: "What is 17 times 23?" set a real timer). A tool
+        // whose name or tags the message does not mention is one the user did not ask for.
+        val requested = ToolRequest.asksFor(task, tool.definition)
         val decision = riskPolicy.evaluate(
             tool.definition, action.arguments, tool.describeTarget(action.arguments), requested,
         )
         if (decision.rule == PolicyRule.NOT_REQUESTED) {
-            // Core has no logger. System.out is routed to logcat on Android.
-            println("guard: ${action.name} not asked for by the message, confirming first")
+            log("guard: ${action.name} not asked for by the message, confirming first")
         }
         metrics?.recordToolCall(
             action.name,
