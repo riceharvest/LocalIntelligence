@@ -180,11 +180,13 @@ data class HubUiState(
     /**
      * True when the next tap continues a transfer rather than starting one.
      *
-     * The button label, the byte count and the size estimate all have to agree
-     * with this, or the user is quoted 668 MB for 120 MB of work.
+     * Read from the bytes on disk, not from a stop event: a Hub reopened after the
+     * app was closed has no event, but the `.part` file is still there and the
+     * downloader resumes it. The button label, the byte count and the size estimate
+     * all have to agree with this, or the user is quoted 668 MB for 120 MB of work.
      */
     val resumable: Boolean
-        get() = partialBytesKept > 0 && progress is DownloadProgress.Stopped
+        get() = partialBytesKept > 0
 
     /**
      * True when the finished download is loaded and the chat can use it. A failure, or
@@ -516,7 +518,7 @@ class HubViewModel(
                         // as unrecommended on a 3.6 GB phone it fits.
                         val pick = preferQ4(loadable, guess) ?: loadable.firstOrNull()
                         val planned = pick?.let { planFor(it) }
-                        val best = (if (guess != null) pick else null) ?: pick?.takeIf { planned?.first?.isAllowed == true }
+                        val best = (if (guess != null) pick else null) ?: pick?.takeIf { planned?.plan?.isAllowed == true }
                         // WHY THE PROBE RUNS EVEN WHEN `loadable` IS NON-EMPTY:
                         // a repository can publish both, and in that case the
                         // `.litertlm` is the more interesting half — it is the
@@ -544,9 +546,10 @@ class HubViewModel(
                                 projector = chooseProjector(files),
                                 selected = pick,
                                 recommended = best,
-                                plan = planned?.first,
-                                exactFit = planned?.second == true,
-                                alreadyOnDevice = planned?.third == true,
+                                plan = planned?.plan,
+                                exactFit = planned?.exactFit == true,
+                                alreadyOnDevice = planned?.onDevice == true,
+                                partialBytesKept = planned?.keptBytes ?: 0,
                             )
                         }
                         // A suggested file that the repository does not list is
@@ -617,11 +620,11 @@ class HubViewModel(
                 // not this file's.
                 it.copy(
                     selected = file,
-                    plan = planned.first,
-                    exactFit = planned.second,
-                    alreadyOnDevice = planned.third,
+                    plan = planned.plan,
+                    exactFit = planned.exactFit,
+                    alreadyOnDevice = planned.onDevice,
                     progress = null,
-                    partialBytesKept = 0,
+                    partialBytesKept = planned.keptBytes,
                     registeredNote = null,
                     registeredReady = false,
                     error = null,
@@ -740,6 +743,19 @@ class HubViewModel(
     }
 
     /**
+     * The plan for one quant, and what the screen needs to show it.
+     *
+     * [keptBytes] is what the `.part` file holds from an earlier attempt, so a Hub
+     * reopened after a stopped transfer can offer Resume.
+     */
+    private data class PlannedFile(
+        val plan: DownloadPlan,
+        val exactFit: Boolean,
+        val onDevice: Boolean,
+        val keptBytes: Long,
+    )
+
+    /**
      * Computes the plan for [file] against the device, using the real header when
      * one can be fetched.
      *
@@ -751,9 +767,10 @@ class HubViewModel(
      * different quant, or the same one again, does not re-probe it.
      *
      * @return plan, whether the verdict is exact (from the tensor table rather
-     *   than the file name), and whether the file is already on disk.
+     *   than the file name), whether the file is already on disk, and how many
+     *   bytes a stopped attempt left in the `.part` file.
      */
-    private suspend fun planFor(file: HubGgufFile): Triple<DownloadPlan, Boolean, Boolean> =
+    private suspend fun planFor(file: HubGgufFile): PlannedFile =
         // All of it on IO: the header probe is a network request, and on the main
         // thread Android refuses it with NetworkOnMainThreadException. Picking any
         // repository crashed the app this way (seen on the Samsung A05s).
@@ -768,7 +785,7 @@ class HubViewModel(
                 alreadyOnDiskBytes = alreadyOnDisk,
                 header = header,
             )
-            Triple(plan, header != null, onDevice)
+            PlannedFile(plan, header != null, onDevice, alreadyOnDisk)
         }
 
     /**
