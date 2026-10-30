@@ -126,13 +126,6 @@ internal object ToolSafety {
                     "Check the URI and argument names.",
                 error = ToolError.InvalidArguments("IllegalArgumentException during $reference"),
             )
-        } catch (t: IllegalStateException) {
-            ToolResult(
-                success = false,
-                observation = "$reference could not run: the content provider is not " +
-                    "available right now. Try again later.",
-                error = ToolError.Unavailable("IllegalStateException during $reference"),
-            )
         } catch (t: CancellationException) {
             // MUST be rethrown. Cancellation is structured concurrency, not a
             // tool failure: swallowing it here turns a user's Stop into
@@ -140,7 +133,18 @@ internal object ToolSafety {
             // what happened and a scope that never cancels. This is a standing
             // project rule with no exceptions, and this catch had been the one
             // place in the tool layer that broke it.
+            //
+            // It sits ABOVE the IllegalStateException branch on purpose: on the JVM
+            // CancellationException extends IllegalStateException, so the other order
+            // would absorb a cancelled call as a provider failure.
             throw t
+        } catch (t: IllegalStateException) {
+            ToolResult(
+                success = false,
+                observation = "$reference could not run: the content provider is not " +
+                    "available right now. Try again later.",
+                error = ToolError.Unavailable("IllegalStateException during $reference"),
+            )
         } catch (t: Throwable) {
             ToolResult(
                 success = false,
