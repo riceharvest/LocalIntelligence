@@ -142,7 +142,7 @@ object V0ToolCatalogue {
     /** Categories, in the order a reader should expect to meet them. */
     val categories: List<String> = listOf(
         "files", "apps", "clipboard", "device", "alarm", "calendar",
-        "contacts", "notifications", "web", "history",
+        "contacts", "notifications", "web", "history", "documents",
     )
 
     /**
@@ -1111,6 +1111,32 @@ object V0ToolCatalogue {
             tags = setOf(
                 "remember when", "last time", "we talked about", "earlier conversation",
                 "history", "earlier", "before", "previous chat",
+            ),
+            requiredPermission = null,
+        ),
+
+        ToolDefinition(
+            name = "documents.search",
+            description = "Search the text documents the user added, such as PDFs and notes, " +
+                "and return the passages that match. Use when the user asks what their document says.",
+            category = "documents",
+            schema = objSchema(required = listOf("query")) {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "The words to look for, for example \"wifi password\".")
+                }
+                putJsonObject("max_results") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 10)
+                    put("description", "How many passages to return, 4 by default.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "my document", "the pdf", "in the file", "according to", "my notes", "document",
             ),
             requiredPermission = null,
         ),

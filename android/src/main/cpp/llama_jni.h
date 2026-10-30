@@ -125,12 +125,26 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeCountTokens(
 //
 // Returns null on success, or an error string. The result is read back through
 // nativeTakeResult after this returns.
+//
+// `parse_special` true tokenises control-token text in the prompt as the special
+// token it names (a chat template's own markers); false keeps it as characters
+// (the flat transcript, where user text must not be able to forge a marker).
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         JNIEnv * env, jclass, jlong handle, jstring prompt, jstring grammar, jfloat temperature,
         jfloat top_p, jint top_k, jfloat min_p, jfloat repeat_penalty, jint penalty_last_n,
         jfloat frequency_penalty, jfloat presence_penalty, jint seed, jint max_tokens,
-        jobject onToken);
+        jobject onToken, jboolean parse_special);
+
+// Renders the messages with the loaded model's own chat template
+// (llama_model_chat_template + llama_chat_apply_template). `roles` and
+// `contents` are parallel arrays. Returns null when the model has no template,
+// llama.cpp does not recognise it, or nothing is loaded. Control-token text in
+// the contents is broken before rendering, so only the template emits them.
+JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeApplyTemplate(
+        JNIEnv * env, jclass, jlong handle, jobjectArray roles, jobjectArray contents,
+        jboolean add_assistant);
 
 // Moves the last outcome off the handle, serialised as a single string.
 JNIEXPORT jstring JNICALL
@@ -157,5 +171,9 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSetMedia(
 
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeMediaMarker(JNIEnv * env, jclass);
+
+JNIEXPORT jbyteArray JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeSpeak(
+        JNIEnv * env, jclass, jlong handle, jstring text, jstring lang, jstring voice, jint max_frames);
 
 }  // extern "C"

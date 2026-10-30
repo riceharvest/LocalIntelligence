@@ -26,6 +26,8 @@ data class ModelCapabilities(
     val supportsKvCache: Boolean,
     /** Speech or other audio can be attached to a message (a projector that reads audio). */
     val supportsAudioInput: Boolean = false,
+    /** The model can speak text in its own voice (a projector with an audio head, e.g. LFM3-Omni). */
+    val supportsSpeechOutput: Boolean = false,
 ) {
     companion object {
         val UNKNOWN = ModelCapabilities(
@@ -116,6 +118,12 @@ data class GenerationRequest(
     val allowedToolNames: List<String> = emptyList(),
     /** Images or audio attached to the user's message, in order. Empty for text only. */
     val media: List<MediaInput> = emptyList(),
+    /**
+     * Render the messages with the model's own chat template when it has one.
+     * Off, or a template the backend cannot render, uses the backend's flat
+     * transcript. Read by backends that have a template; others ignore it.
+     */
+    val useModelTemplate: Boolean = true,
 )
 
 /**
@@ -192,3 +200,18 @@ class NoopModelBackend(
 /** Marker for a backend-agnostic structured payload, used by tools. */
 typealias ToolPayload = JsonElement
 typealias ToolArgs = JsonObject
+
+/**
+ * A backend that can say text out loud in the model's own voice.
+ *
+ * Separate from [ModelBackend] because most backends cannot, and the caller
+ * falls back to the system's text-to-speech when this is absent or returns null.
+ */
+interface SpeechOutput {
+    /**
+     * A WAV file (16-bit PCM, mono) of [text] spoken, or null when the loaded
+     * model cannot speak or synthesis failed. [language] is a code such as
+     * "en" or "nl"; [voice] is model-specific ("female", "male").
+     */
+    suspend fun speak(text: String, language: String? = null, voice: String? = null): ByteArray?
+}

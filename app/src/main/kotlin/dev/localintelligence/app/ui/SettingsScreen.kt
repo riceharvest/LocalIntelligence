@@ -76,6 +76,8 @@ fun SettingsScreen(
     onOpenSkills: () -> Unit = {},
     /** The speed test, shown as a row in the Technical Model section. Null hides it. */
     speedTest: SpeedTestRunner? = null,
+    /** Opens the documents screen. Defaulted, like [onOpenSkills]. */
+    onOpenDocuments: () -> Unit = {},
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -125,6 +127,7 @@ fun SettingsScreen(
 
                 SectionHeader(if (technical) "Plugins" else "What the assistant can use")
                 FilledTonalButton(onClick = onOpenSkills, modifier = Modifier.fillMaxWidth()) { Text("Skills") }
+                FilledTonalButton(onClick = onOpenDocuments, modifier = Modifier.fillMaxWidth()) { Text("Documents") }
                 plugins.forEach { plugin ->
                     SwitchRow(
                         title = plugin.title,
