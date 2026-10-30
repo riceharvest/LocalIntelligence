@@ -78,6 +78,14 @@ data class SimpleDefaults(
 object SimpleSetup {
     private const val GIB = 1024L * 1024 * 1024
 
+    private val SPARK_4B = SuggestedModel(
+        repo = "XHToken/Spark-X2.6-4B-GGUF",
+        file = "Spark-X2.6-4B-Q4_K_M.gguf",
+        name = "Spark X2.6 4B",
+        sizeBytes = 3_543_441_312,
+        reason = "Smarter, about 3x slower.",
+    )
+
     /**
      * The table. RAM classes are by what the phone reports (a "4 GB" phone reports about
      * 3.6 GiB), so the cut-offs sit between the typical figures.
@@ -123,6 +131,9 @@ object SimpleSetup {
             name = "LFM3 1.7B",
             sizeBytes = 1_049_615_680,
             reason = "Fast on this phone, and good at using its apps and tools.",
+            // 12 GB and up has room for the 4B: smarter, about 3x slower, so an opt-in
+            // (it needs 3.7-3.9 GiB at 4K-8K context).
+            alternative = if (facts.totalRamBytes >= 9.5 * GIB) SPARK_4B else null,
         )
         else -> SuggestedModel(
             repo = "LiquidAI/LFM2.5-230M-GGUF",

@@ -512,6 +512,12 @@ class MainActivity : ComponentActivity() {
                                 m.displayName == suggestedModel.file ||
                                     m.uri.lastPathSegment?.substringAfterLast('/') == suggestedModel.file
                             },
+                            alternativeInstalled = suggestedModel.alternative?.let { alt ->
+                                models.any { m ->
+                                    m.displayName == alt.file ||
+                                        m.uri.lastPathSegment?.substringAfterLast('/') == alt.file
+                                }
+                            } ?: true,
                             onOpenHub = { repo, file ->
                                 nav.navigate("$ROUTE_HUB?repo=${Uri.encode(repo)}&file=${Uri.encode(file)}")
                             },

@@ -44,6 +44,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -116,6 +117,8 @@ fun SettingsScreen(
     suggestion: SuggestedModel,
     /** True when the suggested file is already in the model list; the card is then hidden. */
     suggestionInstalled: Boolean = false,
+    /** True when [SuggestedModel.alternative] is already in the model list; its card is then hidden. */
+    alternativeInstalled: Boolean = false,
     onOpenHub: (repo: String, file: String) -> Unit,
     /** Opens the skills screen. Defaulted so a caller that predates skills still compiles. */
     onOpenSkills: () -> Unit = {},
@@ -169,6 +172,9 @@ fun SettingsScreen(
             ) {
                 ModeSwitch(store)
                 if (!technical && !suggestionInstalled) SuggestionCard(suggestion) { onOpenHub(suggestion.repo, suggestion.file) }
+                suggestion.alternative?.takeIf { !technical && !alternativeInstalled }?.let { alt ->
+                    AlternativeCard(alt) { onOpenHub(alt.repo, alt.file) }
+                }
 
                 val context = LocalContext.current
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -298,6 +304,17 @@ private fun SuggestionCard(suggestion: SuggestedModel, onOpenHub: () -> Unit) {
             Text(suggestion.name, style = MaterialTheme.typography.titleMedium)
             Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
             FilledTonalButton(onClick = onOpenHub) { Text("Download · ${formatBytes(suggestion.sizeBytes)}") }
+        }
+    }
+}
+
+/** The opt-in under the recommendation: smaller than [SuggestionCard], same Download path. */
+@Composable
+private fun AlternativeCard(alt: SuggestedModel, onOpenHub: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("${alt.reason.trimEnd('.')}: ${alt.name}", style = MaterialTheme.typography.titleSmall)
+            OutlinedButton(onClick = onOpenHub) { Text("Download · ${formatBytes(alt.sizeBytes)}") }
         }
     }
 }
