@@ -67,15 +67,15 @@ object GrammarBuilder {
     )
 
     /**
-     * Respond text: at least one character, any character but NUL. Line breaks and
-     * `<`/`>` are allowed because a reply is prose, and the same model on the
-     * native-format path may emit them. Excluding them made a reply's shape depend
-     * on which path the turn took, and blocked "Is 3 > 2?" outright. A `<tool`
-     * inside a respond does not change what the reply is: [GenerationProse] and
-     * the parser both pick the turn kind by which tag opens first, and close a
-     * respond at its first `</respond>`.
+     * Respond text: at least one character; line breaks, `>` and `<` are allowed, but
+     * not `</`. A reply is prose ("Is 3 > 2?", a list over several lines), and the same
+     * model on the native-format path may write any of those. `</` stays out so the
+     * only way the text ends is the closing `</respond>`: once it is written the
+     * grammar is complete and allows nothing but the end, so the model cannot keep
+     * decoding after its answer. (The parser is more lenient than the grammar; a
+     * permissive parser over a tight grammar is the safe direction.)
      */
-    private const val TEXT_RULE = """text ::= [^\x00]+"""
+    private const val TEXT_RULE = """text ::= ([^\x00<] | "<" [^/\x00])+"""
 
     /**
      * GBNF constraining output to Respond(text) or CallTool(name in [tools], args).

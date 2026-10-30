@@ -57,11 +57,11 @@ class LoopDetector(
         val key = Key(toolName, normalize(args))
         val count = (seen[key] ?: 0) + 1
         seen[key] = count
-        // WHY the failure refusal is keyed on the tool but the block is keyed on the
-        // arguments: two failures say the tool is not working for the input it was
-        // given, not that every later input is hopeless. A model that fetches a
-        // different URL after a timeout should get to try it. Only the same call
-        // again, a third time, ends the run.
+        // WHY a failed tool is refused but the run goes on: two identical failures
+        // say the tool is not working right now (no network, a missing permission),
+        // not that the task is hopeless. The call is not run, and the model is told
+        // so; it can answer or use another tool. Only the same call with the same
+        // arguments a third time ends the run.
         return when {
             count >= blockAfter -> Verdict.BLOCK
             toolName in unavailable -> Verdict.REFUSE
