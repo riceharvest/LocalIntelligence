@@ -66,6 +66,13 @@ kotlin {
     jvmToolchain(21)
 }
 
+// Room writes each database version's schema here, and the files are committed.
+// A migration copies its CREATE statements from them, so the migrated table is
+// exactly the table Room validates against on open.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     api(project(":core"))
 

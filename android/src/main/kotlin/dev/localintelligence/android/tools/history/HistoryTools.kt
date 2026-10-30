@@ -1,10 +1,14 @@
 package dev.localintelligence.android.tools.history
 
 import android.content.Context
+import android.util.Log
 import dev.localintelligence.android.data.HistoryQueries
 import dev.localintelligence.android.data.LocalIntelligenceDatabase
 import dev.localintelligence.android.data.MessageDao
 import dev.localintelligence.android.data.MessageEntity
+import dev.localintelligence.android.data.ObservationDao
+import dev.localintelligence.android.data.ObservationHit
+import dev.localintelligence.android.data.ObservationQueries
 import dev.localintelligence.android.tools.device.ArgCoerce
 import dev.localintelligence.android.tools.device.ArgResult
 import dev.localintelligence.android.tools.device.guarded
@@ -13,30 +17,40 @@ import dev.localintelligence.core.memory.MemoryText
 import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
+import dev.localintelligence.core.tool.ObservationStore
+import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
 import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 // =====================================================================================
-// HistoryTools: history.search, a read-only search over earlier chat messages.
+// HistoryTools: history.search, a read-only search over earlier chat messages and
+// saved tool results.
 //
-// Lives in :android because the messages table is Room, and :core cannot see Room.
-// Reads the user's and the assistant's text only. Tool observations are never searched:
-// they are raw device output, and the model has no need to recall them.
+// Lives in :android because both tables are Room, and :core cannot see Room.
+// Messages: the user's and the assistant's text only; the cut-down tool output stored
+// with a chat is not searched. Saved results: the full text of long tool results (the
+// `observations` table), each returned as a handle (`obs#41 from web.fetch, 3 Oct`)
+// and a snippet, so the model can read more with observations.read instead of
+// carrying old output in its context.
 //
 // The observation is fenced as NETWORK origin (see the catalogue entry): an earlier
-// assistant reply can repeat web text the model read at the time, so the result is
-// treated as untrusted rather than as the user's own words.
+// assistant reply can repeat web text the model read at the time, and a saved result
+// IS such text, so the result is treated as untrusted rather than as the user's own
+// words.
 // =====================================================================================
 
 /** The snippet budget from the tool spec: one line per hit, at most this many characters. */
@@ -45,6 +59,9 @@ internal const val HISTORY_SNIPPET_CHARS = 160
 private const val DEFAULT_RESULTS = 5
 private const val MAX_RESULTS = 10
 private const val MAX_QUERY_CHARS = 200
+
+/** Saved tool results listed per search, after the messages. A handle each, so a few are enough. */
+private const val MAX_SAVED_RESULTS = 3
 
 /**
  * Pure text rendering for [HistorySearchTool]. No android.* and no Room, so the decisions
@@ -76,6 +93,26 @@ object HistoryText {
 
     fun roleOf(kind: String): String = if (kind == "user") "you" else "assistant"
 
+    /** `obs#41 from web.fetch, 3 Oct — ...`: the handle observations.read takes, and where it came from. */
+    fun savedLine(id: Long, toolName: String, date: String, snippet: String): String =
+        "obs#$id from $toolName, $date — $snippet"
+
+    /**
+     * Drops the lowest-ranked line of the longer list until [render] fits the
+     * observation budget, so a full page of messages cannot push the saved results
+     * (which come last) off the end. Keeps at least one line.
+     */
+    fun fit(messages: List<String>, saved: List<String>, render: (List<String>, List<String>) -> String): String {
+        var m = messages
+        var s = saved
+        var text = render(m, s)
+        while (text.length > ObservationTruncator.DEFAULT_BUDGET_CHARS && m.size + s.size > 1) {
+            if (m.size >= s.size) m = m.dropLast(1) else s = s.dropLast(1)
+            text = render(m, s)
+        }
+        return text
+    }
+
     private val WHITESPACE = Regex("\\s+")
 }
 
@@ -85,15 +122,22 @@ object HistoryText {
  */
 class HistorySearchTool(
     private val messages: Lazy<MessageDao>,
+    /** Saved tool results, or null to search messages only. */
+    private val observations: Lazy<ObservationDao>? = null,
     private val zone: ZoneId = ZoneId.systemDefault(),
 ) : AgentTool {
 
     private val dateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(zone)
 
+    /** `3 Oct`, in English whatever the phone's language: it is model-visible text. */
+    private val savedDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH).withZone(zone)
+    private val savedDateYearFormat: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH).withZone(zone)
+
     override val definition = ToolDefinition(
         name = "history.search",
-        description = "Searches earlier conversations for words and returns the matching " +
-            "messages with their dates. Use when the user refers to something said before.",
+        description = "Searches earlier conversations and saved tool results for words and returns " +
+            "the matches with their dates. Use when the user refers to something said or found before.",
         category = "history",
         schema = SCHEMA,
         risk = ToolRisk.READ_ONLY,
@@ -142,7 +186,8 @@ class HistorySearchTool(
                 importanceOf = { 0f },
                 limit = limit,
             )
-            if (ranked.isEmpty()) {
+            val saved = searchSaved(terms)
+            if (ranked.isEmpty() && saved.isEmpty()) {
                 return@guarded ToolResult(
                     success = true,
                     observation = "No earlier conversation mentions \"$query\". " +
@@ -162,16 +207,66 @@ class HistorySearchTool(
                     snippet = HistoryText.snippet(row.text.orEmpty(), terms),
                 )
             }
+            val savedLines = saved.map { hit ->
+                HistoryText.savedLine(
+                    id = hit.id,
+                    toolName = hit.toolName,
+                    date = savedDate(hit.createdAt),
+                    snippet = HistoryText.snippet(hit.snippet.orEmpty(), terms),
+                )
+            }
+            val observation = HistoryText.fit(lines, savedLines) { m, s ->
+                buildString {
+                    if (m.isNotEmpty()) {
+                        append("${m.size} earlier message(s) mention \"$query\", best match first:\n")
+                        append(m.joinToString("\n"))
+                    } else {
+                        append("No earlier message mentions \"$query\".")
+                    }
+                    if (s.isNotEmpty()) {
+                        append("\nSaved tool results that mention it (read more with ")
+                        append(ObservationStore.READ_TOOL).append("):\n")
+                        append(s.joinToString("\n"))
+                    }
+                }
+            }
             ToolResult(
                 success = true,
-                observation = "${lines.size} earlier message(s) mention \"$query\", best match first:\n" +
-                    lines.joinToString("\n"),
+                observation = observation,
                 data = buildJsonObject {
                     put("matches", lines.size)
+                    put("saved_matches", savedLines.size)
                     put("scanned", rows.size)
                 },
             )
         }
+    }
+
+    /**
+     * The saved tool results that contain the most of [terms], newest first among
+     * equals. Empty when there is no store or it cannot be read: a failure here must
+     * not hide the messages that were found.
+     */
+    private suspend fun searchSaved(terms: List<String>): List<ObservationHit> {
+        val dao = observations ?: return emptyList()
+        val statement = ObservationQueries.buildSearch(terms) ?: return emptyList()
+        return try {
+            dao.value.search(statement)
+                .sortedWith(compareByDescending<ObservationHit> { it.hits }.thenByDescending { it.id })
+                .take(MAX_SAVED_RESULTS)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("HistorySearchTool", "saved results not searched (${e.javaClass.simpleName})")
+            emptyList()
+        }
+    }
+
+    /** `3 Oct` this year, `3 Oct 2025` before. */
+    private fun savedDate(millis: Long): String {
+        val instant = Instant.ofEpochMilli(millis)
+        val sameYear = instant.atZone(zone).year == LocalDate.now(zone).year
+        return (if (sameYear) savedDateFormat else savedDateYearFormat).format(instant)
     }
 
     private fun invalid(reason: String) = ToolResult(
@@ -204,10 +299,12 @@ class HistorySearchTool(
 /**
  * The history tool family. The database is opened on the first search, not when the
  * app starts, so a run that never searches history never creates the handle
- * (`docs/architecture.md` section 16).
+ * (`docs/architecture.md` section 16). One handle serves both tables.
  */
 fun historyTools(context: Context): List<AgentTool> {
     val app = context.applicationContext
-    val messages = lazy { LocalIntelligenceDatabase.build(app).messageDao() }
-    return listOf(HistorySearchTool(messages))
+    val database = lazy { LocalIntelligenceDatabase.build(app) }
+    val messages = lazy { database.value.messageDao() }
+    val observations = lazy { database.value.observationDao() }
+    return listOf(HistorySearchTool(messages, observations))
 }
