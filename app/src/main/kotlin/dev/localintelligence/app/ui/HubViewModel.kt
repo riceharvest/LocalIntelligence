@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -584,10 +585,21 @@ class HubViewModel(
         resolve()
     }
 
+    /**
+     * The quant tap in progress. Each tap cancels the one before it, so a slow header
+     * probe for an earlier quant cannot land last and show that quant under a later
+     * tap, with Download fetching it.
+     */
+    private var selectJob: Job? = null
+
     /** Selects a specific quant and recomputes the plan for it. */
     fun select(file: HubGgufFile) {
-        viewModelScope.launch {
+        selectJob?.cancel()
+        selectJob = viewModelScope.launch {
             val planned = planFor(file)
+            // Cancelling does not stop the blocking probe, so the result of a probe
+            // that finished after its tap was replaced is dropped here.
+            ensureActive()
             _state.update {
                 // The transfer state belongs to the file it happened on. Tapping
                 // a different quant used to leave the previous file's progress
@@ -763,6 +775,8 @@ class HubViewModel(
         val file = current.selected ?: return
         val plan = current.plan ?: return
         if (plan.reject != null) return
+        // A quant tap still probing must not change the selection under this download.
+        selectJob?.cancel()
 
         // Already on disk, already checksum-verified. Starting again would spend
         // 668 MB of the user's data to produce the identical file, and the
@@ -879,6 +893,7 @@ class HubViewModel(
     fun startNonGgufDownload(file: NonGgufModelFile) {
         if (file.sizeBytes <= 0L) return
         val hubFile = file.toHubFile()
+        selectJob?.cancel()
         _state.value.downloadJob?.cancel()
         _state.update {
             it.copy(
