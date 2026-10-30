@@ -47,6 +47,7 @@ import dev.localintelligence.android.tools.notifications.LocalNotificationListen
 import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.settings.SimpleSetup
+import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.app.ui.ChatMessage
 import dev.localintelligence.app.ui.ChatScreen
 import dev.localintelligence.app.ui.ChatViewModel
@@ -508,15 +509,9 @@ class MainActivity : ComponentActivity() {
                             store = container.settings,
                             plugins = container.plugins,
                             suggestion = suggestedModel,
-                            suggestionInstalled = models.any { m ->
-                                m.displayName == suggestedModel.file ||
-                                    m.uri.lastPathSegment?.substringAfterLast('/') == suggestedModel.file
-                            },
+                            suggestionInstalled = models.any { m -> isInstalledFile(m, suggestedModel) },
                             alternativeInstalled = suggestedModel.alternative?.let { alt ->
-                                models.any { m ->
-                                    m.displayName == alt.file ||
-                                        m.uri.lastPathSegment?.substringAfterLast('/') == alt.file
-                                }
+                                models.any { m -> isInstalledFile(m, alt) }
                             } ?: true,
                             onOpenHub = { repo, file ->
                                 nav.navigate("$ROUTE_HUB?repo=${Uri.encode(repo)}&file=${Uri.encode(file)}")
@@ -652,6 +647,14 @@ class MainActivity : ComponentActivity() {
  */
 @Composable
 private fun <T> StateFlow<T>.value(): T = collectAsStateWithLifecycle().value
+
+/**
+ * True when the imported model [m] is [suggested]. The file is matched by its Hub name and by
+ * the local name it was downloaded under; the display name is the GGUF's own, which is rarely a
+ * file name, so it is only a fallback for imports that were named after the file.
+ */
+private fun isInstalledFile(m: ImportedModel, suggested: SuggestedModel): Boolean =
+    suggested.isFile(m.displayName) || suggested.isFile(m.uri.lastPathSegment?.substringAfterLast('/').orEmpty())
 
 /**
  * Asks for notification access, and only when it is actually worth asking.
