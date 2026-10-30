@@ -654,7 +654,9 @@ class NotificationListTool(
             put("required", buildJsonArray { })
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
+        // The text is written by the senders, not the device: NETWORK keeps the
+        // untrusted fence on the observation and in the compacted summary.
+        observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf(
             "notifications", "alerts", "messages", "list", "banner",
             "inbox", "what came in", "ping",

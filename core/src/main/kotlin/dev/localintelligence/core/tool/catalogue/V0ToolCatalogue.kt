@@ -866,7 +866,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.READ_ONLY,
-            observationOrigin = ObservationOrigin.LOCAL,
+            observationOrigin = ObservationOrigin.NETWORK,
             tags = setOf(
                 "notifications", "alerts", "what came in", "miss",
                 "messages", "whatsapp", "what did i miss", "anything new",
