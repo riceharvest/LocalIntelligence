@@ -809,11 +809,38 @@ class HubViewModel(
         // 668 MB of the user's data to produce the identical file, and the
         // downloader would answer `Discard("already complete")` and restart from
         // byte 0 anyway. So the button adopts instead of downloading.
+        //
+        // WHY this runs as a tracked download: the projector transfer below shows
+        // progress and can be cancelled, which needs `downloading` and `downloadJob`
+        // set as they are for a transfer. The result is written the same way the
+        // transfer's Done is, so a failed registration is shown, not dropped.
         if (current.alreadyOnDevice) {
-            viewModelScope.launch {
-                current.projector?.let { fetchProjector(it) }
-                adopt(file)
+            current.downloadJob?.cancel()
+            _state.update {
+                it.copy(
+                    downloading = true,
+                    progress = null,
+                    error = null,
+                    registeredNote = null,
+                    registeredReady = false,
+                )
             }
+            val job = viewModelScope.launch {
+                current.projector?.let { if (!fetchProjector(it)) return@launch }
+                val note = adopt(file)
+                _state.update {
+                    it.copy(
+                        downloading = false,
+                        downloadJob = null,
+                        progress = DownloadProgress.Done(file, downloader.localFileFor(file).absolutePath),
+                        registeredNote = note.note,
+                        registeredReady = note.chatReady,
+                        alreadyOnDevice = true,
+                        partialBytesKept = 0,
+                    )
+                }
+            }
+            _state.update { it.copy(downloadJob = job) }
             return
         }
 
