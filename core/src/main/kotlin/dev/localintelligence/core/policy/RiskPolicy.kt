@@ -60,9 +60,14 @@ class RiskPolicy(
      *
      * Total: it never throws and always returns a [Decision] with a
      * non-blank justification. Callers in the agent loop can rely on that.
+     *
+     * [displayTarget] is the conversation or contact the tool resolved for
+     * this call (see `AgentTool.describeTarget`), or null. It only changes the
+     * wording of an external-communication confirmation that names no recipient
+     * in its arguments; it never changes which outcome is chosen.
      */
-    fun evaluate(definition: ToolDefinition, args: ToolArgs): Decision {
-        val gated = evaluateGates(definition, args)
+    fun evaluate(definition: ToolDefinition, args: ToolArgs, displayTarget: String? = null): Decision {
+        val gated = evaluateGates(definition, args, displayTarget)
         val decision = autoAccepted(definition, gated) ?: gated
         // (3) Permission, judged LAST and only for a call that would run
         //     unattended. It used to be step 3 and returned early, which made
@@ -98,7 +103,7 @@ class RiskPolicy(
         )
     }
 
-    private fun evaluateGates(definition: ToolDefinition, args: ToolArgs): Decision {
+    private fun evaluateGates(definition: ToolDefinition, args: ToolArgs, displayTarget: String?): Decision {
         // (1) Privileged is unconditional and comes first so that no later
         //     step — including a permissive caller rule — can reach it.
         if (definition.risk == ToolRisk.PRIVILEGED) {
@@ -230,10 +235,19 @@ class RiskPolicy(
                 )
             }
             if (target == null) {
+                // The rule stays EXTERNAL_TO_UNKNOWN_TARGET either way, so a configured
+                // "send without asking" for unknown targets behaves as before. Only the
+                // sentence changes: when the tool named the conversation, say which one.
+                val justification = if (displayTarget != null) {
+                    "${definition.name} sends a message to $displayTarget. Confirm only if that is the " +
+                        "conversation you mean."
+                } else {
+                    "${definition.name} sends something outside the phone but names no recipient, so it is " +
+                        "not possible to tell who receives it. Confirm only if you know where it goes."
+                }
                 return decide(
                     definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.EXTERNAL_TO_UNKNOWN_TARGET,
-                    "${definition.name} sends something outside the phone but names no recipient, so it is " +
-                        "not possible to tell who receives it. Confirm only if you know where it goes.",
+                    justification,
                 )
             }
             if (!analysis.targetIsKnown) {

@@ -248,6 +248,16 @@ internal object Notifications {
         return candidates.filter { shortKey(it.key).equals(target, ignoreCase = true) }
     }
 
+    /**
+     * The conversation a reply goes to, in words for the approval dialog: `"Maria" in
+     * WhatsApp`, or just the app when the notification has no title. Named from the same
+     * notification that [keyMatches] picks, so the dialog and the reply agree on it.
+     */
+    fun conversationName(n: NotificationSummary): String {
+        val app = n.appLabelSafe()
+        return if (n.title.isBlank()) app else "\"${n.title}\" in $app"
+    }
+
     fun ambiguousKeyNotice(short: String): String =
         "More than one active notification has the key \"$short\", so it is not known which one " +
             "is meant. Run notifications.list again and use the full key shown for those entries."
@@ -867,6 +877,23 @@ class NotificationReplyTool(
         ),
         requiredPermission = null,
     )
+
+    /**
+     * Names the conversation the key points at, before the approval dialog is built (#201).
+     * Uses the same key matching as [execute], and returns null unless exactly one
+     * notification matches, so an ambiguous or stale key gets the policy's own wording.
+     */
+    override suspend fun describeTarget(args: ToolArgs): String? {
+        val rawKey = NotificationArgs.coerceString(args["key"]) ?: return null
+        return try {
+            val service = listener()?.takeIf { LocalNotificationListenerService.isConnected() } ?: return null
+            val active = service.activeNotifications ?: return null
+            val summaries = active.map { sbn -> NotificationProjector.project(sbn, LABELS::labelFor) }
+            Notifications.keyMatches(rawKey, summaries).singleOrNull()?.let(Notifications::conversationName)
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
         return try {

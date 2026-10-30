@@ -109,6 +109,10 @@ private class RedactingTool(private val delegate: AgentTool) : AgentTool {
 
     override val definition get() = delegate.definition
 
+    // Forwarded, not left to the interface default: the wrapper is what the
+    // controller holds, so a default here would silently drop the delegate's name.
+    override suspend fun describeTarget(args: ToolArgs): String? = delegate.describeTarget(args)
+
     override suspend fun execute(
         args: ToolArgs,
         context: ToolContext,
