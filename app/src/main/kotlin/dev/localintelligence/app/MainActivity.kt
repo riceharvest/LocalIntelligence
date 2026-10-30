@@ -217,8 +217,17 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable(ROUTE_MODELS) {
+                        // The resident model's URI, so only its row offers the speed test.
+                        val modelState by container.modelAvailability.state
+                            .collectAsStateWithLifecycle()
                         ModelManagerScreen(
                             models = models,
+                            speedTest = container.speedTest,
+                            loadedModelUri = if (modelState is ModelAvailability.Ready) {
+                                container.selectedModel?.uri?.toString()
+                            } else {
+                                null
+                            },
                             onImport = { uri ->
                                 // Suspending off the composition: the header read
                                 // is a few hundred bytes over SAF, which on a cloud
@@ -406,6 +415,7 @@ class MainActivity : ComponentActivity() {
                                 nav.navigate("$ROUTE_HUB?repo=${Uri.encode(repo)}&file=${Uri.encode(file)}")
                             },
                             onOpenSkills = { nav.navigate(ROUTE_SKILLS) },
+                            speedTest = container.speedTest,
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
                             onBack = { nav.popBackStack() },
                         )

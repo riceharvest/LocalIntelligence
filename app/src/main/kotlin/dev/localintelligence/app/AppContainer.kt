@@ -38,6 +38,9 @@ import dev.localintelligence.core.memory.LexicalMemoryStore
 import dev.localintelligence.core.memory.ProfilePlugin
 import dev.localintelligence.android.inference.RamEstimate
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
+import dev.localintelligence.app.speedtest.SpeedTestRunner
+import dev.localintelligence.app.speedtest.SpeedTestTarget
+import dev.localintelligence.app.ui.displayNameOf
 import androidx.compose.runtime.mutableStateListOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -583,6 +586,41 @@ class AppContainer(private val context: Context) {
 
     /** The backend holding the loaded model, for the controller that will run. */
     fun residentBackend(): ModelBackend = loadedBackend ?: modelBackend
+
+    /**
+     * The in-app speed test. Lazy, like every other field here: the scope is only
+     * created when a user first asks for a measurement.
+     *
+     * WHY ITS OWN SCOPE: a run can take a minute, and it must outlive the screen that
+     * started it. The gate, not the scope, is what keeps it from overlapping a chat run.
+     */
+    val speedTest: SpeedTestRunner by lazy {
+        SpeedTestRunner(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            runGate = runGate,
+            resolveTarget = ::speedTestTarget,
+        )
+    }
+
+    /**
+     * What a speed test measures, or null when nothing is resident.
+     *
+     * "Resident" means the last load succeeded: [ModelAvailability.Ready] and the
+     * selected model are set together by [loadModelLocked], so the file named here is
+     * the file in memory. The file name comes from the path when the model is a plain
+     * file, and from the provider's display name otherwise, because a content URI has
+     * no path to show.
+     */
+    private fun speedTestTarget(): SpeedTestTarget? {
+        if (modelAvailability.current !is ModelAvailability.Ready) return null
+        val model = selectedModel ?: return null
+        val file = model.uri.path?.takeIf { model.uri.scheme == "file" }?.let { File(it).name }
+        return SpeedTestTarget(
+            backend = residentBackend(),
+            modelUri = model.uri.toString(),
+            modelFile = file ?: displayNameOf(context, model.uri) ?: model.displayName,
+        )
+    }
 
     /**
      * Chooses the runtime from the model's own bytes.
