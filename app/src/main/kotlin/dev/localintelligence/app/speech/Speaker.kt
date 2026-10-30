@@ -1,5 +1,13 @@
 package dev.localintelligence.app.speech
 
+import android.media.MediaPlayer
+import dev.localintelligence.core.model.SpeechOutput
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import java.io.File
+import java.util.Locale
 import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -8,7 +16,6 @@ import dev.localintelligence.core.settings.SettingsReader
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.util.Locale
 
 /**
  * Reads replies aloud with the phone's own text-to-speech engine.
@@ -24,7 +31,12 @@ import java.util.Locale
  *
  * Only one utterance plays at a time: every [speak] flushes the one before it.
  */
-class Speaker(context: Context, private val settings: SettingsReader) {
+class Speaker(
+    context: Context,
+    private val settings: SettingsReader,
+    /** The loaded model, when it can speak in its own voice. Null otherwise. */
+    private val modelVoice: () -> SpeechOutput? = { null },
+) {
 
     private val appContext = context.applicationContext
 
@@ -39,6 +51,10 @@ class Speaker(context: Context, private val settings: SettingsReader) {
     private var currentId: String? = null
     private var nextId = 0
 
+    /** Synthesis in the model's voice runs here; it can take seconds on a phone. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var player: MediaPlayer? = null
+
     /** Reads [text] aloud, replacing whatever is playing. Markdown and code are stripped first. */
     @Synchronized
     fun speak(text: String) {
@@ -47,8 +63,47 @@ class Speaker(context: Context, private val settings: SettingsReader) {
         val id = "reply-${nextId++}"
         currentId = id
         _speakingText.value = text
+        val voice = modelVoice().takeIf { settings[CoreSettings.VOICE_SOURCE] == "model" }
+        if (voice != null) {
+            scope.launch { speakWithModel(voice, spoken, id) }
+            return
+        }
+        sayWithSystem(spoken, id)
+    }
+
+    @Synchronized
+    private fun sayWithSystem(spoken: String, id: String) {
+        if (id != currentId) return
         val tts = engine ?: createEngine()
         if (ready) say(tts, spoken, id) else pending = spoken to id
+    }
+
+    /**
+     * The model's own voice: synthesise to a WAV, then play it. Falls back to the
+     * phone's voice when the model returns nothing, so a reply is never silent.
+     */
+    private suspend fun speakWithModel(voice: SpeechOutput, spoken: String, id: String) {
+        val wav = runCatching {
+            voice.speak(spoken, Locale.getDefault().language, settings[CoreSettings.MODEL_VOICE])
+        }.getOrNull()
+        if (wav == null || wav.isEmpty()) {
+            sayWithSystem(spoken, id)
+            return
+        }
+        val file = File(appContext.cacheDir, "speech.wav")
+        runCatching { file.writeBytes(wav) }.onFailure { sayWithSystem(spoken, id); return }
+        synchronized(this) {
+            if (id != currentId) return
+            player?.release()
+            player = MediaPlayer().apply {
+                runCatching {
+                    setDataSource(file.absolutePath)
+                    setOnCompletionListener { finished(id) }
+                    prepare()
+                    start()
+                }.onFailure { finished(id) }
+            }
+        }
     }
 
     /** Stops playback and clears the held request. */
@@ -58,6 +113,8 @@ class Speaker(context: Context, private val settings: SettingsReader) {
         currentId = null
         _speakingText.value = null
         engine?.stop()
+        player?.release()
+        player = null
     }
 
     /** Stops [text] if it is the reply being read, otherwise reads it. */
