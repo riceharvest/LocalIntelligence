@@ -37,7 +37,13 @@ class ToolFinder(
         }
         val known = session.epochTools.toSet() + session.discoveredTools + NAME
         val candidates = registry.all().filter { it.definition.name !in known }
-        val found = selector.select(query, emptyList(), candidates, MAX_FOUND)
+        // The selector ranks by score but still returns the top tools when none
+        // scores (it has no cut-off of its own), so a query that matches nothing
+        // would make three unrelated tools callable. Only tools that share a word
+        // or a name with the query are offered.
+        val scores = selector.scores(query, emptyList(), candidates)
+        val matching = if (scores == null) candidates else candidates.filter { (scores[it.definition.name] ?: 0) > 0 }
+        val found = selector.select(query, emptyList(), matching, MAX_FOUND)
         if (found.isEmpty()) {
             return ToolResult(success = true, observation = "No other tool matches \"$query\". Use the tools you have, or answer.")
         }
