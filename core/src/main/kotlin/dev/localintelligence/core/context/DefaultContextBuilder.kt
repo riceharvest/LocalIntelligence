@@ -69,7 +69,8 @@ import dev.localintelligence.core.tool.ToolDefinition
  * there must never be one.
  */
 class DefaultContextBuilder(
-    private val systemPrompt: (List<ToolDefinition>) -> String = { SystemPrompts.forTools(it) },
+    private val systemPrompt: (List<ToolDefinition>, List<String>) -> String =
+        { tools, lines -> SystemPrompts.forTools(tools, sessionLines = lines) },
     /**
      * A safety net, not the compaction policy: the agent loop compacts before a
      * prompt gets near this. Trimming here drops the oldest turn, which shifts
@@ -95,6 +96,7 @@ class DefaultContextBuilder(
         history: List<ChatMessage>,
         memories: List<Memory>,
         tools: List<ToolDefinition>,
+        sessionLines: List<String>,
     ): List<ChatMessage> {
         val limit = workingLimit.coerceAtLeast(0)
 
@@ -118,7 +120,7 @@ class DefaultContextBuilder(
         var used = 0
 
         // 1. System prompt + tool definitions. Budgeted first, never dropped.
-        val system = ChatMessage.System(systemPrompt(tools))
+        val system = ChatMessage.System(systemPrompt(tools, sessionLines))
         out.add(system)
         used += TokenEstimate.tokens(system)
 

@@ -55,14 +55,15 @@ interface ObservationStore {
         const val READ_TOOL: String = "observations.read"
 
         /**
-         * Longest text kept per result, in characters. web.fetch already reads at most
-         * 256 KB of body, so this is room for any one tool result, and it keeps a row
-         * well inside a SQLite cursor window.
+         * Longest text kept per result, in characters: a page's text from
+         * web.fetch (at most 60,000) with its header. With [MAX_KEPT] it bounds
+         * the table at about 13 M characters, which matters on a phone because
+         * SQLite does not give the space back on its own.
          */
-        const val MAX_STORED_CHARS: Int = 256 * 1024
+        const val MAX_STORED_CHARS: Int = 64 * 1024
 
         /** How many results are kept. Older ones are deleted on insert, so the table is bounded. */
-        const val MAX_KEPT: Int = 2_000
+        const val MAX_KEPT: Int = 200
 
         /**
          * The largest single read. Below the 2,048-character observation budget, so a

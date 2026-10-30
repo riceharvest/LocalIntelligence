@@ -1,5 +1,6 @@
 package dev.localintelligence.android.inference
 
+import dev.localintelligence.core.context.SystemPrompts
 import java.io.File
 
 import dev.localintelligence.core.model.ChatMessage
@@ -496,23 +497,25 @@ class LlamaCppBackend(
         if (request.useModelTemplate) {
             val templated = templatePrompt(request, handle)
             if (templated != null) {
-                return RenderedPrompt(templated, fromTemplate = true, stableBytes = systemPrefixBytes(request, handle, templated))
+                return RenderedPrompt(templated, fromTemplate = true, stableBytes = systemPrefixBytes(request, templated))
             }
         }
         return RenderedPrompt(buildFlatPrompt(request), fromTemplate = false)
     }
 
     /**
-     * How many UTF-8 bytes of [rendered] are the system message alone: the
-     * template run on that one message, if the whole prompt starts with it. The
-     * system message holds what stays the same from message to message (rules,
-     * tools, profile), so its state is worth keeping. 0 when there is none.
+     * How many UTF-8 bytes of [rendered] come before the system prompt's tool
+     * part ([SystemPrompts.TOOLS_START]): the template's opening, the name, the
+     * rules and the profile. That part changes only when Settings do, so its
+     * state is kept across messages and restarts; the tool list after it changes
+     * with the conversation and is not part of the key. 0 when there is none.
      */
-    private fun systemPrefixBytes(request: GenerationRequest, handle: LlamaBridge.Handle, rendered: String): Int {
+    private fun systemPrefixBytes(request: GenerationRequest, rendered: String): Int {
         val system = request.messages.firstOrNull() as? ChatMessage.System ?: return 0
-        val alone = LlamaBridge.applyTemplate(handle, listOf("system"), listOf(system.text), addAssistant = false)
-            ?: return 0
-        return if (rendered.startsWith(alone)) alone.toByteArray(Charsets.UTF_8).size else 0
+        val cut = system.text.indexOf(SystemPrompts.TOOLS_START)
+        val at = rendered.indexOf(system.text)
+        if (cut <= 0 || at < 0) return 0
+        return rendered.substring(0, at + cut).toByteArray(Charsets.UTF_8).size
     }
 
     /**

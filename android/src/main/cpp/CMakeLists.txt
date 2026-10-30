@@ -198,6 +198,9 @@ set(PIDROID_LLAMA_DIR "" CACHE PATH "Path to a llama.cpp source checkout")
 # FORCE: without it a build directory configured against an older pin keeps
 # that tag in CMakeCache.txt and compiles the JNI against stale headers. The
 # JNI is written against this one tag's API, so overriding it is never useful.
+# Changing this tag: also bump kAnchorFormat in llama_jni.cpp. Saved llama.cpp
+# states (the system prompt anchor, on disk) are only valid for the build that
+# wrote them, and the format string is part of their file key.
 set(PIDROID_LLAMA_TAG "b11988" CACHE STRING "llama.cpp git tag to build against" FORCE)
 # WHY FETCH IS THE DEFAULT, NOT OPT-IN: it used to be OFF, so a fresh
 # `git clone` followed by `./gradlew :app:assembleDebug` failed with

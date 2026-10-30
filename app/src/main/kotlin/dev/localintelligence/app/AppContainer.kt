@@ -1227,7 +1227,7 @@ class AppContainer(private val context: Context) {
         contextBuilder = java.time.ZonedDateTime.now().let { now ->
             val name = settings[CoreSettings.ASSISTANT_NAME]
             DefaultContextBuilder(
-                systemPrompt = { tools -> SystemPrompts.forTools(tools, name) },
+                systemPrompt = { tools, lines -> SystemPrompts.forTools(tools, name, lines) },
                 // A safety net at the model's window: the agent loop compacts
                 // well before this, by its own count in the model's tokens.
                 workingLimit = model.capabilities.contextLength.takeIf { it > 0 } ?: config.workingTokenLimit,
