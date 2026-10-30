@@ -675,20 +675,23 @@ class HubViewModel(
      * @return plan, whether the verdict is exact (from the tensor table rather
      *   than the file name), and whether the file is already on disk.
      */
-    private suspend fun planFor(file: HubGgufFile): Triple<DownloadPlan, Boolean, Boolean> {
-        val header = client.probeHeader(file, tokenSource.token())
-        val (alreadyOnDisk, onDevice) = withContext(Dispatchers.IO) {
-            downloader.partialFileFor(file).localBytes() to downloader.isDownloaded(file)
+    private suspend fun planFor(file: HubGgufFile): Triple<DownloadPlan, Boolean, Boolean> =
+        // All of it on IO: the header probe is a network request, and on the main
+        // thread Android refuses it with NetworkOnMainThreadException. Picking any
+        // repository crashed the app this way (seen on the Samsung A05s).
+        withContext(Dispatchers.IO) {
+            val header = client.probeHeader(file, tokenSource.token())
+            val alreadyOnDisk = downloader.partialFileFor(file).localBytes()
+            val onDevice = downloader.isDownloaded(file)
+            val plan = client.plan(
+                file = file,
+                contextLength = contextLength(),
+                budget = budget,
+                alreadyOnDiskBytes = alreadyOnDisk,
+                header = header,
+            )
+            Triple(plan, header != null, onDevice)
         }
-        val plan = client.plan(
-            file = file,
-            contextLength = contextLength(),
-            budget = budget,
-            alreadyOnDiskBytes = alreadyOnDisk,
-            header = header,
-        )
-        return Triple(plan, header != null, onDevice)
-    }
 
     /**
      * Starts the download, but only if the plan allows it.
