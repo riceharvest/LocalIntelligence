@@ -17,6 +17,9 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -30,6 +33,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -119,10 +125,17 @@ fun DiagnosticsScreen(
                     ) {
                         Column(Modifier.padding(12.dp)) {
                             Text(
-                                "The self-check itself failed",
+                                error,
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                             )
+                            state.errorDetail?.let { detail ->
+                                Text(
+                                    "Details: $detail",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                            }
                             Text(
                                 error,
                                 style = MaterialTheme.typography.bodySmall,
@@ -156,7 +169,20 @@ fun DiagnosticsScreen(
                 }
             }
 
-            item { Footer() }
+            if (state.report == null && state.running) {
+                item {
+                    Column(
+                        Modifier.fillParentMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                    ) {
+                        CircularProgressIndicator()
+                        Text("Checking this phone…", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            } else {
+                item { Footer() }
+            }
         }
     }
 }
@@ -181,10 +207,7 @@ private fun ReportHeader(report: DiagnosticReport, running: Boolean) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(report.headline(), style = MaterialTheme.typography.titleSmall)
             Text(
-                "Every figure below is labelled with where it came from. " +
-                    "This project contains no measured decode rate, latency or " +
-                    "resident-memory figure for a real phone, and this screen does " +
-                    "not invent one.",
+                "Each figure shows where it came from.",
                 style = MaterialTheme.typography.bodySmall,
             )
             if (running) {
@@ -198,18 +221,19 @@ private fun ReportHeader(report: DiagnosticReport, running: Boolean) {
     }
 }
 
-/** One check, fully expanded. See the screen KDoc for why nothing collapses. */
+/** One check. Badge, title and what was found show at once; the rest sits behind "Details". */
 @Composable
 private fun CheckCard(
     check: DiagnosticCheck,
     onFix: (dev.localintelligence.core.metrics.DiagnosticAction) -> Unit,
 ) {
-    Card(
+    var expanded by remember(check.id) { mutableStateOf(false) }
+    OutlinedCard(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
+        colors = CardDefaults.outlinedCardColors(
             containerColor = when (check.outcome) {
                 CheckOutcome.FAIL -> MaterialTheme.colorScheme.errorContainer
-                else -> MaterialTheme.colorScheme.surface
+                else -> MaterialTheme.colorScheme.surfaceContainerLow
             },
         ),
     ) {
@@ -227,28 +251,28 @@ private fun CheckCard(
                 )
             }
 
-            Labelled("Checked", check.verified)
             Labelled("Found", check.finding)
 
-            if (check.findings.isNotEmpty()) {
-                HorizontalDivider()
-                Text("Figures", style = MaterialTheme.typography.labelLarge)
-                check.findings.forEach { FindingRow(it) }
-            }
+            if (expanded) {
+                Labelled("Checked", check.verified)
 
-            // Rendered unconditionally and in the same weight as the finding.
-            // A blank here would be the screen implying more than it knows.
-            HorizontalDivider()
-            Labelled("Cannot tell", check.cannotTell, emphasise = true)
+                if (check.findings.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text("Figures", style = MaterialTheme.typography.labelLarge)
+                    check.findings.forEach { FindingRow(it) }
+                }
+
+                // Shown in the same weight as the finding: a blank here would
+                // imply the screen knows more than it does.
+                HorizontalDivider()
+                Labelled("Cannot tell", check.cannotTell, emphasise = true)
+            }
 
             check.nextAction?.let { action ->
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (check.isUnfixableHere) {
                         Text(
-                            action.describe() +
-                                ". This is a build or packaging problem, not a " +
-                                "setting: a user cannot fix it, and a button that " +
-                                "pretends otherwise is worse than no button.",
+                            "This needs a different app build. Nothing on the phone can fix it.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -258,6 +282,10 @@ private fun CheckCard(
                         }
                     }
                 }
+            }
+
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "Hide details" else "Details")
             }
         }
     }
@@ -335,17 +363,17 @@ private fun ProvenanceChip(provenance: Provenance) {
 private fun OutcomeBadge(outcome: CheckOutcome) {
     val (label, container, content) = when (outcome) {
         CheckOutcome.PASS -> Triple(
-            "verified",
+            "OK",
             MaterialTheme.colorScheme.tertiaryContainer,
             MaterialTheme.colorScheme.onTertiaryContainer,
         )
         CheckOutcome.FAIL -> Triple(
-            "broken",
+            "Problem",
             MaterialTheme.colorScheme.error,
             MaterialTheme.colorScheme.onError,
         )
         CheckOutcome.CANNOT_TELL -> Triple(
-            "cannot tell",
+            "Unknown",
             MaterialTheme.colorScheme.surfaceVariant,
             MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -390,37 +418,9 @@ private fun Footer() {
         ),
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("What this screen cannot tell you", style = MaterialTheme.typography.titleSmall)
             Text(
-                "It never runs a model. Nothing here loads weights, so it cannot show " +
-                    "whether generation succeeds, how fast it is, or how much memory it " +
-                    "costs — the three questions people actually open a diagnostics " +
-                    "screen to answer.",
+                "This checks setup only. It doesn't run a model. Use Speed test to measure speed.",
                 style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                "It cannot compare this phone to another. A figure from this screen " +
-                    "describes this device on this day under this load.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                "It is not a benchmark and its output must not be quoted as one. The " +
-                    "only decode figure anywhere in this repository, about 0.66 tok/s, " +
-                    "was taken on an x86_64 emulator with an emulated CPU. It is not a " +
-                    "phone number.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                "It cannot tell you why something failed earlier in a run. It reports " +
-                    "state at the moment you opened it.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                "To measure a loaded model, run docs/measure/measure_ram.sh from a " +
-                    "computer with the phone attached. It prints '?' rather than " +
-                    "inventing a value.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

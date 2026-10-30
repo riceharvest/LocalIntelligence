@@ -51,6 +51,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import dev.localintelligence.app.media.PendingAttachment
+import dev.localintelligence.app.media.ShownAttachment
 import dev.localintelligence.app.ui.PermissionActivity
 
 /**
@@ -233,10 +234,12 @@ fun ChatComposer(
                         .padding(start = 12.dp, end = 12.dp, top = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    val pictureCount = attachments.count { it.shown is ShownAttachment.Picture }
                     attachments.forEachIndexed { index, item ->
                         AttachmentChip(
                             attachment = item,
-                            index = index,
+                            pictureNumber = attachments.take(index + 1).count { it.shown is ShownAttachment.Picture },
+                            pictureCount = pictureCount,
                             onRemove = { onRemoveAttachment(index) },
                         )
                     }

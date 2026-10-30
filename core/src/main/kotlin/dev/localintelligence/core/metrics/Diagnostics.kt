@@ -337,16 +337,16 @@ object RamGateCrossCheck {
                     "read the GGUF header the loader's own gate reads.",
                 finding = "The gate says ${gate.fits}, but the header would not parse, so " +
                     "there is no loader-side figure to compare it against.",
-                cannotTell = "The loader's gate is `estimate.totalBytes(4096) <= " +
-                    "usableDeviceBytes()`. Without a parsed header that expression cannot " +
-                    "be evaluated at all, so this check reports the gate's opinion and " +
+                cannotTell = "The loader checks that the model's estimated memory use fits in " +
+                    "the memory this phone can spare. Without a parsed header that cannot " +
+                    "be worked out at all, so this check reports the gate's opinion and " +
                     "nothing about whether it is right. The header parse failure is on the " +
                     "model-file check, with the parser's own reason.",
                 findings = listOf(
                     Finding.computed(
                         "RAM gate verdict",
                         if (gate.fits) "fits" else "does not fit",
-                        "FitGate.ramFit on ${fileBytes} bytes, context $contextLength, " +
+                        "the download-time RAM check on ${fileBytes} bytes, context $contextLength, " +
                             "quant ${quant?.label ?: "not in the file name"}, " +
                             "parameters ${parameters ?: "not in the file name"}; " +
                             "x${FitGate.DECISION_FACTOR} decision factor applied",
@@ -433,7 +433,7 @@ object RamGateCrossCheck {
             id = ID,
             title = "Does the RAM gate agree with what the loader will allocate?",
             outcome = outcome,
-            verified = "Ran FitGate.ramFit on the file name, size and context " +
+            verified = "Ran the download-time RAM check on the file name, size and context " +
                 "($contextLength) — the bound the download screen showed — and " +
                 "ModelMemoryEstimator on the same file's parsed header at the same " +
                 "context, which is the figure AppContainer.loadModel gates on. Compared " +
@@ -459,10 +459,10 @@ object RamGateCrossCheck {
             cannotTell = "Whether the model will actually load. That is a native call " +
                 "worth tens of seconds and gigabytes of RAM, and this check runs on " +
                 "every screen open, so it does not attempt it. Nor can it tell you the " +
-                "process's real resident cost: no `dumpsys meminfo` number has ever been " +
+                "process's real resident cost: no dumpsys meminfo number has ever been " +
                 "taken on a phone in this project, because the emulator on the " +
-                "development host SIGSEGVs at boot. `docs/measure/measure_ram.sh` is the " +
-                "procedure, and it prints '?' rather than inventing a value.",
+                "development host SIGSEGVs at boot. The speed test is the " +
+                "procedure.",
             findings = findings,
             nextAction = when {
                 disagreement != null || needsSmallerModel -> DiagnosticAction.OpenModels
@@ -507,7 +507,7 @@ object RunPerformanceCheck {
         title = "How fast does this phone generate?",
         outcome = CheckOutcome.CANNOT_TELL,
         verified = "Looked for a measured throughput figure in this project: a decode " +
-            "rate, a first-token latency, or a `dumpsys meminfo` resident cost taken on " +
+            "rate, a first-token latency, or a dumpsys meminfo resident cost taken on " +
             "physical hardware.",
         finding = "There are none. Zero measured performance figures exist for a real " +
             "device. The only decode number anywhere in this repository is about 0.66 " +
@@ -516,7 +516,7 @@ object RunPerformanceCheck {
         cannotTell = "Everything about this phone's speed. Decode rate, time to first " +
             "token, peak resident memory during a run — all unknown, and no amount of " +
             "reading this app will produce them. What this screen can show you instead " +
-            "is what a *run* on this phone actually did: the token counts and per-phase " +
+            "is what a run on this phone actually did: the token counts and per-phase " +
             "durations the loop measured during that one run, which is a real " +
             "measurement of that run and not a specification of the hardware.",
         findings = listOf(
@@ -528,13 +528,13 @@ object RunPerformanceCheck {
             ),
             Finding.unknown(
                 "Resident cost of a loaded model",
-                "Never measured on a phone. `docs/measure/measure_ram.sh` takes it: " +
+                "Never measured on a phone. The speed test takes it: " +
                     "dumpsys meminfo plus smaps_rollup, idle and loaded, and it prints " +
                     "'?' for anything the device would not report.",
             ),
             Finding.unknown(
                 "Time to first token",
-                "Not instrumented. `RunMetrics.prefillMs` and `decodeMs` are summed " +
+                "Not instrumented. RunMetrics.prefillMs and decodeMs are summed " +
                     "over a whole run rather than sampled per token, so a first-token " +
                     "latency cannot be recovered from them.",
             ),
@@ -584,7 +584,7 @@ object RunMetricsCheck {
                     "published by a RunRecorder in this process.",
                 finding = "The journal is empty. No run in this process has recorded " +
                     "metrics, because no RunRecorder has been attached to the agent " +
-                    "controller — ExecutionService builds it with `metrics = null`. The " +
+                    "controller — ExecutionService builds it with metrics = null. The " +
                     "run metrics this project has always recorded were never recorded " +
                     "on this path.",
                 cannotTell = "Steps, tokens, tool latencies and the outcome of the last " +
@@ -641,7 +641,7 @@ object RunMetricsCheck {
             " The slowest phase was ${slowest.phase} at ${slowest.durationMs} ms, which " +
                 "is past the watchdog's ${STALL_RULE_MS} ms wall-clock threshold. That " +
                 "threshold is DISABLED in production — AgentController passes " +
-                "`stallTimeoutMs = null` — because on a phone-sized CPU a small model " +
+                "stallTimeoutMs = null — because on a phone-sized CPU a small model " +
                 "spends longer than that inside one decode. A slow phase here is the " +
                 "app working, not stalling, and is not reported as a failure."
         } else {

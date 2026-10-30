@@ -61,6 +61,8 @@ import dev.localintelligence.app.ui.SettingsScreen
 import dev.localintelligence.app.ui.SkillsScreen
 import dev.localintelligence.app.ui.TraceScreen
 import dev.localintelligence.app.ui.components.LocalTechnicalDetail
+import dev.localintelligence.app.ui.trace.DiagnosticsScreen
+import dev.localintelligence.app.ui.trace.DiagnosticsViewModel
 import dev.localintelligence.app.ui.trace.RedactionScreen
 import dev.localintelligence.app.ui.trace.ScheduleScreen
 import dev.localintelligence.app.ui.trace.ScheduleViewModel
@@ -408,6 +410,15 @@ class MainActivity : ComponentActivity() {
                             viewModel = vm,
                             onBack = { nav.popBackStack() },
                             onOpenModels = { nav.navigate(ROUTE_MODELS) },
+                            onOpenSelfCheck = { nav.navigate(ROUTE_SELF_CHECK) },
+                        )
+                    }
+
+                    composable(ROUTE_SELF_CHECK) {
+                        DiagnosticsScreen(
+                            viewModel = viewModel<DiagnosticsViewModel>(),
+                            onBack = { nav.popBackStack() },
+                            onOpenModels = { nav.navigate(ROUTE_MODELS) },
                         )
                     }
 
@@ -511,6 +522,7 @@ class MainActivity : ComponentActivity() {
                             onOpenSchedule = { nav.navigate(ROUTE_SCHEDULE) },
                             onOpenTrace = { nav.navigate(ROUTE_TRACE) },
                             onOpenRedaction = { nav.navigate(ROUTE_REDACTION) },
+                            onOpenSelfCheck = { nav.navigate(ROUTE_SELF_CHECK) },
                             // Not offered mid-run: the conversation is being written to.
                             onNewChat = if (messages.isEmpty() || settingsRunState.isActive) {
                                 null
@@ -610,6 +622,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_HUB = "hub"
         const val ROUTE_SCHEDULE = "schedule"
         const val ROUTE_REDACTION = "redaction"
+        const val ROUTE_SELF_CHECK = "selfcheck"
         const val ROUTE_SETTINGS = "settings"
         const val ROUTE_SKILLS = "skills"
         const val ROUTE_SCRIPTS = "scripts"

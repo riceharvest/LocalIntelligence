@@ -54,11 +54,20 @@ fun SpeedTestButton(runner: SpeedTestRunner, modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            is SpeedTestStatus.Failed -> Text(
-                text = "Speed test failed: ${s.reason}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
+            is SpeedTestStatus.Failed -> {
+                Text(
+                    text = "Speed test failed. ${s.reason}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                s.detail?.let { detail ->
+                    Text(
+                        text = "Details: $detail",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             else -> Unit
         }
     }

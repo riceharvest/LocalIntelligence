@@ -39,7 +39,12 @@ import dev.localintelligence.app.media.ShownAttachment
 
 /** A queued attachment above the text field. [onRemove] takes it back out before sending. */
 @Composable
-internal fun AttachmentChip(attachment: PendingAttachment, index: Int, onRemove: () -> Unit) {
+internal fun AttachmentChip(
+    attachment: PendingAttachment,
+    pictureNumber: Int,
+    pictureCount: Int,
+    onRemove: () -> Unit,
+) {
     val label = attachmentLabel(attachment.shown)
     Surface(
         shape = RoundedCornerShape(12.dp),
@@ -53,7 +58,11 @@ internal fun AttachmentChip(attachment: PendingAttachment, index: Int, onRemove:
                 modifier = Modifier.padding(horizontal = 8.dp),
             )
             IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Filled.Close, contentDescription = "Remove $label ${index + 1}")
+                Icon(Icons.Filled.Close, contentDescription = if (attachment.shown is ShownAttachment.Picture && pictureCount > 1) {
+                        "Remove photo $pictureNumber"
+                    } else {
+                        "Remove ${label.lowercase()}"
+                    },)
             }
         }
     }

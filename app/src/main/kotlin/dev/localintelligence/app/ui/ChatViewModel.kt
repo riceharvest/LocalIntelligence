@@ -290,7 +290,7 @@ class ChatViewModel(
                 // A tool needs a human. Hands-free mode cannot answer by voice, so it stops.
                 // The run itself waits, untouched, for the Allow or Deny on screen.
                 if (state is RunState.AwaitingApproval && _handsFree.value.phase != HandsFreePhase.Off) {
-                    stopHandsFree("Hands-free paused: tap Allow or Deny.")
+                    stopHandsFree("Hands-free turned off. Tap Allow or Don't allow, then start it again.")
                 }
 
                 if (state !is RunState.Finished) return@collect
@@ -395,7 +395,7 @@ class ChatViewModel(
         if (_handsFree.value.phase != HandsFreePhase.Listening) return
         when {
             error != null && error !in SILENT_LISTEN_ERRORS ->
-                stopHandsFree("Hands-free stopped.")
+                stopHandsFree("Hands-free stopped: speech recognition had a problem.")
             spoken == null -> emptyListen()
             else -> sendHandsFree(typed = _input.value.trim(), clip = null)
         }
@@ -407,7 +407,7 @@ class ChatViewModel(
         if (clip != null) _attachments.update { it + clip }
         if (!canSubmit(hasText = typed.isNotEmpty())) {
             clip?.let { heard -> _attachments.update { current -> current.filterNot { it === heard } } }
-            stopHandsFree("Hands-free stopped.")
+            stopHandsFree(blockedReason ?: "Hands-free stopped: that message couldn't be sent.")
             return
         }
         _handsFree.value = HandsFreeState(HandsFreePhase.Thinking)
@@ -442,11 +442,11 @@ class ChatViewModel(
                 false
             }
             RunOutcome.StepLimitReached -> {
-                stopHandsFree("Hands-free stopped.")
+                stopHandsFree("Hands-free stopped: the assistant couldn't finish that request.")
                 false
             }
             is RunOutcome.Failed -> {
-                stopHandsFree("Hands-free stopped.")
+                stopHandsFree("Hands-free stopped: something went wrong with the answer.")
                 false
             }
         }
