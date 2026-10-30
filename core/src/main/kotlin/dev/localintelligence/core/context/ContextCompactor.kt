@@ -135,6 +135,7 @@ class ContextCompactor(
         val progress = Slot()
         val actions = Slot()
         val failures = Slot()
+        val handles = Slot()
 
         // Single deterministic pass. `actions` and `failures` are separate slots
         // because a 3B model needs them labelled apart, not interleaved.
@@ -146,6 +147,11 @@ class ContextCompactor(
                 is ChatMessage.ToolObservation -> {
                     val line = observationLine(message)
                     if (message.success) actions.add(line) else failures.add(line)
+                    // A saved result outlives the observation that previewed it,
+                    // so the summary says it is there to be read.
+                    OBS_HANDLE.find(message.observation)?.let { m ->
+                        handles.add("obs#${m.groupValues[1]} from ${message.toolName} (${m.groupValues[2]} chars)")
+                    }
                 }
 
                 // User and System messages are not progress. The task is carried
@@ -160,7 +166,8 @@ class ContextCompactor(
             knownFacts = summary?.knownFacts.orEmpty(),
             actionsTaken = actions.toList(),
             failures = failures.toList(),
-            remainingWork = summary?.remainingWork.orEmpty(),
+            remainingWork = listOfNotNull(unansweredRequest(history)),
+            openHandles = handles.toList(),
         )
 
         return merge(summary, derived)
@@ -192,8 +199,20 @@ class ContextCompactor(
             knownFacts = carry(previous.knownFacts, derived.knownFacts),
             actionsTaken = carry(previous.actionsTaken, derived.actionsTaken),
             failures = carry(previous.failures, derived.failures),
-            remainingWork = carry(previous.remainingWork, derived.remainingWork),
+            // Not carried: what is left is decided by the newest turn alone, and
+            // an answered request must not stay listed as work to do.
+            remainingWork = derived.remainingWork,
+            openHandles = carry(previous.openHandles, derived.openHandles),
         )
+    }
+
+    /** The newest user request with no answer after it, as a remaining-work line, or null. */
+    private fun unansweredRequest(history: List<ChatMessage>): String? {
+        val last = history.indexOfLast { it is ChatMessage.User && it.text.isNotBlank() }
+        if (last < 0) return null
+        val answered = history.subList(last + 1, history.size).any { it is ChatMessage.Assistant }
+        if (answered) return null
+        return "answer: " + truncate(collapse((history[last] as ChatMessage.User).text), MAX_ENTRY_CHARS)
     }
 
     /**
@@ -266,6 +285,9 @@ class ContextCompactor(
         }
         return truncate(flat, MAX_ENTRY_CHARS)
     }
+
+    /** The handle in a saved result's preview footer; see ObservationTruncator.preview. */
+    private val OBS_HANDLE = Regex("""\[obs#(\d+): ([\d,.]+) chars""")
 
     private fun truncate(text: String, limit: Int): String =
         if (text.length <= limit) text else text.take(limit - 1).trimEnd() + "…"

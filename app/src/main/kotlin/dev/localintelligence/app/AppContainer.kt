@@ -1,5 +1,7 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.android.data.lazyObservationStore
+import dev.localintelligence.core.tool.ObservationStore
 import android.content.Context
 import dev.localintelligence.android.data.LocalIntelligenceDatabase
 import dev.localintelligence.android.data.resilientMemoryStore
@@ -862,6 +864,13 @@ class AppContainer(private val context: Context) {
     val database: LocalIntelligenceDatabase by lazy { LocalIntelligenceDatabase.build(context) }
 
     /**
+     * Long tool results, saved whole so the model can read past the preview.
+     * Through the :android factory: :app cannot see Room's types (see
+     * SessionStoreFactory), and the database opens on the first save.
+     */
+    private val observationStore: ObservationStore by lazy { lazyObservationStore(context) }
+
+    /**
      * The state a run publishes into, shared between [ExecutionService] (writer)
      * and [dev.localintelligence.app.ui.ChatViewModel] (reader).
      *
@@ -1191,6 +1200,7 @@ class AppContainer(private val context: Context) {
         onToolStart = onToolStart,
         onToolDone = onToolDone,
         log = { line -> android.util.Log.i("LocalAgent", line) },
+        observationStore = observationStore,
         // Persist whenever the loop trims the window, not only at run
         // boundaries: a message removed by a mid-run fold is unrecoverable
         // afterwards. See AgentController.onWindowChanged.
