@@ -176,7 +176,17 @@ class Session(
      */
     fun observe(text: String) = appendAssistant(text)
 
-    fun appendAssistant(text: String) = record(ChatMessage.Assistant(text))
+    fun appendAssistant(text: String, rendered: String? = null) =
+        record(ChatMessage.Assistant(text, rendered?.takeIf { it != text }))
+
+    /**
+     * The model's tool call, as it produced it. Not shown or stored as an answer
+     * (its text is blank); it is in the prompt so the model sees what it called
+     * and the next prompt repeats the tokens it generated.
+     */
+    fun recordCall(raw: String) {
+        if (raw.isNotBlank()) record(ChatMessage.Assistant("", raw))
+    }
 
     /** [observation] must already be truncated to the model-visible budget. */
     fun appendToolObservation(tool: AgentTool, observation: String, success: Boolean) =

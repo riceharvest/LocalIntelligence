@@ -57,7 +57,13 @@ sealed interface ChatMessage {
      * reuse them instead of prefilling the conversation again.
      */
     data class User(val text: String, val rendered: String? = null) : ChatMessage
-    data class Assistant(val text: String) : ChatMessage
+    /**
+     * [text] is the answer as shown and stored; blank for a turn that only
+     * called a tool. [rendered] is what the model actually produced (its
+     * `<respond>` or `<tool>` markup), replayed in later prompts so they repeat
+     * the tokens the model generated and llama.cpp can reuse them.
+     */
+    data class Assistant(val text: String, val rendered: String? = null) : ChatMessage
     /**
      * A tool result fed back to the model. [observation] is the ONLY part the
      * model ever sees — it is already truncated, neutralised and model-facing.

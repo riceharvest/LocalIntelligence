@@ -586,7 +586,10 @@ class AppContainer(private val context: Context) {
         // `Session.writtenIds` is the set of message identities already handed
         // to the store, so a trim, a fold, or a repeated call are all naturally
         // idempotent and nothing is inferred from positions.
+        // A tool call's own turn (blank text, see Session.recordCall) is prompt
+        // plumbing, not conversation: it is not stored or shown after a restart.
         return session.messages.filter { session.writtenIds.add(session.idOf(it)) }
+            .filterNot { it is ChatMessage.Assistant && it.text.isBlank() }
     }
 
     private suspend fun writeSnapshot(pending: List<ChatMessage>) {

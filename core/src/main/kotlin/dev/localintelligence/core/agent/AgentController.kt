@@ -615,7 +615,7 @@ class AgentController(
                     malformedStreak = 0
                     when (val action = parsed.action) {
                         is AgentAction.Respond -> {
-                            sessions.appendAssistant(action.text)
+                            sessions.appendAssistant(action.text, rendered = generation.text)
                             // The one place a turn is offered to durable memory.
                             // See [rememberTurn] for why it is here and nowhere
                             // else.
@@ -623,8 +623,10 @@ class AgentController(
                             return AgentResult.Success(action.text, trace.toList())
                         }
 
-                        is AgentAction.CallTool ->
+                        is AgentAction.CallTool -> {
+                            sessions.recordCall(generation.text)
                             handleCall(action, visible, generation.text)?.let { return it }
+                        }
                     }
                 }
             }

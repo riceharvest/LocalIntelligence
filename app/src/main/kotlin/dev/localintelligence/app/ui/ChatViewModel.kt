@@ -1026,7 +1026,7 @@ class ChatViewModel(
             _messages.value = turns.mapNotNull { turn ->
                 when (turn) {
                     is CoreChatMessage.User -> ChatMessage.User(turn.text)
-                    is CoreChatMessage.Assistant -> ChatMessage.Assistant(turn.text)
+                    is CoreChatMessage.Assistant -> turn.text.takeIf { it.isNotBlank() }?.let { ChatMessage.Assistant(it) }
                     else -> null
                 }
             }.takeLast(MAX_TRANSCRIPT_ROWS)
