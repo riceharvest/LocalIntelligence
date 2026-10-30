@@ -56,7 +56,12 @@ sealed interface ChatMessage {
      * is kept so every later prompt repeats the same tokens and llama.cpp can
      * reuse them instead of prefilling the conversation again.
      */
-    data class User(val text: String, val rendered: String? = null) : ChatMessage
+    data class User(
+        val text: String,
+        val rendered: String? = null,
+        /** A note from the agent loop to the model, not something the user wrote (see Session.observe). */
+        val note: Boolean = false,
+    ) : ChatMessage
     /**
      * [text] is the answer as shown and stored; blank for a turn that only
      * called a tool. [rendered] is what the model actually produced (its

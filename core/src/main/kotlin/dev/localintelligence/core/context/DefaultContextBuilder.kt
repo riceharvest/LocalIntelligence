@@ -176,7 +176,7 @@ class DefaultContextBuilder(
 
     /** A turn as the model saw or wrote it (its rendered text); anything else unchanged. */
     private fun asSent(message: ChatMessage): ChatMessage = when {
-        message is ChatMessage.User && message.rendered != null -> ChatMessage.User(message.rendered)
+        message is ChatMessage.User && message.rendered != null -> ChatMessage.User(message.rendered, note = message.note)
         message is ChatMessage.Assistant && message.rendered != null -> ChatMessage.Assistant(message.rendered)
         else -> message
     }

@@ -595,7 +595,7 @@ class AppContainer(private val context: Context) {
         // A tool call's own turn (blank text, see Session.recordCall) is prompt
         // plumbing, not conversation: it is not stored or shown after a restart.
         return session.messages.filter { session.writtenIds.add(session.idOf(it)) }
-            .filterNot { it is ChatMessage.Assistant && it.text.isBlank() }
+            .filterNot { (it is ChatMessage.Assistant && it.text.isBlank()) || (it is ChatMessage.User && it.text.isBlank()) }
     }
 
     private suspend fun writeSnapshot(pending: List<ChatMessage>) {

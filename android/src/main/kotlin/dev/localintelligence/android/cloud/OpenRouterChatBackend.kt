@@ -297,7 +297,8 @@ class OpenRouterChatBackend(
          * is what tells the model it is quoted text.
          */
         private fun messagesJson(request: GenerationRequest): JsonArray {
-            val lastUser = request.messages.indexOfLast { it is ChatMessage.User }
+            // Media go on the user's own turn, not on a note the agent loop added after it.
+            val lastUser = request.messages.indexOfLast { it is ChatMessage.User && !it.note }
             return buildJsonArray {
                 request.messages.forEachIndexed { index, message ->
                     when (message) {

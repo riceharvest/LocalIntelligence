@@ -539,7 +539,9 @@ class LlamaCppBackend(
      * same place the flat transcript puts them.
      */
     private fun templatePrompt(request: GenerationRequest, handle: LlamaBridge.Handle): String? {
-        val lastUser = request.messages.lastOrNull { it is ChatMessage.User }
+        // The attachments belong to the user's own turn, not to a note the loop
+        // added after it.
+        val lastUser = request.messages.lastOrNull { it is ChatMessage.User && !it.note }
         val roles = ArrayList<String>(request.messages.size)
         val contents = ArrayList<String>(request.messages.size)
         for (m in request.messages) {
@@ -600,7 +602,9 @@ class LlamaCppBackend(
      * second one that forgets the fence.
      */
     internal fun buildFlatPrompt(request: GenerationRequest): String = buildString {
-        val lastUser = request.messages.lastOrNull { it is ChatMessage.User }
+        // The attachments belong to the user's own turn, not to a note the loop
+        // added after it.
+        val lastUser = request.messages.lastOrNull { it is ChatMessage.User && !it.note }
         for (m in request.messages) {
             when (m) {
                 is ChatMessage.System -> append("### System\n").append(m.text).append("\n\n")
