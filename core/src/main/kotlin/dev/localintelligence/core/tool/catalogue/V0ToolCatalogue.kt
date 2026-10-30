@@ -1085,6 +1085,23 @@ object V0ToolCatalogue {
             tags = setOf("video", "clip", "animation", "generate video", "make a video", "movie"),
             requiredPermission = null,
         ),
+        ToolDefinition(
+            name = "video.status",
+            description = "Checks an OpenRouter video job by its id. If it is finished, saves the " +
+                "video to the phone and returns the file path; otherwise returns its status.",
+            category = "video",
+            schema = objSchema(required = listOf("job_id")) {
+                putJsonObject("job_id") {
+                    put("type", "string")
+                    put("maxLength", 128)
+                    put("description", "The job id that video.generate reported.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("video status", "check video", "video job", "finished video"),
+            requiredPermission = null,
+        ),
         // ------------------------------------------------------------- history
         ToolDefinition(
             name = "history.search",

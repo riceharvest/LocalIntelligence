@@ -18,13 +18,12 @@ import java.io.RandomAccessFile
  * point in the Kotlin API and no `mmap` flag to set. So the honest options are a
  * real path, or nothing.
  *
- * Copying a 1-2 GB model into app storage on import was rejected for the same
- * reason [dev.localintelligence.android.inference.ModelImporter] rejects it: it
- * doubles the device's storage cost for that model, takes minutes over USB, and
- * leaves the user with two copies to clean up. The fix is that LiteRT-LM models
- * are not SAF-picked in the first place — they are downloaded by the app into its
- * own files dir, where they already have a real path. This class validates that
- * path and refuses everything it cannot honestly open.
+ * A LiteRT-LM model therefore has to be a real file. Two routes produce one: the
+ * hub download, which writes into the app's files dir, and a picked document,
+ * which `dev.localintelligence.android.inference.LiteRtLmImportCopier` copies
+ * into that same dir first (with progress and a free-space check). The copy costs
+ * the file's size in app storage, which is the price of the picker. This class
+ * validates the path and refuses everything it cannot honestly open.
  *
  * ## Refusals are specific
  *

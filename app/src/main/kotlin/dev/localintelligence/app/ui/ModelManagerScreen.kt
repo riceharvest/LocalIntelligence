@@ -27,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -103,6 +104,13 @@ import kotlinx.coroutines.withContext
 fun ModelManagerScreen(
     models: List<ImportedModel>,
     onImport: suspend (Uri) -> Unit,
+    /**
+     * Copies a picked LiteRT-LM document into the app's models directory and returns
+     * the copy. LiteRT-LM opens models by path, so a document-picker descriptor cannot
+     * be used directly. Arguments: the document, its display name, and a progress
+     * callback `(copiedBytes, totalBytes)`.
+     */
+    copyLiteRtLm: suspend (Uri, String, (Long, Long) -> Unit) -> java.io.File,
     onDelete: (ImportedModel) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -160,6 +168,10 @@ fun ModelManagerScreen(
     // known, and the empty state underneath it does the rest.
     var scanNotice by remember { mutableStateOf<String?>(null) }
 
+    // A LiteRT-LM copy in progress: its file name and (copied, total) bytes, or null.
+    // The total is -1 when the provider does not report a size.
+    var copying by remember { mutableStateOf<Pair<String, Pair<Long, Long>>?>(null) }
+
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -176,43 +188,38 @@ fun ModelManagerScreen(
         scanNotice = null
         busy = true
         scope.launch {
-            // WHY THE CONTAINER IS SNIFFED HERE, BEFORE `onImport`:
-            //
-            // The picker accepts `*/*` (see the FAB below) because SAF does not
-            // reliably tag a `.gguf`, and a too-narrow filter makes a model look
-            // unimportable. The same filter therefore lets a `.litertlm` through
-            // as well — and `onImport` reads a **GGUF** header, so a LiteRT-LM
-            // FlatBuffer cannot be imported by any route this screen has. It
-            // used to be handed straight to `onImport`, which threw
-            // `GgufParseException(NOT_A_GGUF_FILE)`, and
-            // `describeLoadFailure` has no branch for that type, so the user
-            // read: "It may be a format this app cannot read, or it may be
-            // damaged - try importing it again."
-            //
-            // That sentence is the specific failure this closes. It is not
-            // *wrong* — a LiteRT-LM container is not something `onImport` can
-            // read — but it is useless, and it is worse than useless because it
-            // points at a re-download that will fail identically every time.
-            // The app does have a LiteRT-LM backend. What it does not have is
-            // any way to hand this file to it, and the reason is structural:
-            // `LiteRtLmModelSource.toFile` refuses every `content://` uri,
-            // because LiteRT-LM opens its model by filesystem path and has no
-            // descriptor entry point. A document picked from Files is by
-            // definition a descriptor, so this picker can never reach that
-            // backend no matter which filter is used.
-            //
-            // So the file is classified and the specific reason is given. GGUF
-            // and "neither" both fall through to `onImport` unchanged, so the
-            // GGUF path and the genuinely-damaged-file path behave exactly as
-            // before.
+            // The container is sniffed before `onImport`, because `onImport` reads a
+            // GGUF header and a LiteRT-LM FlatBuffer would fail that read with a
+            // message that points at a re-download. The picker accepts `*/*`, so
+            // both formats arrive here.
             when (val container = withContext(Dispatchers.IO) { sniffContainer(context, uri) }) {
-                ModelContainer.LITERTLM -> importError = litertlmViaPickerRefusal(context, uri)
+                // A LiteRT-LM bundle is copied into the app's own models directory
+                // and then imported from there, the same way a downloaded model is.
+                // The copy is announced with its size, because these files are GBs.
+                ModelContainer.LITERTLM -> {
+                    val name = displayNameOf(context, uri) ?: uri.lastPathSegment ?: "model.litertlm"
+                    val copied = try {
+                        copyLiteRtLm(uri, name) { done, total ->
+                            // Hop to the composition's dispatcher: this runs on the copy thread.
+                            scope.launch { copying = name to (done to total) }
+                        }
+                    } catch (e: java.io.IOException) {
+                        importError = e.message ?: "\"$name\" could not be copied into the app."
+                        null
+                    } finally {
+                        copying = null
+                    }
+                    if (copied != null) {
+                        runCatching { onImport(Uri.fromFile(copied)) }
+                            .onFailure { importError = describeLoadFailure(it) }
+                    }
+                }
+                // `onImport` performs the header read and reports its own
+                // failure through this screen's error state, so a throw here
+                // is still caught: an uncaught exception in this scope would
+                // cancel the whole composition scope and leave `busy` stuck
+                // on forever.
                 ModelContainer.GGUF, ModelContainer.UNKNOWN ->
-                    // `onImport` performs the header read and reports its own
-                    // failure through this screen's error state, so a throw here
-                    // is still caught: an uncaught exception in this scope would
-                    // cancel the whole composition scope and leave `busy` stuck
-                    // on forever.
                     runCatching { onImport(uri) }
                         .onFailure { importError = describeLoadFailure(it) }
             }
@@ -289,7 +296,35 @@ fun ModelManagerScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     CircularProgressIndicator(Modifier.padding(2.dp), strokeWidth = 2.dp)
-                    Text("Reading the model header…")
+                    Text(if (copying == null) "Reading the model header…" else "Preparing the file…")
+                }
+            }
+
+            copying?.let { (name, progress) ->
+                val (done, total) = progress
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = if (total > 0) {
+                            "Copying $name into app storage: ${formatBytes(done)} of ${formatBytes(total)}. " +
+                                "This is a copy, so the file takes its size in the app."
+                        } else {
+                            "Copying $name into app storage: ${formatBytes(done)} so far. " +
+                                "This is a copy, so the file takes its size in the app."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (total > 0) {
+                        LinearProgressIndicator(
+                            progress = { (done.toFloat() / total).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
                 }
             }
 
@@ -317,22 +352,14 @@ fun ModelManagerScreen(
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    // A `.litertlm` is the second format this app has a backend
-                    // for, and a user holding one has no way to discover that.
-                    // Named here, with the actual reason rather than a promise:
-                    // the picker cannot reach that backend (LiteRT-LM needs a
-                    // filesystem path, not a document descriptor), and the
-                    // bundle has to be in this app's own storage, where the
-                    // scan below only looks for `.gguf`. That is a gap in the
-                    // app, not something the user's file did wrong, and saying
-                    // so is the difference between a bug report and a dead end.
+                    // A `.litertlm` is the second format this app has a backend for.
+                    // The picker copies it into the app's storage first, so it takes
+                    // as much free space as the file is large.
                     Text(
-                        text = "Have a .litertlm (LiteRT-LM) model? This app " +
-                            "cannot import one from Files — LiteRT-LM needs a " +
-                            "real file path, not a document picker. It is also " +
-                            "not fetched by Download, which lists GGUFs only. " +
-                            "Nothing is wrong with your file: the app has no " +
-                            "route for it yet.",
+                        text = "Have a .litertlm (LiteRT-LM) model? Import it with + " +
+                            "like a GGUF. The app copies it into its own storage " +
+                            "first, which takes its size in free space and a while " +
+                            "for a multi-GB file. Download lists GGUFs only.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
@@ -715,46 +742,6 @@ internal fun sniffContainer(context: Context, uri: Uri): ModelContainer {
         LITERTLM_OFFSETS.any { head.matchesAt(it, LITERTLM_MAGIC) } -> ModelContainer.LITERTLM
         else -> ModelContainer.UNKNOWN
     }
-}
-
-/**
- * Why a `.litertlm` picked from Files cannot be used, in the order the user
- * would hit the walls.
- *
- * Every clause below is a verified fact about this build, not a forecast:
- *
- *  - `LiteRtLmModelSource.toFile` refuses a `content://` uri outright,
- *    because LiteRT-LM opens its model by filesystem path and has no
- *    descriptor entry point in its Kotlin API. So the picker — whose whole
- *    output is a descriptor — cannot reach that backend at all.
- *  - `litertlm-android:0.13.1` ships exactly three native libraries
- *    (`liblitertlm_jni.so`, `libLiteRt.so`, `libLiteRtClGlAccelerator.so`).
- *    **No NPU delegate is among them**, and `Backend$GOOGLE_TENSOR` is not in
- *    the published artifact, so on a stock APK the NPU is unavailable on every
- *    phone. The GPU tier is **OpenCL**, not Vulkan.
- *  - **No `.litertlm` has ever been initialised in this project.** There is no
- *    device, no model file and no measurement, so nothing here promises what a
- *    working one would do.
- *
- * The last clause is the one a user needs: a re-pick will not help, and
- * neither will renaming the file. The route that does work today is putting the
- * bundle in the app's own `filesDir/models`, which is what "Scan storage"
- * looks for — and `MainActivity`'s scan filters on `.gguf`, so that route is
- * itself still a gap. Named as one, because a user who has just been told
- * "no" deserves to know it is the app's gap and not their file's.
- */
-private fun litertlmViaPickerRefusal(context: Context, uri: Uri): String {
-    val name = displayNameOf(context, uri) ?: uri.lastPathSegment ?: "this file"
-    return "\"$name\" is a LiteRT-LM model (.litertlm), not a GGUF. " +
-        "This app has a LiteRT-LM backend, but it cannot use a file picked " +
-        "this way: LiteRT-LM opens models by filesystem path and has no way to " +
-        "read a document from the Files app. Picking it again, or renaming it, " +
-        "will not change that. " +
-        "It is also worth knowing before you try: litertlm-android 0.13.1 " +
-        "ships no NPU library and no GOOGLE_TENSOR backend, and its GPU is " +
-        "OpenCL, not Vulkan — so on a stock build this would run on CPU. " +
-        "No .litertlm has ever been loaded in this project, so there is no " +
-        "measured speed to expect."
 }
 
 private fun ByteArray.startsWithAt0(prefix: ByteArray): Boolean =

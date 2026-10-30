@@ -283,6 +283,14 @@ class MainActivity : ComponentActivity() {
                                     container.loadModel(model)
                                 }
                             },
+                            copyLiteRtLm = { uri, name, progress ->
+                                // The copy is GBs of I/O: the copier runs on IO itself.
+                                // The screen then imports the copy like a hub download.
+                                dev.localintelligence.android.inference.LiteRtLmImportCopier(
+                                    this@MainActivity.contentResolver,
+                                    container.modelsDir,
+                                ).copy(uri, name, progress)
+                            },
                             onScanLocal = {
                                 // Adopt GGUF files already in app storage. A model
                                 // can be there because it was downloaded, pushed
