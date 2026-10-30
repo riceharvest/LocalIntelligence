@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -163,6 +164,13 @@ fun ModelManagerScreen(
      * test; Technical keeps every figure.
      */
     technical: Boolean = false,
+    /** True when the model's file lives in the app's own storage, so removing it frees the space. */
+    isOwnFile: (ImportedModel) -> Boolean = { false },
+    /**
+     * Lists the model files in the app's own storage. Run once when the screen opens so a
+     * Simple user sees every earlier download, not only the saved model.
+     */
+    onAutoScan: (suspend () -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -199,6 +207,10 @@ fun ModelManagerScreen(
     // What the spinner row says: "Checking file…" for an import or scan, "Loading model…" for Use.
     var busyLabel by remember { mutableStateOf("Checking file…") }
     var menuOpen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        runCatching { onAutoScan?.invoke() }
+    }
 
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -277,7 +289,7 @@ fun ModelManagerScreen(
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
-                            text = { Text("Import a file") },
+                            text = { Text("Add from a file") },
                             enabled = !busy,
                             onClick = {
                                 menuOpen = false
@@ -319,11 +331,13 @@ fun ModelManagerScreen(
             )
         },
         floatingActionButton = {
-            onOpenHub?.let { open ->
+            // The empty state already has a "Download a model" button; two at once is noise.
+            val emptyStateShowing = models.isEmpty() && !busy && importError == null
+            onOpenHub?.takeIf { !emptyStateShowing }?.let { open ->
                 ExtendedFloatingActionButton(
                     onClick = open,
                     icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                    text = { Text("Get a model") },
+                    text = { Text("Download a model") },
                 )
             }
         },
@@ -493,16 +507,27 @@ fun ModelManagerScreen(
     pendingDelete?.let { target ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Remove ${target.displayName}?") },
+            title = {
+                val name = if (technical) target.displayName else friendlyModelName(target.displayName)
+                Text(
+                    if (isOwnFile(target)) "Delete $name?" else "Remove $name from the list?",
+                )
+            },
             text = {
-                Text("Remove this model from the app?")
+                Text(
+                    if (isOwnFile(target)) {
+                        "This frees ${formatBytes(target.fileSizeBytes)} on your phone."
+                    } else {
+                        "The file stays where it is."
+                    },
+                )
             },
             confirmButton = {
                 TextButton(onClick = {
                     onDelete(target)
                     pendingDelete = null
                 }) {
-                    Text("Remove")
+                    Text(if (isOwnFile(target)) "Delete" else "Remove")
                 }
             },
             dismissButton = {
@@ -594,7 +619,7 @@ private fun ModelRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = model.displayName,
+                        text = if (technical) model.displayName else friendlyModelName(model.displayName),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
@@ -636,7 +661,7 @@ private fun ModelRow(
                     TextButton(onClick = onUse) { Text("Use") }
                 }
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Remove ${model.displayName}")
+                    Icon(Icons.Filled.Delete, contentDescription = "Remove ${if (technical) model.displayName else friendlyModelName(model.displayName)}")
                 }
             }
 
@@ -918,6 +943,19 @@ private fun ByteArray.matchesAt(offset: Int, prefix: ByteArray): Boolean {
     if (offset < 0 || offset + prefix.size > size) return false
     for (i in prefix.indices) if (this[offset + i] != prefix[i]) return false
     return true
+}
+
+/**
+ * A readable name for Simple mode: the file name without extension, quant suffix and
+ * separators, e.g. "LFM3-1.7B-QAD-Q4_0.gguf" becomes "LFM3 1.7B".
+ */
+internal fun friendlyModelName(fileName: String): String {
+    val base = fileName.substringBeforeLast('.', fileName).ifEmpty { fileName }
+    // Everything from the first quant token on is dropped ("-Q4_K_M", "-QAD-Q4_0", "-IQ3_XS").
+    val cut = Regex("[-_.](i?q\\d|qad|bf16|f16|f32)", RegexOption.IGNORE_CASE).find(base)?.range?.first
+    val name = (if (cut != null && cut > 0) base.substring(0, cut) else base)
+        .replace('-', ' ').replace('_', ' ').trim()
+    return name.ifBlank { fileName }
 }
 
 private fun formatParams(count: Long): String = when {
