@@ -1501,8 +1501,20 @@ class AppContainer(private val context: Context) {
     }
 
     /**
-     * The hub ViewModel. One per screen instance, not a singleton: a screen
-     * that is popped must not leave a download running behind it.
+     * Where model downloads run. App-level, so a transfer is not ended by its screen
+     * being cleared; [DownloadService] is started and stopped around it.
+     */
+    val hubTransfers: HubTransfers by lazy {
+        HubTransfers(
+            start = { DownloadService.start(context) },
+            stop = { result -> DownloadService.stop(context, result) },
+        )
+    }
+
+    /**
+     * The hub ViewModel. One per screen instance. Leaving the screen mid-download
+     * asks first and then stops it (MainActivity), so a download does not outlive
+     * the screen that shows it; leaving the app does not stop it.
      */
     /**
      * The Hub screen's view model, wired to the app's own model list.
@@ -1529,6 +1541,7 @@ class AppContainer(private val context: Context) {
         contextLength = {
             ContextLength.resolve(settings[CoreSettings.CONTEXT_LENGTH], deviceFacts, trainedContext = null)
         },
+        transfers = hubTransfers,
     )
 
     /**
