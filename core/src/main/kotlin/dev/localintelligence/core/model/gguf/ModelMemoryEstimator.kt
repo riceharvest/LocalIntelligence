@@ -216,9 +216,23 @@ class ModelMemoryEstimator(
             "n_vocab x $outputsMax x 4 B + fitted base",
         )
 
+        // ---- kept states ----------------------------------------------------------
+        // The system prompt's state (at most ANCHOR_TOKENS of KV) for every model;
+        // a hybrid or recurrent model also keeps whole-conversation copies, at
+        // most two, each at most the full cache plus its recurrent state.
+        val anchorShare = if (contextLength > 0) minOf(1.0, ANCHOR_TOKENS.toDouble() / contextLength) else 1.0
+        val anchorBytes = (kvCacheBytes * anchorShare).toLong() + recurrentBytes
+        val conversationCopies = if (recurrentBytes > 0) 2 * saturatingAdd(kvCacheBytes, recurrentBytes) else 0L
+        val keptStates = saturatingAdd(anchorBytes, conversationCopies)
+        inputs += EstimateInput(
+            "Kept states",
+            MemoryEstimate.formatBytes(keptStates),
+            if (recurrentBytes > 0) "system prompt + up to 2 conversation copies (hybrid)" else "system prompt",
+        )
+
         val total = saturatingAdd(
-            saturatingAdd(residentWeights, kvCacheBytes),
-            saturatingAdd(recurrentBytes, overhead),
+            saturatingAdd(saturatingAdd(residentWeights, kvCacheBytes), saturatingAdd(recurrentBytes, overhead)),
+            keptStates,
         )
 
         return MemoryEstimate(
@@ -227,6 +241,7 @@ class ModelMemoryEstimator(
             kvCacheBytes = kvCacheBytes,
             overheadBytes = overhead,
             totalBytes = total,
+            keptStatesBytes = keptStates,
             declaredWeightBytes = header.declaredWeightBytes,
             parameterCount = parameterCount,
             quantType = effectiveQuant,
@@ -439,6 +454,12 @@ class ModelMemoryEstimator(
 
     companion object {
         private const val MIB: Long = 1024L * 1024
+
+        /**
+         * Tokens of the system prompt whose state is kept (rules, profile; the
+         * tools come after it): a generous bound on what SystemPrompts produces.
+         */
+        const val ANCHOR_TOKENS: Long = 1_536L
 
         /** Vocabulary assumed when the file has no token list. */
         private const val DEFAULT_VOCAB: Long = 152_000L

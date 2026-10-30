@@ -1620,8 +1620,23 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             h->gen_state.resize(size);
             if (size > 0 && llama_state_seq_get_data(ctx, h->gen_state.data(), size, kPromptSeq) == size) {
                 h->gen_at = pos;
+                // When the reply's text tokenises back to exactly the tokens
+                // generated, a next prompt that repeats it reaches gen_at, so
+                // the copy from before the reply is never the one restored:
+                // free it, so a hybrid model holds two copies (system prompt,
+                // after the reply), not three. Anything that does not round-trip
+                // (a special token mid-reply, a merge) keeps it as the fallback.
+                std::vector<llama_token> again(gen_tokens.size() + 8);
+                const int32_t n_again = llama_tokenize(
+                    vocab, outcome.text.data(), static_cast<int32_t>(outcome.text.size()), again.data(),
+                    static_cast<int32_t>(again.size()), /*add_special=*/false, parse_special == JNI_TRUE);
+                if (n_again == static_cast<int32_t>(gen_tokens.size()) &&
+                    std::equal(gen_tokens.begin(), gen_tokens.end(), again.begin())) {
+                    std::vector<uint8_t>().swap(h->snap_state);
+                    h->snap_at = 0;
+                }
             } else {
-                h->gen_state.clear();
+                std::vector<uint8_t>().swap(h->gen_state);
             }
         }
     }
