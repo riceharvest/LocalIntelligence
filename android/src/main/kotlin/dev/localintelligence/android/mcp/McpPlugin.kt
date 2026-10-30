@@ -1,5 +1,6 @@
 package dev.localintelligence.android.mcp
 
+import dev.localintelligence.core.model.UntrustedContent
 import dev.localintelligence.android.tools.web.UrlVerdict
 import dev.localintelligence.android.tools.web.WebUrls
 import dev.localintelligence.core.model.ObservationOrigin
@@ -148,7 +149,11 @@ private fun definition(name: String, remoteName: String, tool: JsonObject): Tool
     val described = (tool["description"] as? JsonPrimitive)?.contentOrNull.orEmpty().trim()
     return ToolDefinition(
         name = name,
+        // The server writes this text and it reaches the system prompt, so it gets
+        // the same neutralisation as an observation body (no role markers, no
+        // template control tokens) and is labelled as the server's own words.
         description = described.ifEmpty { "Tool $remoteName on the remote MCP server." }
+            .let { "(from the MCP server) " + UntrustedContent.neutralise(it) }
             .take(MAX_DESCRIPTION_CHARS),
         category = "mcp",
         schema = (tool["inputSchema"] as? JsonObject) ?: buildJsonObject { put("type", "object") },
