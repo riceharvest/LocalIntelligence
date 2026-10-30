@@ -179,6 +179,11 @@ class MainActivity : ComponentActivity() {
                                 toolCallsAutoCollapse = container.settings[CoreSettings.TOOL_CALLS_AUTO_COLLAPSE],
                                 skills = container.skills,
                                 assistantName = container.settings[CoreSettings.ASSISTANT_NAME],
+                                suggestion = SimpleSetup.suggestedModel(container.deviceFacts),
+                                onGetSuggested = {
+                                    val pick = SimpleSetup.suggestedModel(container.deviceFacts)
+                                    nav.navigate("$ROUTE_HUB?repo=${Uri.encode(pick.repo)}&file=${Uri.encode(pick.file)}")
+                                },
                             )
                         }
                     }

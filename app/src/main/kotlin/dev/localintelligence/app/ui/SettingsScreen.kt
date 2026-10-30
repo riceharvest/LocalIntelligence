@@ -268,18 +268,12 @@ private fun ModeSwitch(store: SettingsStore) {
 
 @Composable
 private fun SuggestionCard(suggestion: SuggestedModel, onOpenHub: () -> Unit) {
-    // A friendly name from the file: "Qwen3-1.7B-Q4_K_M.gguf" -> "Qwen3 1.7B Q4_K_M".
-    val name = suggestion.file.removeSuffix(".gguf").replace('-', ' ')
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Recommended for this phone", style = MaterialTheme.typography.titleMedium)
-            Text(name, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "about ${formatBytes(suggestion.sizeBytes)}",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            Text("Recommended for this phone", style = MaterialTheme.typography.labelLarge)
+            Text(suggestion.name, style = MaterialTheme.typography.titleMedium)
             Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
-            FilledTonalButton(onClick = onOpenHub) { Text("Download") }
+            FilledTonalButton(onClick = onOpenHub) { Text("Download · ${formatBytes(suggestion.sizeBytes)}") }
         }
     }
 }
