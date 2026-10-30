@@ -251,6 +251,19 @@ object CoreSettings {
         SettingSection.MODEL, default = true,
     )
 
+    /**
+     * The HuggingFace read token for gated repositories. Technical only: a
+     * Simple user who never opens a gated repo never needs it, and the Hub's
+     * own error says where to add it.
+     */
+    val HF_READ_TOKEN = Secret(
+        "hub.hf_read_token", "HuggingFace read token",
+        "Needed only for gated repositories, after you accept the licence on huggingface.co. " +
+            "Create a read token there. Stored encrypted and never shown back. Public models " +
+            "do not need one.",
+        SettingSection.MODEL,
+    )
+
     // ---- agent loop --------------------------------------------------------
 
     val MAX_STEPS = IntValue(
@@ -293,7 +306,7 @@ object CoreSettings {
         READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
         COMPUTE, GPU_LAYERS, CONTEXT_LENGTH,
-        SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE, NATIVE_TOOL_FORMAT,
+        SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE, NATIVE_TOOL_FORMAT, HF_READ_TOKEN,
         MAX_STEPS, MAX_VISIBLE_TOOLS, TOOL_LOOKUP, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
     )
 }
