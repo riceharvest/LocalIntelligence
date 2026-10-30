@@ -50,6 +50,13 @@ sealed interface ModelAvailability {
     data class Failed(val reason: String) : ModelAvailability
 
     /**
+     * A model is being loaded: at launch, the one saved last time, or the one
+     * just picked. Without this state a restart showed the first-run "add a
+     * model" screen until the saved model was resident.
+     */
+    data object Loading : ModelAvailability
+
+    /**
      * A model is resident and the backend will answer — and this is which one.
      *
      * ## WHY READY CARRIES A NAME
@@ -169,4 +176,6 @@ internal fun ModelAvailability.blockingReason(): String? = when (this) {
         "Add a model to start chatting. Everything stays on your phone."
 
     is ModelAvailability.Failed -> reason
+
+    ModelAvailability.Loading -> "Getting the model ready…"
 }

@@ -382,15 +382,55 @@ class ExecutionService : Service() {
         }
     }
 
-    private fun startTaskForeground() {
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun runNotification(text: String): android.app.Notification {
+        val stop = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, ExecutionService::class.java).setAction(ACTION_CANCEL),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText(NOTIFICATION_TEXT)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(mainActivityIntent())
+            .addAction(0, "Stop", stop)
             .build()
+    }
+
+    /**
+     * Re-posts the ongoing notification as "Waiting for your OK" with the
+     * question while a risky step waits, and back to the working text after.
+     */
+    private fun watchNotificationText() {
+        if (notificationWatcher?.isActive == true) return
+        notificationWatcher = serviceScope.launch {
+            var last = NOTIFICATION_TEXT
+            sinks.state.collect { state ->
+                val text = if (state is RunState.AwaitingApproval) {
+                    "Waiting for your OK: " + state.description.ifBlank { state.toolName }
+                } else {
+                    NOTIFICATION_TEXT
+                }
+                if (text != last) {
+                    last = text
+                    runCatching {
+                        getSystemService(NotificationManager::class.java)
+                            .notify(NOTIFICATION_ID, runNotification(text))
+                    }
+                }
+            }
+        }
+    }
+
+    private var notificationWatcher: Job? = null
+
+    private fun startTaskForeground() {
+        val notification = runNotification(NOTIFICATION_TEXT)
+        watchNotificationText()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceCompat.startForeground(
@@ -555,14 +595,15 @@ class ExecutionService : Service() {
      */
     private fun notifyScheduledResult(task: ScheduledTask) {
         val result = task.lastResult ?: return
+        val body = ScheduledRunReporter.notificationBody(result)
         val manager = getSystemService(NotificationManager::class.java)
         // Off when the user has disabled notifications or never granted
         // POST_NOTIFICATIONS. The result is still in the task row.
         if (!manager.areNotificationsEnabled()) return
         val notification = NotificationCompat.Builder(this, RESULT_CHANNEL_ID)
             .setContentTitle(shortTitle(task.prompt))
-            .setContentText(result)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(result))
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setSmallIcon(R.mipmap.ic_launcher)
             .setAutoCancel(true)
             .setContentIntent(mainActivityIntent())
@@ -684,7 +725,7 @@ class ExecutionService : Service() {
 
         /** Private: the channel is an implementation detail of this service. */
         private const val CHANNEL_ID = "execution"
-        private const val CHANNEL_NAME = "Running task"
+        private const val CHANNEL_NAME = "Assistant at work"
         private const val NOTIFICATION_ID = 41
 
         /** Its own channel, so results can be silenced without silencing progress. */

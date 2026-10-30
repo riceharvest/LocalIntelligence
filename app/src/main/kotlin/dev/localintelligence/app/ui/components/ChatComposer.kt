@@ -40,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -149,6 +150,8 @@ fun ChatComposer(
      * while the empty chat already shows the same sentence in the middle.
      */
     showBlockedReason: Boolean = true,
+    /** A way out of [blockedReason], such as "Download a model". Null when waiting is the answer. */
+    blockedAction: Pair<String, () -> Unit>? = null,
     modifier: Modifier = Modifier,
 ) {
     // A message can be only attachments, but never while a clip is still recording.
@@ -175,15 +178,26 @@ fun ChatComposer(
             if (blockedReason != null && showBlockedReason) {
                 // Announced as it appears: without this, a TalkBack user
                 // encounters a disabled button with no explanation of why.
-                Text(
-                    text = blockedReason,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                // Neutral, not red: "no model yet" or "loading" is a state, and
+                // the button next to it is the way forward.
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .semantics { liveRegion = LiveRegionMode.Polite },
-                )
+                        .padding(start = 16.dp, end = 8.dp, top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = blockedReason,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .weight(1f)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                    blockedAction?.let { (label, action) ->
+                        TextButton(onClick = action) { Text(label) }
+                    }
+                }
             }
 
             if (notice != null) {

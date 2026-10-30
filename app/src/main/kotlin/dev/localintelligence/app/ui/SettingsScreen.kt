@@ -170,7 +170,7 @@ fun SettingsScreen(
 
                 val context = LocalContext.current
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    onNewChat?.let { NavRow(Icons.Filled.AddComment, "New chat", it) }
+                    onNewChat?.let { NewChatRow(it) }
                     NavRow(Icons.Filled.Memory, "Models", onOpenModels)
                     NavRow(Icons.Filled.AutoAwesome, "Skills", onOpenSkills)
                     NavRow(Icons.Filled.Description, "Documents", onOpenDocuments)
@@ -229,6 +229,27 @@ private fun NavRow(icon: ImageVector, title: String, onClick: () -> Unit) {
     )
 }
 
+/** New chat, after a confirmation: the cleared conversation cannot be reopened here. */
+@Composable
+private fun NewChatRow(onNewChat: () -> Unit) {
+    var asking by remember { mutableStateOf(false) }
+    NavRow(Icons.Filled.AddComment, "New chat") { asking = true }
+    if (asking) {
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text("Start a new chat?") },
+            text = { Text("This conversation will be cleared. Past chats can still find what was said.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    asking = false
+                    onNewChat()
+                }) { Text("New chat") }
+            },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
+        )
+    }
+}
+
 /** Export, with the formats in a menu under the row. */
 @Composable
 private fun ExportRow(onExport: (ChatExporter.Format) -> Unit) {
@@ -268,18 +289,12 @@ private fun ModeSwitch(store: SettingsStore) {
 
 @Composable
 private fun SuggestionCard(suggestion: SuggestedModel, onOpenHub: () -> Unit) {
-    // A friendly name from the file: "Qwen3-1.7B-Q4_K_M.gguf" -> "Qwen3 1.7B Q4_K_M".
-    val name = suggestion.file.removeSuffix(".gguf").replace('-', ' ')
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Recommended for this phone", style = MaterialTheme.typography.titleMedium)
-            Text(name, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "about ${formatBytes(suggestion.sizeBytes)}",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            Text("Recommended for this phone", style = MaterialTheme.typography.labelLarge)
+            Text(suggestion.name, style = MaterialTheme.typography.titleMedium)
             Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
-            FilledTonalButton(onClick = onOpenHub) { Text("Download") }
+            FilledTonalButton(onClick = onOpenHub) { Text("Download · ${formatBytes(suggestion.sizeBytes)}") }
         }
     }
 }

@@ -33,6 +33,9 @@ import dev.localintelligence.core.plugin.PluginSet
 import dev.localintelligence.core.policy.BlastRadiusTracker
 import dev.localintelligence.core.policy.PolicyConfig
 import dev.localintelligence.core.settings.CoreSettings
+import dev.localintelligence.core.hub.formatBytes
+import dev.localintelligence.core.settings.mode
+import dev.localintelligence.core.settings.SettingsMode
 import dev.localintelligence.core.settings.SettingsReader
 import dev.localintelligence.core.settings.agentConfig
 import dev.localintelligence.core.settings.autoAcceptTiers
@@ -860,7 +863,11 @@ class AppContainer(private val context: Context) {
      * only signal reaching the user is the backend's `StopReason.ERROR` with an
      * empty body, which renders as the useless notice `model failed: `.
      */
-    val modelAvailability: ModelAvailabilityHolder by lazy { ModelAvailabilityHolder() }
+    val modelAvailability: ModelAvailabilityHolder by lazy {
+        // A saved model is loaded at launch, so the chat starts in Loading rather
+        // than flashing the first-run screen until it is resident.
+        ModelAvailabilityHolder(if (savedModelUri != null) ModelAvailability.Loading else ModelAvailability.None)
+    }
 
     /**
      * Attachments the chat has queued for the next run. Read once, by the chat
@@ -929,12 +936,15 @@ class AppContainer(private val context: Context) {
         if (!model.fitsOnDevice(ModelImporter.DEFAULT_CONTEXT_LENGTH)) {
             val needed = model.estimate.totalBytes(ModelImporter.DEFAULT_CONTEXT_LENGTH)
             val have = RamEstimate.usableDeviceBytes()
-            return ModelAvailability.Failed(
-                "This model needs about ${needed / (1024 * 1024)} MiB of RAM and " +
-                    "this device has about ${have / (1024 * 1024)} MiB usable. " +
-                    "Pick a smaller quant, or a shorter context.",
-            ).also { modelAvailability.set(it) }
+            val reason = if (settings.mode == SettingsMode.TECHNICAL) {
+                "This model needs about ${formatBytes(needed)} of memory and this phone has about " +
+                    "${formatBytes(have)} free. Try a smaller model or a smaller version of it."
+            } else {
+                "Too big for this phone's memory. Try a smaller model."
+            }
+            return ModelAvailability.Failed(reason).also { modelAvailability.set(it) }
         }
+        modelAvailability.set(ModelAvailability.Loading)
         // Route per model, not once for the app: a .litertlm needs LiteRT-LM and
         // a GGUF needs llama.cpp, and loadModel is the only place that knows
         // which file it was handed.

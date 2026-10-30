@@ -834,10 +834,19 @@ class ChatViewModel(
         dispatch(typed)
     }
 
-    /** Convenience for a SEND intent or a suggestion tap. */
+    /**
+     * Convenience for a SEND intent or a suggestion tap. Text that cannot go now
+     * (no model, or an answer still running) is put in the field rather than
+     * dropped, so the user only has to tap Send.
+     */
     fun send(text: String) {
-        if (text.isBlank() || !canSubmit(hasText = true)) {
+        if (text.isBlank()) return
+        if (!canSubmit(hasText = true)) {
             refuseQueued()
+            if (_input.value.isBlank()) {
+                _input.value = text.trim()
+                showNotice("Your message is ready. Tap Send when the assistant is free.")
+            }
             return
         }
         speaker?.stop()

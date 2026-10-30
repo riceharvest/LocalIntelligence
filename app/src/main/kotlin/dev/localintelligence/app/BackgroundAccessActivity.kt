@@ -187,7 +187,7 @@ enum class BackgroundCapability(
         enables = "Set alarms and run tasks at an exact time.",
         doesNotEnable = "It does not let the app read notifications, and it is " +
             "not needed to chat.",
-        consequence = "Scheduled tasks and alarm.create cannot be armed. " +
+        consequence = "Scheduled tasks and alarms can't be set. " +
             "Chatting, models and every other tool are unaffected. A task you " +
             "try to schedule will say Android refused rather than quietly " +
             "never run.",

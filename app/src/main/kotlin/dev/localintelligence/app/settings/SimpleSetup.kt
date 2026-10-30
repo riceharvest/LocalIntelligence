@@ -19,6 +19,8 @@ data class DeviceFacts(val totalRamBytes: Long, val cpuCores: Int) {
 data class SuggestedModel(
     val repo: String,
     val file: String,
+    /** What the user sees: "LFM3 1.7B", not the file name with its quant. */
+    val name: String,
     val sizeBytes: Long,
     val reason: String,
 )
@@ -47,14 +49,16 @@ object SimpleSetup {
             // MEASURED Pixel 10 Pro, llama-bench 6 threads: pp256 254.6 vs 211.0
             // t/s, tg64 25.3 vs 23.7 t/s; and it is quantisation-aware trained.
             file = "LFM3-1.7B-QAD-Q4_0.gguf",
+            name = "LFM3 1.7B",
             sizeBytes = 1_049_615_680,
-            reason = "A 1.7B model at 4-bit, about 1 GB, in the format this phone's CPU runs fastest.",
+            reason = "Fast on this phone, and good at using its apps and tools.",
         )
         else -> SuggestedModel(
             repo = "LiquidAI/LFM2.5-230M-GGUF",
             file = "LFM2.5-230M-Q4_K_M.gguf",
+            name = "LFM2.5 230M",
             sizeBytes = 153_406_304,
-            reason = "A 230M model, about 150 MB, for a phone with under 4 GB of memory.",
+            reason = "Small enough for this phone's memory. It handles simple requests.",
         )
     }
 }

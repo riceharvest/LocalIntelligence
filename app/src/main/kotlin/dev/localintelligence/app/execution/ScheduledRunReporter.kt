@@ -155,7 +155,11 @@ internal object ScheduledRunReporter {
                 // No answer, and something was refused along the way. That is
                 // the real reason the user has nothing to read.
                 else -> refusalOrNull(trace)?.let { REFUSED_PREFIX + oneLine(it) }
-                    ?: FAILED_PREFIX + oneLine(outcome.reason)
+                    ?: FAILED_PREFIX + if (outcome.reason.contains("context window too small", ignoreCase = true)) {
+                        TOO_LONG
+                    } else {
+                        GENERIC_FAILURE
+                    }
             }
 
         RunOutcome.StepLimitReached ->
@@ -175,13 +179,37 @@ internal object ScheduledRunReporter {
      * `Refused:`.
      */
     private fun refusalOrNull(trace: List<StepTrace>): String? =
-        trace.lastOrNull { isRefusal(it) }
-            ?.let { entry ->
-                val rest = entry.detail.removePrefix(REFUSED_DETAIL_PREFIX)
-                rest.substringAfter(EM_DASH_SEPARATOR, missingDelimiterValue = "")
-                    .ifBlank { entry.toolName?.let { "the runtime refused $it." } }
-                    ?: entry.toolName?.let { "the runtime refused $it." }
-            }
+        trace.lastOrNull { isRefusal(it) }?.let { entry ->
+            val tool = entry.toolName
+                ?: entry.detail.removePrefix(REFUSED_DETAIL_PREFIX).substringBefore(':').trim()
+            "Not allowed: " + toolPhrase(tool)
+        }
+
+    private val TOOL_PHRASES = mapOf(
+        "files.delete" to "delete a file",
+        "files.write_text" to "write a file",
+        "files.read_text" to "read a file",
+        "files.list" to "list files",
+        "alarm.create" to "set an alarm",
+        "alarm.cancel" to "cancel an alarm",
+        "calendar.create" to "add a calendar event",
+        "notifications.reply" to "reply to a notification",
+        "message.draft" to "draft a message",
+        "web.fetch" to "open a web page",
+        "web.search" to "search the web",
+    )
+
+    /** Plain words for a tool id: the shipped ones by map, others from the last segment. */
+    private fun toolPhrase(tool: String): String =
+        TOOL_PHRASES[tool] ?: tool.substringAfterLast('.').replace('_', ' ').ifBlank { "do that" }
+
+    /** The stored result as a notification body: no machine prefix for answers and failures. */
+    fun notificationBody(result: String): String {
+        for (p in listOf(ANSWER_PREFIX, FAILED_PREFIX, REFUSED_PREFIX)) {
+            if (result.startsWith(p)) return result.removePrefix(p).trimStart()
+        }
+        return result
+    }
 
     private fun isRefusal(entry: StepTrace): Boolean =
         entry.kind == StepTrace.Kind.TOOL_CALL &&
@@ -264,7 +292,10 @@ internal object ScheduledRunReporter {
      * type the reporter reads as data, and the field is persisted — it has to
      * mean the same thing in six months, with or without the UI.
      */
-    private const val STEP_LIMIT_REASON = "the agent used all of its steps."
+    private const val STEP_LIMIT_REASON = "Couldn't finish that task."
+
+    private const val GENERIC_FAILURE = "Something went wrong. Try again."
+    private const val TOO_LONG = "That was too long for this model."
 
     private const val REFUSED_DETAIL_PREFIX = "refused "
     private const val EM_DASH_SEPARATOR = " — "

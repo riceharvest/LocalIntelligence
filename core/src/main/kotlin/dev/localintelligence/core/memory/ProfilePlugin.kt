@@ -50,7 +50,7 @@ class ProfilePlugin : AgentPlugin {
             key = "memory.profile.text",
             title = "About you",
             help = "Facts the assistant should always know: your name, home city, work, " +
-                "how you like answers. Up to $MAX_CHARS characters. Leave empty to share nothing.",
+                "how you like answers. Leave empty to share nothing.",
             section = SettingSection.GENERAL,
             default = "",
             maxLength = MAX_CHARS,

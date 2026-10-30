@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
 import dev.localintelligence.app.LocalIntelligenceApp
 import dev.localintelligence.core.settings.SettingsMode
@@ -213,7 +214,8 @@ fun PermissionScreen(
         launcher.launch(permissions.toTypedArray())
     }
 
-    val technical = remember {
+    val settingsVersion by (context.applicationContext as LocalIntelligenceApp).container.settings.changes.collectAsStateWithLifecycle()
+    val technical = remember(settingsVersion) {
         (context.applicationContext as LocalIntelligenceApp).container.settings.mode ==
             SettingsMode.TECHNICAL
     }
