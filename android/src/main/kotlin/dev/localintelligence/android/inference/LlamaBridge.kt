@@ -130,6 +130,14 @@ object LlamaBridge {
 
     const val CAP_IMAGE = 1
     const val CAP_AUDIO = 2
+    const val CAP_SPEECH = 4
+
+    /**
+     * Speaks [text] with the loaded model's speech projector: a WAV file, or
+     * null when it cannot. Blocking; call it under the backend's generation lock.
+     */
+    fun speak(handle: Handle, text: String, language: String?, voice: String?, maxFrames: Int = 0): ByteArray? =
+        if (isAvailable) nativeSpeak(handle.ptr, text, language, voice, maxFrames) else null
 
     /**
      * Generates, streaming to [onToken]. Returns null on success, or the error.
@@ -238,6 +246,9 @@ object LlamaBridge {
     @JvmStatic private external fun nativeProjectorCaps(ptr: Long): Int
     @JvmStatic private external fun nativeSetMedia(ptr: Long, media: Array<ByteArray>)
     @JvmStatic private external fun nativeMediaMarker(): String
+    @JvmStatic private external fun nativeSpeak(
+        ptr: Long, text: String, language: String?, voice: String?, maxFrames: Int,
+    ): ByteArray?
     @JvmStatic private external fun nativeCancel(ptr: Long)
     @JvmStatic private external fun nativeIsGenerating(ptr: Long): Boolean
 }

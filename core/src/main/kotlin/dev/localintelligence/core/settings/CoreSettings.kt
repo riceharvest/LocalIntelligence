@@ -60,6 +60,22 @@ object CoreSettings {
         SettingSection.INTERFACE, default = true, simple = true, applies = SettingApplies.NOW,
     )
 
+    // ---- voice -------------------------------------------------------------
+
+    val READ_REPLIES_ALOUD = Toggle(
+        "voice.read_aloud", "Read replies aloud",
+        "Each answer is read out loud with the phone's text-to-speech when it is finished.",
+        SettingSection.VOICE, default = false, simple = true, applies = SettingApplies.NOW,
+    )
+    val SPEECH_RATE = FloatValue(
+        "voice.rate", "Speech rate", "1 is normal speed.",
+        SettingSection.VOICE, default = 1f, min = 0.5f, max = 2f, step = 0.05f, applies = SettingApplies.NOW,
+    )
+    val SPEECH_PITCH = FloatValue(
+        "voice.pitch", "Speech pitch", "1 is the voice's normal pitch.",
+        SettingSection.VOICE, default = 1f, min = 0.5f, max = 2f, step = 0.05f, applies = SettingApplies.NOW,
+    )
+
     // ---- sampling ----------------------------------------------------------
 
     val TEMPERATURE = FloatValue(
@@ -145,6 +161,7 @@ object CoreSettings {
         MODE,
         AUTO_ACCEPT_DESTRUCTIVE, AUTO_ACCEPT_EXTERNAL, AUTO_ACCEPT_NETWORK, AUTO_ACCEPT_IN_BACKGROUND,
         TOOL_CALLS_AUTO_COLLAPSE,
+        READ_REPLIES_ALOUD, SPEECH_RATE, SPEECH_PITCH,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
         SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT,
         MAX_STEPS, MAX_VISIBLE_TOOLS, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,

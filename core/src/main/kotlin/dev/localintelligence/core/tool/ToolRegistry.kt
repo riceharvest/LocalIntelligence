@@ -155,6 +155,13 @@ fun interface ToolSelector {
  * why the prompt and the scorer both read the registry rather than
  * [dev.localintelligence.core.tool.catalogue.V0ToolCatalogue]. A number
  * measured against a different tool set does not transfer.
+ *
+ * ## Tools with no catalogue entry (remote MCP tools)
+ *
+ * This scorer reads only the tool's own name, description and tags, never
+ * [dev.localintelligence.core.tool.catalogue.V0ToolCatalogue], so a tool with no
+ * catalogue entry ranks exactly like any other. Nothing here needs changing for
+ * one; see [dev.localintelligence.core.tool.catalogue.CatalogueAgreement.DYNAMIC_TOOL_PREFIX].
  */
 class LexicalToolSelector : ToolSelector {
 

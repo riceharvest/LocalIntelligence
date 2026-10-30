@@ -6,6 +6,7 @@ import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.GenerationRequest
 import dev.localintelligence.core.model.GenerationResult
 import dev.localintelligence.core.model.ModelBackend
+import dev.localintelligence.core.model.SpeechOutput
 import dev.localintelligence.core.model.ModelCapabilities
 import dev.localintelligence.core.model.ModelSpec
 import dev.localintelligence.core.model.SamplingParams
@@ -44,7 +45,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class LlamaCppBackend(
     private val importer: ModelImporter? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-) : StreamingModelBackend {
+) : StreamingModelBackend, SpeechOutput {
 
     override val id: String = ModelImporter.BACKEND_LLAMA_CPP
 
@@ -139,6 +140,7 @@ class LlamaCppBackend(
             currentCapabilities = deriveCapabilities(meta, contextLength).copy(
                 supportsVision = projectorCaps and LlamaBridge.CAP_IMAGE != 0,
                 supportsAudioInput = projectorCaps and LlamaBridge.CAP_AUDIO != 0,
+                supportsSpeechOutput = projectorCaps and LlamaBridge.CAP_SPEECH != 0,
             )
         }
         cancelRequested.set(false)
@@ -336,6 +338,19 @@ class LlamaCppBackend(
             supportsVision = false,
             supportsKvCache = true,
         )
+
+    /**
+     * Speaks [text] in the model's own voice when its projector has an audio
+     * head. Holds the generation lock: speech and a generate share one context.
+     */
+    override suspend fun speak(text: String, language: String?, voice: String?): ByteArray? =
+        withContext(ioDispatcher) {
+            synchronized(lock) {
+                val h = handle
+                if (h == null || h.isClosed || !currentCapabilities.supportsSpeechOutput) return@withContext null
+                LlamaBridge.speak(h, text, language, voice)
+            }
+        }
 
     /**
      * Renders the conversation as the flat text llama.cpp tokenizes.

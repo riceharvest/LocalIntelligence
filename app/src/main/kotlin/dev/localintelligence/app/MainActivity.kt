@@ -84,6 +84,15 @@ class MainActivity : ComponentActivity() {
 
     private var deliveredIntent by mutableStateOf<Intent?>(null)
 
+    /**
+     * The closest thing to app exit that Android gives a screen. Only a real
+     * finish releases the text-to-speech engine; a rotation is not a finish.
+     */
+    override fun onDestroy() {
+        if (isFinishing) (application as LocalIntelligenceApp).container.speaker.shutdown()
+        super.onDestroy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) {
@@ -103,6 +112,8 @@ class MainActivity : ComponentActivity() {
                         ChatViewModel.Factory(
                             gateway = gateway,
                             modelAvailability = container.modelAvailability,
+                            speaker = container.speaker,
+                            readRepliesAloud = { container.settings[CoreSettings.READ_REPLIES_ALOUD] },
                         )
                     },
                 )
