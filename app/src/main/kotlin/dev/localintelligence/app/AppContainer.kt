@@ -23,6 +23,7 @@ import dev.localintelligence.android.tools.androidToolPlugins
 import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.android.scripts.ScriptPluginRepository
 import dev.localintelligence.android.scripts.ScriptRunner
+import dev.localintelligence.app.settings.ContextLength
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.ComputeChoice
@@ -159,6 +160,17 @@ class AppContainer(private val context: Context) {
     val deviceFacts: DeviceFacts by lazy { DeviceFacts.of(context) }
 
     /** Every setting in the app. See [SettingsStore]. */
+    /**
+     * The n_ctx [model] is priced at and loaded with: the context-length setting, else the
+     * Simple table for this phone. One function for the RAM gate and the load.
+     */
+    fun contextLengthFor(model: ImportedModel): Int = ContextLength.resolve(
+        setting = settings[CoreSettings.CONTEXT_LENGTH],
+        facts = deviceFacts,
+        trainedContext = model.trainedContextLength,
+        liteRtLm = model.architecture == ModelImporter.LITERTLM_ARCHITECTURE,
+    )
+
     val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
 
     /** Reads replies aloud with the platform text-to-speech. The engine starts on first use. */
@@ -771,7 +783,7 @@ class AppContainer(private val context: Context) {
         // MEASURED Samsung A05s (3.6 GB RAM, LFM3-1.7B Q4_K_M at ~1.2 GB): trying
         // Vulkan and then OpenCL got the app killed by the low-memory killer. So the
         // GPUs are only tried when the usable RAM holds the model twice.
-        val gpuRoom = model.estimate.totalBytes(ModelImporter.DEFAULT_CONTEXT_LENGTH) * 2 <=
+        val gpuRoom = model.estimate.totalBytes(contextLengthFor(model)) * 2 <=
             RamEstimate.usableDeviceBytes()
         val llama = (backend as? LlamaCppBackend)?.takeIf { computeChoice.isAuto }
         return SpeedTestTarget(
@@ -933,8 +945,9 @@ class AppContainer(private val context: Context) {
         // ModelManagerScreen renders it, so the only missing piece was the gate.
         // This is where a download that was judged too large at plan time still
         // gets caught, e.g. a model sideloaded onto a smaller device.
-        if (!model.fitsOnDevice(ModelImporter.DEFAULT_CONTEXT_LENGTH)) {
-            val needed = model.estimate.totalBytes(ModelImporter.DEFAULT_CONTEXT_LENGTH)
+        val loadContext = contextLengthFor(model)
+        if (!model.fitsOnDevice(loadContext)) {
+            val needed = model.estimate.totalBytes(loadContext)
             val have = RamEstimate.usableDeviceBytes()
             val reason = if (settings.mode == SettingsMode.TECHNICAL) {
                 "This model needs about ${formatBytes(needed)} of memory and this phone has about " +
@@ -966,6 +979,7 @@ class AppContainer(private val context: Context) {
                 parameterCount = model.parameterCount,
                 quantType = model.quantType,
                 supportedBackends = model.supportedBackends,
+                contextLength = loadContext,
             ),
         )
         // Recorded HERE, at the only place the decision is made, and read by
@@ -1305,6 +1319,9 @@ class AppContainer(private val context: Context) {
         budget = hubBudget,
         tokenSource = hubTokenSource,
         registrar = registrar,
+        contextLength = {
+            ContextLength.resolve(settings[CoreSettings.CONTEXT_LENGTH], deviceFacts, trainedContext = null)
+        },
     )
 
     /**

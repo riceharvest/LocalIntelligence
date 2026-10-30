@@ -22,6 +22,9 @@ object CoreSettings {
     const val COMPUTE_VULKAN = "vulkan"
     const val COMPUTE_OPENCL = "opencl"
 
+    /** [CONTEXT_LENGTH] value meaning "the Simple table decides". */
+    const val CONTEXT_AUTO = "0"
+
     const val THEME_WALLPAPER = "wallpaper"
     const val THEME_GREEN = "green"
     const val THEME_BLUE = "blue"
@@ -167,6 +170,22 @@ object CoreSettings {
         SettingSection.MODEL, default = 99, min = 1, max = 99, applies = SettingApplies.NEXT_MODEL_LOAD,
     )
 
+    val CONTEXT_LENGTH = Choice(
+        "model.context_length", "Context length",
+        "Tokens the model can hold at once. Automatic picks a size for this phone. More context " +
+            "needs more memory and a bigger prompt takes longer to read.",
+        SettingSection.MODEL, CONTEXT_AUTO,
+        listOf(
+            Choice.Option(CONTEXT_AUTO, "Automatic"),
+            Choice.Option("2048", "2,048"),
+            Choice.Option("4096", "4,096"),
+            Choice.Option("8192", "8,192"),
+            Choice.Option("16384", "16,384"),
+            Choice.Option("32768", "32,768"),
+        ),
+        applies = SettingApplies.NEXT_MODEL_LOAD,
+    )
+
     // ---- sampling ----------------------------------------------------------
 
     val TEMPERATURE = FloatValue(
@@ -260,7 +279,7 @@ object CoreSettings {
         TOOL_CALLS_AUTO_COLLAPSE,
         READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
-        COMPUTE, GPU_LAYERS,
+        COMPUTE, GPU_LAYERS, CONTEXT_LENGTH,
         SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE,
         MAX_STEPS, MAX_VISIBLE_TOOLS, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
     )

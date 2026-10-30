@@ -4,13 +4,44 @@ import android.app.ActivityManager
 import android.content.Context
 import dev.localintelligence.core.settings.CoreSettings
 
+/** How fast this CPU reads a prompt, from its instruction set. The speed test is never run in Simple mode. */
+enum class SpeedClass {
+    /** Neither dot-product nor int8 matrix multiply (A55-class cores). */
+    SLOW,
+
+    /** Dot-product (`asimddp`): Cortex-A76 and newer. */
+    MID,
+
+    /** Int8 matrix multiply (`i8mm`): the kernels llama.cpp's Q4_0 repack is built for. */
+    FAST,
+}
+
 /** What Simple mode decides from: the phone, not the user. */
-data class DeviceFacts(val totalRamBytes: Long, val cpuCores: Int) {
+data class DeviceFacts(
+    val totalRamBytes: Long,
+    val cpuCores: Int,
+    val speedClass: SpeedClass = SpeedClass.MID,
+) {
     companion object {
         fun of(context: Context): DeviceFacts {
             val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
             val info = ActivityManager.MemoryInfo().also(am::getMemoryInfo)
-            return DeviceFacts(info.totalMem, Runtime.getRuntime().availableProcessors())
+            return DeviceFacts(info.totalMem, Runtime.getRuntime().availableProcessors(), readSpeedClass())
+        }
+
+        /** `/proc/cpuinfo` Features: `i8mm` is fast, `asimddp` is mid, neither is slow. Unreadable: mid. */
+        internal fun readSpeedClass(): SpeedClass = try {
+            val features = java.io.File("/proc/cpuinfo").useLines { lines ->
+                lines.firstOrNull { it.startsWith("Features") }?.substringAfter(':')?.trim()?.split(' ')?.toSet()
+            }
+            when {
+                features == null -> SpeedClass.MID
+                "i8mm" in features -> SpeedClass.FAST
+                "asimddp" in features -> SpeedClass.MID
+                else -> SpeedClass.SLOW
+            }
+        } catch (_: Exception) {
+            SpeedClass.MID
         }
     }
 }
@@ -23,6 +54,18 @@ data class SuggestedModel(
     val name: String,
     val sizeBytes: Long,
     val reason: String,
+    /** An opt-in on phones with room: bigger, slower, and not the default. Shown as a second, smaller card. */
+    val alternative: SuggestedModel? = null,
+)
+
+/** The Simple-mode values that depend on RAM class and CPU speed (research-context-defaults.md 3.3). */
+data class SimpleDefaults(
+    val contextLength: Int,
+    val workingTokenLimit: Int,
+    val maxOutputTokens: Int,
+    val maxVisibleTools: Int,
+    val observationBudget: Int,
+    val memoryResults: Int,
 )
 
 /**
@@ -35,11 +78,39 @@ data class SuggestedModel(
 object SimpleSetup {
     private const val GIB = 1024L * 1024 * 1024
 
+    /**
+     * The table. RAM classes are by what the phone reports (a "4 GB" phone reports about
+     * 3.6 GiB), so the cut-offs sit between the typical figures.
+     *
+     * The speed class stands in for the speed test, which Simple users never run. The table
+     * is the agreed target from the research, not a phone measurement.
+     */
+    fun defaults(facts: DeviceFacts): SimpleDefaults {
+        val ram = facts.totalRamBytes
+        val speed = facts.speedClass
+        return when {
+            ram < 3.2 * GIB -> SimpleDefaults(4096, 2000, 256, 4, 1200, 3)
+            ram < 4.6 * GIB ->
+                if (speed == SpeedClass.SLOW) SimpleDefaults(4096, 1500, 256, 4, 1200, 3)
+                else SimpleDefaults(4096, 2000, 384, 5, 1600, 3)
+            speed == SpeedClass.SLOW -> SimpleDefaults(4096, 2000, 256, 5, 1600, 3)
+            // 12 GB and up, fast: the roomy row. A slower CPU on a big phone keeps the 6-8 GB row.
+            ram >= 9.5 * GIB && speed == SpeedClass.FAST -> SimpleDefaults(8192, 4000, 512, 6, 3000, 5)
+            else -> SimpleDefaults(8192, if (speed == SpeedClass.FAST) 4000 else 3000, 512, 6, 2048, 5)
+        }
+    }
+
     /** Values for the settings Simple mode hides. Anything absent reads as its default. */
-    fun values(facts: DeviceFacts): Map<String, Any> = buildMap {
-        // A smaller working window on a small phone: compaction starts sooner,
-        // so the KV cache and the prompt stay small.
-        if (facts.totalRamBytes < 6 * GIB) put(CoreSettings.WORKING_TOKEN_LIMIT.key, 3000)
+    fun values(facts: DeviceFacts): Map<String, Any> {
+        val d = defaults(facts)
+        return mapOf(
+            CoreSettings.CONTEXT_LENGTH.key to d.contextLength.toString(),
+            CoreSettings.WORKING_TOKEN_LIMIT.key to d.workingTokenLimit,
+            CoreSettings.MAX_OUTPUT_TOKENS.key to d.maxOutputTokens,
+            CoreSettings.MAX_VISIBLE_TOOLS.key to d.maxVisibleTools,
+            CoreSettings.OBSERVATION_BUDGET.key to d.observationBudget,
+            CoreSettings.MEMORY_RESULTS.key to d.memoryResults,
+        )
     }
 
     fun suggestedModel(facts: DeviceFacts): SuggestedModel = when {

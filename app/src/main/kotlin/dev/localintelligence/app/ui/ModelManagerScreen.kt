@@ -133,6 +133,8 @@ fun ModelManagerScreen(
      * lets the button render only where a destination exists.
      */
     onOpenHub: (() -> Unit)? = null,
+    /** The n_ctx a model will be loaded (and priced) at. */
+    contextLengthFor: (ImportedModel) -> Int = { ModelImporter.DEFAULT_CONTEXT_LENGTH },
     /**
      * Imports every GGUF already sitting in the app's own storage.
      *
@@ -481,6 +483,7 @@ fun ModelManagerScreen(
                     ModelRow(
                         technical = technical,
                         model = model,
+                        loadContext = contextLengthFor(model),
                         onDelete = { pendingDelete = model },
                         speedTest = speedTest,
                         isLoaded = model.uri.toString() == loadedModelUri,
@@ -577,6 +580,7 @@ private fun ImportErrorBanner(message: String, onDismiss: () -> Unit) {
 private fun ModelRow(
     technical: Boolean,
     model: ImportedModel,
+    loadContext: Int,
     onDelete: () -> Unit,
     speedTest: SpeedTestRunner?,
     isLoaded: Boolean,
@@ -598,7 +602,6 @@ private fun ModelRow(
     // complaint. A refusal with a real-looking number attached, and false.
     // Showing the trained length is honest *as a fact about the file*, which
     // is why it is still shown — as its own line, labelled, below.
-    val loadContext = ModelImporter.DEFAULT_CONTEXT_LENGTH
     val totalBytes = model.estimate.totalBytes(loadContext)
     val fits = model.fitsOnDevice(loadContext)
 

@@ -249,6 +249,7 @@ class MainActivity : ComponentActivity() {
                         ModelManagerScreen(
                             technical = remember(settingsVersion) { container.settings.mode == SettingsMode.TECHNICAL },
                             models = models,
+                            contextLengthFor = container::contextLengthFor,
                             speedTest = container.speedTest,
                             loadedModelUri = if (modelState is ModelAvailability.Ready && !container.remoteChatActive) {
                                 container.selectedModel?.uri?.toString()

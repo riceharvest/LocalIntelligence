@@ -283,6 +283,8 @@ class HubViewModel(
     private val downloader: ModelDownloader,
     private val budget: DeviceBudget,
     private val tokenSource: HubTokenSource = HubTokenSource.NONE,
+    /** The n_ctx a download is priced at: the same answer the model load will use. */
+    private val contextLength: () -> Int = { DEFAULT_CONTEXT_LENGTH },
     private val registrar: DownloadedModelRegistrar = DownloadedModelRegistrar.NONE,
     /**
      * Used only to look for `.litertlm` siblings that `listGgufFiles` filtered
@@ -399,7 +401,7 @@ class HubViewModel(
                         val loadable = client.loadableFiles(files)
                         val best = client.chooseBestFitting(
                             candidates = loadable,
-                            contextLength = DEFAULT_CONTEXT_LENGTH,
+                            contextLength = contextLength(),
                             budget = budget,
                         )
                         val planned = best?.let { planFor(it) }
@@ -631,7 +633,7 @@ class HubViewModel(
         }
         val plan = client.plan(
             file = file,
-            contextLength = DEFAULT_CONTEXT_LENGTH,
+            contextLength = contextLength(),
             budget = budget,
             alreadyOnDiskBytes = alreadyOnDisk,
             header = header,
@@ -887,10 +889,9 @@ class HubViewModel(
         const val COULD_NOT_START = "Downloaded, but it couldn't start. Try a smaller version."
 
         /**
-         * WHY 4096: the context the app's tool-using agent needs for a system
-         * prompt, a tool result and a reply. It is also the value
-         * `ModelImporter.DEFAULT_CONTEXT_LENGTH` uses, so the fit decision here
-         * and the one at load time agree.
+         * Only the fallback when no resolver is wired: 4096, the context the app's
+         * tool-using agent needs for a system prompt, a tool result and a reply. The app
+         * passes `AppContainer.contextLengthFor`'s answer instead.
          */
         const val DEFAULT_CONTEXT_LENGTH = 4_096
 
