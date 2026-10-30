@@ -117,7 +117,6 @@ object AlarmIds {
      *
      * Also used by alarm.cancel: the id the user or model gave at creation is stored in
      * this form, so a cancel must reduce its id the same way or it can never match.
-     */
      *
      * The generated form zero-pads both fields. An unpadded "alarm-70" is genuinely
      * ambiguous — hour 7 minute 0, or minute 70 of some hour — and an id the model
