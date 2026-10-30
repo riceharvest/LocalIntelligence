@@ -451,6 +451,7 @@ class AgentController(
                 compactNow("${sessions.messages.size} messages, over ${RetainedHistory.MAX_RETAINED_MESSAGES}")
             }
             RetainedHistory.bound(sessions.messages)
+            sessions.pruneIdentities()
         }
         if (outcome is AgentResult.Success) afterAnswer?.invoke(this)
         outcome
@@ -549,6 +550,7 @@ class AgentController(
                 compactNow("${sessions.messages.size} messages, over ${RetainedHistory.MAX_RETAINED_MESSAGES}")
             }
             RetainedHistory.bound(sessions.messages)
+            sessions.pruneIdentities()
         }
         if (outcome is AgentResult.Success) afterAnswer?.invoke(this)
         outcome
@@ -1582,6 +1584,7 @@ class AgentController(
             .flatMap { ToolFinder.namedIn(it.observation) }
             .toSet()
         sessions.discoveredTools.retainAll(announced.toSet() + lookedUp)
+        sessions.pruneIdentities()
 
         val detail = "compacted $before messages into working state ($reason): " +
             "${state.progress.size} progress, ${state.actionsTaken.size} actions, " +

@@ -92,6 +92,32 @@ class Session(
     fun idOf(message: ChatMessage): Long = ids.getOrPut(message) { nextIdentity++ }
 
     /**
+     * Forgets the identities of messages that have left [messages].
+     *
+     * WHY: [ids] and [writtenIds] used to grow with every message that ever passed
+     * through the window, and each [ids] key kept its message, text included, alive.
+     * The window is bounded but these side maps were not, so a process that lives
+     * for days (scheduled runs, background) kept every reply it ever produced.
+     * Called after each trim. Forgetting a message that is no longer in the window
+     * is exact: it was either written before it left (the window is persisted before
+     * a fold, see AgentController.onWindowChanged) or it is never written again.
+     * A message is never re-added to the window once it has left, so its identity is
+     * not needed again. Ids are never reused ([nextIdentity] only grows).
+     */
+    fun pruneIdentities() {
+        locked {
+            val live = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<ChatMessage, Boolean>())
+            val liveIds = HashSet<Long>()
+            for (message in messages) {
+                live += message
+                liveIds += idOf(message)
+            }
+            ids.keys.retainAll(live)
+            writtenIds.retainAll(liveIds)
+        }
+    }
+
+    /**
      * Marks everything currently in [messages] as already written.
      *
      * Used after a restore, where the rows came FROM the store and must not be
@@ -317,6 +343,7 @@ class Session(
 
     fun clear() = locked {
         messages.clear()
+        pruneIdentities()
         workingSummary = null
         epochTools.clear()
         discoveredTools.clear()
@@ -377,6 +404,7 @@ class Session(
         messages.clear()
         messages += adopted
         appendedCount = adopted.size
+        pruneIdentities()
         adopted.size
     }
 
