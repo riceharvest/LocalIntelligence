@@ -104,26 +104,31 @@ object MemoryWritePolicy {
      * "my secret is X", and third-person forms like "the passcode is 4411" —
      * all of which are a user handing over a credential just as plainly.
      *
-     * [SECRET] and the `token`/`secret` words were added for exactly those.
-     * The `(?:my|our|the|his|her|its)` alternation is there because refusing a
-     * turn the user phrased in third person costs nothing.
+     * The `token`/`secret` words were added for exactly those, and the
+     * pattern no longer needs a possessive or a copula (see [CREDENTIAL]).
+     *
+     * The words that name a secret on their own, whatever follows them.
      */
-    private const val SECRET =
-        "(?:password|passcode|passphrase|passcode|pin|key|code|" +
+    private const val STRONG_SECRET =
+        "(?:password|passcode|passphrase|pass[_ -]?phrase|pin|" +
             "api[_ -]?key|apikey|secret|token|auth[_ -]?token|access[_ -]?key|" +
-            "private[_ -]?key|security[_ -]?code|otp|seed[_ -]?phrase|" +
-            "recovery[_ -]?code|pass[_ -]?phrase)"
+            "private[_ -]?key|security[_ -]?code|otp|seed[_ -]?phrase|recovery[_ -]?code)"
 
     /**
-     * Any secret keyword as a whole word, with or without a copula.
+     * A secret keyword as a whole word, with or without a copula.
      *
      * WHY no copula: "my wifi password hunter2-kiwi" and "the door code 4417"
      * hand over a credential just as plainly as "password is hunter2-kiwi".
      * A check that needs `is`/`=`/`:` after the keyword misses those, and the
      * turn then matches a preference or context pattern and is stored in
-     * plain text. The keyword itself is the signal, so it is checked alone.
+     * plain text. The [STRONG_SECRET] words are the signal on their own. "key"
+     * and "code" are ordinary words too ("the key of C", "the code review is on
+     * Friday"), so they count only when a value with a digit follows them.
      */
-    private val CREDENTIAL = Regex("""\b$SECRET\b""", RegexOption.IGNORE_CASE)
+    private val CREDENTIAL = Regex(
+        """\b$STRONG_SECRET\b|\b(?:key|code)\b\s*(?:is|are|was|=|:)?\s*\S*\d""",
+        RegexOption.IGNORE_CASE,
+    )
     private val IDENTITY = Regex(
         """\b(?:my|our)\s+(?:$WORD\s+){0,2}?(?:name|address|email|phone|birthday|birthdate|home|wife|husband|partner|dog|cat|allergy|doctor|sister|brother)\b\s*(?:is|are|=|:)""",
         RegexOption.IGNORE_CASE,
