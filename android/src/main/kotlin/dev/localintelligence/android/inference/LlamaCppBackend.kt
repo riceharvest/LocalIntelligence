@@ -53,6 +53,11 @@ class LlamaCppBackend(
     private val importer: ModelImporter? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val computeSource: LlamaComputeSource = LlamaComputeSource.CPU_ONLY,
+    /**
+     * Where the system prompt's state is saved, so the first message after a
+     * restart does not prefill it again. Null keeps it in memory only.
+     */
+    private val prefixCacheDir: java.io.File? = null,
 ) : StreamingModelBackend, SpeechOutput {
 
     override val id: String = ModelImporter.BACKEND_LLAMA_CPP
@@ -198,6 +203,14 @@ class LlamaCppBackend(
             }
         } ?: 0
 
+        // The saved system-prompt state is valid only for this file, context and
+        // placement, so all three name it (with the file's size, in case a file
+        // is replaced under the same name).
+        prefixCacheDir?.let { dir ->
+            val key = listOf(model.id, model.sizeBytes, contextLength, compute.label, outputsMax).joinToString("|")
+            LlamaBridge.setPrefixCache(bridgeHandle, dir.absolutePath, key)
+        }
+
         synchronized(lock) {
             // One model resident at a time.
             releaseLocked()
@@ -270,6 +283,7 @@ class LlamaCppBackend(
                     maxTokens = params.maxOutputTokens,
                     onToken = sink,
                     parseSpecial = rendered.fromTemplate,
+                    stablePrefixBytes = if (request.reusePrefix) rendered.stableBytes else 0,
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Structured concurrency: a cancelled coroutine must keep
@@ -428,7 +442,12 @@ class LlamaCppBackend(
      * The template's control tokens must be parsed as special tokens; the flat
      * transcript's text must not be, so the flag travels with the text.
      */
-    internal class RenderedPrompt(val text: String, val fromTemplate: Boolean)
+    internal class RenderedPrompt(
+        val text: String,
+        val fromTemplate: Boolean,
+        /** UTF-8 bytes at the start of [text] that are the system message alone. 0: unknown. */
+        val stableBytes: Int = 0,
+    )
 
     /**
      * Renders the conversation for [handle]'s model.
@@ -476,9 +495,24 @@ class LlamaCppBackend(
     internal fun buildPrompt(request: GenerationRequest, handle: LlamaBridge.Handle): RenderedPrompt {
         if (request.useModelTemplate) {
             val templated = templatePrompt(request, handle)
-            if (templated != null) return RenderedPrompt(templated, fromTemplate = true)
+            if (templated != null) {
+                return RenderedPrompt(templated, fromTemplate = true, stableBytes = systemPrefixBytes(request, handle, templated))
+            }
         }
         return RenderedPrompt(buildFlatPrompt(request), fromTemplate = false)
+    }
+
+    /**
+     * How many UTF-8 bytes of [rendered] are the system message alone: the
+     * template run on that one message, if the whole prompt starts with it. The
+     * system message holds what stays the same from message to message (rules,
+     * tools, profile), so its state is worth keeping. 0 when there is none.
+     */
+    private fun systemPrefixBytes(request: GenerationRequest, handle: LlamaBridge.Handle, rendered: String): Int {
+        val system = request.messages.firstOrNull() as? ChatMessage.System ?: return 0
+        val alone = LlamaBridge.applyTemplate(handle, listOf("system"), listOf(system.text), addAssistant = false)
+            ?: return 0
+        return if (rendered.startsWith(alone)) alone.toByteArray(Charsets.UTF_8).size else 0
     }
 
     /**

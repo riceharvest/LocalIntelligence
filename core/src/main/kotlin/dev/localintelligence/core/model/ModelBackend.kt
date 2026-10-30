@@ -137,6 +137,11 @@ data class GenerationRequest(
      * transcript. Read by backends that have a template; others ignore it.
      */
     val useModelTemplate: Boolean = true,
+    /**
+     * Whether the backend may start from a saved state of the prompt's start.
+     * Off for the speed test, which measures a full prefill.
+     */
+    val reusePrefix: Boolean = true,
 )
 
 /**

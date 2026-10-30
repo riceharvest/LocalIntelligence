@@ -660,7 +660,12 @@ class AppContainer(private val context: Context) {
      * this file exists: `LlamaCppBackend` is what pulls llama.cpp into the
      * process.
      */
-    val modelBackend: ModelBackend by lazy { LlamaCppBackend(importer, computeSource = computeChoice) }
+    val modelBackend: ModelBackend by lazy {
+        LlamaCppBackend(importer, computeSource = computeChoice, prefixCacheDir = prefixCacheDir)
+    }
+
+    /** The system prompt's saved llama.cpp state; a cache, so Android may clear it. */
+    private val prefixCacheDir: File by lazy { File(context.cacheDir, "prefix") }
 
     /** Where llama.cpp runs each load: the Compute setting and the speed test's winner. */
     val computeChoice: ComputeChoice by lazy {
@@ -822,6 +827,7 @@ class AppContainer(private val context: Context) {
             nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
             cacheDir = context.cacheDir.absolutePath,
             llamaCompute = computeChoice,
+            llamaPrefixCache = prefixCacheDir,
         )
     }
 

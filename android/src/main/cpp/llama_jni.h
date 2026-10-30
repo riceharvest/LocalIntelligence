@@ -75,6 +75,17 @@ struct LlamaHandle {
     bool state_snapshots = false;
     // The prompt position snap_state was copied at, 0 when there is none.
     int32_t snap_at = 0;
+    // The sequence state at the end of the system prompt (the rules and the
+    // tools, which stay the same from message to message), and its tokens.
+    // Restored when a prompt changes after that point (a compaction, a new
+    // tool), so only the rest is prefilled; also written to prefix_dir, so the
+    // first message after a restart skips the system prompt too.
+    std::vector<int32_t> anchor_tokens;
+    std::vector<uint8_t> anchor_state;
+    // Where anchors are saved and what names this model load (file, context,
+    // placement); either empty keeps anchors in memory only.
+    std::string prefix_dir;
+    std::string prefix_key;
     bool backend_initialised = false;
 
     // The SAF descriptor's /proc/self/fd path is valid only while the
@@ -156,7 +167,13 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         JNIEnv * env, jclass, jlong handle, jstring prompt, jstring grammar, jfloat temperature,
         jfloat top_p, jint top_k, jfloat min_p, jfloat repeat_penalty, jint penalty_last_n,
         jfloat frequency_penalty, jfloat presence_penalty, jint seed, jint max_tokens,
-        jobject onToken, jboolean parse_special);
+        jobject onToken, jboolean parse_special, jint stable_bytes);
+
+// Where the system prompt's state is saved between runs, and the key that
+// names this model load. Call after a successful load; empty disables it.
+JNIEXPORT void JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeSetPrefixCache(
+        JNIEnv * env, jclass, jlong handle, jstring dir, jstring key);
 
 // Renders the messages with the loaded model's own chat template
 // (llama_model_chat_template + llama_chat_apply_template). `roles` and

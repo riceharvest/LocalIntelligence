@@ -357,6 +357,8 @@ class SpeedTestRunner(
                 // Greedy decoding (temperature 0 selects the argmax sampler in
                 // llama_jni.cpp), so both passes ask the model for the same tokens.
                 params = SamplingParams(temperature = 0f, maxOutputTokens = maxTokens),
+                // A full prefill is what is being measured.
+                reusePrefix = false,
             ),
         )
         val wallMs = (System.nanoTime() - started) / 1_000_000.0

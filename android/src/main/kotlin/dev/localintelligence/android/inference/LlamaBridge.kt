@@ -201,10 +201,17 @@ object LlamaBridge {
         maxTokens: Int,
         onToken: TokenSink?,
         parseSpecial: Boolean = false,
+        /**
+         * UTF-8 bytes of [prompt] that are the system prompt, which stays the
+         * same from message to message; its state is kept and restored (see
+         * llama_jni.cpp, "system prompt anchor"). 0: none.
+         */
+        stablePrefixBytes: Int = 0,
     ): String? = if (isAvailable) {
         nativeGenerate(
             handle.ptr, prompt, grammar, temperature, topP, topK, minP, repeatPenalty,
             penaltyLastN, frequencyPenalty, presencePenalty, seed, maxTokens, onToken, parseSpecial,
+            stablePrefixBytes,
         )
     } else {
         "the llama.cpp native library is not available on this device"
@@ -305,8 +312,18 @@ object LlamaBridge {
         ptr: Long, prompt: String, grammar: String?, temperature: Float, topP: Float,
         topK: Int, minP: Float, repeatPenalty: Float, penaltyLastN: Int,
         frequencyPenalty: Float, presencePenalty: Float, seed: Int, maxTokens: Int,
-        sink: TokenSink?, parseSpecial: Boolean,
+        sink: TokenSink?, parseSpecial: Boolean, stablePrefixBytes: Int,
     ): String?
+    @JvmStatic private external fun nativeSetPrefixCache(ptr: Long, dir: String, key: String)
+
+    /**
+     * Where the system prompt's state is saved between runs, and the key that
+     * names this model load (the file, the context, the placement). A state is
+     * only ever restored under the key it was saved with.
+     */
+    fun setPrefixCache(handle: Handle, dir: String, key: String) {
+        if (isAvailable) nativeSetPrefixCache(handle.ptr, dir, key)
+    }
     @JvmStatic private external fun nativeApplyTemplate(
         ptr: Long, roles: Array<String>, contents: Array<String>, addAssistant: Boolean,
     ): String?
