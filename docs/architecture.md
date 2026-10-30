@@ -381,6 +381,12 @@ Writes come from one deterministic filter, with no model call:
 2. **Compaction** — when the window fills, old messages fold into the in-memory
    `CompactedState` (see §12); they are not written as memories.
 
+Since 2026-10-30 two plugins add to this, neither with a model call: the **"About
+you" profile** (`memory.profile`), a text the user writes (1,375 characters at
+most) that goes into the system prompt; and **`history.search`**
+(`memory.history`), a read-only tool over earlier messages in Room. Documents
+(`documents.search`, BM25 over the user's files) are separate from memory.
+
 **Do not build model-based memory extraction.** No per-interaction classifier, no
 summarising model, no deduplication model, no consolidation pass. That is a lot of
 inference for an unmeasured benefit. The pattern filter in `MemoryWritePolicy` is the

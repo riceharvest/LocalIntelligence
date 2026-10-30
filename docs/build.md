@@ -81,39 +81,32 @@ The tag resolves to that exact commit.
 ## 4. Measured build output
 
 **MEASURED** 2026-10-30, from `./gradlew :app:assembleDebug` locally at
-llama.cpp `b11988` and LiteRT-LM `0.17.1`:
+llama.cpp `b11988` (with libmtmd) and LiteRT-LM `0.17.1`, after the
+feature-parity PRs (#68-#94):
 
 | | bytes | |
 |---|---:|---|
-| `app-debug.apk` | 51,343,857 | 49.0 MiB, **debug**, both ABIs |
+| `app-debug.apk` | 68,025,501 | 64.9 MiB, **debug**, both ABIs |
 
-Native libraries are now **extracted at install** (`useLegacyPackaging = true`,
-needed by the Tensor NPU path; see [`acceleration.md`](acceleration.md)), so
-they are stored compressed in the APK. That is why the APK shrank from
-127,485,666 bytes (2026-10-29, libraries stored uncompressed); the installed
-footprint is the APK plus the extracted libraries of one ABI.
+Native libraries are extracted at install (`useLegacyPackaging = true`, needed
+by the Tensor NPU path), so they are stored compressed in the APK. The rest of
+the growth since the previous figure is Kotlin code and pdfbox-android
+(document import).
 
 Native payload, uncompressed (stripped):
 
 | `.so` | arm64-v8a | x86_64 |
 |---|---:|---:|
 | `liblitertlm_jni.so` | 21,802,952 | 25,968,000 |
-| `liblocalintelligence_llama_jni.so` | 12,752,696 | 12,918,376 |
+| `liblocalintelligence_llama_jni.so` (llama.cpp + libmtmd) | 16,007,264 | 16,353,128 |
 | `libc++_shared.so` | 1,292,904 | 1,252,080 |
 | `libLiteRtDispatch_GoogleTensor.so` | 579,016 | — |
 | `libandroidx.graphics.path.so` | 10,096 | 10,760 |
-| **one ABI's total** | **36,437,664** | **40,149,216** |
-
-From LiteRT-LM 0.17.1 the runtime and its GPU accelerator are one library,
-`liblitertlm_jni.so` (0.13.1 shipped `libLiteRt.so` and
-`libLiteRtClGlAccelerator.so` separately). The Tensor dispatch library is
-arm64 only.
 
 **The native libraries are stripped only because `:app` pins the same NDK as
-`:android`.** Packaging strips with the app module's NDK. Without `ndkVersion`
-in `app/build.gradle.kts`, AGP falls back to its default NDK (27.0.12077973),
-which is not installed. It then logs "Unable to strip" and ships every `.so` with
-its debug info.
+`:android`.** Without `ndkVersion` in `app/build.gradle.kts`, AGP falls back to
+its default NDK (27.0.12077973), which is not installed, logs "Unable to strip"
+and ships every `.so` with its debug info.
 
 **These are debug numbers.** The APK carries both ABIs and unminified dex. A
 device installs one ABI, and release builds are smaller.

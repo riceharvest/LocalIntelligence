@@ -88,24 +88,28 @@ deleted suite.
 
 ### Tools that exist
 
-25, verified by the `name = "..."` fields in `:android`:
+32 built-in, each with a `V0ToolCatalogue` entry of the same name, risk tier,
+origin and category (checked once at startup over everything shipped):
 
 ```
-alarm.cancel  alarm.create  alarm.list
+alarm.cancel  alarm.create  alarm.list  timer.set
 apps.list  apps.open  apps.share
 calendar.create  calendar.search
 clipboard.read  clipboard.write
 contacts.get  contacts.search
 device.battery  device.info  device.open_settings  device.vibrate
+documents.search
+email.draft  message.draft
 files.delete  files.list  files.read_text  files.search  files.write_text
+history.search
+location.get
 notifications.dismiss  notifications.list  notifications.reply
-web.fetch
+web.fetch  web.search
 ```
 
-Counted from V0ToolCatalogue, which `requireCatalogueAgreement` checks in BOTH
-directions at composition time: every shipped tool must be catalogued, and every
-catalogued tool must be shipped. That check is what makes this list trustworthy —
-a count that can drift from the list is worse than no count.
+Plus `image.generate` and `video.generate` (OpenRouter plugin, off by default,
+need your key) and `mcp.*` tools from a remote MCP server (off by default; the
+one prefix exempt from the catalogue, since the server defines them).
 
 The v0 freeze criteria ask for 15+; that threshold is met by count. Whether
 they work correctly on a device is unmeasured — no tool has been run against
