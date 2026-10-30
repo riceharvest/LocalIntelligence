@@ -113,14 +113,11 @@ class AgentController(
      * the trim finds the dropped messages already gone, and simulation showed
      * it losing 3 of 18 while the pre-trim version stored all 18 cleanly.
      *
-     * Every trim site calls this first — `foldWindow` and both
-     * `dropOldest*` — because a message that has left the window cannot be
-     * recovered by any later write.
+     * Every trim site calls this first — `foldWindow` — because a message that
+     * has left the window cannot be recovered by any later write.
      *
-     * NOT suspend on purpose. Making it suspend cascades through
-     * applyAdjustments -> dropOldest* -> foldWindow, because the budget
-     * adjustment path is not itself suspend, and a persistence callback should
-     * not dictate the shape of the whole loop. The caller owns its own scope,
+     * NOT suspend on purpose: a persistence callback should not dictate the
+     * shape of the whole loop. The caller owns its own scope,
      * so the write happens off the loop's critical path and a slow database
      * cannot stall generation.
      *
@@ -258,6 +255,8 @@ class AgentController(
      * is drawn twice: the transcript is identity-keyed.
      */
     private val onToolDone: ((List<StepTrace>) -> Unit)? = null,
+    /** One line per context decision (tool set change, compaction), for the device log. */
+    private val log: (String) -> Unit = {},
 ) {
     /**
      * Run state. It outlives a single call because
@@ -291,6 +290,9 @@ class AgentController(
      * costs one list header.
      */
     private var lastPrompt: List<ChatMessage> = emptyList()
+
+    /** The tools of the last request, so a prompt can be rebuilt after a compaction. */
+    private var lastVisible: List<AgentTool> = emptyList()
 
     /**
      * The frozen metrics for the current run, published when it ends.
@@ -380,7 +382,23 @@ class AgentController(
         // could not delete one more tomorrow without a reinstall.
         riskPolicy.resetTask()
         metrics?.beginStep(0)
-        sessions.start(task)
+        // The turn is rendered once: the clock, the memories found for this task
+        // and matched skill hints go in front of the task, and the session keeps
+        // that rendering so every later prompt repeats it token for token. Read
+        // per step instead, they changed the prompt's start on every message
+        // and llama.cpp had to prefill the whole conversation again.
+        val memories = try {
+            memory.search(task, config.memoryResults)
+        } catch (t: Throwable) {
+            emptyList()
+        }
+        val hints = hooks.contextForStep(task).filter { it.isNotBlank() }
+        val rendered = try {
+            contextBuilder.renderTurn(task, memories, hints)
+        } catch (t: Throwable) {
+            task
+        }
+        sessions.start(task, rendered)
         val outcome = loop()
         // The session is long-lived now - one instance per app, shared by chat
         // and scheduled runs - so it has to be bounded here rather than left to
@@ -396,6 +414,13 @@ class AgentController(
         // a finally block here would trim a session whose run is still being
         // unwound and whose messages are still being read by the trace.
         if (outcome !is AgentResult.AwaitingConfirmation) {
+            // Over the message cap, fold into the working state rather than drop
+            // the oldest turns: a drop shifts every later token, so each message
+            // after it would prefill the whole conversation again. The bound
+            // stays as the backstop for a window compaction cannot fold.
+            if (sessions.messages.size > RetainedHistory.MAX_RETAINED_MESSAGES) {
+                compactNow("${sessions.messages.size} messages, over ${RetainedHistory.MAX_RETAINED_MESSAGES}")
+            }
             RetainedHistory.bound(sessions.messages)
         }
         outcome
@@ -486,6 +511,13 @@ class AgentController(
         }
         val outcome = early ?: loop()
         if (outcome !is AgentResult.AwaitingConfirmation) {
+            // Over the message cap, fold into the working state rather than drop
+            // the oldest turns: a drop shifts every later token, so each message
+            // after it would prefill the whole conversation again. The bound
+            // stays as the backstop for a window compaction cannot fold.
+            if (sessions.messages.size > RetainedHistory.MAX_RETAINED_MESSAGES) {
+                compactNow("${sessions.messages.size} messages, over ${RetainedHistory.MAX_RETAINED_MESSAGES}")
+            }
             RetainedHistory.bound(sessions.messages)
         }
         outcome
@@ -509,8 +541,12 @@ class AgentController(
             metrics?.beginStep(step)
 
             // Selection happens every step, not once: after the first tool result
-            // the useful tools usually change.
+            // the useful tools usually change. It only ever adds to the session's
+            // list, so the prompt's start stays the same (see [selectTools]).
             val visible = selectTools()
+            // A turn boundary: the one place a compaction costs nothing extra,
+            // because the new user turn has to be prefilled anyway.
+            if (step == 1) compactIfNeeded(boundary = true, visible = visible)
             // Stream only when somebody is listening. generate() is the same
             // code path with a null sink, so this is not a second implementation
             // to keep in sync - it is the same call with the callback attached.
@@ -580,7 +616,7 @@ class AgentController(
                 }
             }
 
-            compactIfNeeded()
+            compactIfNeeded(boundary = false, visible = visible)
         }
         return AgentResult.StepLimitReached
     }
@@ -890,7 +926,7 @@ class AgentController(
      */
     private fun enforcement(state: ContextState): StepEnforcer? {
         stepEnforcer?.let { return it }
-        val limit = workingLimit(model.capabilities.contextLength)
+        val limit = hardLimit(model.capabilities.contextLength)
         if (limit < MIN_ENFORCEABLE_LIMIT) return null
         val budget = ContextBudget(limitTokens = limit)
         if (budget.floorFor(state) > budget.promptTokens) return null
@@ -914,11 +950,11 @@ class AgentController(
      * a stop is the right answer: the model is not out of ideas, it is out of
      * room, and no amount of further thinking changes that.
      */
-    private fun refuseUnaffordableStep(call: PendingCall, reply: String): AgentResult? {
+    private suspend fun refuseUnaffordableStep(call: PendingCall, reply: String): AgentResult? {
         val verdict = priceStep(call, reply, observationSample) ?: return null
         val trim = verdict.plan as? StepPlan.Trim ?: return null
         val detail = "${call.name} needs ${trim.projectedTokens} tokens and the window holds " +
-            "${trim.limit}; ${verdict.dropped} message(s) were trimmed and nothing else is droppable"
+            "${trim.limit}, even after folding the conversation into the working state"
         trace += StepTrace(
             call.step, StepTrace.Kind.TOOL_CALL, "refused ${call.name}: step does not fit — $detail",
             success = false,
@@ -944,27 +980,17 @@ class AgentController(
      * already ran, so refusing now would report a real result to the user as a
      * failure and there is nothing left to protect.
      */
-    private fun repriceWithRealObservation(call: PendingCall, reply: String, observation: String) {
+    private suspend fun repriceWithRealObservation(call: PendingCall, reply: String, observation: String) {
         priceStep(call, reply, observation)
     }
 
     /**
-     * Evaluate, apply, re-evaluate, until it fits or nothing is left to give.
-     *
-     * The re-evaluation is the load-bearing line, and it exists because
-     * [StepEnforcer]'s own KDoc is honest about the limit of its guarantee: the
-     * plan's drops are priced as whole buckets, and the state it re-plans
-     * against does not contain the reply or the arguments. So "apply the list"
-     * can leave the step over the ceiling, and the only way to know it fits is
-     * to ask again with the window the drops actually produced.
-     *
-     * The loop terminates because every iteration either removes a message or
-     * breaks; [MAX_BUDGET_ADJUSTMENTS] is a second bound on top of that, and it
-     * is a QUALITY bound, not a correctness one — a step that needed more than
-     * eight messages given up to fit is a run whose window is structurally too
-     * big, and the answer to that is a stop, not a gutted conversation.
+     * Prices the step against the mid-answer limit; over it, compacts once and
+     * prices again against the prompt the compaction actually produced. A step
+     * that still does not fit is one whose own reply and arguments overflow the
+     * window, and [refuseUnaffordableStep] stops the run with the arithmetic.
      */
-    private fun priceStep(call: PendingCall, reply: String, observation: String): StepVerdict? {
+    private suspend fun priceStep(call: PendingCall, reply: String, observation: String): StepVerdict? {
         var state = contextOf(lastPrompt)
         val enforcer = enforcement(state) ?: return null
 
@@ -982,150 +1008,18 @@ class AgentController(
         )
 
         var plan = enforcer.evaluate(state, proposed)
-        var applied = 0
-        var labels = ""
-
-        while (plan is StepPlan.Trim && applied < MAX_BUDGET_ADJUSTMENTS) {
-            // The allowance is passed down, not just checked here: a plan can
-            // legitimately list one drop per item in a bucket, and applying the
-            // whole list in a single pass would gut the window past the cap
-            // this loop is supposed to hold it to.
-            val outcome = applyAdjustments(state, plan.adjustments, MAX_BUDGET_ADJUSTMENTS - applied)
-            if (outcome.dropped == 0) break
-            state = outcome.state
-            applied += outcome.dropped
-            labels = if (labels.isEmpty()) outcome.label else "$labels; ${outcome.label}"
+        var folded = 0
+        // Over budget: compact once and price again. It used to drop the oldest
+        // observation or turn, one at a time; every drop shifted the rest of the
+        // prompt, so each later step paid a full prefill. A compaction is one
+        // rewrite, after which the prompt grows at its end again.
+        if (plan is StepPlan.Trim && compactNow("step ${call.name} needs ${plan.projectedTokens} of ${plan.limit} tokens")) {
+            folded = 1
+            lastPrompt = buildPrompt(lastVisible)
+            state = contextOf(lastPrompt)
             plan = enforcer.evaluate(state, proposed)
         }
-
-        if (applied > 0) {
-            trace += StepTrace(
-                call.step, StepTrace.Kind.COMPACTION,
-                "step budget for ${call.name}: dropped $applied message(s) " +
-                    "($labels) — projected ${plan.projectedTokens}/${plan.limit} tokens",
-            )
-        }
-        return StepVerdict(plan, applied)
-    }
-
-    /**
-     * Applies [StepPlan.adjustments] to the live window and returns the state
-     * that results, so the caller can re-price against what happened rather
-     * than against what was planned.
-     *
-     * Each leg, and why it does what it does:
-     *
-     *  - **Observations** are removed from [sessions.messages] as well as from
-     *    the priced state. They are the cheapest thing in a window to lose:
-     *    the model already acted on them and the compaction trigger is about to
-     *    fold the rest into labelled slots anyway.
-     *  - **Turns** are removed from the session too, oldest first, and
-     *    observations are excluded from this leg so the two legs cannot claim
-     *    the same message. User turns are excluded outright: a user turn is an
-     *    instruction, and instructions are the last thing this system gives up.
-     *  - **Memories** are removed from the priced state only. The block is
-     *    re-rendered from the store on every step, so what is actually given up
-     *    is the room the builder spends on it — and the builder drops exactly
-     *    that block when its own budget is exceeded, which is the only
-     *    situation in which a plan asks for it.
-     *  - **Tool definitions** cannot be applied. They are inside the system
-     *    prompt, which is the one component [ContextBudget] never drops, and
-     *    the step gate has no cheaper place to take them from. Treated as
-     *    "nothing left" rather than silently ignored, so an inapplicable plan
-     *    ends as a refusal instead of a lie.
-     *
-     * @param allowance how many messages this pass may give up, so one plan
-     *   cannot drop the whole window in a single call.
-     * @return the reduced state, how many messages were actually given up, and
-     *   a label for the trace.
-     */
-    private fun applyAdjustments(
-        state: ContextState,
-        actions: List<BudgetAction>,
-        allowance: Int,
-    ): Adjustments {
-        var working = state
-        var dropped = 0
-        val labels = StringBuilder()
-
-        for (action in actions) {
-            if (dropped >= allowance) break
-            val given: Boolean
-            val next: ContextState
-            when (action.component) {
-                UsageBucket.OBSERVATION -> {
-                    given = dropOldestObservation(working)
-                    next = working.copy(observations = working.observations.drop(1))
-                }
-
-                UsageBucket.TURN -> {
-                    given = dropOldestTurn(working)
-                    next = working.copy(recentTurns = working.recentTurns.drop(1))
-                }
-
-                UsageBucket.MEMORY -> {
-                    // NOT a real drop, and must not pretend to be one.
-                    //
-                    // `buildRequest` re-runs `memory.search(task, config.memoryResults)`
-                    // on every step and hands the full result to the builder, so
-                    // shortening `working.memories` here changes the PRICED state
-                    // and nothing else. The next step re-fetches the same rows and
-                    // the prompt is exactly as long as before, while the gate has
-                    // already recorded a drop it was credited with.
-                    //
-                    // That is falsifying in the permissive direction: reproduced
-                    // at 2625 real tokens against a 2406 ceiling, where this leg
-                    // supplied the one phantom drop that flipped the verdict to
-                    // FITS. Reporting `given = false` makes the gate say DOES NOT
-                    // FIT instead, which is the honest answer and is the same
-                    // direction every other leg already fails in.
-                    given = false
-                    next = working
-                }
-
-                UsageBucket.SUMMARY, UsageBucket.TASK, UsageBucket.TOOL -> {
-                    given = false
-                    next = working
-                }
-            }
-            if (!given) continue
-            if (dropped > 0) labels.append("; ")
-            labels.append(action.label)
-            dropped++
-            working = next
-        }
-        return Adjustments(working, dropped, labels.toString())
-    }
-
-    /**
-     * Removes the oldest tool observation from the live window.
-     *
-     * Guarded on BOTH the priced state and the session: the state says how many
-     * the plan was entitled to drop, and the session says whether there is
-     * still one there to drop. Removing a message that is not in the window
-     * would shrink nothing while the plan believed it had helped.
-     */
-    private fun dropOldestObservation(state: ContextState): Boolean {
-        if (state.observations.isEmpty()) return false
-        val index = sessions.messages.indexOfFirst { it is ChatMessage.ToolObservation }
-        if (index < 0) return false
-        // Checkpoint BEFORE the removal, for the same reason as foldWindow.
-        onWindowChanged?.invoke()
-        sessions.messages.removeAt(index)
-        return true
-    }
-
-    /** Removes the oldest droppable turn. See [applyAdjustments] for the exclusions. */
-    private fun dropOldestTurn(state: ContextState): Boolean {
-        if (state.recentTurns.isEmpty()) return false
-        val index = (1 until sessions.messages.size).firstOrNull { i ->
-            val message = sessions.messages[i]
-            message !is ChatMessage.ToolObservation && message !is ChatMessage.User
-        } ?: return false
-        // Checkpoint BEFORE the removal, for the same reason as foldWindow.
-        onWindowChanged?.invoke()
-        sessions.messages.removeAt(index)
-        return true
+        return StepVerdict(plan, folded)
     }
 
     /**
@@ -1150,6 +1044,9 @@ class AgentController(
      *    in fact as well as in principle.
      */
     private fun contextOf(prompt: List<ChatMessage>): ContextState {
+        val liveTurnText = sessions.messages
+            .lastOrNull { it is ChatMessage.User && it.text == task }
+            ?.let { (it as ChatMessage.User).rendered ?: it.text } ?: task
         val system = StringBuilder()
         var summary = ""
         val turns = ArrayList<ChatMessage>(prompt.size)
@@ -1176,11 +1073,10 @@ class AgentController(
                 // against a 2406 ceiling reported FITS, because one phantom
                 // MEMORY drop moved the projection under the limit.
                 //
-                // `recentTurns` is the bucket whose drop leg really does remove
-                // from the live window (`dropOldestTurn`), so the fiction and
-                // reality stay in agreement.
+                // The live task turn is in the prompt as it was rendered (clock,
+                // memories, hints in front of the task), so it is matched on that.
                 is ChatMessage.User ->
-                    if (message.text == task) Unit else turns += message
+                    if (message.text == liveTurnText) Unit else turns += message
 
                 is ChatMessage.Assistant -> turns += message
 
@@ -1220,22 +1116,62 @@ class AgentController(
 
     private data class StepVerdict(val plan: StepPlan, val dropped: Int)
 
-    private data class Adjustments(val state: ContextState, val dropped: Int, val label: String)
 
     // ------------------------------------------------------------ collaborators
 
-    private fun selectTools(): List<AgentTool> = try {
-        toolSelector.select(task, sessions.currentKeywords(), tools.all(), config.maxVisibleTools)
-    } catch (t: Throwable) {
-        tools.all().take(config.maxVisibleTools)
+    /**
+     * The tools for this step: the session's list, plus any this task needs that
+     * it lacks.
+     *
+     * WHY A STICKY LIST: the tools are written into the system prompt, the first
+     * thing the model reads. Picked fresh per task, the list changed with almost
+     * every message, and a changed system prompt means llama.cpp prefills the
+     * whole conversation again: minutes on a slow phone. So the session keeps
+     * the list, a tool the selector wants is appended (the text before it stays
+     * the same), and only when that would pass [AgentConfig.maxVisibleTools]
+     * does the list start over from this task's choice. A tool that no longer
+     * exists (its family was switched off) leaves the list.
+     */
+    private fun selectTools(): List<AgentTool> {
+        val all = tools.all()
+        val cap = config.maxVisibleTools
+        val wanted = try {
+            toolSelector.select(task, sessions.currentKeywords(), all, cap)
+        } catch (t: Throwable) {
+            all.take(cap)
+        }
+        val byName = all.associateBy { it.definition.name }
+        val kept = sessions.epochTools.filter { it in byName }
+        val wantedNames = wanted.map { it.definition.name }
+        val added = wantedNames.filter { it !in kept }
+        if (added.isNotEmpty() || kept.size != sessions.epochTools.size) {
+            val appended = kept.size + added.size <= cap
+            val next = if (appended) kept + added else (wantedNames + kept.filter { it !in wantedNames }).take(cap)
+            log(
+                "tool set changed: ${sessions.epochTools.size} -> ${next.size} tools, " +
+                    (if (appended) "appended ${added.joinToString()}" else "started over") +
+                    "; the prompt is prefilled again from the tool list on",
+            )
+            sessions.epochTools.clear()
+            sessions.epochTools += next
+        }
+        return sessions.epochTools.mapNotNull { byName[it] }
     }
 
-    private suspend fun buildRequest(visible: List<AgentTool>): GenerationRequest {
-        val memories = try {
-            memory.search(task, config.memoryResults)
-        } catch (t: Throwable) {
-            emptyList()
-        }
+    private fun buildRequest(visible: List<AgentTool>): GenerationRequest {
+        val prompt = buildPrompt(visible)
+        // Retained so the step gate prices the context the model is about to be
+        // given rather than a reconstruction of it. See [lastPrompt].
+        lastPrompt = prompt
+        lastVisible = visible
+        return request(prompt, visible)
+    }
+
+    /**
+     * The prompt for [visible]. Memories are not searched here: they were found
+     * once, for the turn, and are part of its rendered text ([run]).
+     */
+    private fun buildPrompt(visible: List<AgentTool>): List<ChatMessage> {
         // The working state goes in BEFORE the builder, because
         // [DefaultContextBuilder] recognises a summary by position and prefix
         // and reserves slot 2 for it. That is a contract the builder's own KDoc
@@ -1244,17 +1180,17 @@ class AgentController(
         // trigger — and never shown to the model.
         val history = withWorkingSummary(sessions.messages)
         val built = try {
-            contextBuilder.build(task, history, memories, visible.map { it.definition })
+            contextBuilder.build(task, history, emptyList(), visible.map { it.definition })
         } catch (t: Throwable) {
             // The fallback keeps the summary, because losing the working state
             // to a builder that threw is the one thing worse than an untrimmed
             // prompt.
             history
         }
-        val prompt = withPluginContext(built)
-        // Retained so the step gate prices the context the model is about to be
-        // given rather than a reconstruction of it. See [lastPrompt].
-        lastPrompt = prompt
+        return withPluginContext(built)
+    }
+
+    private fun request(prompt: List<ChatMessage>, visible: List<AgentTool>): GenerationRequest {
         return GenerationRequest(
             messages = prompt,
             params = sampling,
@@ -1299,11 +1235,12 @@ class AgentController(
     }
 
     /**
-     * Folds plugin context into the system message, not a message of its own:
-     * small models handle one system prompt far better than several.
+     * Folds the plugins' session lines (the profile) into the system message,
+     * not a message of their own: small models handle one system prompt far
+     * better than several. Per-task lines (skills) are in the user turn.
      */
     private fun withPluginContext(prompt: List<ChatMessage>): List<ChatMessage> {
-        val lines = hooks.contextForStep(task).filter { it.isNotBlank() }
+        val lines = hooks.contextForSession().filter { it.isNotBlank() }
         if (lines.isEmpty()) return prompt
         val extra = lines.joinToString("\n")
         val first = prompt.firstOrNull()
@@ -1355,17 +1292,42 @@ class AgentController(
      * the slot that is dropped first when the prompt is over budget — exactly
      * when it is most needed.
      */
-    private suspend fun compactIfNeeded() {
-        val active = sessions.tokens(model)
+    private suspend fun compactIfNeeded(boundary: Boolean, visible: List<AgentTool>) {
         val window = model.capabilities.contextLength
-        val limit = workingLimit(window)
-        if (active <= limit) return
+        val prompt = buildPrompt(visible)
+        val tokens = promptTokens(prompt)
+        val limit = if (boundary) {
+            // Never below the system prompt plus some conversation: with a small
+            // working limit the system prompt and tools alone can fill it, and
+            // the turn limit would then compact on every message, each one a
+            // full prefill.
+            val fixed = prompt.firstOrNull()?.let { promptTokens(listOf(it)) } ?: 0
+            maxOf(workingLimit(window), fixed + MIN_CONVERSATION_TOKENS).coerceAtMost(hardLimit(window))
+        } else {
+            hardLimit(window)
+        }
+        if (tokens <= limit) return
+        compactNow(
+            "$tokens tokens over the ${if (boundary) "turn" else "mid-answer"} limit $limit " +
+                "(window $window)",
+        )
+    }
 
+    /**
+     * Folds the conversation into the working state now. Returns false when
+     * there is nothing to fold.
+     *
+     * Every compaction rewrites the prompt after the system message, so the
+     * next prefill starts there; that is the price, paid once, for a prompt
+     * that then only grows at its end for the next several turns.
+     */
+    private suspend fun compactNow(reason: String): Boolean {
         // Nothing to fold, nothing to compact. A window that trips the trigger
         // holding two messages is a model whose context is smaller than its own
         // request, and folding would only duplicate the task.
         val keep = sessions.keepRecent.coerceAtLeast(1)
-        if (sessions.messages.size <= keep + 1) return
+        if (sessions.messages.size <= keep + 1) return false
+        val before = sessions.messages.size
 
         // Order matters and is not interchangeable: the slots are derived from
         // the messages [foldWindow] is about to delete, so compacting after the
@@ -1376,13 +1338,31 @@ class AgentController(
         sessions.workingSummary = state
         foldWindow(keep)
 
-        trace += StepTrace(
-            step, StepTrace.Kind.COMPACTION,
-            "compacted $active tokens into working state: ${state.progress.size} progress, " +
-                "${state.actionsTaken.size} actions, ${state.failures.size} failures, " +
-                "${state.knownFacts.size} facts, ${state.remainingWork.size} remaining " +
-                "(limit $limit)",
-        )
+        val detail = "compacted $before messages into working state ($reason): " +
+            "${state.progress.size} progress, ${state.actionsTaken.size} actions, " +
+            "${state.failures.size} failures, ${state.knownFacts.size} facts, " +
+            "${state.remainingWork.size} remaining"
+        trace += StepTrace(step, StepTrace.Kind.COMPACTION, detail)
+        log(detail)
+        return true
+    }
+
+    /**
+     * The prompt's size in this model's own tokens, the whole of it: system,
+     * tools, working state, turns. Counting only the conversation (as the
+     * trigger once did) left the system prompt and tools out, and those are
+     * most of a small window.
+     */
+    private fun promptTokens(prompt: List<ChatMessage>): Int {
+        val text = prompt.joinToString("\n") { message ->
+            when (message) {
+                is ChatMessage.System -> message.text
+                is ChatMessage.User -> message.rendered ?: message.text
+                is ChatMessage.Assistant -> message.text
+                is ChatMessage.ToolObservation -> message.modelFacing()
+            }
+        }
+        return model.countTokens(text) + prompt.size * MESSAGE_TEMPLATE_TOKENS
     }
 
     private fun truncateTask(text: String, limit: Int = ContextCompactor.MAX_ENTRY_CHARS): String {
@@ -1454,6 +1434,20 @@ class AgentController(
     private fun workingLimit(window: Int): Int =
         if (window > 0) min((window * COMPACT_AT).toInt(), config.workingTokenLimit)
         else config.workingTokenLimit
+
+    /**
+     * The most a prompt may hold mid-answer: the window less the reply, a margin
+     * for the chat template, and room for one more step (a tool call and its
+     * observation). Past it the next step would not fit, so the loop compacts;
+     * below it, it lets the prompt grow, because a compaction mid-answer costs a
+     * prefill the user is waiting on.
+     */
+    private fun hardLimit(window: Int): Int {
+        if (window <= 0) return config.workingTokenLimit
+        val step = STEP_ROOM_TOKENS + config.observationBudgetChars / CHARS_PER_TOKEN
+        return (window - sampling.maxOutputTokens - TEMPLATE_MARGIN_TOKENS - step)
+            .coerceAtLeast(workingLimit(window))
+    }
 
     private fun failed(toolName: String, detail: String): ToolResult = ToolResult(
         success = false,
@@ -1574,20 +1568,24 @@ class AgentController(
 
     private companion object {
         const val COMPACT_AT = 0.65
+
+        /** Conversation the turn limit always leaves room for, past the system prompt. */
+        const val MIN_CONVERSATION_TOKENS = 800
+
+        /** Chat-template tokens per message (role markers), added to the text's count. */
+        const val MESSAGE_TEMPLATE_TOKENS = 4
+
+        /** Room kept for the template's own framing and the generation prompt. */
+        const val TEMPLATE_MARGIN_TOKENS = 64
+
+        /** A tool call and its framing, on top of the observation budget. */
+        const val STEP_ROOM_TOKENS = 128
+
+        /** Characters per token for the observation budget, which is set in characters. */
+        const val CHARS_PER_TOKEN = 4
         const val TRACE_DETAIL_CHARS = 512
         const val LINE_CHARS = 200
         const val TRUNCATOR_MIN_SAFE_BUDGET = 64
-
-        /**
-         * Most messages the step gate may give up in a single step.
-         *
-         * WHY EIGHT: the loop's whole quality argument for a window is recency
-         * ([ContextBudget]'s drop order), so a gate willing to gut a
-         * conversation is worse than one that admits the window is too small.
-         * Eight is roughly the working target's worth of observations at the
-         * default budget — past that the run is not trimming, it is forgetting.
-         */
-        const val MAX_BUDGET_ADJUSTMENTS = 8
 
         /**
          * Below this ceiling the step gate does not run.

@@ -35,7 +35,7 @@ class ProfilePlugin : AgentPlugin {
     override val settings: List<SettingDef<*>> = listOf(PROFILE)
 
     override fun hooks(settings: SettingsReader): PluginHooks = object : PluginHooks {
-        override fun contextForStep(task: String): List<String> {
+        override fun contextForSession(): List<String> {
             val text = settings[PROFILE].trim()
             if (text.isEmpty()) return emptyList()
             return listOf("About the user:", text)

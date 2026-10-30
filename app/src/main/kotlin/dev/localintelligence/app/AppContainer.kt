@@ -1170,6 +1170,7 @@ class AppContainer(private val context: Context) {
         onToken = onToken,
         onToolStart = onToolStart,
         onToolDone = onToolDone,
+        log = { line -> android.util.Log.i("LocalAgent", line) },
         // Persist whenever the loop trims the window, not only at run
         // boundaries: a message removed by a mid-run fold is unrecoverable
         // afterwards. See AgentController.onWindowChanged.
@@ -1188,15 +1189,19 @@ class AppContainer(private val context: Context) {
         toolSelector = LexicalToolSelector(),
         validator = ToolCallValidatorGate.forRegistry(runTools),
         loopDetector = LoopDetector(),
-        // The clock and the name in the system prompt are read once per run. Read
-        // per step, the clock changes whenever a step crosses a minute, and a
-        // prompt that changes near its start cannot reuse the previous step's
-        // prefill (llama_jni.cpp).
+        // The system prompt holds only what stays the same from message to
+        // message (rules, name, tools); the clock is read once per run and goes
+        // at the start of the user turn, which the session stores as sent. A
+        // prompt that changes near its start cannot reuse the previous
+        // message's prefill (llama_jni.cpp).
         contextBuilder = java.time.ZonedDateTime.now().let { now ->
             val name = settings[CoreSettings.ASSISTANT_NAME]
             DefaultContextBuilder(
-                systemPrompt = { tools -> SystemPrompts.forTools(tools, now, name) },
-                workingLimit = config.workingTokenLimit,
+                systemPrompt = { tools -> SystemPrompts.forTools(tools, name) },
+                // A safety net at the model's window: the agent loop compacts
+                // well before this, by its own count in the model's tokens.
+                workingLimit = model.capabilities.contextLength.takeIf { it > 0 } ?: config.workingTokenLimit,
+                turnPreamble = { SystemPrompts.nowLine(now) },
             )
         },
         memory = memoryStore,
