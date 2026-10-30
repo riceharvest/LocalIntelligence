@@ -119,6 +119,24 @@ internal object ScheduledRunReporter {
     }
 
     /**
+     * Settles rows left at [PENDING] by a process that died mid-run.
+     *
+     * The service writes the outcome on every terminal path, but a low-memory
+     * kill, a crash or a force stop never reaches one. Nothing else clears the
+     * marker, so a one-time task would say "waiting for the result" forever
+     * (#167). Called once per launch, before any run of this process can have
+     * claimed a row, so a row at [PENDING] that is not the live run's is stale.
+     */
+    fun settleInterrupted(context: Context) {
+        val store = ScheduledTaskStore(context.applicationContext)
+        val live = ScheduledRunRegistry.runningTaskId
+        for (task in store.all()) {
+            if (task.lastResult != PENDING || task.id == live) continue
+            store.upsert(task.copy(lastResult = CANCELLED_INTERRUPTED))
+        }
+    }
+
+    /**
      * The one place a run's terminal state becomes a sentence.
      *
      * Exhaustive over [RunOutcome] on purpose: a fifth outcome added to `:core`
