@@ -353,7 +353,8 @@ private fun TaskRow(
             Text(
                 text = when {
                     isRunning -> "Running now."
-                    !task.enabled && task.cadence == TaskCadence.Once ->
+                    !task.enabled && task.cadence == TaskCadence.Once &&
+                        task.nextRunAtMillis <= System.currentTimeMillis() ->
                         "Already ran. Not scheduled any more."
                     !task.enabled -> "Paused. Not scheduled."
                     else -> "Next: ${task.timeLabel()}"
@@ -405,7 +406,11 @@ private fun TaskRow(
                 )
             }
 
-            if (!isRunning) {
+            // A one-time task that already fired has nothing to resume to, so it
+            // gets no Resume button (#174). A paused one still ahead of its time does.
+            val canResume = task.cadence != TaskCadence.Once ||
+                task.nextRunAtMillis > System.currentTimeMillis()
+            if (!isRunning && (task.enabled || canResume)) {
                 TextButton(
                     onClick = if (task.enabled) onPause else onResume,
                     modifier = Modifier.padding(top = 4.dp),

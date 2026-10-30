@@ -14,6 +14,7 @@ import dev.localintelligence.app.data.intentForTaskAction
 import dev.localintelligence.app.data.readTaskReadiness
 import dev.localintelligence.app.execution.ScheduledRunRegistry
 import dev.localintelligence.app.execution.ScheduledTaskController
+import dev.localintelligence.app.execution.TaskAlarmScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -80,23 +81,32 @@ class ScheduleViewModel(
      * the moment the user comes back.
      */
     fun refresh() {
-        viewModelScope.launch {
-            val tasks = withContext(Dispatchers.IO) { store.all() }
-            val readiness = readTaskReadiness(
-                context = context,
-                modelAvailability = modelAvailability(),
-                hasSelectedModel = hasSelectedModel(),
-            )
-            _state.value = _state.value.copy(
-                tasks = tasks,
-                readiness = readiness,
-                runningTaskId = ScheduledRunRegistry.runningTaskId,
-                // A notice describes one refused action. It does not survive a
-                // refresh, because the condition that produced it has just been
-                // re-read and the user is expected to act on it now.
-                notice = null,
-            )
-        }
+        viewModelScope.launch { reload(notice = null) }
+    }
+
+    /**
+     * The read behind [refresh], with the notice to show afterwards passed in.
+     *
+     * A notice describes one refused action. [refresh] passes null, because the
+     * condition that produced an old notice has just been re-read and the user
+     * is expected to act on it now. A refusal path passes its own message here,
+     * so it is written in the same state update as the re-read. Setting it
+     * after a refresh launched elsewhere would let that refresh's `notice = null`
+     * land last and erase it (#142).
+     */
+    private suspend fun reload(notice: String?) {
+        val tasks = withContext(Dispatchers.IO) { store.all() }
+        val readiness = readTaskReadiness(
+            context = context,
+            modelAvailability = modelAvailability(),
+            hasSelectedModel = hasSelectedModel(),
+        )
+        _state.value = _state.value.copy(
+            tasks = tasks,
+            readiness = readiness,
+            runningTaskId = ScheduledRunRegistry.runningTaskId,
+            notice = notice,
+        )
     }
 
     /** Clears any active notice, e.g. when the user edits the task prompt. */
@@ -169,16 +179,19 @@ class ScheduleViewModel(
      */
     fun resume(taskId: String) {
         viewModelScope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                ScheduledTaskController.resume(context, taskId)
+            val (ok, exactAllowed) = withContext(Dispatchers.IO) {
+                ScheduledTaskController.resume(context, taskId) to
+                    TaskAlarmScheduler.canScheduleExactAlarms(context)
             }
-            if (!ok) {
-                _state.value = _state.value.copy(
-                    notice = "Could not resume: Android is not allowing this app to " +
-                        "schedule exact alarms. See the blockers above.",
-                )
-            }
-            refreshKeepingNotice()
+            reload(
+                notice = when {
+                    ok -> null
+                    // Only name exact alarms when they really are the cause (#174).
+                    !exactAllowed -> "Could not resume: Android is not allowing this app to " +
+                        "schedule exact alarms. See the blockers above."
+                    else -> "Could not resume: this task has no later time to run at."
+                },
+            )
         }
     }
 
@@ -191,23 +204,6 @@ class ScheduleViewModel(
      * that does nothing.
      */
     fun intentFor(action: TaskAction) = intentForTaskAction(context, action)
-
-    /**
-     * Re-reads without discarding the notice just set.
-     *
-     * [refresh] clears notices on purpose, so the two refusal paths that need
-     * to *show* one cannot go through it. A private variant rather than a flag
-     * on the public function, because "refresh but keep the error" is a
-     * different operation and the public name should not grow a parameter that
-     * only two callers pass.
-     */
-    private fun refreshKeepingNotice() {
-        val notice = _state.value.notice
-        refresh()
-        viewModelScope.launch {
-            _state.value = _state.value.copy(notice = notice)
-        }
-    }
 
     /**
      * One mutating action, followed by a re-read.

@@ -28,6 +28,7 @@ import dev.localintelligence.android.scripts.ScriptPluginRepository
 import dev.localintelligence.android.scripts.ScriptRunner
 import dev.localintelligence.app.settings.ContextLength
 import dev.localintelligence.app.settings.DeviceFacts
+import dev.localintelligence.app.execution.ScheduledRunReporter
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.ComputeChoice
 import dev.localintelligence.app.settings.SimpleSetup
@@ -1184,6 +1185,8 @@ class AppContainer(private val context: Context) {
      */
     suspend fun restoreOnLaunch(): List<ChatMessage> = readinessLock.withLock {
         restoreConversationOnce()
+        // A scheduled run the last process died during has no result coming (#167).
+        ScheduledRunReporter.settleInterrupted(context)
         if (!modelAvailability.current.canRun) loadSelectedModel()
         restoredTurns
     }

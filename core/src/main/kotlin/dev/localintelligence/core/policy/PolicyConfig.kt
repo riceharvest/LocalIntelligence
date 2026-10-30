@@ -170,11 +170,12 @@ data class PolicyConfig(
         val DEFAULT_TARGET_ARGS: Set<String> = setOf("to", "recipient", "contact", "address", "phone", "number", "email")
         val DEFAULT_COUNT_ARGS: Set<String> = setOf("count", "limit", "ids", "items", "paths", "recipients", "numbers")
         val DEFAULT_FREE_TEXT_ARGS: Set<String> =
-            setOf("title", "label", "description", "location", "query", "name")
+            setOf("title", "label", "description", "location", "query", "name", "subject")
 
         /**
-         * Substrings that mark a privileged capability in an argument key or
-         * value. Lowercase; matched case-insensitively as a substring.
+         * Words that mark a privileged capability in an argument key or value.
+         * Lowercase; matched case-insensitively as a whole word, so "root" does
+         * not match a recipient named "degroot" (#154).
          *
          * Each one is a way to hand another app control of this device. All of
          * them are exactly what [dev.localintelligence.core.tool.ToolRisk.PRIVILEGED]
