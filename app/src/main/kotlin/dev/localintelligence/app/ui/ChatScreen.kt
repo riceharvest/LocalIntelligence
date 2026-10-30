@@ -371,6 +371,11 @@ fun ChatScreen(
                 onRemoveAttachment = viewModel::removeAttachment,
                 onOpenSettings = onOpenSettings,
                 showBlockedReason = messages.isNotEmpty(),
+                blockedAction = when (modelState) {
+                    ModelAvailability.None -> "Download a model" to onOpenModels
+                    is ModelAvailability.Failed -> "Choose another model" to onOpenModels
+                    else -> null
+                },
             )
         },
     ) { padding ->
@@ -395,6 +400,7 @@ fun ChatScreen(
                         // rejected left the user on a dead end with no way to
                         // reach the one screen that lists the alternatives.
                         isMissingModel = modelState is ModelAvailability.None,
+                        isLoading = modelState is ModelAvailability.Loading,
                         onOpenModels = onOpenModels,
                         assistantName = assistantName,
                         suggestion = suggestion,
@@ -699,6 +705,7 @@ private fun progressLine(state: RunState): String? = when (state) {
 private fun EmptyState(
     blockedReason: String?,
     isMissingModel: Boolean,
+    isLoading: Boolean,
     onOpenModels: () -> Unit,
     assistantName: String,
     suggestion: SuggestedModel?,
@@ -719,7 +726,9 @@ private fun EmptyState(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        if (isMissingModel && suggestion != null) {
+        if (isLoading) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        } else if (isMissingModel && suggestion != null) {
             // First run: the model picked for this phone is one tap away, and
             // the download screen still shows its size and fit before anything
             // is fetched.
@@ -745,7 +754,7 @@ private fun EmptyState(
                 onClick = onOpenModels,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text(if (isMissingModel) "Get a model" else "Choose another model")
+                Text(if (isMissingModel) "Download a model" else "Choose another model")
             }
         }
     }

@@ -20,6 +20,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,6 +60,7 @@ import dev.localintelligence.app.ui.ScriptPluginsScreen
 import dev.localintelligence.app.ui.SettingsScreen
 import dev.localintelligence.app.ui.SkillsScreen
 import dev.localintelligence.app.ui.TraceScreen
+import dev.localintelligence.app.ui.components.LocalTechnicalDetail
 import dev.localintelligence.app.ui.trace.RedactionScreen
 import dev.localintelligence.app.ui.trace.ScheduleScreen
 import dev.localintelligence.app.ui.trace.ScheduleViewModel
@@ -151,7 +153,12 @@ class MainActivity : ComponentActivity() {
                 // once so recomposition or rotation does not repeat the action.
                 LaunchedEffect(deliveredIntent) {
                     val incoming = deliveredIntent ?: return@LaunchedEffect
-                    sharedText(incoming)?.let { chat.send(it) }
+                    // On a cold start the saved model is still loading; text sent
+                    // before it is resident would be refused, so wait for it.
+                    sharedText(incoming)?.let { text ->
+                        container.launchRestore.await()
+                        chat.send(text)
+                    }
                     destination(incoming)?.let { nav.navigate(it) }
                     deliveredIntent = null
                 }
@@ -167,8 +174,14 @@ class MainActivity : ComponentActivity() {
                         // ChatScreen because the banner is a property of the
                         // *app* — it is about a background capability the whole
                         // assistant depends on, not about this one transcript.
+                        // Observed, so switching Simple/Technical in Settings shows here at once.
+                        val chatSettingsVersion by container.settings.changes.collectAsStateWithLifecycle()
+                        val technical = remember(chatSettingsVersion) {
+                            container.settings.mode == SettingsMode.TECHNICAL
+                        }
                         Column(modifier = Modifier.fillMaxSize()) {
                             NotificationAccessBanner()
+                            CompositionLocalProvider(LocalTechnicalDetail provides technical) {
                             ChatScreen(
                                 viewModel = chat,
                                 onOpenModels = { nav.navigate(ROUTE_MODELS) },
@@ -177,7 +190,10 @@ class MainActivity : ComponentActivity() {
                                 // Read here, where the screen is built, and passed down
                                 // as a plain Boolean: the screen never touches prefs.
                                 toolCallsAutoCollapse = container.settings[CoreSettings.TOOL_CALLS_AUTO_COLLAPSE],
-                                skills = container.skills,
+                                // "Save as skill" writes the raw skill format, with tool ids in
+                                // its steps: a Technical tool. Simple users write skills on the
+                                // Skills screen's form.
+                                skills = if (technical) container.skills else null,
                                 assistantName = container.settings[CoreSettings.ASSISTANT_NAME],
                                 suggestion = SimpleSetup.suggestedModel(container.deviceFacts),
                                 onGetSuggested = {
@@ -185,6 +201,7 @@ class MainActivity : ComponentActivity() {
                                     nav.navigate("$ROUTE_HUB?repo=${Uri.encode(pick.repo)}&file=${Uri.encode(pick.file)}")
                                 },
                             )
+                            }
                         }
                     }
 

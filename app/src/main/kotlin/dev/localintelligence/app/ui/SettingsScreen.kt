@@ -170,7 +170,7 @@ fun SettingsScreen(
 
                 val context = LocalContext.current
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    onNewChat?.let { NavRow(Icons.Filled.AddComment, "New chat", it) }
+                    onNewChat?.let { NewChatRow(it) }
                     NavRow(Icons.Filled.Memory, "Models", onOpenModels)
                     NavRow(Icons.Filled.AutoAwesome, "Skills", onOpenSkills)
                     NavRow(Icons.Filled.Description, "Documents", onOpenDocuments)
@@ -227,6 +227,27 @@ private fun NavRow(icon: ImageVector, title: String, onClick: () -> Unit) {
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.clickable(onClick = onClick),
     )
+}
+
+/** New chat, after a confirmation: the cleared conversation cannot be reopened here. */
+@Composable
+private fun NewChatRow(onNewChat: () -> Unit) {
+    var asking by remember { mutableStateOf(false) }
+    NavRow(Icons.Filled.AddComment, "New chat") { asking = true }
+    if (asking) {
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text("Start a new chat?") },
+            text = { Text("This conversation will be cleared. Past chats can still find what was said.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    asking = false
+                    onNewChat()
+                }) { Text("New chat") }
+            },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
+        )
+    }
 }
 
 /** Export, with the formats in a menu under the row. */
