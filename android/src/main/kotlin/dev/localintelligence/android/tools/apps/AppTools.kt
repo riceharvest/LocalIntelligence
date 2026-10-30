@@ -175,17 +175,16 @@ object AppMatcher {
      * The observation for an ambiguous match. States the count, names every candidate
      * with its package, and gives the exact next call to make.
      *
-     * This string is the model's only chance to recover, so it has to be actionable
-     * rather than merely diagnostic: "call apps.open with package X" is the whole
-     * recovery procedure.
+     * This string is the model's only chance to recover. It must not pick a candidate
+     * for the user: the list order is PackageManager's, not a preference, and apps.open
+     * is not confirmed, so a retry with a guessed package opens the wrong app silently.
      */
     fun ambiguityObservation(match: AppMatch.Ambiguous): String {
         val lines = match.candidates.map { "- ${it.label} (${it.packageName})" }
         val more = if (match.candidates.size >= MAX_CANDIDATES) ", and possibly more" else ""
         return "${match.candidates.size} apps match '${match.query}'$more:\n" +
             lines.joinToString("\n") +
-            "\nCall apps.open again with the exact package name, e.g. " +
-            "\"package\": \"${match.candidates.first().packageName}\"."
+            "\nAsk the user which of these they mean. Do not call apps.open until they name one."
     }
 }
 
