@@ -30,6 +30,7 @@ import dev.localintelligence.core.policy.ConfirmationOutcome
 import dev.localintelligence.core.policy.ConfirmationSession
 import dev.localintelligence.core.policy.Decision
 import dev.localintelligence.core.policy.PolicyOutcome
+import dev.localintelligence.core.policy.PolicyRule
 import dev.localintelligence.core.policy.RiskPolicy
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.CancellationSignal
@@ -40,6 +41,7 @@ import dev.localintelligence.core.tool.ToolContext
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolRegistry
 import dev.localintelligence.core.tool.ToolResult
+import dev.localintelligence.core.tool.ToolRequest
 import dev.localintelligence.core.tool.ToolSelector
 import kotlinx.coroutines.CancellationException
 import kotlin.math.min
@@ -757,7 +759,17 @@ class AgentController(
         // would let a repeated call burn the user's confirmation dialog.
         // The tool names what the call acts on before the policy reads it, so a
         // confirmation can say which conversation a reply goes to (#201).
-        val decision = riskPolicy.evaluate(tool.definition, action.arguments, tool.describeTarget(action.arguments))
+        //
+        // WHY the message and not the model: the model chooses these calls itself, even when
+        // the message needs no tool (measured: "What is 17 times 23?" set a real timer). A tool
+        // whose name or tags the message does not mention is one the user did not ask for.
+        val requested = ToolRequest.asksFor(task, tool.definition)
+        val decision = riskPolicy.evaluate(
+            tool.definition, action.arguments, tool.describeTarget(action.arguments), requested,
+        )
+        if (decision.rule == PolicyRule.NOT_REQUESTED) {
+            log("guard: ${action.name} not asked for by the message, confirming first")
+        }
         metrics?.recordToolCall(
             action.name,
             action.arguments,

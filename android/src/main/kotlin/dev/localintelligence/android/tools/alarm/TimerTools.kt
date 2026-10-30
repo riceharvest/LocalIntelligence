@@ -62,7 +62,9 @@ class TimerSetTool(private val appContext: Context) : AgentTool {
         risk = ToolRisk.REVERSIBLE,
         observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
-            "timer", "countdown", "set a timer", "timer for", "minute timer", "time me",
+            "timer", "countdown", "set a timer", "timer for", "minute timer", "time me", "remind me in", "minutes", "seconds",
+            // Dutch: the scorer reads only the tool's English text, so a Dutch request needs these to count as asked.
+            "zet een timer", "minuten", "kookwekker",
         ),
         // ACTION_SET_TIMER needs SET_ALARM, a normal permission the manifest declares
         // (granted at install), so there is nothing to ask the user for.

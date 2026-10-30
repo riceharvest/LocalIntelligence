@@ -83,7 +83,11 @@ class MessageDraftTool(private val appContext: Context) : AgentTool {
         schema = MESSAGE_SCHEMA,
         risk = ToolRisk.REVERSIBLE,
         observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("text", "sms", "message", "text message", "draft a text", "send a text"),
+        // Dutch: the scorer reads only the tool's English text, so a Dutch request needs these to count as asked.
+        tags = setOf(
+            "text", "sms", "message", "text message", "draft a text", "send a text",
+            "bericht", "stuur", "appje", "berichtje",
+        ),
         requiredPermission = null,
     )
 

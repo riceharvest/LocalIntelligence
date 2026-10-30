@@ -84,6 +84,12 @@ enum class PolicyRule {
 
     /** The tool's schema declares a permission that is not granted. */
     PERMISSION_NOT_GRANTED,
+
+    /**
+     * A guarded tool (see `RiskPolicy.isGuarded`) was called, but the user's own message does not
+     * ask for it. The call is confirmed first and is never auto-accepted, whatever the approvals say.
+     */
+    NOT_REQUESTED,
 }
 
 /**

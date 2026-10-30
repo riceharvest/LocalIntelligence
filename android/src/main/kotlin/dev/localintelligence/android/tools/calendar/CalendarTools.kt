@@ -921,7 +921,11 @@ class CalendarCreateTool internal constructor(
         risk = ToolRisk.REVERSIBLE,
         // WHY: the observation is the app's own wording, not page text; fencing it made the model repeat the action.
         observationOrigin = ObservationOrigin.LOCAL,
-        tags = setOf("calendar", "add event", "schedule", "reminder", "book", "appointment", "meeting"),
+        // Dutch: the scorer reads only the tool's English text, so a Dutch request needs these to count as asked.
+        tags = setOf(
+            "calendar", "add event", "schedule", "reminder", "book", "appointment", "meeting",
+            "agenda", "afspraak", "zet in mijn agenda",
+        ),
         requiredPermission = "android.permission.WRITE_CALENDAR",
     )
 
