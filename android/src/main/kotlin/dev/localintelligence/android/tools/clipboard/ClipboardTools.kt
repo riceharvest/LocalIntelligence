@@ -253,6 +253,8 @@ class ClipboardWriteTool(private val platform: ClipboardPlatform) : AgentTool {
         category = "clipboard",
         schema = WRITE_SCHEMA,
         risk = ToolRisk.REVERSIBLE,
+        // WHY: the observation is the app's own wording, not page text; fencing it made the model repeat the action.
+        observationOrigin = ObservationOrigin.LOCAL,
         tags = setOf(
             "clipboard", "copy", "copy to clipboard", "put on clipboard", "cut",
             "copy text", "share text", "paste",

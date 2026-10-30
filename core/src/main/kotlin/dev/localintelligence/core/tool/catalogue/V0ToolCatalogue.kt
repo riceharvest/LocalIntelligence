@@ -400,6 +400,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.EXTERNAL_COMMUNICATION,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "share", "send", "forward", "pass to another app",
                 "attach", "send it to", "whatsapp it", "email it",
@@ -453,6 +454,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "clipboard", "copy", "copy to clipboard", "put on clipboard",
                 "cut", "copy text", "copy this", "save to clipboard",
@@ -506,6 +508,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "open settings", "settings", "wifi settings", "turn on bluetooth",
                 "display settings", "battery saver", "sound settings",
@@ -527,6 +530,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "vibrate", "buzz", "vibration", "shake",
                 "ringer", "find my phone", "ring",
@@ -580,6 +584,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "alarm", "set an alarm", "wake me up", "remind me at",
                 "ring at", "set a reminder", "timer for",
@@ -638,6 +643,7 @@ object V0ToolCatalogue {
             // assistant itself created, and it refuses rather than guessing. A user
             // asked to confirm every single-alarm cancel stops using the feature.
             risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "cancel alarm", "delete alarm", "remove alarm", "turn off alarm",
                 "stop the alarm", "get rid of my alarm", "kill the alarm",
@@ -757,6 +763,7 @@ object V0ToolCatalogue {
                 }
             },
             risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf(
                 "schedule", "book", "add event", "new meeting",
                 "block out", "put in my calendar", "reserve",
