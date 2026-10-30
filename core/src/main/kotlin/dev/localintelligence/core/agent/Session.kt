@@ -169,7 +169,8 @@ class Session(
     /**
      * Tools the model found with `tools.find`: callable though the system prompt
      * does not list them (their descriptions are in the lookup's result).
-     * Cleared at a compaction, which folds that result away.
+     * At a compaction, only the ones whose lookup result was folded away are dropped
+     * (see AgentController.compactNow); the rest stay callable.
      */
     val discoveredTools: MutableList<String> = mutableListOf()
 

@@ -66,6 +66,17 @@ class ToolFinder(
         /** Tools one lookup returns: enough to choose from, few enough to stay short. */
         const val MAX_FOUND: Int = 3
 
+        /**
+         * The tool names a lookup result lists, one `- name: description` line each.
+         * Read back from the window so a tool stays callable while its result is there
+         * (see AgentController.compactNow).
+         */
+        fun namedIn(observation: String): Set<String> =
+            observation.lineSequence()
+                .filter { it.startsWith("- ") }
+                .map { it.removePrefix("- ").substringBefore(':').trim() }
+                .toSet()
+
         val DEFINITION: ToolDefinition = ToolDefinition(
             name = NAME,
             description = "Finds a tool that is not in this list, by what it should do, and makes it callable. " +
