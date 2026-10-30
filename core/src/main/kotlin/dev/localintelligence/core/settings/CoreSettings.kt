@@ -64,8 +64,22 @@ object CoreSettings {
 
     val READ_REPLIES_ALOUD = Toggle(
         "voice.read_aloud", "Read replies aloud",
-        "Each answer is read out loud with the phone's text-to-speech when it is finished.",
+        "Each answer is read out loud when it is finished.",
         SettingSection.VOICE, default = false, simple = true, applies = SettingApplies.NOW,
+    )
+    val VOICE_SOURCE = Choice(
+        "voice.source", "Voice",
+        "The model's own voice when the loaded model can speak (LFM3-Omni, LFM3-Audio), otherwise " +
+            "the phone's text-to-speech.",
+        SettingSection.VOICE, default = "model",
+        options = listOf(Choice.Option("model", "Model's voice"), Choice.Option("system", "Phone's voice")),
+        simple = true, applies = SettingApplies.NOW,
+    )
+    val MODEL_VOICE = Choice(
+        "voice.model_voice", "Model voice", "Which of the model's voices to use, where it has more than one.",
+        SettingSection.VOICE, default = "female",
+        options = listOf(Choice.Option("female", "Female"), Choice.Option("male", "Male")),
+        applies = SettingApplies.NOW,
     )
     val SPEECH_RATE = FloatValue(
         "voice.rate", "Speech rate", "1 is normal speed.",
@@ -167,7 +181,7 @@ object CoreSettings {
         MODE,
         AUTO_ACCEPT_DESTRUCTIVE, AUTO_ACCEPT_EXTERNAL, AUTO_ACCEPT_NETWORK, AUTO_ACCEPT_IN_BACKGROUND,
         TOOL_CALLS_AUTO_COLLAPSE,
-        READ_REPLIES_ALOUD, SPEECH_RATE, SPEECH_PITCH,
+        READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
         SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE,
         MAX_STEPS, MAX_VISIBLE_TOOLS, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,

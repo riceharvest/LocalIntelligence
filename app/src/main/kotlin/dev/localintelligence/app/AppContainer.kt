@@ -49,6 +49,7 @@ import dev.localintelligence.core.metrics.RunRecorder
 import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.ModelBackend
 import dev.localintelligence.core.model.ModelSpec
+import dev.localintelligence.core.model.SpeechOutput
 import dev.localintelligence.core.policy.RiskPolicy
 import dev.localintelligence.core.tool.LexicalToolSelector
 import dev.localintelligence.core.tool.SimpleToolRegistry
@@ -146,7 +147,12 @@ class AppContainer(private val context: Context) {
     val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
 
     /** Reads replies aloud with the platform text-to-speech. The engine starts on first use. */
-    val speaker: Speaker by lazy { Speaker(context, settings) }
+    val speaker: Speaker by lazy {
+        Speaker(context, settings) {
+            val backend = residentBackend()
+            (backend as? SpeechOutput)?.takeIf { backend.capabilities.supportsSpeechOutput }
+        }
+    }
 
     /**
      * Everything that can be switched on and off. The built-in tool families
