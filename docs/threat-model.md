@@ -136,6 +136,35 @@ the model id or the wait limit, which are the user's settings, so it cannot
 choose a more expensive one. Each call still goes through the network tier's
 confirmation unless the user chose to skip it.
 
+### T8. Remote MCP server sends arguments and receives text — opt-in
+
+The MCP plugin (`mcp.remote`) is off by default. With it off, or with no server
+address set, nothing is sent and no tools are offered. With it on, the app
+connects to the one address the user typed, over https only, and lists that
+server's tools once per run. Each listed tool is offered as `mcp.<name>`.
+
+What leaves the phone: the JSON-RPC requests (the handshake, the tool list, and
+each call with the arguments the model chose), and the optional bearer token in
+the `Authorization` header. The token is encrypted under the Keystore and never
+shown back. Errors the server returns are cut to 160 characters and have the
+token removed before the model sees them. Redirects are not followed, so the
+token cannot reach a host the user did not name. The address goes through the
+same check as `web.fetch`, so a literal private, loopback or link-local address
+is refused. That is the same text-only check, so the T2 DNS gap applies here.
+
+What comes back: every remote tool is `NETWORK_EGRESS`, so each call asks for
+confirmation unless "Open websites without asking" is on, and its output is
+`NETWORK` origin, so it is fenced as untrusted text. A server that is down or
+slow costs at most one 20-second timeout at the start of a run, and then the run
+goes ahead without its tools.
+
+**Not defended:** the server's tool names and descriptions are written into the
+model's prompt and are not fenced. A hostile or compromised server can put
+instructions there, and the fence on tool output does not cover them. The fix is
+to fence descriptions as well and to treat them as data in the prompt; neither
+is done yet. A user who connects a server is trusting that server's descriptions
+as well as its results.
+
 ## Deliberately not defended
 
 - **A hostile local model file.** Anyone who can place a GGUF in app storage can

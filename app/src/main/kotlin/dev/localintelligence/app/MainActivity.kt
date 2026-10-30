@@ -45,6 +45,7 @@ import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.HubScreen
 import dev.localintelligence.app.ui.SettingsScreen
+import dev.localintelligence.app.ui.DocumentsScreen
 import dev.localintelligence.app.ui.SkillsScreen
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.ui.HubViewModel
@@ -83,6 +84,15 @@ class MainActivity : ComponentActivity() {
 
     private var deliveredIntent by mutableStateOf<Intent?>(null)
 
+    /**
+     * The closest thing to app exit that Android gives a screen. Only a real
+     * finish releases the text-to-speech engine; a rotation is not a finish.
+     */
+    override fun onDestroy() {
+        if (isFinishing) (application as LocalIntelligenceApp).container.speaker.shutdown()
+        super.onDestroy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) {
@@ -102,6 +112,8 @@ class MainActivity : ComponentActivity() {
                         ChatViewModel.Factory(
                             gateway = gateway,
                             modelAvailability = container.modelAvailability,
+                            speaker = container.speaker,
+                            readRepliesAloud = { container.settings[CoreSettings.READ_REPLIES_ALOUD] },
                         )
                     },
                 )
@@ -394,6 +406,7 @@ class MainActivity : ComponentActivity() {
                                 nav.navigate("$ROUTE_HUB?repo=${Uri.encode(repo)}&file=${Uri.encode(file)}")
                             },
                             onOpenSkills = { nav.navigate(ROUTE_SKILLS) },
+                            onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -402,6 +415,13 @@ class MainActivity : ComponentActivity() {
                         SkillsScreen(
                             store = container.settings,
                             repository = container.skills,
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
+                    composable(ROUTE_DOCUMENTS) {
+                        DocumentsScreen(
+                            repository = container.documents,
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -450,6 +470,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_REDACTION = "redaction"
         const val ROUTE_SETTINGS = "settings"
         const val ROUTE_SKILLS = "skills"
+        const val ROUTE_DOCUMENTS = "documents"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
         const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"

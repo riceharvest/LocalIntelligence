@@ -8,12 +8,16 @@ import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.cloud.OpenRouterPlugin
+import dev.localintelligence.android.documents.DocumentStore
+import dev.localintelligence.android.documents.DocumentsPlugin
+import dev.localintelligence.android.mcp.McpPlugin
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.android.skills.SkillsPlugin
 import dev.localintelligence.android.tools.androidToolPlugins
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.SimpleSetup
+import dev.localintelligence.app.speech.Speaker
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.plugin.PluginSet
 import dev.localintelligence.core.policy.BlastRadiusTracker
@@ -138,6 +142,9 @@ class AppContainer(private val context: Context) {
     /** Every setting in the app. See [SettingsStore]. */
     val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
 
+    /** Reads replies aloud with the platform text-to-speech. The engine starts on first use. */
+    val speaker: Speaker by lazy { Speaker(context, settings) }
+
     /**
      * Everything that can be switched on and off. The built-in tool families
      * are the first plugins; features add theirs here.
@@ -149,9 +156,17 @@ class AppContainer(private val context: Context) {
         // registry holds only the enabled tools, so checking it against the
         // catalogue would fail whenever any plugin is off, which is the default for
         // the cloud plugin.
-        CatalogueAgreement.require(families.flatMap { it.tools() } + cloud.shippedTools(), V0ToolCatalogue.definitions)
-        families + ProfilePlugin() + SkillsPlugin(skills) + cloud
+        val docs = DocumentsPlugin(documents)
+        CatalogueAgreement.require(
+            families.flatMap { it.tools() } + cloud.shippedTools() + docs.shippedTools(),
+            V0ToolCatalogue.definitions,
+        )
+        val remote = McpPlugin(settings)
+        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + remote
     }
+
+    /** Documents the user added on the Documents screen, as text under filesDir/documents. */
+    val documents: DocumentStore by lazy { DocumentStore(File(context.filesDir, "documents")) }
 
     /** Skills on disk under filesDir/skills. Shared by the plugin, the skills screen and "Save as skill". */
     val skills: SkillRepository by lazy { SkillRepository(File(context.filesDir, "skills")) }
