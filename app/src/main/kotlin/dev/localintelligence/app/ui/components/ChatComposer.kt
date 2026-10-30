@@ -27,8 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Headset
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -42,7 +42,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -75,12 +74,12 @@ import dev.localintelligence.app.ui.PermissionActivity
  *    the user no longer has to *aim* at anything. Landing anywhere on the strip
  *    sends.
  *
- * ## WHY THE ATTACH AND MIC BUTTONS SIT NEXT TO THE PERMISSIONS ENTRY
+ * ## WHY THE ATTACH AND MIC BUTTONS SIT NEXT TO THE SETTINGS ENTRY
  *
  * A control that cannot be reached one-handed is worse than no control: it
  * advertises a capability, takes a tap's worth of thumb to miss, and teaches the
  * user the app is not listening. So attach and mic are small icons on the same
- * edge as the permissions entry, away from the full-width SEND strip. They are
+ * edge as the settings entry, away from the full-width SEND strip. They are
  * never adjacent to SEND, so a thumb aiming for one cannot land on the other.
  *
  * ## WHY THE INSETS ARE HERE AND NOT ON THE SCAFFOLD
@@ -141,6 +140,8 @@ fun ChatComposer(
     onMic: () -> Unit = {},
     onHandsFree: () -> Unit = {},
     onRemoveAttachment: (Int) -> Unit = {},
+    /** Opens Settings. The chat has no app bar, so this is the way to every other screen. */
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // A message can be only attachments, but never while a clip is still recording.
@@ -237,6 +238,7 @@ fun ChatComposer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    SettingsEntry(onOpenSettings)
                     MediaButtons(canAttach, canUseMic, micActive, handsFreeOn, canHandsFree, onAttach, onMic, onHandsFree)
                     ComposerField(
                         input = input,
@@ -270,7 +272,7 @@ fun ChatComposer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    PermissionEntry()
+                    SettingsEntry(onOpenSettings)
                     MediaButtons(canAttach, canUseMic, micActive, handsFreeOn, canHandsFree, onAttach, onMic, onHandsFree)
 
                     // One slot, two states, same geometry. The button never moves
@@ -282,7 +284,7 @@ fun ChatComposer(
                         onSend = onSend,
                         onStop = onStop,
                         // Takes the rest of the row, so the target spans from
-                        // just past the permissions entry to the right padding.
+                        // just past the media buttons to the right padding.
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -430,32 +432,21 @@ private fun SendOrStopButton(
 }
 
 /**
- * The one secondary control in the composer: where a user goes to grant a
- * permission the model has just been refused.
- *
- * ## WHY IT IS HERE AT ALL
- *
- * `PermissionActivity` is declared in the manifest and its class exists, but
- * nothing in the app navigated to it: the tools return an honest
- * `PermissionDenied` naming the permission and the Settings path, and the user
- * was given no way to act on that sentence. The destination already existed and
- * was already declared, so this is a wire, not a feature.
+ * The way out of the chat: the chat has no app bar, so models, permissions,
+ * skills and everything else are reached through Settings.
  *
  * It sits at the start of the action row, opposite SEND, so the two large
- * targets are not adjacent — a user reaching for one cannot hit the other by
- * accident, which for a destructive control and a "did I mean to send that"
- * control is the whole point of separating them.
+ * targets are not adjacent.
  */
 @Composable
-private fun PermissionEntry() {
-    val context = LocalContext.current
+private fun SettingsEntry(onOpenSettings: () -> Unit) {
     IconButton(
-        onClick = { openPermissionScreen(context) },
+        onClick = onOpenSettings,
         modifier = Modifier.size(48.dp),
     ) {
         Icon(
-            imageVector = Icons.Filled.Lock,
-            contentDescription = "Permissions",
+            imageVector = Icons.Filled.Settings,
+            contentDescription = "Settings",
         )
     }
 }
@@ -469,7 +460,7 @@ private fun PermissionEntry() {
  * configured". Settings is a real destination that always exists and is one tap
  * from the same grant.
  */
-private fun openPermissionScreen(context: Context) {
+fun openPermissionScreen(context: Context) {
     try {
         context.startActivity(Intent(context, PermissionActivity::class.java))
     } catch (e: ActivityNotFoundException) {

@@ -22,6 +22,17 @@ object CoreSettings {
     const val COMPUTE_VULKAN = "vulkan"
     const val COMPUTE_OPENCL = "opencl"
 
+    const val THEME_WALLPAPER = "wallpaper"
+    const val THEME_GREEN = "green"
+    const val THEME_BLUE = "blue"
+    const val THEME_PURPLE = "purple"
+    const val THEME_ORANGE = "orange"
+    const val THEME_PINK = "pink"
+
+    const val APPEARANCE_SYSTEM = "system"
+    const val APPEARANCE_LIGHT = "light"
+    const val APPEARANCE_DARK = "dark"
+
     val MODE = Choice(
         "mode", "Settings mode",
         "Simple picks the model and settings for this phone and hides the technical ones. " +
@@ -31,30 +42,65 @@ object CoreSettings {
         simple = true, applies = SettingApplies.NOW,
     )
 
+    // ---- general: what Simple mode shows -----------------------------------
+
+    val ASSISTANT_NAME = SettingDef.Text(
+        "general.assistant_name", "Assistant name",
+        "What the assistant calls itself. Leave empty for no name.",
+        SettingSection.GENERAL, default = "", maxLength = 40, simple = true,
+    )
+    val THEME_COLOR = Choice(
+        "ui.theme_color", "Theme colour",
+        "Wallpaper takes the colours of your wallpaper (Android 12 and newer).",
+        SettingSection.GENERAL, THEME_GREEN,
+        listOf(
+            Choice.Option(THEME_WALLPAPER, "Wallpaper"),
+            Choice.Option(THEME_GREEN, "Green"),
+            Choice.Option(THEME_BLUE, "Blue"),
+            Choice.Option(THEME_PURPLE, "Purple"),
+            Choice.Option(THEME_ORANGE, "Orange"),
+            Choice.Option(THEME_PINK, "Pink"),
+        ),
+        simple = true, applies = SettingApplies.NOW,
+    )
+    val APPEARANCE = Choice(
+        "ui.appearance", "Appearance",
+        "Light or dark, or the same as the phone.",
+        SettingSection.GENERAL, APPEARANCE_SYSTEM,
+        listOf(
+            Choice.Option(APPEARANCE_SYSTEM, "Phone"),
+            Choice.Option(APPEARANCE_LIGHT, "Light"),
+            Choice.Option(APPEARANCE_DARK, "Dark"),
+        ),
+        simple = true, applies = SettingApplies.NOW,
+    )
+
     // ---- approvals ---------------------------------------------------------
+    // Not simple: Simple mode always asks, so an auto-accept chosen in Technical
+    // mode cannot keep running where the screen no longer shows it.
 
     val AUTO_ACCEPT_DESTRUCTIVE = Toggle(
         "approvals.auto_destructive", "Run deletions without asking",
         "Delete and overwrite actions run without a confirmation. Bulk deletions and anything " +
             "outside the app's own storage still ask.",
-        SettingSection.APPROVALS, default = false, simple = true,
+        SettingSection.APPROVALS, default = false,
     )
     val AUTO_ACCEPT_EXTERNAL = Toggle(
         "approvals.auto_external", "Send messages without asking",
         "Replies and shares to other people go out without a confirmation. A message that is " +
             "only a link still asks.",
-        SettingSection.APPROVALS, default = false, simple = true,
+        SettingSection.APPROVALS, default = false,
     )
     val AUTO_ACCEPT_NETWORK = Toggle(
         "approvals.auto_network", "Open websites without asking",
         "Fetching a web page or searching runs without a confirmation.",
-        SettingSection.APPROVALS, default = false, simple = true,
+        SettingSection.APPROVALS, default = false,
     )
     val AUTO_ACCEPT_IN_BACKGROUND = Toggle(
         "approvals.auto_background", "Also in scheduled tasks",
         "Scheduled and background tasks use the choices above. Off: they skip anything that " +
             "would need a confirmation.",
-        SettingSection.APPROVALS, default = false, simple = true,
+        SettingSection.APPROVALS, default = false,
     )
 
     // ---- interface ---------------------------------------------------------
@@ -209,7 +255,7 @@ object CoreSettings {
     )
 
     val all: List<SettingDef<*>> = listOf(
-        MODE,
+        MODE, ASSISTANT_NAME, THEME_COLOR, APPEARANCE,
         AUTO_ACCEPT_DESTRUCTIVE, AUTO_ACCEPT_EXTERNAL, AUTO_ACCEPT_NETWORK, AUTO_ACCEPT_IN_BACKGROUND,
         TOOL_CALLS_AUTO_COLLAPSE,
         READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE,

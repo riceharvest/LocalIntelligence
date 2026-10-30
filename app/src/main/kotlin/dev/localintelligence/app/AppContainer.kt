@@ -1161,12 +1161,14 @@ class AppContainer(private val context: Context) {
         toolSelector = LexicalToolSelector(),
         validator = ToolCallValidatorGate.forRegistry(runTools),
         loopDetector = LoopDetector(),
-        // The clock in the system prompt is read once per run. Read per step, it
-        // changes whenever a step crosses a minute, and a prompt that changes
-        // near its start cannot reuse the previous step's prefill (llama_jni.cpp).
+        // The clock and the name in the system prompt are read once per run. Read
+        // per step, the clock changes whenever a step crosses a minute, and a
+        // prompt that changes near its start cannot reuse the previous step's
+        // prefill (llama_jni.cpp).
         contextBuilder = java.time.ZonedDateTime.now().let { now ->
+            val name = settings[CoreSettings.ASSISTANT_NAME]
             DefaultContextBuilder(
-                systemPrompt = { tools -> SystemPrompts.forTools(tools, now) },
+                systemPrompt = { tools -> SystemPrompts.forTools(tools, now, name) },
                 workingLimit = config.workingTokenLimit,
             )
         },

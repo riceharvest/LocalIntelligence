@@ -72,7 +72,10 @@ response is to report it.
     fun forTools(
         tools: List<ToolDefinition>,
         now: ZonedDateTime = ZonedDateTime.now(),
+        /** The name the user gave the assistant in Settings. Blank: no name line. */
+        assistantName: String = "",
     ): String = buildString {
+        if (assistantName.isNotBlank()) appendLine("Your name is ${assistantName.trim()}.")
         appendLine(BASE)
         appendLine()
         appendLine(

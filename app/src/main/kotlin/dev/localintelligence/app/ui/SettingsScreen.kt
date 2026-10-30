@@ -1,25 +1,52 @@
 package dev.localintelligence.app.ui
 
+import android.os.Build
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Assistant
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -39,32 +66,42 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.android.scripts.ScriptPlugin
+import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.openAssistantSettings
+import dev.localintelligence.app.settings.SettingsStore
+import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.app.speedtest.SpeedTestButton
 import dev.localintelligence.app.speedtest.SpeedTestResultBlock
 import dev.localintelligence.app.speedtest.SpeedTestRunner
-import dev.localintelligence.app.settings.SettingsStore
-import dev.localintelligence.app.settings.SuggestedModel
+import dev.localintelligence.app.ui.components.openPermissionScreen
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.settings.SettingsMode
-import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.core.settings.mode
 import java.util.Locale
 
 /**
  * Every setting, generated from the declarations in [CoreSettings] and the
- * plugins'. Simple mode shows the rows marked simple plus the plugin switches;
- * Technical shows everything.
+ * plugins', and the way to every other screen: the chat has no app bar, so
+ * models, skills, permissions and the rest are opened from here.
+ *
+ * Simple mode shows only the General rows (name, colour, appearance, about you);
+ * the phone decides everything else. Technical shows every row, the plugin
+ * switches and the diagnostics.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,6 +118,12 @@ fun SettingsScreen(
     onOpenDocuments: () -> Unit = {},
     /** Opens the script plugins screen. Defaulted, like [onOpenSkills]. */
     onOpenScripts: () -> Unit = {},
+    onOpenModels: () -> Unit = {},
+    onOpenSchedule: () -> Unit = {},
+    onOpenTrace: () -> Unit = {},
+    onOpenRedaction: () -> Unit = {},
+    /** Exports the current chat in a format. Null hides the row: an empty chat has nothing to export. */
+    onExportChat: ((ChatExporter.Format) -> Unit)? = null,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -116,10 +159,21 @@ fun SettingsScreen(
             ) {
                 ModeSwitch(store)
                 if (!technical) SuggestionCard(suggestion) { onOpenHub(suggestion.repo, suggestion.file) }
-                AssistantCard()
+
+                val context = LocalContext.current
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    NavRow(Icons.Filled.Memory, "Models", onOpenModels)
+                    NavRow(Icons.Filled.AutoAwesome, "Skills", onOpenSkills)
+                    NavRow(Icons.Filled.Description, "Documents", onOpenDocuments)
+                    NavRow(Icons.Filled.Schedule, "Scheduled tasks", onOpenSchedule)
+                    NavRow(Icons.Filled.Lock, "Permissions") { openPermissionScreen(context) }
+                    NavRow(Icons.Filled.Assistant, "Set as phone assistant") { openAssistantSettings(context) }
+                    if (technical) NavRow(Icons.Filled.Extension, "Script plugins", onOpenScripts)
+                    onExportChat?.let { ExportRow(it) }
+                }
 
                 val rows = (CoreSettings.all + plugins.flatMap { it.settings })
-                    .filter { it !== CoreSettings.MODE && (technical || it.simple) }
+                    .filter { it !== CoreSettings.MODE && (technical || (it.simple && it.section == SettingSection.GENERAL)) }
                 for (section in SettingSection.entries) {
                     val inSection = rows.filter { it.section == section }
                     // The speed test sits under the Model section's rows (Compute, GPU
@@ -131,19 +185,56 @@ fun SettingsScreen(
                     if (speedTestHere) speedTest?.let { SpeedTestRow(it) }
                 }
 
-                SectionHeader(if (technical) "Plugins" else "What the assistant can use")
-                FilledTonalButton(onClick = onOpenSkills, modifier = Modifier.fillMaxWidth()) { Text("Skills") }
-                FilledTonalButton(onClick = onOpenDocuments, modifier = Modifier.fillMaxWidth()) { Text("Documents") }
-                FilledTonalButton(onClick = onOpenScripts, modifier = Modifier.fillMaxWidth()) { Text("Script plugins") }
-                // Script plugins have their own screen, with the same switch, so they are not repeated here.
-                plugins.filterNot { it is ScriptPlugin }.forEach { plugin ->
-                    SwitchRow(
-                        title = plugin.title,
-                        help = plugin.summary,
-                        checked = store.isPluginEnabled(plugin),
-                        onChange = { store.setPluginEnabled(plugin, it) },
-                    )
+                if (technical) {
+                    SectionHeader("Plugins")
+                    // Script plugins have their own screen, with the same switch, so they are not repeated here.
+                    plugins.filterNot { it is ScriptPlugin }.forEach { plugin ->
+                        SwitchRow(
+                            title = plugin.title,
+                            help = plugin.summary,
+                            checked = store.isPluginEnabled(plugin),
+                            onChange = { store.setPluginEnabled(plugin, it) },
+                        )
+                    }
+
+                    SectionHeader("Diagnostics")
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        NavRow(Icons.Filled.Timeline, "Trace of the last run", onOpenTrace)
+                        NavRow(Icons.Filled.Shield, "What is filtered before it leaves the phone", onOpenRedaction)
+                    }
                 }
+            }
+        }
+    }
+}
+
+/** One destination: icon, name, chevron. The whole row is the target. */
+@Composable
+private fun NavRow(icon: ImageVector, title: String, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(title) },
+        leadingContent = { Icon(icon, contentDescription = null) },
+        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(onClick = onClick),
+    )
+}
+
+/** Export, with the formats in a menu under the row. */
+@Composable
+private fun ExportRow(onExport: (ChatExporter.Format) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        NavRow(Icons.Filled.IosShare, "Export this chat") { open = true }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            ChatExporter.Format.entries.forEach { format ->
+                DropdownMenuItem(
+                    text = { Text(format.label) },
+                    onClick = {
+                        open = false
+                        onExport(format)
+                    },
+                )
             }
         }
     }
@@ -174,22 +265,6 @@ private fun SuggestionCard(suggestion: SuggestedModel, onOpenHub: () -> Unit) {
             Text(suggestion.file, style = MaterialTheme.typography.titleMedium)
             Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
             FilledTonalButton(onClick = onOpenHub) { Text("Get it from ${suggestion.repo}") }
-        }
-    }
-}
-
-@Composable
-private fun AssistantCard() {
-    val context = LocalContext.current
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Phone assistant", style = MaterialTheme.typography.labelLarge)
-            Text(
-                "Opens LocalIntelligence over any app from the long-press Home or power button. " +
-                    "You choose it in system settings.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            FilledTonalButton(onClick = { openAssistantSettings(context) }) { Text("Set as phone assistant") }
         }
     }
 }
@@ -228,15 +303,24 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
     val help = if (technical) "${def.help} Applies ${def.applies.label}." else def.help
     when (def) {
         is SettingDef.Toggle -> SwitchRow(def.title, help, store.stored(def)) { store.set(def, it) }
-        is SettingDef.Choice -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            RowTitle(def.title, help)
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                def.options.forEachIndexed { index, option ->
-                    SegmentedButton(
-                        selected = store.stored(def) == option.id,
-                        onClick = { store.set(def, option.id) },
-                        shape = SegmentedButtonDefaults.itemShape(index, def.options.size),
-                    ) { Text(option.label) }
+        is SettingDef.Choice -> if (def === CoreSettings.THEME_COLOR) {
+            ColorRow(store, def, help)
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                RowTitle(def.title, help)
+                if (def.options.size <= 3) {
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        def.options.forEachIndexed { index, option ->
+                            SegmentedButton(
+                                selected = store.stored(def) == option.id,
+                                onClick = { store.set(def, option.id) },
+                                shape = SegmentedButtonDefaults.itemShape(index, def.options.size),
+                            ) { Text(option.label) }
+                        }
+                    }
+                } else {
+                    // Four or more labels do not fit one segmented row on a phone; chips wrap.
+                    ChipChoices(store, def)
                 }
             }
         }
@@ -276,6 +360,69 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChipChoices(store: SettingsStore, def: SettingDef.Choice) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        def.options.forEach { option ->
+            FilterChip(
+                selected = store.stored(def) == option.id,
+                onClick = { store.set(def, option.id) },
+                label = { Text(option.label) },
+            )
+        }
+    }
+}
+
+/** Theme colour as swatches: a colour is chosen by looking at it, not by its name. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ColorRow(store: SettingsStore, def: SettingDef.Choice, help: String) {
+    val context = LocalContext.current
+    val chosen = store.stored(def)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        RowTitle(def.title, help)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // Wallpaper colours exist from Android 12; older phones are not offered them.
+            def.options.filter { it.id != CoreSettings.THEME_WALLPAPER || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S }
+                .forEach { option ->
+                    val selected = chosen == option.id
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.selectable(
+                            selected = selected,
+                            onClick = { store.set(def, option.id) },
+                            role = Role.RadioButton,
+                        ),
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(themeSwatch(option.id, context))
+                                .border(
+                                    width = if (selected) 3.dp else 1.dp,
+                                    color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
+                                    shape = CircleShape,
+                                ),
+                        ) {
+                            if (selected) Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White)
+                        }
+                        Text(option.label, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+        }
+    }
+}
+
+/** Up to this many characters, a text setting is one line (a name), not a note. */
+private const val SHORT_TEXT = 80
+
 /**
  * A multi-line text setting with an explicit Save.
  *
@@ -289,10 +436,13 @@ private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: Str
     var draft by remember(stored) { mutableStateOf(stored) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         RowTitle(def.title, help)
+        // A name-sized value gets one line; a note gets room to write.
+        val short = def.maxLength <= SHORT_TEXT
         OutlinedTextField(
             value = draft,
             onValueChange = { draft = it.take(def.maxLength) },
-            minLines = 3,
+            singleLine = short,
+            minLines = if (short) 1 else 3,
             modifier = Modifier.fillMaxWidth(),
             supportingText = { Text("${draft.length} of ${def.maxLength} characters") },
         )

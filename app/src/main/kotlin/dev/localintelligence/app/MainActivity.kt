@@ -2,7 +2,9 @@ package dev.localintelligence.app
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
@@ -16,48 +18,48 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import android.net.Uri
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
-import dev.localintelligence.core.settings.CoreSettings
+import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.media.LiveDictation
+import dev.localintelligence.app.settings.SimpleSetup
+import dev.localintelligence.app.ui.ChatMessage
 import dev.localintelligence.app.ui.ChatScreen
 import dev.localintelligence.app.ui.ChatViewModel
-import dev.localintelligence.app.ui.LocalIntelligenceTheme
-import dev.localintelligence.app.ui.HubScreen
-import dev.localintelligence.app.ui.SettingsScreen
 import dev.localintelligence.app.ui.DocumentsScreen
-import dev.localintelligence.app.ui.SkillsScreen
-import dev.localintelligence.app.ui.ScriptPluginsScreen
-import dev.localintelligence.app.settings.SimpleSetup
-import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
+import dev.localintelligence.app.ui.HubScreen
+import dev.localintelligence.app.ui.HubViewModel
+import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.ModelManagerScreen
+import dev.localintelligence.app.ui.ScriptPluginsScreen
+import dev.localintelligence.app.ui.SettingsScreen
+import dev.localintelligence.app.ui.SkillsScreen
 import dev.localintelligence.app.ui.TraceScreen
-import dev.localintelligence.app.ui.components.ChatModelIdentity
 import dev.localintelligence.app.ui.trace.RedactionScreen
 import dev.localintelligence.app.ui.trace.ScheduleScreen
 import dev.localintelligence.app.ui.trace.ScheduleViewModel
+import dev.localintelligence.core.settings.CoreSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
@@ -156,22 +158,6 @@ class MainActivity : ComponentActivity() {
 
                 NavHost(navController = nav, startDestination = ROUTE_CHAT) {
                     composable(ROUTE_CHAT) {
-                        // The same process-wide holder the service writes and the
-                        // screen reads, collected here for one value only: the
-                        // name of the model that is actually resident. Reading
-                        // `container.selectedModel` instead would be a lie on
-                        // a failed load — the model manager sets that field the
-                        // moment a row is tapped, before anything is loaded, so
-                        // it keeps naming the last-tried file rather than the
-                        // one in memory.
-                        val availability by container.modelAvailability.state
-                            .collectAsStateWithLifecycle()
-                        val resident = (availability as? ModelAvailability.Ready)?.let { ready ->
-                            ChatModelIdentity(
-                                displayName = ready.displayName,
-                                quantType = ready.quantType,
-                            )
-                        }
                         // The consent banner lives here rather than inside
                         // ChatScreen because the banner is a property of the
                         // *app* — it is about a background capability the whole
@@ -180,16 +166,14 @@ class MainActivity : ComponentActivity() {
                             NotificationAccessBanner()
                             ChatScreen(
                                 viewModel = chat,
-                                onOpenTrace = { nav.navigate(ROUTE_TRACE) },
                                 onOpenModels = { nav.navigate(ROUTE_MODELS) },
-                                onOpenRedaction = { nav.navigate(ROUTE_REDACTION) },
                                 onOpenSettings = { nav.navigate(ROUTE_SETTINGS) },
                                 modifier = Modifier.fillMaxSize(),
-                                activeModel = resident,
                                 // Read here, where the screen is built, and passed down
                                 // as a plain Boolean: the screen never touches prefs.
                                 toolCallsAutoCollapse = container.settings[CoreSettings.TOOL_CALLS_AUTO_COLLAPSE],
                                 skills = container.skills,
+                                assistantName = container.settings[CoreSettings.ASSISTANT_NAME],
                             )
                         }
                     }
@@ -207,7 +191,9 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable(ROUTE_REDACTION) {
-                        // Reachable from the chat, not buried in settings.
+                        // Opened from Settings, under Diagnostics: it describes the
+                        // filter, which is always on, so it does not need a place
+                        // on the chat screen.
                         //
                         // WHY IT IS A TOP-LEVEL ROUTE RATHER THAN A DIALOG: the
                         // screen's content is a list of patterns and a list of
@@ -433,6 +419,8 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable(ROUTE_SETTINGS) {
+                        val messages by chat.messages.collectAsStateWithLifecycle()
+                        val exportScope = rememberCoroutineScope()
                         SettingsScreen(
                             store = container.settings,
                             plugins = container.plugins,
@@ -444,6 +432,15 @@ class MainActivity : ComponentActivity() {
                             speedTest = container.speedTest,
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
                             onOpenScripts = { nav.navigate(ROUTE_SCRIPTS) },
+                            onOpenModels = { nav.navigate(ROUTE_MODELS) },
+                            onOpenSchedule = { nav.navigate(ROUTE_SCHEDULE) },
+                            onOpenTrace = { nav.navigate(ROUTE_TRACE) },
+                            onOpenRedaction = { nav.navigate(ROUTE_REDACTION) },
+                            onExportChat = if (messages.isEmpty()) {
+                                null
+                            } else {
+                                { format -> exportScope.launch { exportChat(messages, format) } }
+                            },
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -477,6 +474,16 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    /** Writes the chat on IO and opens the share sheet; a failure is a toast, not a crash. */
+    private suspend fun exportChat(messages: List<ChatMessage>, format: ChatExporter.Format) {
+        try {
+            val file = withContext(Dispatchers.IO) { ChatExporter.write(this@MainActivity, messages, format) }
+            ChatExporter.share(this, file, format)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Export failed", Toast.LENGTH_SHORT).show()
         }
     }
 

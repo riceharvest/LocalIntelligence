@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,37 +12,44 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.core.hub.DownloadProgress
 import dev.localintelligence.core.hub.HubGgufFile
 import dev.localintelligence.core.hub.formatBytes
+import java.util.Locale
 
 /**
  * The HuggingFace download screen: type a repo id, pick a quant, see the size
@@ -64,6 +72,7 @@ import dev.localintelligence.core.hub.formatBytes
 @Composable
 fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val suggestions by viewModel.searchResults.collectAsStateWithLifecycle()
     // WHY a local: `HubUiState.blocked` and `HubUiState.stopped` are computed
     // properties, and a computed property cannot be smart-cast across a
     // recomposition boundary.
@@ -90,14 +99,34 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
             OutlinedTextField(
                 value = state.repoInput,
                 onValueChange = viewModel::onRepoInputChanged,
-                label = { Text("HuggingFace repository") },
-                placeholder = { Text("Qwen/Qwen3-0.6B-GGUF") },
+                label = { Text("Search Hugging Face") },
+                placeholder = { Text("qwen3 0.6b, gemma, LiquidAI/LFM3…") },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { viewModel.resolve() }),
                 modifier = Modifier.fillMaxWidth(),
                 // WHY enabled while downloading: cancelling is a button, not a
                 // reason to lock the user out of the screen they are on.
                 enabled = !state.downloading,
             )
+        }
+
+        // Matches for what is typed so far, most downloaded first. A tap lists that repo's files.
+        if (suggestions.isNotEmpty() && !state.downloading) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    suggestions.forEach { hit ->
+                        ListItem(
+                            headlineContent = { Text(hit.repoId.name) },
+                            supportingContent = {
+                                Text("${hit.repoId.owner} · ${compactCount(hit.downloads)} downloads")
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable { viewModel.pickSearchHit(hit) },
+                        )
+                    }
+                }
+            }
         }
 
         item {
@@ -106,7 +135,7 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                     onClick = viewModel::resolve,
                     enabled = !state.loading && !state.downloading,
                 ) {
-                    Text("Find models")
+                    Text("List files")
                 }
                 if (state.loading) {
                     // Labelled, because a bare spinner next to a button is a
@@ -398,13 +427,11 @@ fun HubScreen(viewModel: HubViewModel, onBack: () -> Unit) {
                     // and saw nothing had no way to learn what the field wanted
                     // in it.
                     Text(
-                        text = "Type a HuggingFace repository — owner/name, like " +
-                            "Qwen/Qwen3-0.6B-GGUF — and Find models will list the " +
-                            "GGUF files in it with the size of each and whether it " +
-                            "fits in this phone's memory, before anything is " +
-                            "downloaded. Gated repositories need a licence accepted " +
-                            "on huggingface.co first; this app has no token field, " +
-                            "so a private or gated repository will be refused.",
+                        text = "Start typing a model name and pick a match, or type a " +
+                            "full owner/name and tap List files. You see each file's " +
+                            "size and whether it fits in this phone's memory before " +
+                            "anything is downloaded. Gated repositories need a licence " +
+                            "accepted on huggingface.co first.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -567,4 +594,11 @@ private fun DownloadProgressBlock(
         )
         OutlinedButton(onClick = onCancel) { Text("Cancel") }
     }
+}
+
+/** 1234 -> "1.2K", 2345678 -> "2.3M": a download count read at a glance. */
+private fun compactCount(n: Int): String = when {
+    n >= 1_000_000 -> String.format(Locale.ROOT, "%.1fM", n / 1_000_000.0)
+    n >= 1_000 -> String.format(Locale.ROOT, "%.1fK", n / 1_000.0)
+    else -> n.toString()
 }
