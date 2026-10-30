@@ -68,11 +68,17 @@ import kotlinx.coroutines.CancellationException
 // =====================================================================================
 
 /**
- * The model-visible observation budget. Every tool in this file funnels its final
- * string through [ObservationTruncator] at this width, so a bug in a formatter
- * degrades one observation rather than blowing the agent's context window.
+ * The safety net on a file tool's observation, not the model's budget.
+ *
+ * The model-visible budget is the `agent.observation_budget` setting, and the agent
+ * loop applies it: an observation over that budget is saved to the observation store
+ * and the model gets a preview with a handle to read the rest. A file tool that cut
+ * its own output to a fixed width would make the setting do nothing, so the tools
+ * return what they read (their hard caps still bound the read) and this constant
+ * only stops a formatter bug from producing something unbounded. It matches the
+ * setting's maximum, so the net never cuts a result the setting allows.
  */
-internal const val OBSERVATION_BUDGET = ObservationTruncator.DEFAULT_BUDGET_CHARS
+internal const val OBSERVATION_CEILING = 20_000
 
 /**
  * The single place an exception is allowed to stop being an exception.
@@ -104,7 +110,7 @@ internal object ToolSafety {
             val result = block()
             // The final net: a formatter bug that produced a 40 KB observation is
             // still bounded before it reaches the prompt.
-            result.copy(observation = ObservationTruncator.truncate(result.observation, OBSERVATION_BUDGET))
+            result.copy(observation = ObservationTruncator.truncate(result.observation, OBSERVATION_CEILING))
         } catch (t: SecurityException) {
             ToolResult(
                 success = false,
@@ -126,13 +132,6 @@ internal object ToolSafety {
                     "Check the URI and argument names.",
                 error = ToolError.InvalidArguments("IllegalArgumentException during $reference"),
             )
-        } catch (t: IllegalStateException) {
-            ToolResult(
-                success = false,
-                observation = "$reference could not run: the content provider is not " +
-                    "available right now. Try again later.",
-                error = ToolError.Unavailable("IllegalStateException during $reference"),
-            )
         } catch (t: CancellationException) {
             // MUST be rethrown. Cancellation is structured concurrency, not a
             // tool failure: swallowing it here turns a user's Stop into
@@ -140,7 +139,18 @@ internal object ToolSafety {
             // what happened and a scope that never cancels. This is a standing
             // project rule with no exceptions, and this catch had been the one
             // place in the tool layer that broke it.
+            //
+            // It sits ABOVE the IllegalStateException branch on purpose: on the JVM
+            // CancellationException extends IllegalStateException, so the other order
+            // would absorb a cancelled call as a provider failure.
             throw t
+        } catch (t: IllegalStateException) {
+            ToolResult(
+                success = false,
+                observation = "$reference could not run: the content provider is not " +
+                    "available right now. Try again later.",
+                error = ToolError.Unavailable("IllegalStateException during $reference"),
+            )
         } catch (t: Throwable) {
             ToolResult(
                 success = false,
@@ -294,6 +304,12 @@ object FileArgs {
     }
 
     const val CONTENT_SCHEME = "content://"
+
+    /**
+     * The MediaStore provider. files.list, files.search and files.write_text all hand out
+     * URIs under it, so it is the authority a read may name without a picker grant.
+     */
+    const val MEDIA_AUTHORITY = "media"
 }
 
 // ---------------------------------------------------------------------------- querying
@@ -365,6 +381,7 @@ object FileQuery {
      *   match `text/html`, which is a different request.
      * @param fromMillis inclusive lower bound on modification time, or null.
      * @param toMillis exclusive upper bound on modification time, or null.
+     * @param exactName display name that must match exactly (case-insensitively), or null.
      */
     fun buildSelection(
         query: String? = null,
@@ -372,6 +389,7 @@ object FileQuery {
         fromMillis: Long? = null,
         toMillis: Long? = null,
         sdkInt: Int = Build.VERSION.SDK_INT,
+        exactName: String? = null,
     ): FileSelection {
         val mediaType = if (sdkInt >= Build.VERSION_CODES.R) {
             MediaStore.Files.FileColumns.MEDIA_TYPE_DOCUMENT
@@ -384,6 +402,10 @@ object FileQuery {
         if (!query.isNullOrBlank()) {
             clauses += "${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ? ESCAPE '\\'"
             args += likePattern(query)
+        }
+        if (exactName != null) {
+            clauses += "${MediaStore.Files.FileColumns.DISPLAY_NAME} = ? COLLATE NOCASE"
+            args += exactName
         }
         if (!mime.isNullOrBlank()) {
             clauses += "${MediaStore.Files.FileColumns.MIME_TYPE} = ?"
@@ -566,25 +588,27 @@ object FileListing {
     const val MAX_ROWS = 40
 
     /**
-     * How much of [OBSERVATION_BUDGET] the row block may consume.
+     * How much of [OBSERVATION_CEILING] the row block may consume.
      *
      * The head of the string (count line) and the tail (the "and N more" line) are
      * reserved out of this, so a listing can never be cut by the truncator in a way
      * that hides the fact that rows were withheld.
      */
-    private const val ROW_BUDGET = OBSERVATION_BUDGET - 320
+    private const val ROW_BUDGET = OBSERVATION_CEILING - 320
 
     /**
      * @param rows the rows to render, already limited by the caller.
      * @param total exact number of matching rows when known, else null.
      * @param withheld number of matching rows not shown (result set was cut).
      * @param what noun phrase for the empty case, e.g. "documents".
+     * @param atLeast true when [total] is the cap, not the real count: the provider had more.
      */
     fun format(
         rows: List<FileRow>,
         total: Int?,
         withheld: Int,
         what: String,
+        atLeast: Boolean = false,
     ): String {
         if (rows.isEmpty()) {
             return if (withheld > 0) {
@@ -596,36 +620,37 @@ object FileListing {
             }
         }
 
-        val sb = StringBuilder()
-        val countLine = when {
-            withheld > 0 && total != null -> "Showing X of $total $what ($withheld more matched)."
-            withheld > 0 -> "Showing the first $total $what."
-            else -> "${rows.size} $what."
-        }
-        // The count line is rendered first with a placeholder so the length is known
-        // before the rows are appended, and a second time once the real number of
-        // shown rows is known. Building it twice is cheaper than being wrong.
-        sb.append(countLine.replace("X", rows.size.toString())).append('\n')
-
+        // The header is built after the rows so it states the number actually shown. It is
+        // never produced by a text replace over the header, because the query inside [what]
+        // may contain any character.
+        val body = StringBuilder()
         var shown = 0
         var used = 0
         for (row in rows) {
             if (shown >= MAX_ROWS) break
             val line = "- " + describe(row) + "\n"
             if (used + line.length > ROW_BUDGET) break
-            sb.append(line)
+            body.append(line)
             used += line.length
             shown++
+        }
+
+        // "at least" is said only when the cap was hit: a count that stops at the cap
+        // must not read as the complete number of matches.
+        val bound = if (atLeast) "at least " else ""
+        val header = when {
+            withheld > 0 && total != null -> "Showing $shown of $bound$total $what ($bound$withheld more matched).\n"
+            withheld > 0 -> "Showing the first $total $what.\n"
+            atLeast -> "Showing $shown of at least ${rows.size} $what.\n"
+            else -> "$shown $what.\n"
         }
 
         // The withheld tally has to account for the rows the caller's limit dropped AND
         // the rows this renderer dropped, or the model is told a smaller number than
         // was actually hidden.
         val hidden = rows.size - shown + withheld
-        if (hidden > 0) {
-            sb.append("- …and ").append(hidden).append(" more, not listed.")
-        }
-        return sb.toString().trimEnd()
+        val tail = if (hidden > 0) "- …and $hidden more, not listed." else ""
+        return (header + body.toString() + tail).trimEnd()
     }
 
     /** One row, one line. The URI at the end is the handle files.read_text and files.delete take back. */
@@ -677,8 +702,9 @@ data class DecodedText(
  * 8 KiB is the cap because that is what still fits the job: it is roughly 2 000 tokens,
  * enough for the head of a log, a config file or a document's first page, and small
  * enough that the model is not being handed a wall of text it cannot act on. The
- * observation budget (2 048 chars) is a *separate*, tighter limit applied afterwards —
- * the 8 KiB cap bounds the read and the heap, the 2 048 budget bounds the prompt.
+ * prompt budget is a *separate* limit, the `agent.observation_budget` setting, applied
+ * afterwards by the agent loop: the 8 KiB cap bounds the read and the heap, the setting
+ * bounds the prompt.
  *
  * The cap is enforced by the number of bytes pulled off the stream, not by truncating
  * the decoded string, so a 1 GB file costs one 8 KiB buffer.
@@ -723,28 +749,11 @@ object FileText {
     private const val REPLACEMENT = '�'
 
     /**
-     * How many characters of file text are actually placed in the observation.
-     *
-     * Distinct from [READ_CAP_BYTES] on purpose. The read cap is a HEAP and I/O bound:
-     * it is the largest string this tool will ever materialise, and it is what the
-     * tests pin (1 MB in, 8 KiB out). The preview is a PROMPT bound: the whole
-     * observation has to fit the 2048-char budget, header and truncation notice
-     * included, so the content gets what is left. If the preview and the read cap
-     * were the same number, a file that fills the cap would be silently cut by
-     * ObservationTruncator with a generic "…[truncated]" and the tool's own, far more
-     * useful truncation notice would never reach the model.
-     */
-    const val PREVIEW_CHARS = 1400
-
-    /** Header + notice + preview, comfortably inside [OBSERVATION_BUDGET]. */
-    const val MAX_OBSERVATION_CHARS = OBSERVATION_BUDGET
-
-    /**
      * The header line stating what is being shown and what was withheld.
      *
-     * States BOTH caps, because the model needs to know that what it is reading is a
-     * prefix and by how much: the 8 KiB read cap, and the preview cut applied to get
-     * below the observation budget.
+     * The text is everything the capped read produced. The prompt budget is applied by
+     * the agent loop, which saves an over-budget observation and previews it with a
+     * handle, so this tool does not cut the text a second time.
      *
      * @param name display name of the document.
      * @param totalBytes the file's full size when the provider reported one.
@@ -756,31 +765,18 @@ object FileText {
         } else {
             "unknown size"
         }
-        val preview = if (decoded.text.length > PREVIEW_CHARS) {
-            decoded.text.take(PREVIEW_CHARS)
-        } else {
-            decoded.text
-        }
-        val previewCut = decoded.text.length - preview.length
-
-        val notices = StringBuilder()
-        if (decoded.truncated) {
+        val notice = if (decoded.truncated) {
             val dropped = if (decoded.droppedPartialChar) {
                 " A partial character at the cut point was dropped."
             } else {
                 ""
             }
-            notices.append("Only the first ").append(READ_CAP_BYTES)
-                .append(" bytes of this file were read").append(dropped)
+            "\n[$TRUNCATION_MARKER: Only the first ${READ_CAP_BYTES} bytes of this file were read$dropped]"
+        } else {
+            ""
         }
-        if (previewCut > 0) {
-            if (notices.isNotEmpty()) notices.append(' ')
-            notices.append("A further ").append(previewCut)
-                .append(" characters were held back to stay inside the response budget.")
-        }
-        val note = if (notices.isEmpty()) "" else "\n[$TRUNCATION_MARKER: ${notices}]"
 
-        return "$name ($size) — ${decoded.text.length} characters read$note\n\n$preview"
+        return "$name ($size) — ${decoded.text.length} characters read$notice\n\n${decoded.text}"
     }
 }
 
@@ -1036,6 +1032,23 @@ private const val SAF_IS_PER_DOCUMENT: String =
 private fun canSeeDocuments(grant: PlatformGrant): Boolean =
     grant.isGranted(ToolPermissions.DOCUMENT_READ) || grant.isGranted(ToolPermissions.DOCUMENT_WRITE)
 
+/**
+ * Whether [uri] names a document this family may read.
+ *
+ * `isContentUri` only checks the scheme, and any provider on the device answers a
+ * `content://` URI. A contacts vCard or a calendar blob is another family's data, and
+ * reading it here would skip that family's switch and label it as a local document. So
+ * the authority must be MediaStore, which is what files.list hands out, or a provider the
+ * user granted through the file picker, which the platform records as a persisted grant.
+ */
+private fun isFamilyDocument(context: Context, uri: Uri): Boolean {
+    val authority = uri.authority ?: return false
+    if (authority == FileArgs.MEDIA_AUTHORITY) return true
+    return runCatching {
+        context.contentResolver.persistedUriPermissions.any { it.uri.authority == authority }
+    }.getOrDefault(false)
+}
+
 /** Documents visible to this app, newest first. */
 class FilesListTool(
     private val appContext: Context,
@@ -1063,7 +1076,8 @@ class FilesListTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
+        // Document text is third-party data (downloads, shared files), so it is fenced as untrusted.
+        observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf(
             "files", "documents", "downloads", "storage", "browse", "my files", "what files do i have",
             "note", "my note", "notes",
@@ -1090,7 +1104,7 @@ class FilesListTool(
                 )
             }
             ok(
-                FileListing.format(rows.items, rows.matched, rows.withheld, "documents"),
+                FileListing.format(rows.items, rows.matched, rows.withheld, "documents", rows.capped),
                 jsonOf("count" to rows.items.size.toString(), "withheld" to rows.withheld.toString()),
             )
         }
@@ -1141,7 +1155,8 @@ class FilesSearchTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
+        // Document text is third-party data (downloads, shared files), so it is fenced as untrusted.
+        observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf(
             "search", "find", "look for", "filename", "extension", "mime type", "recent files", "modified",
             "note", "my note", "notes",
@@ -1202,7 +1217,7 @@ class FilesSearchTool(
                 if (mime != null) append(" of type $mime")
             }
             ok(
-                FileListing.format(rows.items, rows.matched, rows.withheld, what),
+                FileListing.format(rows.items, rows.matched, rows.withheld, what, rows.capped),
                 jsonOf("count" to rows.items.size.toString(), "withheld" to rows.withheld.toString()),
             )
         }
@@ -1233,7 +1248,8 @@ class FilesReadTextTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
+        // Document text is third-party data (downloads, shared files), so it is fenced as untrusted.
+        observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf(
             "read", "open", "text", "contents", "preview", "file content", "what does the file say",
             "note", "my note", "notes",
@@ -1262,6 +1278,13 @@ class FilesReadTextTool(
                 )
             }
             val uri = Uri.parse(raw)
+            if (!isFamilyDocument(appContext, uri)) {
+                return@guard fail(
+                    "'${raw.take(120)}' is not a document this app's file tools can read. " +
+                        "Use a URI from files.list or files.search.",
+                    ToolError.InvalidArguments("uri authority is not a document provider"),
+                )
+            }
 
             // Ask the provider what the document is before reading it. Cheap, and it
             // turns a 200 MB video into one sentence instead of 8 KB of binary noise.
@@ -1383,13 +1406,27 @@ class FilesWriteTextTool(
             when (plan) {
                 is WritePlan.Refused -> return@guard fail(plan.reason, ToolError.Unavailable(plan.reason.take(80)))
                 is WritePlan.OverwriteUri -> {
-                    val written = withContext(Dispatchers.IO) { overwrite(appContext, Uri.parse(plan.uri), content) }
-                    if (!written) {
-                        return@guard fail(
+                    val target = Uri.parse(plan.uri)
+                    when (withContext(Dispatchers.IO) { overwrite(appContext, target, content) }) {
+                        OverwriteOutcome.NOT_OPENED -> return@guard fail(
                             "Could not open that document for writing. It may be read-only, " +
-                                "deleted, or not granted to this app.",
+                                "deleted, or not granted to this app. Nothing was changed.",
                             ToolError.Unavailable("openOutputStream failed"),
                         )
+                        OverwriteOutcome.WRITE_FAILED -> {
+                            // Opening with "wt" already cleared the document, so a failed write
+                            // leaves it empty or partly written. Say so, and name it, so the
+                            // reply to the user does not claim the old text is still there.
+                            val name = withContext(Dispatchers.IO) { describeDocument(appContext, target)?.name }
+                                ?: plan.uri.take(120)
+                            return@guard fail(
+                                "Writing to $name failed part-way. Its earlier text was cleared " +
+                                    "when it was opened, so it may now be empty or partly written. " +
+                                    "Tell the user this; do not retry without asking.",
+                                ToolError.Unavailable("write failed after the document was opened"),
+                            )
+                        }
+                        OverwriteOutcome.WRITTEN -> Unit
                     }
                     ok("Wrote ${content.length} characters to ${plan.uri.take(120)}.")
                 }
@@ -1469,8 +1506,19 @@ class FilesDeleteTool(
 
             // Resolve the target before deciding, so a bare name can be checked for
             // ambiguity instead of deleting whichever row happened to come back first.
-            val candidates = if (explicitUri == null) {
-                val rows = readRows(appContext, limit = FileArgs.MAX_LIMIT, query = name)
+            val candidates = if (explicitUri == null && name != null) {
+                // The exact-name lookup is its own query. A substring query capped at
+                // MAX_LIMIT rows could fill that cap with newer partial matches and hide a
+                // second exact match, and the duplicate refusal would never see it. Only
+                // when nothing matches exactly is the substring query run, so the refusal
+                // can name what is close.
+                val exact = readRows(appContext, limit = FileArgs.MAX_LIMIT, exactName = name)
+                val partial = if (exact != null && exact.items.isEmpty()) {
+                    readRows(appContext, limit = FileArgs.MAX_LIMIT, query = name)
+                } else {
+                    null
+                }
+                val rows = if (exact != null && exact.items.isNotEmpty()) exact else partial
                 if (rows == null) {
                     return@guard fail(
                         "The document index is not available right now. Try again shortly.",
@@ -1515,6 +1563,8 @@ private class RowPage(
     val matched: Int,
     /** How many of those were dropped for the limit. */
     val withheld: Int,
+    /** True when the provider had more rows than [FileArgs.MAX_LIMIT], so [matched] is a floor. */
+    val capped: Boolean,
 )
 
 /**
@@ -1536,6 +1586,7 @@ private suspend fun readRows(
     mime: String? = null,
     from: Long? = null,
     to: Long? = null,
+    exactName: String? = null,
 ): RowPage? = withContext(Dispatchers.IO) {
     val selection = FileQuery.buildSelection(
         query = query,
@@ -1543,6 +1594,7 @@ private suspend fun readRows(
         fromMillis = from,
         toMillis = to,
         sdkInt = Build.VERSION.SDK_INT,
+        exactName = exactName,
     )
     val cursor = context.contentResolver.query(
         MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
@@ -1552,9 +1604,13 @@ private suspend fun readRows(
         FileQuery.ORDER_BY,
     ) ?: return@withContext null
     try {
-        val rows = materialise(cursor, FileArgs.MAX_LIMIT)
+        // One row past the cap is read only to learn that the result is larger than the
+        // cap. It is then dropped, so every caller sees at most MAX_LIMIT rows.
+        val probed = materialise(cursor, FileArgs.MAX_LIMIT + 1)
+        val capped = probed.size > FileArgs.MAX_LIMIT
+        val rows = if (capped) probed.take(FileArgs.MAX_LIMIT) else probed
         val matched = rows.size
-        RowPage(rows.take(limit), matched, (matched - limit).coerceAtLeast(0))
+        RowPage(rows.take(limit), matched, (matched - limit).coerceAtLeast(0), capped)
     } finally {
         runCatching { cursor.close() }
     }
@@ -1642,23 +1698,29 @@ private fun columnsLongOrNull(cursor: android.database.Cursor, name: String): Lo
 }
 
 /**
- * Overwrites a document through SAF. Returns false when the provider refused.
+ * How an overwrite ended. The middle case matters: opening with "wt" truncates the
+ * document, so a write that fails after the open has already destroyed the old text.
+ */
+private enum class OverwriteOutcome { WRITTEN, NOT_OPENED, WRITE_FAILED }
+
+/**
+ * Overwrites a document through SAF.
  *
  * The stream is closed in a `finally`; a failed write on a throwaway Uri can otherwise
  * leak a ParcelFileDescriptor, and Android counts those against a per-process limit.
  */
-private fun overwrite(context: Context, uri: Uri, content: String): Boolean {
+private fun overwrite(context: Context, uri: Uri, content: String): OverwriteOutcome {
     val stream = try {
         context.contentResolver.openOutputStream(uri, "wt")
     } catch (t: Exception) {
-        return false
-    } ?: return false
+        return OverwriteOutcome.NOT_OPENED
+    } ?: return OverwriteOutcome.NOT_OPENED
     return try {
         stream.write(content.toByteArray(Charsets.UTF_8))
         stream.flush()
-        true
+        OverwriteOutcome.WRITTEN
     } catch (t: Exception) {
-        false
+        OverwriteOutcome.WRITE_FAILED
     } finally {
         runCatching { stream.close() }
     }

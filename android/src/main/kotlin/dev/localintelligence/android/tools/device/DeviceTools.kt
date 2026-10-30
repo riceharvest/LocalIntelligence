@@ -23,6 +23,7 @@ import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -179,6 +180,10 @@ internal inline fun guarded(toolName: String, block: () -> ToolResult): ToolResu
                 "Settings, and do not retry.",
             error = ToolError.PermissionDenied("permission revoked for $toolName"),
         )
+    } catch (e: CancellationException) {
+        // The user's Stop, not a device fault. Rethrown before IllegalStateException
+        // below, which it extends on the JVM; see ToolSafety.guard in files/FileTools.kt.
+        throw e
     } catch (e: IllegalStateException) {
         ToolResult(
             success = false,

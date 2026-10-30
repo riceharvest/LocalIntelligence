@@ -160,7 +160,8 @@ object UntrustedContent {
      * region early, leaving everything after it reading as the loop's own
      * commentary. Breaking the `[` is enough — the phrase stays legible to a
      * human reading the transcript, and matches no marker the model is told to
-     * look for.
+     * look for. The `[` is replaced, not prefixed: a kept bracket would leave the
+     * marker itself intact, which is the whole attack.
      */
     private val FENCE_MARKERS = Regex(
         "\\[(untrusted network content from|end of untrusted content|" +
@@ -186,7 +187,7 @@ object UntrustedContent {
             // lowercasing a page's prose to hunt for them would corrupt text.
             if (out.contains(from)) out = out.replace(from, to)
         }
-        return FENCE_MARKERS.replace(out) { " [${it.groupValues[1]}" }
+        return FENCE_MARKERS.replace(out) { "(${it.groupValues[1]}" }
     }
 
     /**
