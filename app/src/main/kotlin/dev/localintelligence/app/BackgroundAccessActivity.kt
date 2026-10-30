@@ -15,7 +15,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -168,9 +174,7 @@ enum class BackgroundCapability(
     Notifications(
         key = "notifications",
         title = "Notification access",
-        enables = "Lets the assistant read, reply to and dismiss notifications, " +
-            "but only the three notifications.* tools and only when a run asks " +
-            "for them.",
+        enables = "Read and reply to notifications when you ask.",
         doesNotEnable = "It does not let the app run anything by itself, and it " +
             "is not needed for scheduled tasks, alarms, or chat.",
         consequence = "The assistant cannot read notifications. It says so and " +
@@ -180,8 +184,7 @@ enum class BackgroundCapability(
     ExactAlarms(
         key = "exact_alarms",
         title = "Alarms and reminders",
-        enables = "Lets the app set a specific time for a scheduled task, and " +
-            "lets the assistant use the alarm.create tool.",
+        enables = "Set alarms and run tasks at an exact time.",
         doesNotEnable = "It does not let the app read notifications, and it is " +
             "not needed to chat.",
         consequence = "Scheduled tasks and alarm.create cannot be armed. " +
@@ -321,6 +324,7 @@ object BackgroundConsent {
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun BackgroundAccessScreen() {
     val context = LocalContext.current
@@ -355,148 +359,65 @@ private fun BackgroundAccessScreen() {
     }
     val runningTaskId = ScheduledRunRegistry.runningTaskId
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text("Background access", style = MaterialTheme.typography.headlineSmall)
-
-        // The first thing on the screen, and the sentence that was missing
-        // entirely before it: none of the switches below are needed to use the
-        // app. Everything here is opt-in to a specific capability, and turning
-        // every one of them off leaves a working chat.
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    "None of this is needed to chat",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    "Chatting, importing a model and running tools all work on " +
-                        "this phone with every switch below off. The two switches " +
-                        "are separate capabilities, not one \"background\" " +
-                        "permission, and turning one on does not turn on the " +
-                        "other. Nothing you switch on here leaves the phone.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        BackgroundCapability.entries.forEach { capability ->
-            CapabilityCard(
-                capability = capability,
-                isGranted = granted.getValue(capability),
-                answer = answers.getValue(capability),
-                onEngage = {
-                    // Any deliberate act on this row is an answer, so it stops
-                    // the recurring prompt. See the parameter's KDoc for why
-                    // "Turn on" counts as well as "Not now".
-                    BackgroundConsent.dismiss(context, capability)
-                    tick++
-                },
-                onAskAgain = {
-                    BackgroundConsent.forget(context, capability)
-                    tick++
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Background access") },
+                navigationIcon = {
+                    IconButton(onClick = { context.findActivity()?.finish() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
                 },
             )
-        }
-
-        HorizontalDivider()
-
-        // What is off, and what that costs. Rendered from the same
-        // `consequence` sentences the rows carry, so the "you turned this off"
-        // panel and the offer cannot drift apart.
-        val declined = BackgroundCapability.entries.filter {
-            !granted.getValue(it) && answers.getValue(it) == BackgroundConsent.Answer.Dismissed
-        }
-        if (declined.isNotEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { liveRegion = LiveRegionMode.Polite },
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    "What is switched off",
-                    style = MaterialTheme.typography.titleSmall,
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            BackgroundCapability.entries.forEach { capability ->
+                CapabilityCard(
+                    capability = capability,
+                    isGranted = granted.getValue(capability),
+                    answer = answers.getValue(capability),
+                    onEngage = {
+                        // Any deliberate act on this row is an answer, so it stops
+                        // the recurring prompt. See the parameter's KDoc for why
+                        // "Turn on" counts as well as "Not now".
+                        BackgroundConsent.dismiss(context, capability)
+                        tick++
+                    },
+                    onAskAgain = {
+                        BackgroundConsent.forget(context, capability)
+                        tick++
+                    },
                 )
-                declined.forEach { capability ->
-                    Text(
-                        "• ${capability.title}: ${capability.consequence}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            }
+
+            if (!interest) {
+                // The only place the app turns asking ON. Until this is tapped
+                // there is no recurring prompt for anything.
+                Button(
+                    onClick = {
+                        BackgroundConsent.noteBackgroundInterest(context)
+                        tick++
+                    },
+                ) {
+                    Text("Offer these when I need them")
                 }
-                Text(
-                    "That is the whole cost. Chat and every tool that does not " +
-                        "need these still work.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
-
-        if (!interest) {
-            HorizontalDivider()
-            // The only place the app turns asking ON. Until this is tapped
-            // there is no recurring prompt for anything, which is the state a
-            // user with no scheduled task and no background work should be in.
-            Text(
-                "Nothing here is being asked for on a schedule. If you want the " +
-                    "app to offer these when a capability would be useful, say so " +
-                    "below.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Button(
-                onClick = {
-                    BackgroundConsent.noteBackgroundInterest(context)
-                    tick++
-                },
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
-                Text("Offer these when I need them")
-            }
-        }
-
-        if (hasScheduledTask) {
-            HorizontalDivider()
-            Text(
-                buildString {
-                    append("You have scheduled tasks. ")
-                    if (runningTaskId != null) {
-                        append("One is running right now.")
-                    }
-                    if (!granted.getValue(BackgroundCapability.ExactAlarms)) {
-                        append(
-                            " They will not be armed until Android allows exact " +
-                                "alarms for this app — open the Scheduled tasks " +
-                                "screen for the exact wording and a button that " +
-                                "goes to the right place.",
-                        )
-                    }
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        Text(
-            "Android only lets you grant and revoke these from its own Settings " +
-                "screens, so the buttons take you there. Come back and this page " +
-                "updates. Revoking a switch here does not uninstall anything and " +
-                "does not affect the model or your chats.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
+}
+
+private tailrec fun Context.findActivity(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 /**
@@ -545,20 +466,8 @@ private fun CapabilityCard(
         ) {
             Text(capability.title, style = MaterialTheme.typography.titleMedium)
             Text(
-                text = if (isGranted) {
-                    "On. ${capability.enables}"
-                } else {
-                    "Off. ${capability.enables}"
-                },
+                text = capability.enables,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            // Kept visible in BOTH states, and stated as a negative. The
-            // sentence that stops a user reading a granted row as "the app is
-            // now watching everything" is the one about what it does not do.
-            Text(
-                capability.doesNotEnable,
-                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
@@ -574,24 +483,9 @@ private fun CapabilityCard(
                     ) {
                         Text("Turn off in Settings")
                     }
-                    Text(
-                        "Android will not let the app switch this off itself — " +
-                            "only you can, on the screen the button opens. " +
-                            "Until you do, it stays on.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
 
                 dismissed -> {
-                    Text(
-                        "You asked not to be asked about this again. ${capability.consequence}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.semantics {
-                            liveRegion = LiveRegionMode.Polite
-                        },
-                    )
                     TextButton(onClick = onAskAgain) {
                         Text("Ask me again")
                     }
@@ -607,13 +501,8 @@ private fun CapabilityCard(
                         Text("Turn on")
                     }
                     TextButton(onClick = { onEngage() }) {
-                        Text("Not now — don't ask again")
+                        Text("Not now")
                     }
-                    Text(
-                        capability.consequence,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }
