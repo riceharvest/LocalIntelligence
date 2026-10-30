@@ -29,6 +29,10 @@ use the network; each is opt-in or asks first, and none is silent:
   OpenRouter key. With the plugin on and a key set, the prompts for image and video
   generation go to openrouter.ai, and the key is sent there with them. The key is
   stored encrypted with the Android Keystore. With no key, nothing is sent.
+- **OpenRouter as the chat model** (same plugin, same key, off unless you pick
+  it on the Models page): with it selected, the whole conversation goes to
+  openrouter.ai, and any image or audio you attach goes with it. Picking a local
+  model stops this.
 - **`web.search`** sends the search words to `html.duckduckgo.com` (no key,
   no account). Like `web.fetch`, it asks first and names the host.
 - **MCP** (plugin "MCP", off by default) talks to the one server you enter;
@@ -36,7 +40,8 @@ use the network; each is opt-in or asks first, and none is silent:
 - **Skills from a URL**: adding a skill by URL downloads that one file, when you
   tap Add.
 
-Nothing else in the app opens a socket, and no conversation content, memory,
+Nothing else in the app opens a socket. Apart from the OpenRouter chat model
+above, which you select yourself, no conversation content, memory,
 file, contact, or calendar entry is transmitted by the app itself. Every
 network tool call asks you to confirm first, and the confirmation names the
 host; decline those confirmations if you do not want outbound requests. The

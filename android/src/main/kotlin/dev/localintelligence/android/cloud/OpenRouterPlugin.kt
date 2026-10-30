@@ -59,7 +59,7 @@ object OpenRouterSettings {
     val API_KEY = SettingDef.Secret(
         "cloud.openrouter.api_key", "OpenRouter API key",
         "Your own key from openrouter.ai. Stored encrypted and never shown back. " +
-            "Without one, the image and video tools are not offered and nothing is sent.",
+            "Without one, the image, video and chat options are off and nothing is sent.",
         SettingSection.PLUGINS, simple = true,
     )
     val IMAGE_MODEL = SettingDef.Text(
@@ -76,13 +76,36 @@ object OpenRouterSettings {
         SettingSection.PLUGINS, default = "google/veo-3.1", maxLength = 120,
         blankMeansDefault = true,
     )
+    /**
+     * The remote chat model. Used only after the user picks "OpenRouter" on the Models
+     * screen; the plugin being on and a key being set are not enough on their own.
+     */
+    val CHAT_MODEL = SettingDef.Text(
+        "cloud.openrouter.chat_model", "Chat model",
+        "The OpenRouter model id for chat, used when you pick OpenRouter on the Models page. " +
+            "Typed as is. While it is the model answering, every message goes to openrouter.ai.",
+        SettingSection.PLUGINS, default = "google/gemini-2.5-flash", maxLength = 120,
+        blankMeansDefault = true,
+    )
+    /**
+     * Only the budget the agent plans its conversation with. It is not sent to OpenRouter;
+     * the model's own limit still applies there.
+     */
+    val CHAT_CONTEXT_LENGTH = SettingDef.IntValue(
+        "cloud.openrouter.chat_context", "Chat context length",
+        "Tokens the agent plans its conversation with when the OpenRouter chat model answers. " +
+            "The model's own limit still applies on OpenRouter.",
+        SettingSection.PLUGINS, default = 32768, min = 4096, max = 262144, step = 4096,
+    )
     val VIDEO_WAIT_SECONDS = SettingDef.IntValue(
         "cloud.openrouter.video_wait", "Video wait limit",
         "Seconds to wait for a video before the tool stops waiting. The job keeps running on OpenRouter.",
         SettingSection.PLUGINS, default = 300, min = 30, max = 900, step = 30,
     )
 
-    val all: List<SettingDef<*>> = listOf(API_KEY, IMAGE_MODEL, VIDEO_MODEL, VIDEO_WAIT_SECONDS)
+    val all: List<SettingDef<*>> = listOf(
+        API_KEY, IMAGE_MODEL, VIDEO_MODEL, VIDEO_WAIT_SECONDS, CHAT_MODEL, CHAT_CONTEXT_LENGTH,
+    )
 }
 
 /**
@@ -99,9 +122,10 @@ class OpenRouterPlugin(
     private val generatedDir = File(context.applicationContext.filesDir, GENERATED_DIR)
 
     override val id: String = OpenRouterSettings.PLUGIN_ID
-    override val title: String = "Cloud images and video (OpenRouter)"
+    override val title: String = "Cloud images, video and chat (OpenRouter)"
     override val summary: String =
-        "Make images and short videos with your own OpenRouter key. The prompt is sent to openrouter.ai."
+        "Make images and short videos, or chat with a remote model, using your own OpenRouter key. " +
+            "Those prompts and messages are sent to openrouter.ai."
     override val enabledByDefault: Boolean = false
     override val settings: List<SettingDef<*>> = OpenRouterSettings.all
 
@@ -307,7 +331,8 @@ private class VideoGenerateTool(
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-private const val API = "https://openrouter.ai/api/v1"
+/** The only host the key is ever sent to. Chat, image and video calls all start from here. */
+internal const val API = "https://openrouter.ai/api/v1"
 private const val MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 
 private fun promptOf(args: ToolArgs): String? {
@@ -387,14 +412,8 @@ private class Reply(val status: Int, val body: ByteArray) {
  * because following it would hand the Bearer header to whatever host it names.
  */
 private fun exchange(method: String, url: String, key: String, json: String?): Reply {
-    check(url.startsWith("$API/")) { "not an OpenRouter address" }
-    val connection = URL(url).openConnection() as HttpURLConnection
+    val connection = openOpenRouterConnection(method, url, key)
     try {
-        connection.requestMethod = method
-        connection.connectTimeout = 20_000
-        connection.readTimeout = 120_000
-        connection.instanceFollowRedirects = false
-        connection.setRequestProperty("Authorization", "Bearer $key")
         connection.setRequestProperty("Accept", "application/json")
         if (json != null) {
             connection.doOutput = true
@@ -407,6 +426,22 @@ private fun exchange(method: String, url: String, key: String, json: String?): R
     } finally {
         connection.disconnect()
     }
+}
+
+/**
+ * Opens one connection to OpenRouter with the Bearer header set. Every OpenRouter call
+ * goes through here, so the host check and the no-redirect rule cannot be skipped by a
+ * new caller. The caller owns the connection and must disconnect it.
+ */
+internal fun openOpenRouterConnection(method: String, url: String, key: String): HttpURLConnection {
+    check(url.startsWith("$API/")) { "not an OpenRouter address" }
+    val connection = URL(url).openConnection() as HttpURLConnection
+    connection.requestMethod = method
+    connection.connectTimeout = 20_000
+    connection.readTimeout = 120_000
+    connection.instanceFollowRedirects = false
+    connection.setRequestProperty("Authorization", "Bearer $key")
+    return connection
 }
 
 private fun readCapped(input: InputStream): ByteArray {
