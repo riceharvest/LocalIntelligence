@@ -130,6 +130,14 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Keeps a model download running while the app is in the background. Started by
+             HubTransfers when a download starts and stopped when it ends. The type must match
+             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC in DownloadService. -->
+        <service
+            android:name=".DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- Shares a chat export. Only cacheDir/exports is covered (see
              res/xml/export_paths.xml), and the grant is per share, so no other
              app can read the transcript later. Not exported. -->

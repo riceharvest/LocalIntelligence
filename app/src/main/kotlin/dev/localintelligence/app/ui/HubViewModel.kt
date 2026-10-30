@@ -2,6 +2,7 @@ package dev.localintelligence.app.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.localintelligence.app.HubTransfers
 import dev.localintelligence.core.hub.DeviceBudget
 import dev.localintelligence.core.hub.DownloadPlan
 import dev.localintelligence.core.hub.DownloadProgress
@@ -316,6 +317,11 @@ class HubViewModel(
      * model sitting in the repository.
      */
     private val siblingTransport: HubTransport = UrlConnectionTransport(),
+    /**
+     * Where the transfer runs. It is app-level, so a download keeps going when the app
+     * leaves the foreground, and this screen follows it through [HubTransfers.transfer].
+     */
+    private val transfers: HubTransfers,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HubUiState())
@@ -349,6 +355,41 @@ class HubViewModel(
     init {
         // Something to choose from before anything is typed.
         runSearch("", delayMs = 0)
+        viewModelScope.launch {
+            // A transfer this screen did not start (one begun before it was created, or stopped from the
+            // notification) is shown here. A transfer that already ended before this screen opened is not:
+            // it is shown only while it runs, and once it ends on the screen that was following it.
+            var following = false
+            transfers.transfer.collect { state ->
+                if (state == null) return@collect
+                if (!state.running && !following) return@collect
+                following = state.running
+                mirrorTransfer(state.progress)
+            }
+        }
+    }
+
+    /**
+     * Shows a transfer's progress on this screen. A transfer this ViewModel started writes its own
+     * state in [collectDownload], so it is left alone while its job runs.
+     */
+    private fun mirrorTransfer(event: DownloadProgress?) {
+        if (event == null) return
+        _state.update { s ->
+            if (s.downloadJob?.isActive == true) {
+                s
+            } else {
+                s.copy(
+                    downloading = event is DownloadProgress.InProgress,
+                    progress = event,
+                    partialBytesKept = when (event) {
+                        is DownloadProgress.InProgress -> event.bytesDownloaded
+                        is DownloadProgress.Stopped -> event.partialBytesKept
+                        is DownloadProgress.Done -> s.partialBytesKept
+                    },
+                )
+            }
+        }
     }
 
     /**
@@ -825,7 +866,7 @@ class HubViewModel(
                     registeredReady = false,
                 )
             }
-            val job = viewModelScope.launch {
+            val job = transfers.launch(file.fileName) {
                 current.projector?.let { if (!fetchProjector(it)) return@launch }
                 val note = adopt(file)
                 _state.update {
@@ -860,7 +901,7 @@ class HubViewModel(
             )
         }
 
-        val job = viewModelScope.launch {
+        val job = transfers.launch(file.fileName) {
             // The projector first, so it is next to the model when the model is
             // adopted and loaded (the backend looks for it at load).
             val projector = current.projector
@@ -916,6 +957,7 @@ class HubViewModel(
         if (!plan.isAllowed) return true
         var done = false
         downloader.download(projector, plan).collect { event ->
+            transfers.report(event)
             when (event) {
                 is DownloadProgress.Done -> done = true
                 is DownloadProgress.Stopped -> _state.update {
@@ -963,7 +1005,7 @@ class HubViewModel(
                 partialBytesKept = 0,
             )
         }
-        val job = viewModelScope.launch {
+        val job = transfers.launch(hubFile.fileName) {
             val (kept, plan, onDisk) = withContext(Dispatchers.IO) {
                 val kept = downloader.partialFileFor(hubFile).localBytes()
                 Triple(
@@ -1016,6 +1058,7 @@ class HubViewModel(
      */
     private suspend fun collectDownload(file: HubGgufFile, plan: DownloadPlan) {
         downloader.download(file, plan).collect { event ->
+            transfers.report(event)
             when (event) {
                 is DownloadProgress.Done -> {
                     // Registration happens HERE, inside the Done branch, and

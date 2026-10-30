@@ -1407,26 +1407,36 @@ class FilesWriteTextTool(
                 is WritePlan.Refused -> return@guard fail(plan.reason, ToolError.Unavailable(plan.reason.take(80)))
                 is WritePlan.OverwriteUri -> {
                     val target = Uri.parse(plan.uri)
-                    when (withContext(Dispatchers.IO) { overwrite(appContext, target, content) }) {
-                        OverwriteOutcome.NOT_OPENED -> return@guard fail(
-                            "Could not open that document for writing. It may be read-only, " +
-                                "deleted, or not granted to this app. Nothing was changed.",
-                            ToolError.Unavailable("openOutputStream failed"),
-                        )
-                        OverwriteOutcome.WRITE_FAILED -> {
-                            // Opening with "wt" already cleared the document, so a failed write
-                            // leaves it empty or partly written. Say so, and name it, so the
-                            // reply to the user does not claim the old text is still there.
-                            val name = withContext(Dispatchers.IO) { describeDocument(appContext, target)?.name }
-                                ?: plan.uri.take(120)
-                            return@guard fail(
-                                "Writing to $name failed part-way. Its earlier text was cleared " +
-                                    "when it was opened, so it may now be empty or partly written. " +
-                                    "Tell the user this; do not retry without asking.",
-                                ToolError.Unavailable("write failed after the document was opened"),
+                    val outcome = withContext(Dispatchers.IO) { overwrite(appContext, target, content) }
+                    if (outcome != OverwriteOutcome.WRITTEN) {
+                        val name = withContext(Dispatchers.IO) { describeDocument(appContext, target)?.name }
+                            ?: plan.uri.take(120)
+                        return@guard when (outcome) {
+                            OverwriteOutcome.NOT_OPENED -> fail(
+                                "Could not open that document for writing. It may be read-only, " +
+                                    "deleted, or not granted to this app. Nothing was changed.",
+                                ToolError.Unavailable("openOutputStream failed"),
                             )
+                            OverwriteOutcome.NOT_READABLE -> fail(
+                                "Could not read $name before overwriting it, or it is over " +
+                                    "$MAX_OVERWRITE_BYTES bytes. Nothing was changed.",
+                                ToolError.Unavailable("read before overwrite failed"),
+                            )
+                            // The write failed, but the old text was written back: nothing is lost.
+                            OverwriteOutcome.WRITE_FAILED_RESTORED -> fail(
+                                "Writing to $name failed part-way. Its earlier text was put back, " +
+                                    "so it is unchanged. Tell the user the new text was not saved.",
+                                ToolError.Unavailable("write failed; old text restored"),
+                            )
+                            // The write failed and so did the restore: the document may be empty or partly written.
+                            OverwriteOutcome.WRITE_FAILED -> fail(
+                                "Writing to $name failed part-way, and its earlier text could not " +
+                                    "be put back, so it may now be empty or partly written. " +
+                                    "Tell the user this; do not retry without asking.",
+                                ToolError.Unavailable("write failed; restore failed"),
+                            )
+                            OverwriteOutcome.WRITTEN -> error("unreachable")
                         }
-                        OverwriteOutcome.WRITTEN -> Unit
                     }
                     ok("Wrote ${content.length} characters to ${plan.uri.take(120)}.")
                 }
@@ -1698,29 +1708,89 @@ private fun columnsLongOrNull(cursor: android.database.Cursor, name: String): Lo
 }
 
 /**
- * How an overwrite ended. The middle case matters: opening with "wt" truncates the
- * document, so a write that fails after the open has already destroyed the old text.
+ * How an overwrite ended. Opening with "wt" truncates the document, so the old text is
+ * read first and written back when the new write fails.
  */
-private enum class OverwriteOutcome { WRITTEN, NOT_OPENED, WRITE_FAILED }
+private enum class OverwriteOutcome {
+    WRITTEN,
+    NOT_OPENED,
+    NOT_READABLE,
+    WRITE_FAILED_RESTORED,
+    WRITE_FAILED,
+}
+
+/** Largest document the overwrite will read back to restore. Keeps the old text in memory cheaply. */
+private const val MAX_OVERWRITE_BYTES = 1024 * 1024
+
+/** Outcome of one write to a document: the stream never opened, or it opened and the write failed. */
+private enum class WriteResult { OK, NOT_OPENED, FAILED }
 
 /**
- * Overwrites a document through SAF.
+ * Overwrites a document through SAF, keeping the old text recoverable.
+ *
+ * The old bytes are read before anything is truncated. If the new write then fails, the
+ * old bytes are written back, so a storage or provider failure does not empty the file.
+ * If the document cannot be read (or is too large to hold in memory), nothing is written.
+ */
+private fun overwrite(context: Context, uri: Uri, content: String): OverwriteOutcome {
+    val old = readDocument(context, uri) ?: return OverwriteOutcome.NOT_READABLE
+    return when (writeDocument(context, uri, content.toByteArray(Charsets.UTF_8))) {
+        WriteResult.OK -> OverwriteOutcome.WRITTEN
+        WriteResult.NOT_OPENED -> OverwriteOutcome.NOT_OPENED
+        WriteResult.FAILED ->
+            if (writeDocument(context, uri, old) == WriteResult.OK) {
+                OverwriteOutcome.WRITE_FAILED_RESTORED
+            } else {
+                OverwriteOutcome.WRITE_FAILED
+            }
+    }
+}
+
+/**
+ * The whole document, or null when it cannot be read or is over [MAX_OVERWRITE_BYTES].
+ * The stream is closed in a `finally` for the same reason as [writeDocument].
+ */
+private fun readDocument(context: Context, uri: Uri): ByteArray? {
+    val stream = try {
+        context.contentResolver.openInputStream(uri)
+    } catch (t: Exception) {
+        return null
+    } ?: return null
+    return try {
+        val out = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+            val read = stream.read(buffer)
+            if (read < 0) break
+            out.write(buffer, 0, read)
+            if (out.size() > MAX_OVERWRITE_BYTES) return null
+        }
+        out.toByteArray()
+    } catch (t: Exception) {
+        null
+    } finally {
+        runCatching { stream.close() }
+    }
+}
+
+/**
+ * Opens a document with "wt" (which truncates it) and writes [bytes].
  *
  * The stream is closed in a `finally`; a failed write on a throwaway Uri can otherwise
  * leak a ParcelFileDescriptor, and Android counts those against a per-process limit.
  */
-private fun overwrite(context: Context, uri: Uri, content: String): OverwriteOutcome {
+private fun writeDocument(context: Context, uri: Uri, bytes: ByteArray): WriteResult {
     val stream = try {
         context.contentResolver.openOutputStream(uri, "wt")
     } catch (t: Exception) {
-        return OverwriteOutcome.NOT_OPENED
-    } ?: return OverwriteOutcome.NOT_OPENED
+        return WriteResult.NOT_OPENED
+    } ?: return WriteResult.NOT_OPENED
     return try {
-        stream.write(content.toByteArray(Charsets.UTF_8))
+        stream.write(bytes)
         stream.flush()
-        OverwriteOutcome.WRITTEN
+        WriteResult.OK
     } catch (t: Exception) {
-        OverwriteOutcome.WRITE_FAILED
+        WriteResult.FAILED
     } finally {
         runCatching { stream.close() }
     }
