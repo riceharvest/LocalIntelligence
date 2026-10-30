@@ -435,6 +435,7 @@ class MainActivity : ComponentActivity() {
 
                     composable(ROUTE_SETTINGS) {
                         val messages by chat.messages.collectAsStateWithLifecycle()
+                        val settingsRunState by chat.runState.collectAsStateWithLifecycle()
                         val exportScope = rememberCoroutineScope()
                         val suggestedModel = SimpleSetup.suggestedModel(container.deviceFacts)
                         SettingsScreen(
@@ -456,6 +457,16 @@ class MainActivity : ComponentActivity() {
                             onOpenSchedule = { nav.navigate(ROUTE_SCHEDULE) },
                             onOpenTrace = { nav.navigate(ROUTE_TRACE) },
                             onOpenRedaction = { nav.navigate(ROUTE_REDACTION) },
+                            // Not offered mid-run: the conversation is being written to.
+                            onNewChat = if (messages.isEmpty() || settingsRunState.isActive) {
+                                null
+                            } else {
+                                {
+                                    container.startNewConversation()
+                                    chat.clear()
+                                    nav.popBackStack(ROUTE_CHAT, inclusive = false)
+                                }
+                            },
                             onExportChat = if (messages.isEmpty()) {
                                 null
                             } else {
