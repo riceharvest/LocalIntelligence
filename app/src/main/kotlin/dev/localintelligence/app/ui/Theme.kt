@@ -146,6 +146,14 @@ fun themeSwatch(id: String, context: Context): Color =
         palette(id).light.primary
     }
 
+/** The colour for a mark drawn on [themeSwatch], so a check stays readable on light swatches. */
+fun themeSwatchOn(id: String, context: Context): Color =
+    if (id == CoreSettings.THEME_WALLPAPER && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        dynamicLightColorScheme(context).onPrimary
+    } else {
+        palette(id).light.onPrimary
+    }
+
 @Composable
 fun LocalIntelligenceTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current

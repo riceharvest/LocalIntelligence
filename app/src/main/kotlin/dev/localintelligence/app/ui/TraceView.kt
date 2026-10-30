@@ -154,10 +154,9 @@ private fun TraceRunCaption(runState: RunState?) {
         // has not reported back yet. Saying so is the whole point.
         null, RunState.Idle -> "The most recent run that reported its steps."
         RunState.LoadingModel, RunState.Running ->
-            "A run is in progress. These are the steps from the previous one — " +
-                "this run's steps arrive when it reports back."
+            "Showing the previous run. This run's steps appear when it finishes."
         is RunState.AwaitingApproval ->
-            "Steps from the run now waiting on your approval."
+            "Waiting for your approval. Steps so far are below."
         is RunState.Finished -> "The most recent run."
     }
     Text(
@@ -189,8 +188,7 @@ private const val RAW_MODEL_FAILURE = "model failed: "
 /** The reason a run failed, with the backend's raw error string removed. */
 internal fun safeFailureReason(reason: String): String =
     if (reason.startsWith(RAW_MODEL_FAILURE)) {
-        "The model stopped while it was generating, and produced no answer. " +
-            "This build does not show the runtime's raw error text on screen."
+        "The model stopped before it could answer."
     } else {
         reason
     }
@@ -228,19 +226,16 @@ internal fun traceVerdict(runState: RunState?): String? {
  * have, and sent the user back to a screen that stayed empty.
  */
 internal fun traceEmptyMessage(runState: RunState?): String = when (runState) {
-    null, RunState.Idle -> "No trace yet. Send a task to see what the loop did."
+    null, RunState.Idle -> "No trace yet. Send a message to see the steps."
 
     RunState.LoadingModel ->
-        "No trace yet. The model is still loading, and the loop has not " +
-            "recorded anything. The run reports its steps when it finishes."
+        "Still running. Steps appear when it finishes."
 
     RunState.Running ->
-        "No trace yet. The run is still going; it reports its steps when it " +
-            "reaches an answer, an approval prompt, or a stop."
+        "Still running. Steps appear when it finishes."
 
     is RunState.AwaitingApproval ->
-        "The tool is waiting for your approval. The steps from before the " +
-            "prompt are here; the rest appear when the run reports back."
+        "Waiting for your approval. Steps so far are below."
 
     is RunState.Finished -> when (val outcome = runState.outcome) {
         is RunOutcome.Answer ->
@@ -284,7 +279,7 @@ fun TraceScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Trace") },
+                title = { Text("Last run trace") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -320,16 +315,16 @@ private fun TraceSummary(trace: List<StepTrace>) {
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        SummaryCell("steps", trace.maxOf { it.step }.toString())
-        SummaryCell("tools", "$okCalls ok / $failedCalls failed")
+        SummaryCell("Steps", trace.maxOf { it.step }.toString())
+        SummaryCell("Tools", "$okCalls ok / $failedCalls failed")
         if (malformed > 0) {
             // Broken out rather than folded into the tool count, because it is a
             // different failure with a different fix: the model emitted something
             // the parser would not accept, which is a prompt or grammar problem,
             // not a phone problem.
-            SummaryCell("unparseable", malformed.toString())
+            SummaryCell("Unreadable", malformed.toString())
         }
-        SummaryCell("total", formatMs(trace.sumOf { it.durationMs }))
+        SummaryCell("Time", formatMs(trace.sumOf { it.durationMs }))
     }
 }
 
@@ -394,7 +389,7 @@ private fun StepHeader(
         )
         if (failed) {
             Text(
-                text = "FAILED",
+                text = "Failed",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
                 fontWeight = FontWeight.Bold,
@@ -423,7 +418,7 @@ private fun TraceRow(row: StepTrace) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = row.kind.name,
+                text = kindLabel(row.kind),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = tint,
@@ -447,6 +442,14 @@ private fun TraceRow(row: StepTrace) {
             modifier = Modifier.padding(top = 4.dp),
         )
     }
+}
+
+private fun kindLabel(kind: StepTrace.Kind): String = when (kind) {
+    StepTrace.Kind.GENERATION -> "Model output"
+    StepTrace.Kind.TOOL_CALL -> "Tool call"
+    StepTrace.Kind.OBSERVATION -> "Result"
+    StepTrace.Kind.MALFORMED -> "Unreadable"
+    StepTrace.Kind.COMPACTION -> "Shortened"
 }
 
 @Composable

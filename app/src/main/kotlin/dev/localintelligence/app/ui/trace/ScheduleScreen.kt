@@ -39,7 +39,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -93,6 +92,7 @@ fun ScheduleScreen(
     viewModel: ScheduleViewModel,
     onBack: () -> Unit,
     onOpenModels: () -> Unit,
+    onOpenSelfCheck: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -104,28 +104,6 @@ fun ScheduleScreen(
             SettingsMode.TECHNICAL
     }
     var pendingDelete by remember { mutableStateOf<String?>(null) }
-
-    // The self-check is reachable from here because this is the only navigable
-    // screen in the package this change owns, and a diagnostics screen nobody
-    // can reach is the same dead code this project keeps shipping. It belongs
-    // in `MainActivity`'s NavHost next to the other routes; the exact edit is
-    // in the PR description, and once that lands this branch's `showSelfCheck`
-    // state and the app-bar icon below both go away.
-    var showSelfCheck by rememberSaveable { mutableStateOf(false) }
-    if (showSelfCheck) {
-        DiagnosticsScreen(
-            // Fully qualified because this composable's own `viewModel`
-            // parameter shadows the `viewModel()` factory function of the same
-            // name. Writing `viewModel<DiagnosticsViewModel>()` here resolves
-            // to the ScheduleViewModel parameter and does not compile, which is
-            // the kind of quiet trap a rename later would reintroduce.
-            viewModel = androidx.lifecycle.viewmodel.compose.viewModel<DiagnosticsViewModel>(),
-            onBack = { showSelfCheck = false },
-            onOpenModels = onOpenModels,
-            modifier = modifier,
-        )
-        return
-    }
 
     // Readiness is a snapshot of settings the user can change in another app,
     // so it is re-read on every resume rather than captured at composition.
@@ -165,7 +143,7 @@ fun ScheduleScreen(
                 },
                 actions = {
                     if (technical) {
-                        IconButton(onClick = { showSelfCheck = true }) {
+                        IconButton(onClick = onOpenSelfCheck) {
                             Icon(
                                 Icons.Filled.HealthAndSafety,
                                 contentDescription = "Self-check: what is actually working on this phone",

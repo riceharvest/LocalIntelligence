@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.AlertDialog
@@ -128,6 +129,7 @@ fun SettingsScreen(
     onOpenSchedule: () -> Unit = {},
     onOpenTrace: () -> Unit = {},
     onOpenRedaction: () -> Unit = {},
+    onOpenSelfCheck: () -> Unit = {},
     /** Clears the chat and starts a new conversation. Null hides the row (empty chat, or a run going). */
     onNewChat: (() -> Unit)? = null,
     /** Exports the current chat in a format. Null hides the row: an empty chat has nothing to export. */
@@ -208,8 +210,9 @@ fun SettingsScreen(
 
                     SectionHeader("Diagnostics")
                     Card(modifier = Modifier.fillMaxWidth()) {
-                        NavRow(Icons.Filled.Timeline, "Trace of the last run", onOpenTrace)
-                        NavRow(Icons.Filled.Shield, "What is filtered before it leaves the phone", onOpenRedaction)
+                        NavRow(Icons.Filled.Timeline, "Last run trace", onOpenTrace)
+                        NavRow(Icons.Filled.Shield, "What is filtered", onOpenRedaction)
+                        NavRow(Icons.Filled.HealthAndSafety, "Self-check", onOpenSelfCheck)
                     }
                 }
             }
@@ -447,7 +450,7 @@ private fun ColorRow(store: SettingsStore, def: SettingDef.Choice, help: String,
                                     shape = CircleShape,
                                 ),
                         ) {
-                            if (selected) Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White)
+                            if (selected) Icon(Icons.Filled.Check, contentDescription = null, tint = themeSwatchOn(option.id, context))
                         }
                         Text(option.label, style = MaterialTheme.typography.labelSmall)
                     }

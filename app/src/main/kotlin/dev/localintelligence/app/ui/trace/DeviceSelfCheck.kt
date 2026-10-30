@@ -69,9 +69,7 @@ class DeviceSelfCheck(
     fun run(): DiagnosticReport = DiagnosticReport(
         checks = listOf(
             modelFileCheck(),
-            magicRoutingCheck(),
-            headerCheck(),
-            ramGateCheck(),
+            *modelDependentChecks(),
             nativeLibraryCheck(),
             abiCheck(),
             permissionCheck(),
@@ -82,6 +80,29 @@ class DeviceSelfCheck(
         ),
         ranAtMillis = System.currentTimeMillis(),
     )
+
+    /**
+     * The routing, header and RAM-gate checks all need a model file. Without one they
+     * would show three cards with the same paragraph, so there is one card and the
+     * dependent checks are skipped.
+     */
+    private fun modelDependentChecks(): Array<DiagnosticCheck> =
+        if (largestModel() == null) {
+            arrayOf(
+                DiagnosticCheck(
+                    id = ID_NO_MODEL,
+                    title = "No model yet",
+                    outcome = CheckOutcome.CANNOT_TELL,
+                    verified = "Looked for a readable model file.",
+                    finding = "No model yet. Add one to run the model checks.",
+                    cannotTell = "How this phone handles a model file. The routing, header " +
+                        "and memory checks need one.",
+                    nextAction = DiagnosticAction.OpenModels,
+                ),
+            )
+        } else {
+            arrayOf(magicRoutingCheck(), headerCheck(), ramGateCheck())
+        }
 
     // ------------------------------------------------------------------ model file
 
@@ -133,7 +154,7 @@ class DeviceSelfCheck(
                 file.name,
                 MemoryEstimate.formatBytes(file.length()) +
                     if (file.canRead()) "" else "  (not readable)",
-                "File.length() on this device",
+                "file size read on this device",
             )
         }
 
@@ -145,8 +166,8 @@ class DeviceSelfCheck(
                 bytes == 0L -> CheckOutcome.FAIL
                 else -> CheckOutcome.PASS
             },
-            verified = "Listed ${dir.absolutePath} and stat'd each file: existence, " +
-                "readability and byte length, straight from the filesystem.",
+            verified = "Listed ${dir.absolutePath} and looked at each file: whether it exists, " +
+                "whether it can be read and how big it is.",
             finding = when {
                 !readable -> "The largest file, ${model.name}, exists but this process " +
                     "cannot read it. Its length is reported as " +
@@ -204,31 +225,37 @@ class DeviceSelfCheck(
                 outcome = CheckOutcome.CANNOT_TELL,
                 verified = "Tried to read the first $MAGIC_WINDOW bytes of " +
                     "${file.name}.",
-                finding = "The read failed: ${e.javaClass.simpleName}: ${e.message}.",
+                finding = "Couldn't read the model file.",
                 cannotTell = "Which backend this file would route to. The router needs " +
                     "the first bytes and the read that produces them did not succeed, " +
                     "so any answer here would be a guess.",
+                findings = listOf(
+                    Finding.measured("Error", "${e.javaClass.simpleName}: ${e.message}",
+                        "the exception raised by the read"),
+                ),
                 nextAction = DiagnosticAction.OpenModels,
             )
         }
 
         val hex = head.joinToString(" ") { "%02X".format(it) }
+        var routerError: String? = null
         val route = try {
             val backend = container.backendRouter.route(file)
             "routes to \"${backend.id}\""
         } catch (e: BackendRoutingException) {
             "refused: ${e.message}"
         } catch (e: Throwable) {
-            "the router threw ${e.javaClass.simpleName}: ${e.message}"
+            routerError = "${e.javaClass.simpleName}: ${e.message}"
+            "could not be checked: the router stopped with an error"
         }
-        val refused = route.startsWith("refused") || route.startsWith("the router threw")
+        val refused = route.startsWith("refused") || routerError != null
 
         return DiagnosticCheck(
             id = ID_MAGIC_ROUTING,
             title = "Which backend would this file route to?",
             outcome = if (refused) CheckOutcome.FAIL else CheckOutcome.PASS,
             verified = "Read the first $MAGIC_WINDOW bytes of ${file.name} and asked " +
-                "the app's own ModelBackendRouter to route the file, rather than " +
+                "the app's own model router which engine would run the file, rather than " +
                 "re-deciding the format here.",
             finding = "${file.name} $route. Its first $MAGIC_WINDOW bytes are $hex.",
             cannotTell = "Whether the chosen backend can then load it. Routing is a " +
@@ -239,7 +266,9 @@ class DeviceSelfCheck(
                 Finding.measured("First $MAGIC_WINDOW bytes", hex,
                     "read straight off the file on this device"),
                 Finding.computed("Backend", route,
-                    "ModelBackendRouter.route on those bytes"),
+                    "the app's model router, given those bytes"),
+            ) + listOfNotNull(
+                routerError?.let { Finding.measured("Error", it, "the exception raised by the router") },
             ),
             nextAction = if (refused) DiagnosticAction.OpenModels else null,
         )
@@ -268,13 +297,13 @@ class DeviceSelfCheck(
                 id = ID_HEADER,
                 title = "Does the model header parse?",
                 outcome = CheckOutcome.FAIL,
-                verified = "Ran GgufParser over ${file.name} with the default limits, " +
+                verified = "Read the header of ${file.name} with the default limits, " +
                     "in partial mode, the same call the model manager makes.",
                 finding = "The parse failed: ${e.message}",
                 cannotTell = "How far into the file the parser got before stopping. " +
-                    "GgufParseException reports the position it reached, not the " +
+                    "The parser reports the position it reached, not the " +
                     "structure it expected there.",
-                findings = listOf(Finding.measured("File", file.name, "File.name on this device")),
+                findings = listOf(Finding.measured("File", file.name, "file name on this device")),
                 nextAction = DiagnosticAction.OpenModels,
             )
         } catch (e: Throwable) {
@@ -282,10 +311,14 @@ class DeviceSelfCheck(
                 id = ID_HEADER,
                 title = "Does the model header parse?",
                 outcome = CheckOutcome.FAIL,
-                verified = "Ran GgufParser over ${file.name}.",
-                finding = "The parse threw ${e.javaClass.simpleName}: ${e.message}",
+                verified = "Read the header of ${file.name}.",
+                finding = "Couldn't read the model header.",
                 cannotTell = "Whether this is a malformed file or a parser defect. The " +
                     "exception type is not one this screen knows how to interpret.",
+                findings = listOf(
+                    Finding.measured("Error", "${e.javaClass.simpleName}: ${e.message}",
+                        "the exception raised by the parser"),
+                ),
                 nextAction = DiagnosticAction.OpenModels,
             )
         }
@@ -327,7 +360,7 @@ class DeviceSelfCheck(
                 !header.isComplete -> CheckOutcome.FAIL
                 else -> CheckOutcome.PASS
             },
-            verified = "Ran GgufParser over ${file.name} and read the version, the " +
+            verified = "Read the header of ${file.name} and read the version, the " +
                 "declared tensor count, the tensor table and the metadata, then ran " +
                 "ModelMemoryEstimator at the app's own context of " +
                 "${ModelImporter.DEFAULT_CONTEXT_LENGTH}.",
@@ -456,11 +489,10 @@ class DeviceSelfCheck(
                     "the build this app expects."
                 else -> "The library loaded and llama.cpp reports: $buildInfo"
             },
-            cannotTell = "Whether the native code is *correct*, only that it mapped. " +
+            cannotTell = "Whether the native code is correct, only that it loaded. " +
                 "A library can load cleanly and still fail on the first model. It " +
                 "also cannot tell you how much native memory a loaded model will " +
-                "actually occupy — that is `docs/measure/measure_ram.sh`, and no " +
-                "figure from it exists yet.",
+                "actually occupy. Use Speed test to measure a loaded model.",
             findings = buildList {
                 add(Finding.measured("Native library dir",
                     libDir ?: "not set by the package manager",
@@ -524,7 +556,7 @@ class DeviceSelfCheck(
                     "not contain. It packaged: ${packaged.joinToString(", ")}. The " +
                     "phone will have to run a 32-bit slice or nothing."
             },
-            cannotTell = "Whether the native code in that directory is *correct* for " +
+            cannotTell = "Whether the native code in that directory is correct for " +
                 "the CPU. ABI is a name; an arm64-v8a directory is present on a phone " +
                 "whose SoC lacks the instructions the build used is possible, and " +
                 "only executing it would show that. It also cannot say why the ABI " +
@@ -713,13 +745,12 @@ class DeviceSelfCheck(
                     append("The download gate and the loader agree on what is available.")
                 }
             },
-            cannotTell = "What a *loaded model* will actually occupy, which is the only " +
+            cannotTell = "What a loaded model will actually occupy, which is the only " +
                 "number anyone wants. That is a live measurement of a live process, " +
                 "and this project has never taken one on a phone — the emulator on " +
                 "the development host SIGSEGVs at boot, so it cannot be taken here " +
-                "either. `docs/measure/measure_ram.sh` is the procedure and it " +
-                "prints '?' rather than inventing a value. Everything above is what " +
-                "the device reports about itself, which is not the same thing.",
+                "either. Everything above is what the device reports about itself, " +
+                "which is not the same thing.",
             findings = rows,
         )
     }
@@ -752,7 +783,7 @@ class DeviceSelfCheck(
                     byCategory.entries.joinToString(", ") { "${it.key} (${it.value})" } +
                     "."
             },
-            cannotTell = "Whether any of these tools *work*. Registration means the " +
+            cannotTell = "Whether any of these tools work. Registration means the " +
                 "loop can route a call to the name; it says nothing about whether " +
                 "calling it succeeds, which depends on the permissions the previous " +
                 "check reports and on the OS underneath.",
@@ -833,6 +864,7 @@ class DeviceSelfCheck(
 
         const val ID_MODEL_FILE = "model-file"
         const val ID_MAGIC_ROUTING = "magic-routing"
+        const val ID_NO_MODEL = "no-model"
         const val ID_HEADER = "gguf-header"
         const val ID_RAM_GATE = "ram-gate-vs-loader"
         const val ID_NATIVE = "native-library"
@@ -925,7 +957,7 @@ fun DiagnosticAction.describe(): String = when (this) {
     DiagnosticAction.OpenBatterySettings -> "Open battery optimisation settings"
     DiagnosticAction.OpenExactAlarmSettings -> "Open exact alarm settings"
     DiagnosticAction.OpenAppSettings -> "Open this app's settings"
-    DiagnosticAction.NONE -> "No user-side fix exists for this one"
+    DiagnosticAction.NONE -> "This needs a different app build. Nothing on the phone can fix it."
 }
 
 /**

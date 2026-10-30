@@ -69,7 +69,8 @@ class DiagnosticsViewModel(
                     DiagnosticsUiState(
                         report = _state.value.report,
                         running = false,
-                        error = "${t.javaClass.simpleName}: ${t.message}",
+                        error = "The self-check couldn't finish.",
+                        errorDetail = "${t.javaClass.simpleName}: ${t.message}",
                     )
                 },
             )
@@ -88,4 +89,6 @@ data class DiagnosticsUiState(
     val report: DiagnosticReport? = null,
     val running: Boolean = true,
     val error: String? = null,
+    /** The raw exception text, shown as secondary detail under [error]. */
+    val errorDetail: String? = null,
 )

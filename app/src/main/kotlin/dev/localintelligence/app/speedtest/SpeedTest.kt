@@ -97,7 +97,7 @@ sealed interface SpeedTestStatus {
     data class Refused(val reason: String) : SpeedTestStatus
 
     /** The test started and the backend could not give a usable measurement. */
-    data class Failed(val reason: String) : SpeedTestStatus
+    data class Failed(val reason: String, val detail: String? = null) : SpeedTestStatus
 }
 
 /**
@@ -212,10 +212,11 @@ class SpeedTestRunner(
                 _status.value = SpeedTestStatus.Idle
                 throw e
             } catch (e: SpeedTestFailure) {
-                _status.value = SpeedTestStatus.Failed(e.message.orEmpty())
+                _status.value = SpeedTestStatus.Failed(e.message.orEmpty(), e.detail)
             } catch (t: Throwable) {
                 _status.value = SpeedTestStatus.Failed(
-                    "the backend threw: ${t.message ?: t::class.java.simpleName}",
+                    "The model stopped with an error.",
+                    t.message ?: t::class.java.simpleName,
                 )
             } finally {
                 // Cleared before the claim is released (the `use` block ends after this),
@@ -366,7 +367,7 @@ class SpeedTestRunner(
         when {
             result.stopReason == StopReason.CANCELLED -> throw CancellationException("speed test cancelled")
             result.stopReason == StopReason.ERROR ->
-                throw SpeedTestFailure(result.text.ifBlank { "the backend reported an error" })
+                throw SpeedTestFailure("The model stopped with an error.", result.text.ifBlank { null })
             // A short answer is not a decode rate: the figure would describe a few
             // tokens, not 64. Refuse rather than report it.
             result.completionTokens < minTokens ->
@@ -378,7 +379,7 @@ class SpeedTestRunner(
     private fun promptTokens(result: GenerationResult, backend: ModelBackend): Int =
         result.promptTokens.takeIf { it > 0 } ?: backend.countTokens(PROMPT)
 
-    private class SpeedTestFailure(message: String) : Exception(message)
+    private class SpeedTestFailure(message: String, val detail: String? = null) : Exception(message)
 
     companion object {
         /** Passes per run. The median of two is their mean. */
@@ -427,7 +428,7 @@ class SpeedTestRunner(
 internal fun acceleratorLabel(backend: ModelBackend): String {
     (backend as? LlamaCppBackend)?.let { return (it.activeCompute ?: LlamaCompute.CPU).label }
     if (backend.id == ModelImporter.BACKEND_LLAMA_CPP) return "CPU"
-    val report = (backend as? AcceleratorAware)?.acceleratorReport ?: return "unreported accelerator"
+    val report = (backend as? AcceleratorAware)?.acceleratorReport ?: return "unknown chip"
     return report.active.name
 }
 
@@ -460,7 +461,7 @@ fun SpeedTestResult.comparison(): String? {
 /** The date line under a result, in the phone's own locale. */
 fun SpeedTestResult.measuredOn(): String {
     val date = DateFormat.getDateInstance(DateFormat.MEDIUM, Locale.getDefault()).format(Date(measuredAtMillis))
-    return "measured on this phone, $date"
+    return "Measured on this phone, $date"
 }
 
 private fun rate(value: Double): String = String.format(Locale.ROOT, "%.1f", value)
