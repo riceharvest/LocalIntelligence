@@ -37,12 +37,13 @@ class ToolFinder(
         }
         val known = session.epochTools.toSet() + session.discoveredTools + NAME
         val candidates = registry.all().filter { it.definition.name !in known }
-        // The selector ranks by score but still returns the top tools when none
-        // scores (it has no cut-off of its own), so a query that matches nothing
-        // would make three unrelated tools callable. Only tools that share a word
-        // or a name with the query are offered.
-        val scores = selector.scores(query, emptyList(), candidates)
-        val matching = if (scores == null) candidates else candidates.filter { (scores[it.definition.name] ?: 0) > 0 }
+        // The selector ranks tools but does not cut off: it returns the best three
+        // even when none overlaps the query. And its words include "for", "the" and
+        // the like, which most descriptions share, so a query with no real match
+        // would still make three unrelated tools callable. Only a tool that shares a
+        // content word with the query is offered.
+        val wanted = lexicalTokens(query).filterNot { it in FUNCTION_WORDS }.toSet()
+        val matching = candidates.filter { tool -> wanted.any { it in wordsOf(tool) } }
         val found = selector.select(query, emptyList(), matching, MAX_FOUND)
         if (found.isEmpty()) {
             return ToolResult(success = true, observation = "No other tool matches \"$query\". Use the tools you have, or answer.")
@@ -67,14 +68,33 @@ class ToolFinder(
         const val MAX_FOUND: Int = 3
 
         /**
+         * Words a lookup must share with a tool to offer it. Function words only: the
+         * lookup's own words ("find", "tool") are left in, since a tool description
+         * rarely repeats them and the filter should not depend on that either.
+         */
+        private val FUNCTION_WORDS: Set<String> = setOf(
+            "the", "and", "for", "with", "that", "this", "from", "into", "your", "you", "can",
+            "could", "please", "want", "need", "make", "help", "some", "any", "all", "get", "use",
+            "not", "are", "was", "will", "would", "should", "have", "has", "how", "what", "when",
+            "where", "which", "who", "just", "also", "about", "there", "here",
+        )
+
+        /** Every word a tool offers for matching: its name, description and tags. */
+        private fun wordsOf(tool: AgentTool): Set<String> {
+            val def = tool.definition
+            return (lexicalTokens(def.name) + lexicalTokens(def.description) + def.tags.flatMap { lexicalTokens(it) }).toSet()
+        }
+
+        /**
          * The tool names a lookup result lists, one `- name: description` line each.
          * Read back from the window so a tool stays callable while its result is there
-         * (see AgentController.compactNow).
+         * (see AgentController.compactNow). A name is split at ": ", the separator this
+         * file writes; a dotted or dashed name has no space before its colon.
          */
         fun namedIn(observation: String): Set<String> =
             observation.lineSequence()
                 .filter { it.startsWith("- ") }
-                .map { it.removePrefix("- ").substringBefore(':').trim() }
+                .map { it.removePrefix("- ").substringBefore(":").trim() }
                 .toSet()
 
         val DEFINITION: ToolDefinition = ToolDefinition(
