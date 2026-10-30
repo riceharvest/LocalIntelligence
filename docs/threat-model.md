@@ -136,6 +136,13 @@ the model id or the wait limit, which are the user's settings, so it cannot
 choose a more expensive one. Each call still goes through the network tier's
 confirmation unless the user chose to skip it.
 
+The same key can also make the chat model (`OpenRouterChatBackend`). That is
+off unless the user picks "OpenRouter" on the Models page, and it is not
+restored after a restart. With it selected, the whole conversation goes to
+`openrouter.ai`: the system prompt, every user turn, the tool observations (still
+fenced as untrusted), and any attached image or audio. Switching the plugin off or
+clearing the key stops the next message, and picking a local model stops it at once.
+
 ### T8. Remote MCP server sends arguments and receives text — opt-in
 
 The MCP plugin (`mcp.remote`) is off by default. With it off, or with no server

@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.inference.RamEstimate
+import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.describeLoadFailure
 import dev.localintelligence.app.speedtest.SpeedTestButton
 import dev.localintelligence.app.speedtest.SpeedTestResultBlock
@@ -139,6 +140,17 @@ fun ModelManagerScreen(
     speedTest: SpeedTestRunner? = null,
     /** URI of the model that is resident, so its row gets the speed test button. */
     loadedModelUri: String? = null,
+    /** The OpenRouter chat model id, when that option is on (plugin on and a key set). Null hides the entry. */
+    remoteChatModel: String? = null,
+    /** True while the remote chat model is the one answering. */
+    remoteChatActive: Boolean = false,
+    /** Makes the remote chat model the resident one. */
+    onUseRemoteChat: (suspend () -> Unit)? = null,
+    /**
+     * Makes a local model the resident one, the way import does. Returns the outcome so a
+     * model that does not fit is reported here rather than shown as a silent no-op.
+     */
+    onUseModel: (suspend (ImportedModel) -> ModelAvailability)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -390,12 +402,44 @@ fun ModelManagerScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                if (remoteChatModel != null && onUseRemoteChat != null) {
+                    item(key = "remote-chat") {
+                        RemoteChatCard(
+                            model = remoteChatModel,
+                            active = remoteChatActive,
+                            enabled = !busy,
+                            onUse = {
+                                busy = true
+                                importError = null
+                                scanNotice = null
+                                scope.launch {
+                                    runCatching { onUseRemoteChat() }
+                                        .onFailure { importError = describeLoadFailure(it) }
+                                    busy = false
+                                }
+                            },
+                        )
+                    }
+                }
                 items(models, key = { it.uri.toString() }) { model ->
                     ModelRow(
                         model = model,
                         onDelete = { pendingDelete = model },
                         speedTest = speedTest,
                         isLoaded = model.uri.toString() == loadedModelUri,
+                        onUse = onUseModel?.let { use ->
+                            {
+                                busy = true
+                                importError = null
+                                scanNotice = null
+                                scope.launch {
+                                    val outcome = runCatching { use(model) }
+                                        .getOrElse { ModelAvailability.Failed(describeLoadFailure(it)) }
+                                    if (outcome is ModelAvailability.Failed) importError = outcome.reason
+                                    busy = false
+                                }
+                            }
+                        },
                     )
                 }
             }
@@ -470,6 +514,8 @@ private fun ModelRow(
     onDelete: () -> Unit,
     speedTest: SpeedTestRunner?,
     isLoaded: Boolean,
+    /** Makes this model the resident one. Null hides the button. */
+    onUse: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     // WHY THIS IS `DEFAULT_CONTEXT_LENGTH` AND NOT THE MODEL'S TRAINED ONE:
@@ -511,6 +557,9 @@ private fun ModelRow(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                if (!isLoaded && onUse != null) {
+                    TextButton(onClick = onUse) { Text("Use") }
                 }
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Filled.Delete, contentDescription = "Remove ${model.displayName}")
@@ -605,6 +654,46 @@ private fun ModelRow(
             // is unloaded, labelled with the date, so it is not lost.
             if (speedTest != null) {
                 SpeedTestSection(model = model, runner = speedTest, isLoaded = isLoaded)
+            }
+        }
+    }
+}
+
+/**
+ * The OpenRouter chat entry. It is a card and not a model row because it is not a file on
+ * this phone: there is no size, RAM or context figure to show, and inventing them would be
+ * wrong. The sentence about where messages go comes before the button on purpose.
+ */
+@Composable
+private fun RemoteChatCard(
+    model: String,
+    active: Boolean,
+    enabled: Boolean,
+    onUse: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "OpenRouter: $model",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "Runs on openrouter.ai — your messages are sent there.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (active) {
+                Text(
+                    text = "In use. Use a local model below to stop sending messages.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                TextButton(onClick = onUse, enabled = enabled) { Text("Use") }
             }
         }
     }

@@ -223,13 +223,25 @@ class MainActivity : ComponentActivity() {
                         // The resident model's URI, so only its row offers the speed test.
                         val modelState by container.modelAvailability.state
                             .collectAsStateWithLifecycle()
+                        // Re-read when a setting changes, so the OpenRouter entry appears
+                        // once a key is saved and disappears when the plugin is switched off.
+                        val settingsVersion by container.settings.changes.collectAsStateWithLifecycle()
+                        val remoteModel = remember(settingsVersion) { container.remoteChatModelOrNull() }
                         ModelManagerScreen(
                             models = models,
                             speedTest = container.speedTest,
-                            loadedModelUri = if (modelState is ModelAvailability.Ready) {
+                            loadedModelUri = if (modelState is ModelAvailability.Ready && !container.remoteChatActive) {
                                 container.selectedModel?.uri?.toString()
                             } else {
                                 null
+                            },
+                            remoteChatModel = remoteModel,
+                            remoteChatActive = container.remoteChatActive,
+                            onUseRemoteChat = {
+                                withContext(Dispatchers.IO) { container.useRemoteChat() }
+                            },
+                            onUseModel = { model ->
+                                withContext(Dispatchers.IO) { container.loadModel(model) }
                             },
                             onImport = { uri ->
                                 // Suspending off the composition: the header read
