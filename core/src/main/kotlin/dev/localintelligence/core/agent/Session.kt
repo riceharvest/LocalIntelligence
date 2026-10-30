@@ -29,6 +29,24 @@ class Session(
     val messages: MutableList<ChatMessage> = mutableListOf()
 
     /**
+     * Guards [messages] and the identity bookkeeping against a reader on another thread.
+     *
+     * WHY: between-messages compaction runs on the IO dispatcher while the run-end
+     * persist snapshots the same window on the default dispatcher. Without one lock a
+     * snapshot can iterate [messages] while a fold is clearing it (a
+     * ConcurrentModificationException out of the persist) or read ids for a window that
+     * is half-refilled. Callers take the lock only around memory work, never around I/O
+     * or a suspend point, so nothing can wait on it while holding another lock. It is a
+     * monitor, not a Mutex, because the trims that need it (`AgentController.foldWindow`)
+     * are not suspend functions, and it is reentrant, so a snapshot taken from inside a
+     * fold's callback does not deadlock with it.
+     */
+    private val lock = Any()
+
+    /** Runs [block] holding the session lock. Keep [block] to memory work: no I/O, no suspend. */
+    fun <T> locked(block: () -> T): T = synchronized(lock) { block() }
+
+    /**
      * Identity of every message already handed to the durable store.
      *
      * WHY THIS EXISTS, AND WHY A BUFFER WAS NOT ENOUGH: the store is written at
@@ -68,9 +86,36 @@ class Session(
      * A stable id for [message], assigned on first ask and never reused.
      *
      * Public because the durable writer in `:app` is the other half of this
-     * mechanism and cannot be `internal` to this module.
+     * mechanism and cannot be `internal` to this module. Callers that also read
+     * [messages] or [writtenIds] take [locked] around the whole pass.
      */
     fun idOf(message: ChatMessage): Long = ids.getOrPut(message) { nextIdentity++ }
+
+    /**
+     * Forgets the identities of messages that have left [messages].
+     *
+     * WHY: [ids] and [writtenIds] used to grow with every message that ever passed
+     * through the window, and each [ids] key kept its message, text included, alive.
+     * The window is bounded but these side maps were not, so a process that lives
+     * for days (scheduled runs, background) kept every reply it ever produced.
+     * Called after each trim. Forgetting a message that is no longer in the window
+     * is exact: it was either written before it left (the window is persisted before
+     * a fold, see AgentController.onWindowChanged) or it is never written again.
+     * A message is never re-added to the window once it has left, so its identity is
+     * not needed again. Ids are never reused ([nextIdentity] only grows).
+     */
+    fun pruneIdentities() {
+        locked {
+            val live = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<ChatMessage, Boolean>())
+            val liveIds = HashSet<Long>()
+            for (message in messages) {
+                live += message
+                liveIds += idOf(message)
+            }
+            ids.keys.retainAll(live)
+            writtenIds.retainAll(liveIds)
+        }
+    }
 
     /**
      * Marks everything currently in [messages] as already written.
@@ -79,7 +124,7 @@ class Session(
      * written back. Marking the live objects is exact: a message not in the
      * window is not marked, so nothing is silently skipped.
      */
-    fun markAllWritten() {
+    fun markAllWritten() = locked {
         messages.forEach { writtenIds.add(idOf(it)) }
     }
 
@@ -169,7 +214,8 @@ class Session(
     /**
      * Tools the model found with `tools.find`: callable though the system prompt
      * does not list them (their descriptions are in the lookup's result).
-     * Cleared at a compaction, which folds that result away.
+     * At a compaction, only the ones whose lookup result was folded away are dropped
+     * (see AgentController.compactNow); the rest stay callable.
      */
     val discoveredTools: MutableList<String> = mutableListOf()
 
@@ -295,8 +341,9 @@ class Session(
         return true
     }
 
-    fun clear() {
+    fun clear() = locked {
         messages.clear()
+        pruneIdentities()
         workingSummary = null
         epochTools.clear()
         discoveredTools.clear()
@@ -348,16 +395,17 @@ class Session(
      * the trade is deliberate and the summary is the side we spend. Callers
      * that need the old context should say so in their first message.
      */
-    fun restore(history: List<ChatMessage>): Int {
-        if (history.isEmpty()) return 0
+    fun restore(history: List<ChatMessage>): Int = locked {
+        if (history.isEmpty()) return@locked 0
         val bounded = boundHistory(history)
         val firstQuestion = bounded.indexOfFirst { it is ChatMessage.User }
-        if (firstQuestion < 0) return 0
+        if (firstQuestion < 0) return@locked 0
         val adopted = bounded.subList(firstQuestion, bounded.size)
         messages.clear()
         messages += adopted
         appendedCount = adopted.size
-        return adopted.size
+        pruneIdentities()
+        adopted.size
     }
 
     /**

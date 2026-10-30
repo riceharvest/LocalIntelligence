@@ -451,6 +451,7 @@ class AgentController(
                 compactNow("${sessions.messages.size} messages, over ${RetainedHistory.MAX_RETAINED_MESSAGES}")
             }
             RetainedHistory.bound(sessions.messages)
+            sessions.pruneIdentities()
         }
         if (outcome is AgentResult.Success) {
             settleWorkingState()
@@ -567,6 +568,7 @@ class AgentController(
                 compactNow("${sessions.messages.size} messages, over ${RetainedHistory.MAX_RETAINED_MESSAGES}")
             }
             RetainedHistory.bound(sessions.messages)
+            sessions.pruneIdentities()
         }
         if (outcome is AgentResult.Success) {
             settleWorkingState()
@@ -1647,9 +1649,18 @@ class AgentController(
                 .copy(task = truncateTask(task))
         sessions.workingSummary = state
         foldWindow(keep)
-        // Earlier turns that described tools (and lookups' results) are folded
-        // away, so what they made callable goes too; this run's own turn is kept.
-        sessions.discoveredTools.retainAll(announced.toSet())
+        // A tool found with tools.find stays callable only while the lookup result
+        // that named it is still in the window: the model can still see that result
+        // and will call the tool. Dropping every found tool here, as this used to,
+        // made a tool the model had just been told about fail validation on its next
+        // step. This run's own turn (announced) is kept as before.
+        val lookedUp = sessions.messages.asSequence()
+            .filterIsInstance<ChatMessage.ToolObservation>()
+            .filter { it.toolName == ToolFinder.NAME }
+            .flatMap { ToolFinder.namedIn(it.observation) }
+            .toSet()
+        sessions.discoveredTools.retainAll(announced.toSet() + lookedUp)
+        sessions.pruneIdentities()
 
         val detail = "compacted $before messages into working state ($reason): " +
             "${state.progress.size} progress, ${state.actionsTaken.size} actions, " +
@@ -1723,10 +1734,14 @@ class AgentController(
         // messages permanently unwritten, because they were already gone from the
         // window by the time anything looked. Firing first stores all 18 with no
         // duplicates. See onWindowChanged.
-        onWindowChanged?.invoke()
-        messages.clear()
-        messages += head
-        messages += tail
+        // Under the session lock: a snapshot on another thread (the run-end persist) must
+        // see the window either before the fold or after it, never while it is cleared.
+        sessions.locked {
+            onWindowChanged?.invoke()
+            messages.clear()
+            messages += head
+            messages += tail
+        }
     }
 
     /**

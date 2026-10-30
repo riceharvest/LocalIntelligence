@@ -15,6 +15,11 @@ import dev.localintelligence.core.tool.lexicalTokens
  *    every request, and without this filter the threshold admits every skill.
  *  - Nothing is picked below [threshold]. A small model handed an unrelated
  *    persona follows it, so "no skill" is the right answer for most tasks.
+ *
+ * The whole-name bonus needs the name as a WORD of the task. A plain substring
+ * test let a short name ("map", "pdf", "cat") win every task that happens to
+ * contain it ("mapping", "pdfs", "location") with the full bonus of 10, which
+ * clears the threshold on its own.
  */
 class SkillSelector(private val threshold: Int = DEFAULT_THRESHOLD) {
 
@@ -28,7 +33,7 @@ class SkillSelector(private val threshold: Int = DEFAULT_THRESHOLD) {
             val nameTokens = content(skill.name)
             val score = taskTokens.intersect(descTokens).size * 2 +
                 taskTokens.intersect(nameTokens).size * 4 +
-                if (task.contains(skill.name, ignoreCase = true)) 10 else 0
+                if (namedInTask(task, skill.name)) 10 else 0
             skill to score
         }
             .filter { (_, score) -> score >= threshold }
@@ -39,6 +44,13 @@ class SkillSelector(private val threshold: Int = DEFAULT_THRESHOLD) {
 
     private fun content(text: String): Set<String> =
         lexicalTokens(text).filterNot { it in STOP_WORDS }.toSet()
+
+    /** [name] as a whole word or phrase of [task]: not inside a longer word of it. */
+    private fun namedInTask(task: String, name: String): Boolean {
+        if (name.isBlank()) return false
+        val pattern = Regex("(?<![a-z0-9])" + Regex.escape(name) + "(?![a-z0-9])", RegexOption.IGNORE_CASE)
+        return pattern.containsMatchIn(task)
+    }
 
     companion object {
         /** Two description words, or one name word. */
