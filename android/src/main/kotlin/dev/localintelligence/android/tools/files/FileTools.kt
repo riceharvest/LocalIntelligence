@@ -304,6 +304,12 @@ object FileArgs {
     }
 
     const val CONTENT_SCHEME = "content://"
+
+    /**
+     * The MediaStore provider. files.list, files.search and files.write_text all hand out
+     * URIs under it, so it is the authority a read may name without a picker grant.
+     */
+    const val MEDIA_AUTHORITY = "media"
 }
 
 // ---------------------------------------------------------------------------- querying
@@ -1026,6 +1032,23 @@ private const val SAF_IS_PER_DOCUMENT: String =
 private fun canSeeDocuments(grant: PlatformGrant): Boolean =
     grant.isGranted(ToolPermissions.DOCUMENT_READ) || grant.isGranted(ToolPermissions.DOCUMENT_WRITE)
 
+/**
+ * Whether [uri] names a document this family may read.
+ *
+ * `isContentUri` only checks the scheme, and any provider on the device answers a
+ * `content://` URI. A contacts vCard or a calendar blob is another family's data, and
+ * reading it here would skip that family's switch and label it as a local document. So
+ * the authority must be MediaStore, which is what files.list hands out, or a provider the
+ * user granted through the file picker, which the platform records as a persisted grant.
+ */
+private fun isFamilyDocument(context: Context, uri: Uri): Boolean {
+    val authority = uri.authority ?: return false
+    if (authority == FileArgs.MEDIA_AUTHORITY) return true
+    return runCatching {
+        context.contentResolver.persistedUriPermissions.any { it.uri.authority == authority }
+    }.getOrDefault(false)
+}
+
 /** Documents visible to this app, newest first. */
 class FilesListTool(
     private val appContext: Context,
@@ -1255,6 +1278,13 @@ class FilesReadTextTool(
                 )
             }
             val uri = Uri.parse(raw)
+            if (!isFamilyDocument(appContext, uri)) {
+                return@guard fail(
+                    "'${raw.take(120)}' is not a document this app's file tools can read. " +
+                        "Use a URI from files.list or files.search.",
+                    ToolError.InvalidArguments("uri authority is not a document provider"),
+                )
+            }
 
             // Ask the provider what the document is before reading it. Cheap, and it
             // turns a 200 MB video into one sentence instead of 8 KB of binary noise.
