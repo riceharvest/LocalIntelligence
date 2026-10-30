@@ -909,6 +909,14 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
         llama_model_free(model);
         return to_jstring(env, "could not create a context for " + model_path);
     }
+    // A cancel stops the computation between graph nodes, not only between
+    // 512-token batches: a batch is ~45 s on a slow phone, and a new message
+    // (or Stop) must not wait that out. llama_decode then returns non-zero,
+    // which the callers report as CANCELLED, and the next prompt starts over
+    // from the kept states.
+    llama_set_abort_callback(ctx, [](void * data) {
+        return static_cast<LlamaHandle *>(data)->cancelled.load();
+    }, h);
 
     const llama_vocab * vocab = llama_model_get_vocab(model);
     if (vocab == nullptr) {
@@ -1429,6 +1437,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         batch.n_tokens = n;
         const int32_t rc = llama_decode(ctx, batch);
         llama_batch_free(batch);
+        if (rc != 0 && h->cancelled.load()) {
+            outcome.stop = static_cast<int32_t>(StopCode::CANCELLED);
+            break;
+        }
         if (rc != 0) {
             outcome.stop = static_cast<int32_t>(StopCode::ERROR);
             outcome.error = "llama_decode failed during prefill with " + std::to_string(rc);
@@ -1555,6 +1567,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             batch.n_tokens = 1;  // see the prefill note: never left implicit
             const int32_t rc = llama_decode(ctx, batch);
             llama_batch_free(batch);
+            if (rc != 0 && h->cancelled.load()) {
+                outcome.stop = static_cast<int32_t>(StopCode::CANCELLED);
+                break;
+            }
             if (rc != 0) {
                 outcome.stop = static_cast<int32_t>(StopCode::ERROR);
                 outcome.error = "llama_decode failed with " + std::to_string(rc);

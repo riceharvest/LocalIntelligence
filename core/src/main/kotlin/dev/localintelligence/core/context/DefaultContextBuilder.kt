@@ -263,8 +263,9 @@ internal object TokenEstimate {
 
     fun tokens(message: ChatMessage): Int = when (message) {
         is ChatMessage.System -> tokens(message.text) + MESSAGE_OVERHEAD_TOKENS
-        is ChatMessage.User -> tokens(message.text) + MESSAGE_OVERHEAD_TOKENS
-        is ChatMessage.Assistant -> tokens(message.text) + MESSAGE_OVERHEAD_TOKENS
+        // What the model is given: the rendered turn when there is one.
+        is ChatMessage.User -> tokens(message.rendered ?: message.text) + MESSAGE_OVERHEAD_TOKENS
+        is ChatMessage.Assistant -> tokens(message.rendered ?: message.text) + MESSAGE_OVERHEAD_TOKENS
         is ChatMessage.ToolObservation ->
             tokens(message.modelFacing()) + MESSAGE_OVERHEAD_TOKENS
     }

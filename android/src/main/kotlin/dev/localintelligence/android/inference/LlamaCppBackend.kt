@@ -94,8 +94,10 @@ class LlamaCppBackend(
     @Volatile
     private var residentSpec: ModelSpec? = null
 
-    override suspend fun load(model: ModelSpec) =
+    override suspend fun load(model: ModelSpec) {
+        stopWarmUp()
         loadOn(model, computeSource.forNextLoad(), cpuFallback = true)
+    }
 
     /**
      * Loads the resident model again on [compute], for the speed test's comparison.
@@ -248,6 +250,8 @@ class LlamaCppBackend(
         request: GenerationRequest,
         onToken: ((String) -> Unit)?,
     ): GenerationResult = withContext(ioDispatcher) {
+        // A real request stops a warm-up rather than waiting for its prefill.
+        if (request.params.maxOutputTokens >= 0) stopWarmUp()
         cancelRequested.set(false)
         synchronized(lock) {
             val h = handle
@@ -351,7 +355,24 @@ class LlamaCppBackend(
      * this prompt prefills only what it adds.
      */
     override suspend fun warm(request: GenerationRequest) {
-        generateInternal(request.copy(params = request.params.copy(maxOutputTokens = -1), grammar = null), null)
+        warming = true
+        try {
+            generateInternal(request.copy(params = request.params.copy(maxOutputTokens = -1), grammar = null), null)
+        } finally {
+            warming = false
+        }
+    }
+
+    /**
+     * True while [warm] runs. Anything else that needs the model (a real
+     * request, speech, the speed test) stops a warm-up first instead of
+     * queueing behind its prefill: the warm-up is only ever a head start.
+     */
+    @Volatile
+    private var warming = false
+
+    private fun stopWarmUp() {
+        if (warming) cancel()
     }
 
     override fun cancel() {
@@ -441,6 +462,7 @@ class LlamaCppBackend(
      */
     override suspend fun speak(text: String, language: String?, voice: String?): ByteArray? =
         withContext(ioDispatcher) {
+            stopWarmUp()
             synchronized(lock) {
                 val h = handle
                 if (h == null || h.isClosed || !currentCapabilities.supportsSpeechOutput) return@withContext null
