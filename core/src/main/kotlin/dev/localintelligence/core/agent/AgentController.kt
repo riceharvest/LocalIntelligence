@@ -230,6 +230,8 @@ class AgentController(
      * default; off is a user choice in Technical settings.
      */
     private val constrainOutput: Boolean = true,
+    /** Whether a backend with a chat template renders prompts with it. From the user's settings. */
+    private val useModelTemplate: Boolean = true,
     /**
      * Invoked right before a tool runs, with the tool's name and its arguments
      * in the same compact form the trace uses.
@@ -1278,6 +1280,7 @@ class AgentController(
                 null
             },
             allowedToolNames = visible.map { it.definition.name },
+            useModelTemplate = useModelTemplate,
         )
     }
 

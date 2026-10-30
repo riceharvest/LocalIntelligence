@@ -8,12 +8,16 @@ import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.cloud.OpenRouterPlugin
+import dev.localintelligence.android.documents.DocumentStore
+import dev.localintelligence.android.documents.DocumentsPlugin
+import dev.localintelligence.android.mcp.McpPlugin
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.android.skills.SkillsPlugin
 import dev.localintelligence.android.tools.androidToolPlugins
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.SimpleSetup
+import dev.localintelligence.app.speech.Speaker
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.plugin.PluginSet
 import dev.localintelligence.core.policy.BlastRadiusTracker
@@ -34,6 +38,9 @@ import dev.localintelligence.core.memory.LexicalMemoryStore
 import dev.localintelligence.core.memory.ProfilePlugin
 import dev.localintelligence.android.inference.RamEstimate
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
+import dev.localintelligence.app.speedtest.SpeedTestRunner
+import dev.localintelligence.app.speedtest.SpeedTestTarget
+import dev.localintelligence.app.ui.displayNameOf
 import androidx.compose.runtime.mutableStateListOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -42,6 +49,7 @@ import dev.localintelligence.core.metrics.RunRecorder
 import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.ModelBackend
 import dev.localintelligence.core.model.ModelSpec
+import dev.localintelligence.core.model.SpeechOutput
 import dev.localintelligence.core.policy.RiskPolicy
 import dev.localintelligence.core.tool.LexicalToolSelector
 import dev.localintelligence.core.tool.SimpleToolRegistry
@@ -138,6 +146,14 @@ class AppContainer(private val context: Context) {
     /** Every setting in the app. See [SettingsStore]. */
     val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
 
+    /** Reads replies aloud with the platform text-to-speech. The engine starts on first use. */
+    val speaker: Speaker by lazy {
+        Speaker(context, settings) {
+            val backend = residentBackend()
+            (backend as? SpeechOutput)?.takeIf { backend.capabilities.supportsSpeechOutput }
+        }
+    }
+
     /**
      * Everything that can be switched on and off. The built-in tool families
      * are the first plugins; features add theirs here.
@@ -149,9 +165,17 @@ class AppContainer(private val context: Context) {
         // registry holds only the enabled tools, so checking it against the
         // catalogue would fail whenever any plugin is off, which is the default for
         // the cloud plugin.
-        CatalogueAgreement.require(families.flatMap { it.tools() } + cloud.shippedTools(), V0ToolCatalogue.definitions)
-        families + ProfilePlugin() + SkillsPlugin(skills) + cloud
+        val docs = DocumentsPlugin(documents)
+        CatalogueAgreement.require(
+            families.flatMap { it.tools() } + cloud.shippedTools() + docs.shippedTools(),
+            V0ToolCatalogue.definitions,
+        )
+        val remote = McpPlugin(settings)
+        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + remote
     }
+
+    /** Documents the user added on the Documents screen, as text under filesDir/documents. */
+    val documents: DocumentStore by lazy { DocumentStore(File(context.filesDir, "documents")) }
 
     /** Skills on disk under filesDir/skills. Shared by the plugin, the skills screen and "Save as skill". */
     val skills: SkillRepository by lazy { SkillRepository(File(context.filesDir, "skills")) }
@@ -568,6 +592,41 @@ class AppContainer(private val context: Context) {
 
     /** The backend holding the loaded model, for the controller that will run. */
     fun residentBackend(): ModelBackend = loadedBackend ?: modelBackend
+
+    /**
+     * The in-app speed test. Lazy, like every other field here: the scope is only
+     * created when a user first asks for a measurement.
+     *
+     * WHY ITS OWN SCOPE: a run can take a minute, and it must outlive the screen that
+     * started it. The gate, not the scope, is what keeps it from overlapping a chat run.
+     */
+    val speedTest: SpeedTestRunner by lazy {
+        SpeedTestRunner(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            runGate = runGate,
+            resolveTarget = ::speedTestTarget,
+        )
+    }
+
+    /**
+     * What a speed test measures, or null when nothing is resident.
+     *
+     * "Resident" means the last load succeeded: [ModelAvailability.Ready] and the
+     * selected model are set together by [loadModelLocked], so the file named here is
+     * the file in memory. The file name comes from the path when the model is a plain
+     * file, and from the provider's display name otherwise, because a content URI has
+     * no path to show.
+     */
+    private fun speedTestTarget(): SpeedTestTarget? {
+        if (modelAvailability.current !is ModelAvailability.Ready) return null
+        val model = selectedModel ?: return null
+        val file = model.uri.path?.takeIf { model.uri.scheme == "file" }?.let { File(it).name }
+        return SpeedTestTarget(
+            backend = residentBackend(),
+            modelUri = model.uri.toString(),
+            modelFile = file ?: displayNameOf(context, model.uri) ?: model.displayName,
+        )
+    }
 
     /**
      * Chooses the runtime from the model's own bytes.
@@ -995,6 +1054,7 @@ class AppContainer(private val context: Context) {
         sampling = snapshot.samplingParams(),
         hooks = pluginSet.hooks,
         constrainOutput = snapshot[CoreSettings.CONSTRAINED_OUTPUT],
+        useModelTemplate = snapshot[CoreSettings.MODEL_CHAT_TEMPLATE],
     )
     }
 

@@ -98,6 +98,7 @@ enum class SettingSection(val title: String) {
     GENERAL("General"),
     APPROVALS("Approvals"),
     INTERFACE("Interface"),
+    VOICE("Voice"),
     MODEL("Model"),
     SAMPLING("Sampling"),
     AGENT("Agent loop"),

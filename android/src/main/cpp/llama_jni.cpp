@@ -66,11 +66,47 @@ int64_t now_ms() {
         .count();
 }
 
+// A Java string from UTF-8, through UTF-16.
+//
+// WHY NOT NewStringUTF: it expects *modified* UTF-8, so a 4-byte sequence (any
+// emoji a model writes) is invalid input, and with CheckJNI on (every debuggable
+// build) that aborts the process. Decoding here also turns malformed bytes into
+// U+FFFD instead of passing them to the VM.
 jstring to_jstring(JNIEnv * env, const std::string & s) {
     if (s.empty()) {
         return nullptr;
     }
-    return env->NewStringUTF(s.c_str());
+    std::vector<jchar> u;
+    u.reserve(s.size());
+    const auto * b = reinterpret_cast<const unsigned char *>(s.data());
+    const size_t n = s.size();
+    for (size_t i = 0; i < n;) {
+        uint32_t cp = 0xFFFD;
+        size_t len = 1;
+        const unsigned char c = b[i];
+        if (c < 0x80) {
+            cp = c;
+        } else if ((c >> 5) == 0x6 && i + 1 < n && (b[i + 1] & 0xC0) == 0x80) {
+            cp = ((c & 0x1F) << 6) | (b[i + 1] & 0x3F);
+            len = 2;
+        } else if ((c >> 4) == 0xE && i + 2 < n && (b[i + 1] & 0xC0) == 0x80 && (b[i + 2] & 0xC0) == 0x80) {
+            cp = ((c & 0x0F) << 12) | ((b[i + 1] & 0x3F) << 6) | (b[i + 2] & 0x3F);
+            len = 3;
+        } else if ((c >> 3) == 0x1E && i + 3 < n && (b[i + 1] & 0xC0) == 0x80 && (b[i + 2] & 0xC0) == 0x80 &&
+                   (b[i + 3] & 0xC0) == 0x80) {
+            cp = ((c & 0x07) << 18) | ((b[i + 1] & 0x3F) << 12) | ((b[i + 2] & 0x3F) << 6) | (b[i + 3] & 0x3F);
+            len = 4;
+        }
+        if (cp >= 0x10000 && cp <= 0x10FFFF) {
+            cp -= 0x10000;
+            u.push_back(static_cast<jchar>(0xD800 + (cp >> 10)));
+            u.push_back(static_cast<jchar>(0xDC00 + (cp & 0x3FF)));
+        } else {
+            u.push_back(static_cast<jchar>(cp > 0xFFFF ? 0xFFFD : cp));
+        }
+        i += len;
+    }
+    return env->NewString(u.data(), static_cast<jsize>(u.size()));
 }
 
 void free_model_locked(LlamaHandle * h) {
@@ -215,11 +251,17 @@ struct TokenSinkRef {
 };
 
 // Tokenises, preferring the two-pass form: ask for the count, then fill.
+//
+// `parse_special` false (the default, and the flat transcript) keeps text such
+// as "<|im_start|>" as ordinary characters, so user text cannot become a control
+// token. True turns it into the special token; only a rendered chat template
+// may use that, and its contents must have been neutralised first.
 bool tokenize(const llama_vocab * vocab, const std::string & text,
-              std::vector<llama_token> & out, std::string & err) {
+              std::vector<llama_token> & out, std::string & err,
+              bool parse_special = false) {
     const int32_t len = static_cast<int32_t>(text.size());
     int32_t needed = llama_tokenize(vocab, text.data(), len, nullptr, 0,
-                                    /*add_special=*/true, /*parse_special=*/false);
+                                    /*add_special=*/true, parse_special);
     if (needed < 0) {
         needed = -needed;  // negative is "buffer too small, this is the size"
     }
@@ -229,13 +271,98 @@ bool tokenize(const llama_vocab * vocab, const std::string & text,
     }
     out.resize(static_cast<size_t>(needed));
     const int32_t got = llama_tokenize(vocab, text.data(), len, out.data(), needed,
-                                       /*add_special=*/true, /*parse_special=*/false);
+                                       /*add_special=*/true, parse_special);
     if (got < 0) {
         err = "llama_tokenize failed on a " + std::to_string(needed) + " token prompt";
         return false;
     }
     out.resize(static_cast<size_t>(got));
     return true;
+}
+
+// Copies a Java string into `out`. A null reference becomes "". False only if
+// the JVM could not hand over the characters.
+// Real UTF-8 from a Java string.
+//
+// WHY NOT GetStringUTFChars: it returns *modified* UTF-8, which encodes every
+// character outside the BMP (emoji, many CJK extensions) as two 3-byte
+// surrogates instead of one 4-byte sequence. The tokenizer then sees bytes no
+// model was trained on. Reading UTF-16 and encoding it here is the fix.
+bool jstring_utf8(JNIEnv * env, jstring js, std::string & out) {
+    out.clear();
+    if (js == nullptr) return true;
+    const jsize n = env->GetStringLength(js);
+    std::vector<jchar> u(static_cast<size_t>(n));
+    if (n > 0) env->GetStringRegion(js, 0, n, u.data());
+    if (env->ExceptionCheck()) return false;
+    out.reserve(static_cast<size_t>(n) * 3);
+    for (jsize i = 0; i < n; ++i) {
+        uint32_t cp = u[static_cast<size_t>(i)];
+        if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < n) {
+            const uint32_t lo = u[static_cast<size_t>(i + 1)];
+            if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                ++i;
+            }
+        }
+        if (cp >= 0xD800 && cp <= 0xDFFF) cp = 0xFFFD;  // a lone surrogate
+        if (cp < 0x80) {
+            out.push_back(static_cast<char>(cp));
+        } else if (cp < 0x800) {
+            out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        } else if (cp < 0x10000) {
+            out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+            out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        } else {
+            out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+            out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        }
+    }
+    return true;
+}
+
+bool copy_jstring(JNIEnv * env, jstring js, std::string & out) {
+    return jstring_utf8(env, js, out);
+}
+
+// The text of every control token in the vocabulary, longest first. With
+// parse_special on, these are the strings the tokenizer turns into one special
+// token each, so they are exactly what a message must not contain verbatim.
+std::vector<std::string> control_token_texts(const llama_vocab * vocab) {
+    std::vector<std::string> out;
+    const int32_t n = llama_vocab_n_tokens(vocab);
+    for (llama_token id = 0; id < n; ++id) {
+        if (!llama_vocab_is_control(vocab, id)) {
+            continue;
+        }
+        const char * text = llama_vocab_get_text(vocab, id);
+        // A one-character control token would match every occurrence of that
+        // character, and breaking it would corrupt ordinary text.
+        if (text != nullptr && std::strlen(text) >= 2) {
+            out.emplace_back(text);
+        }
+    }
+    std::sort(out.begin(), out.end(),
+              [](const std::string & a, const std::string & b) { return a.size() > b.size(); });
+    return out;
+}
+
+// Breaks every occurrence of a control token by inserting a space after its
+// first character. The model still reads the same characters, but the tokenizer
+// can no longer build the special token from them.
+std::string neutralise_control_text(std::string s, const std::vector<std::string> & specials) {
+    for (const std::string & sp : specials) {
+        size_t pos = 0;
+        while ((pos = s.find(sp, pos)) != std::string::npos) {
+            s.insert(pos + 1, " ");
+            pos += 1;
+        }
+    }
+    return s;
 }
 
 // Builds the sampling chain. Returns null only if llama.cpp cannot allocate one.
@@ -341,12 +468,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     if (path == nullptr) {
         return to_jstring(env, "null model path");
     }
-    const char * cpath = env->GetStringUTFChars(path, nullptr);
-    if (cpath == nullptr) {
+    std::string model_path;
+    if (!jstring_utf8(env, path, model_path)) {
         return to_jstring(env, "could not read the model path");
     }
-    const std::string model_path(cpath);
-    env->ReleaseStringUTFChars(path, cpath);
 
     std::lock_guard<std::mutex> lock(h->state);
 
@@ -476,12 +601,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeCountTokens(
     if (!h->loaded || h->vocab == nullptr) {
         return -1;
     }
-    const char * chars = env->GetStringUTFChars(text, nullptr);
-    if (chars == nullptr) {
+    std::string s;
+    if (!jstring_utf8(env, text, s)) {
         return -1;
     }
-    const std::string s(chars);
-    env->ReleaseStringUTFChars(text, chars);
 
     std::vector<llama_token> tokens;
     std::string err;
@@ -545,7 +668,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         JNIEnv * env, jclass, jlong handle, jstring prompt, jstring grammar, jfloat temperature,
         jfloat top_p, jint top_k, jfloat min_p, jfloat repeat_penalty, jint penalty_last_n,
         jfloat frequency_penalty, jfloat presence_penalty, jint seed, jint max_tokens,
-        jobject onToken) {
+        jobject onToken, jboolean parse_special) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
         return to_jstring(env, "null handle");
@@ -581,20 +704,14 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     }
     (void) n_threads;
 
-    const char * cprompt = env->GetStringUTFChars(prompt, nullptr);
-    if (cprompt == nullptr) {
+    std::string prompt_str;
+    if (!jstring_utf8(env, prompt, prompt_str)) {
         return to_jstring(env, "could not read the prompt");
     }
-    const std::string prompt_str(cprompt);
-    env->ReleaseStringUTFChars(prompt, cprompt);
 
     std::string grammar_str;
-    if (grammar != nullptr) {
-        const char * cg = env->GetStringUTFChars(grammar, nullptr);
-        if (cg != nullptr) {
-            grammar_str.assign(cg);
-            env->ReleaseStringUTFChars(grammar, cg);
-        }
+    if (grammar != nullptr && !jstring_utf8(env, grammar, grammar_str)) {
+        grammar_str.clear();
     }
 
     h->cancelled.store(false);
@@ -675,7 +792,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     // ---- tokenise -------------------------------------------------------------
     std::vector<llama_token> tokens;
     std::string tok_err;
-    if (!mm_chunks && !tokenize(vocab, prompt_str, tokens, tok_err)) {
+    if (!mm_chunks && !tokenize(vocab, prompt_str, tokens, tok_err, parse_special == JNI_TRUE)) {
         outcome.stop = static_cast<int32_t>(StopCode::ERROR);
         outcome.error = tok_err;
         publish();
@@ -933,10 +1050,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadProjector(
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) return to_jstring(env, "null handle");
     if (path == nullptr) return to_jstring(env, "null projector path");
-    const char * cpath = env->GetStringUTFChars(path, nullptr);
-    if (cpath == nullptr) return to_jstring(env, "could not read the projector path");
-    const std::string projector_path(cpath);
-    env->ReleaseStringUTFChars(path, cpath);
+    std::string projector_path;
+    if (!jstring_utf8(env, path, projector_path)) return to_jstring(env, "could not read the projector path");
 
     std::lock_guard<std::mutex> lock(h->state);
     if (!h->loaded || h->model == nullptr) return to_jstring(env, "no model is loaded");
@@ -957,7 +1072,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadProjector(
     return nullptr;
 }
 
-// Bit 1: image input. Bit 2: audio input. 0 when no projector is loaded.
+// Bit 1: image input. Bit 2: audio input. Bit 4: speech output. 0 without a projector.
 JNIEXPORT jint JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeProjectorCaps(JNIEnv *, jclass, jlong handle) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
@@ -968,6 +1083,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeProjectorCaps(JNI
     jint caps = 0;
     if (mtmd_support_vision(mctx)) caps |= 1;
     if (mtmd_support_audio(mctx)) caps |= 2;
+    if (mtmd_gen_audio_get_info(mctx).type != MTMD_GEN_AUDIO_TYPE_NONE) caps |= 4;
     return caps;
 }
 
@@ -994,4 +1110,211 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSetMedia(
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeMediaMarker(JNIEnv * env, jclass) {
     return env->NewStringUTF(mtmd_default_marker());
+}
+
+JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeApplyTemplate(
+        JNIEnv * env, jclass, jlong handle, jobjectArray roles, jobjectArray contents,
+        jboolean add_assistant) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr || roles == nullptr || contents == nullptr) {
+        return nullptr;
+    }
+    const jsize n = env->GetArrayLength(roles);
+    if (n == 0 || n != env->GetArrayLength(contents)) {
+        return nullptr;
+    }
+
+    std::lock_guard<std::mutex> lock(h->state);
+    if (!h->loaded || h->model == nullptr || h->vocab == nullptr) {
+        return nullptr;
+    }
+    // Null for a model with no template. A nullptr name asks for the default.
+    const char * tmpl = llama_model_chat_template(as_model(h->model), nullptr);
+    if (tmpl == nullptr) {
+        return nullptr;
+    }
+    const std::vector<std::string> specials = control_token_texts(as_vocab(h->vocab));
+
+    // Copy everything into owned strings first: the llama_chat_message pointers
+    // must stay valid across both render calls, and each jstring local ref is
+    // released as soon as its characters are copied.
+    std::vector<std::string> role_text(static_cast<size_t>(n));
+    std::vector<std::string> content_text(static_cast<size_t>(n));
+    size_t total = 0;
+    for (jsize i = 0; i < n; ++i) {
+        auto rj = static_cast<jstring>(env->GetObjectArrayElement(roles, i));
+        auto cj = static_cast<jstring>(env->GetObjectArrayElement(contents, i));
+        std::string r;
+        std::string c;
+        const bool ok = copy_jstring(env, rj, r) && copy_jstring(env, cj, c);
+        if (rj != nullptr) env->DeleteLocalRef(rj);
+        if (cj != nullptr) env->DeleteLocalRef(cj);
+        if (!ok) {
+            return nullptr;
+        }
+        role_text[static_cast<size_t>(i)] = std::move(r);
+        content_text[static_cast<size_t>(i)] = neutralise_control_text(std::move(c), specials);
+        total += role_text[static_cast<size_t>(i)].size() + content_text[static_cast<size_t>(i)].size();
+    }
+
+    std::vector<llama_chat_message> msgs(static_cast<size_t>(n));
+    for (size_t i = 0; i < msgs.size(); ++i) {
+        msgs[i].role = role_text[i].c_str();
+        msgs[i].content = content_text[i].c_str();
+    }
+
+    // llama.cpp returns the length it needs when the buffer is too small. Twice
+    // the input is nearly always enough; the retry covers the rest.
+    std::vector<char> buf(2 * total + 512);
+    int32_t len = llama_chat_apply_template(tmpl, msgs.data(), msgs.size(),
+                                            add_assistant == JNI_TRUE, buf.data(),
+                                            static_cast<int32_t>(buf.size()));
+    if (len < 0) {
+        // Not a template llama.cpp knows how to render.
+        return nullptr;
+    }
+    if (static_cast<size_t>(len) > buf.size()) {
+        buf.assign(static_cast<size_t>(len) + 1, '\0');
+        len = llama_chat_apply_template(tmpl, msgs.data(), msgs.size(),
+                                        add_assistant == JNI_TRUE, buf.data(),
+                                        static_cast<int32_t>(buf.size()));
+        if (len < 0 || static_cast<size_t>(len) > buf.size()) {
+            return nullptr;
+        }
+    }
+    const std::string rendered(buf.data(), static_cast<size_t>(len));
+    return to_jstring(env, rendered);
+}
+
+namespace {
+
+// The prompt a speech-capable projector speaks. LFM3 ships a "tts" chat
+// template in the GGUF; it is Jinja, and this build has no Jinja engine, so
+// its one known shape is rendered here. Any other model gets the bare text,
+// which is what a TTS-only model (PocketTTS, Soprano) expects.
+std::string tts_prompt(const llama_model * model, const llama_vocab * vocab, const std::string & text,
+                       const std::string & lang, const std::string & voice) {
+    const char * tmpl = llama_model_chat_template(model, "tts");
+    if (tmpl == nullptr || std::strstr(tmpl, "Perform TTS in") == nullptr) {
+        return text;
+    }
+    static const char * kNames[][2] = {
+        {"ar", "Arabic"}, {"da", "Danish"}, {"de", "German"}, {"el", "Greek"}, {"en", "American English"},
+        {"en-us", "American English"}, {"en-gb", "British English"}, {"fi", "Finnish"}, {"fr", "French"},
+        {"he", "Hebrew"}, {"it", "Italian"}, {"ja", "Japanese"}, {"ko", "Korean"}, {"nl", "Dutch"},
+        {"pl", "Polish"}, {"pt", "Portuguese"}, {"es", "Spanish"}, {"sv", "Swedish"}, {"tr", "Turkish"},
+        {"zh", "Chinese"},
+    };
+    std::string code = lang.empty() ? "en" : lang;
+    std::transform(code.begin(), code.end(), code.begin(), ::tolower);
+    std::string language = lang;
+    for (const auto & n : kNames) {
+        if (code == n[0]) { language = n[1]; break; }
+    }
+    const std::string v = (voice == "male") ? "male" : "female";
+    std::string bos;
+    const llama_token bos_id = llama_vocab_bos(vocab);
+    if (bos_id != LLAMA_TOKEN_NULL) {
+        char buf[64];
+        const int n = llama_token_to_piece(vocab, bos_id, buf, sizeof(buf), 0, true);
+        if (n > 0) bos.assign(buf, static_cast<size_t>(n));
+    }
+    return bos + "<|im_start|>system\nPerform TTS in " + language + " using a " + v + " voice.<|im_end|>\n" +
+        "<|im_start|>user\n" + text + "<|im_end|>\n" +
+        "<|im_start|>assistant\n<think></think><|audio_start|>";
+}
+
+std::string read_jstring(JNIEnv * env, jstring s) {
+    std::string out;
+    jstring_utf8(env, s, out);
+    return out;
+}
+
+}  // namespace
+
+// Speaks [text] with the loaded model's speech projector. Returns a WAV file
+// (16-bit PCM, mono) or null on failure / no speech support. Blocking; the
+// Kotlin side holds the generation lock, so this never overlaps a generate.
+JNIEXPORT jbyteArray JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeSpeak(
+        JNIEnv * env, jclass, jlong handle, jstring text, jstring lang, jstring voice, jint max_frames) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr) return nullptr;
+    llama_model * model = nullptr;
+    llama_context * ctx = nullptr;
+    const llama_vocab * vocab = nullptr;
+    mtmd_context * mctx = nullptr;
+    int32_t n_batch = kDefaultBatch;
+    {
+        std::lock_guard<std::mutex> lock(h->state);
+        if (!h->loaded || h->mtmd == nullptr) return nullptr;
+        model = as_model(h->model);
+        ctx = as_context(h->context);
+        vocab = as_vocab(h->vocab);
+        mctx = reinterpret_cast<mtmd_context *>(h->mtmd);
+        n_batch = std::max(1, std::min(h->n_ctx, kDefaultBatch));
+    }
+    if (mtmd_gen_audio_get_info(mctx).type == MTMD_GEN_AUDIO_TYPE_NONE) return nullptr;
+
+    const std::string prompt = tts_prompt(model, vocab, read_jstring(env, text), read_jstring(env, lang),
+                                          read_jstring(env, voice));
+    h->cancelled.store(false);
+    h->generating.store(true);
+
+    // Hidden states feed the audio head, so embeddings are on for this call only.
+    llama_memory_clear(llama_get_memory(ctx), true);
+    llama_set_embeddings(ctx, true);
+    mtmd_helper_gen_audio * gen = mtmd_helper_gen_audio_init(ctx, mctx);
+    llama_sampler * smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
+
+    jbyteArray result = nullptr;
+    bool ok = gen != nullptr;
+    if (ok) {
+        mtmd_helper_gen_audio_inp inp = mtmd_helper_gen_audio_inp_default();
+        inp.seq_id = 0;
+        inp.prompt = prompt.c_str();
+        inp.prompt_len = prompt.size();
+        inp.out_type = MTMD_HELPER_GEN_AUDIO_OUTTYPE_WAV;
+        ok = mtmd_helper_gen_audio_set_input(gen, &inp) == 0;
+    }
+    while (ok) {
+        const int32_t left = mtmd_helper_gen_audio_step_prompt(gen, n_batch);
+        if (left < 0) ok = false;
+        if (left <= 0) break;
+        if (h->cancelled.load()) ok = false;
+    }
+    if (ok) {
+        llama_token sampled = llama_sampler_sample(smpl, ctx, -1);
+        const float * h_state = llama_get_embeddings_ith(ctx, -1);
+        const int32_t limit = max_frames > 0 ? max_frames : 2048;
+        bool stop = false;
+        for (int32_t frame = 0; ok && !stop && frame < limit; ++frame) {
+            if (h->cancelled.load()) { ok = false; break; }
+            const float * h_next = nullptr;
+            if (mtmd_helper_gen_audio_step_gen(gen, sampled, h_state, &h_next, &stop) != 0) { ok = false; break; }
+            if (h_next == nullptr) break;
+            h_state = h_next;
+            sampled = llama_sampler_sample(smpl, ctx, -1);
+        }
+    }
+    if (ok) {
+        int32_t sample_rate = 0;
+        const char * data = nullptr;
+        size_t len = 0;
+        int64_t n_samples = 0;
+        if (mtmd_helper_gen_audio_get_output(gen, &sample_rate, &data, &len, &n_samples) == 0 && data != nullptr && len > 0) {
+            result = env->NewByteArray(static_cast<jsize>(len));
+            if (result != nullptr) {
+                env->SetByteArrayRegion(result, 0, static_cast<jsize>(len), reinterpret_cast<const jbyte *>(data));
+            }
+        }
+    }
+    llama_sampler_free(smpl);
+    if (gen != nullptr) mtmd_helper_gen_audio_free(gen);
+    llama_set_embeddings(ctx, false);
+    llama_memory_clear(llama_get_memory(ctx), true);
+    h->generating.store(false);
+    return result;
 }

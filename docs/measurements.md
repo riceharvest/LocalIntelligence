@@ -50,3 +50,29 @@ without saying so in the same row. An empty table with honest labels is worth
 more than a full one where nobody can tell which numbers are real — that is the
 specific failure this project already made once, when selector recall figures
 lived only in KDoc with no harness to re-derive them.
+
+## In-app speed test
+
+The app has a **Speed test**: on the Models screen under the loaded model, and in
+Settings under Technical, Model. It runs the model that is already loaded, twice, with
+a 256-token prompt and 64 generated tokens, and reports prefill and decode tokens per
+second (the median of the two passes). It loads nothing, does not touch the
+conversation, and is refused while an agent run is active. The result is kept in memory
+until the app is closed and is labelled "measured on this phone" with its date.
+
+It does not compare llama.cpp thread counts. The llama.cpp backend fixes its thread
+count at load time, and changing it needs a reload, so the test does not offer it.
+
+A number from the speed test is a measurement of one phone only when it is reported
+with the following, all of which the result line or the device shows:
+
+- device model and Android version
+- model file name, quant, and SHA-256 if known
+- backend (llama.cpp or LiteRT-LM) and accelerator (CPU, GPU or NPU)
+- date, and the app build (commit) it came from
+- for LiteRT-LM, a note that the token counts are estimates, because that backend
+  reports them that way
+
+Record it with those fields next to the row it belongs to. Do not add a number
+taken on an emulator, on a desktop, or from a run that was not the in-app test without
+saying so on the same line.

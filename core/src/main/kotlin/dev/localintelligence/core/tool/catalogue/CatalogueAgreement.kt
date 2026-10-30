@@ -110,6 +110,20 @@ data class CatalogueDrift(
 object CatalogueAgreement {
 
     /**
+     * Name prefix of tools that come from a remote MCP server.
+     *
+     * WHY THESE ARE EXEMPT FROM THE "UNLISTED" CHECK. A remote server's tool list
+     * is only known at run start, from the server, so it cannot be written in a
+     * static catalogue, and a check that demanded one would make the MCP plugin
+     * impossible. The exemption is the name prefix alone: it does not skip the
+     * risk, origin or category comparison for any entry that does exist, and a
+     * built-in tool must never use this prefix, because the exemption would then
+     * hide it from the check. The selector needs no entry: it scores a tool by its
+     * own name, description and tags.
+     */
+    const val DYNAMIC_TOOL_PREFIX = "mcp."
+
+    /**
      * Compares [shipped] against [catalogue] and returns every disagreement.
      *
      * Never throws and never short-circuits: it reports all four classes at once,
@@ -123,7 +137,9 @@ object CatalogueAgreement {
         val shippedByName = shipped.associateBy { it.definition.name }
         val catalogueByName = catalogue.associateBy { it.name }
 
-        val unlisted = shippedByName.keys.filterNot { it in catalogueByName }.sorted()
+        val unlisted = shippedByName.keys
+            .filterNot { it in catalogueByName || it.startsWith(DYNAMIC_TOOL_PREFIX) }
+            .sorted()
         val unimplemented = catalogueByName.keys.filterNot { it in shippedByName }.sorted()
 
         val riskTierMismatch = mutableListOf<String>()

@@ -17,6 +17,7 @@ import dev.localintelligence.app.media.PendingAttachments
 import dev.localintelligence.app.media.ShownAttachment
 import dev.localintelligence.app.media.VoiceClipRecorder
 import dev.localintelligence.app.notice
+import dev.localintelligence.app.speech.Speaker
 import dev.localintelligence.core.agent.StepTrace
 import dev.localintelligence.core.context.GenerationProse
 import dev.localintelligence.core.model.ChatMessage as CoreChatMessage
@@ -83,6 +84,10 @@ class ChatViewModel(
      * loaded after this view model exists and can be swapped while the screen lives.
      */
     private val capabilities: () -> ModelCapabilities = { ModelCapabilities.UNKNOWN },
+    /** Null in hosts without speech output; every speech call then does nothing. */
+    private val speaker: Speaker? = null,
+    /** Read at the end of each run, so a settings change applies from the next answer. */
+    private val readRepliesAloud: () -> Boolean = { false },
 ) : ViewModel() {
 
     private val scope: CoroutineScope = scopeOverride ?: viewModelScope
@@ -201,6 +206,9 @@ class ChatViewModel(
      */
     val modelState: StateFlow<ModelAvailability> get() = modelAvailability.state
 
+    /** The reply being read aloud, or null. Rows compare against it to show Stop instead of Read. */
+    val speakingText: StateFlow<String?> = speaker?.speakingText ?: MutableStateFlow<String?>(null).asStateFlow()
+
     /**
      * The reason sending is impossible, or null when a send would work.
      *
@@ -264,6 +272,12 @@ class ChatViewModel(
                 // the calls that produced it underneath, which reads as though
                 // the agent did all of its work after answering.
                 renderTrace(gateway.trace.value, terminal = state.outcome)
+
+                // Read aloud: the final answer, once, when the run completes. Only the
+                // answer is spoken, never streamed text or tool rows; a cancelled or
+                // failed run has no answer and is silent.
+                val answer = state.outcome as? RunOutcome.Answer
+                if (answer != null && readRepliesAloud()) speaker?.speak(answer.text)
             }
         }
     }
@@ -616,6 +630,7 @@ class ChatViewModel(
             return
         }
         _input.value = ""
+        speaker?.stop()
         dispatch(typed)
     }
 
@@ -625,6 +640,7 @@ class ChatViewModel(
             refuseQueued()
             return
         }
+        speaker?.stop()
         dispatch(text.trim())
     }
 
@@ -737,7 +753,13 @@ class ChatViewModel(
 
     /** The STOP button. Cooperative: the loop returns `Cancelled` when it can. */
     fun stop() {
+        speaker?.stop()
         gateway.cancel()
+    }
+
+    /** The speaker button on an answer: reads it, or stops it if it is the one being read. */
+    fun toggleSpeak(text: String) {
+        speaker?.toggle(text)
     }
 
     /**
@@ -804,6 +826,8 @@ class ChatViewModel(
         private val modelAvailability: ModelAvailabilityHolder = ModelAvailabilityHolder(),
         private val attachmentQueue: PendingAttachments = PendingAttachments(),
         private val capabilities: () -> ModelCapabilities = { ModelCapabilities.UNKNOWN },
+        private val speaker: Speaker? = null,
+        private val readRepliesAloud: () -> Boolean = { false },
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -815,6 +839,8 @@ class ChatViewModel(
                 modelAvailability = modelAvailability,
                 attachmentQueue = attachmentQueue,
                 capabilities = capabilities,
+                speaker = speaker,
+                readRepliesAloud = readRepliesAloud,
             ) as T
         }
     }
