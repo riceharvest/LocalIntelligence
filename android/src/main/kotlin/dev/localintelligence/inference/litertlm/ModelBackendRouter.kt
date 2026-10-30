@@ -1,6 +1,7 @@
 package dev.localintelligence.inference.litertlm
 
 import android.content.Context
+import dev.localintelligence.android.inference.LlamaComputeSource
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.core.model.AcceleratorPreference
@@ -67,10 +68,9 @@ class ModelBackendRouter(
     /**
      * Which hardware the user asked for, handed to the LiteRT-LM backend.
      *
-     * Only LiteRT-LM takes one: llama.cpp's backend is CPU-only, so there is
-     * nothing for it to apply. A user who pins `GPU` and loads a GGUF therefore
-     * gets CPU, and the only way to know that is that the *model* is a GGUF —
-     * which is precisely the distinction [route] exists to make visible.
+     * Only LiteRT-LM takes this one. llama.cpp gets its CPU/GPU choice from
+     * [llamaCompute] instead, because its GPUs are Vulkan and OpenCL backends
+     * chosen by the speed test, not an NPU/GPU/CPU ladder.
      */
     private val acceleratorPreference: AcceleratorPreference = AcceleratorPreference.DEFAULT,
     /** Passed to the LiteRT-LM engine so compiled state has somewhere to live. */
@@ -81,6 +81,8 @@ class ModelBackendRouter(
      * call "kDefault" — it is not "zero threads".
      */
     private val numThreads: Int = 0,
+    /** Where llama.cpp runs a GGUF; see [LlamaComputeSource]. */
+    private val llamaCompute: LlamaComputeSource = LlamaComputeSource.CPU_ONLY,
 ) {
 
     /**
@@ -117,7 +119,7 @@ class ModelBackendRouter(
             }
         }
 
-    private fun llamaBackend(): ModelBackend = LlamaCppBackend(importer)
+    private fun llamaBackend(): ModelBackend = LlamaCppBackend(importer, computeSource = llamaCompute)
 
     /**
      * A LiteRT-LM backend wired to a **real device probe**.

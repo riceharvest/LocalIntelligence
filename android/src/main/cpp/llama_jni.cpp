@@ -21,11 +21,13 @@
 // logcat. Without this, every native failure looked identical and none of it was
 // diagnosable from the device.
 static void log_to_logcat(enum ggml_log_level level, const char * text, void * /*ud*/) {
-    if (text == nullptr) return;
+    // Per-tensor debug lines (a repack line for every weight) and the model
+    // loader's progress dots fill logcat's 256 KB ring and push out the lines
+    // that matter.
+    if (text == nullptr || level == GGML_LOG_LEVEL_DEBUG) return;
     int pri = ANDROID_LOG_INFO;
     if (level == GGML_LOG_LEVEL_ERROR) pri = ANDROID_LOG_ERROR;
     else if (level == GGML_LOG_LEVEL_WARN) pri = ANDROID_LOG_WARN;
-    else if (level == GGML_LOG_LEVEL_DEBUG) pri = ANDROID_LOG_DEBUG;
     // logcat truncates long lines and ggml puts the whole reason on one, so
     // split on newlines rather than losing the tail.
     const std::string line(text);
@@ -35,14 +37,19 @@ static void log_to_logcat(enum ggml_log_level level, const char * text, void * /
         const std::string chunk = (nl == std::string::npos)
             ? line.substr(pos)
             : line.substr(pos, nl - pos);
-        if (!chunk.empty()) __android_log_print(pri, "LocalLlama", "%s", chunk.c_str());
+        if (!chunk.empty() && chunk != ".") __android_log_print(pri, "LocalLlama", "%s", chunk.c_str());
         if (nl == std::string::npos) break;
         pos = nl + 1;
     }
 }
 
 #include <algorithm>
+#include <dirent.h>
 #include <dlfcn.h>
+#include <strings.h>
+#include <sys/prctl.h>
+#include <sys/system_properties.h>
+#include <unistd.h>
 #include <mutex>
 #include <cmath>
 #include <chrono>
@@ -125,6 +132,8 @@ void free_model_locked(LlamaHandle * h) {
         h->mtmd = nullptr;
     }
     h->pending_media.clear();
+    h->snap_tokens.clear();
+    h->snap_state.clear();
     if (h->context != nullptr) {
         llama_free(as_context(h->context));
         h->context = nullptr;
@@ -144,15 +153,47 @@ void free_model_locked(LlamaHandle * h) {
 // Phones are asymmetric (big.LITTLE). Leaving the prime core free matters:
 // oversubscribing the little cores costs more than the thread gains, and it
 // makes the UI janky while a background decode runs.
-int32_t pick_threads(int32_t requested) {
-    if (requested > 0) {
-        return requested;
-    }
+// The cores worth running inference on: every core faster than the slowest
+// cluster. Phones are big.LITTLE (Tensor G5: 1 X4 + 5 A725 + 2 A520); the
+// little cores slow a parallel matmul down to their pace.
+int32_t fast_cores() {
     const unsigned hw = std::thread::hardware_concurrency();
-    if (hw == 0) {
-        return 4;
+    std::vector<long> freqs;
+    for (unsigned i = 0; i < hw; ++i) {
+        char path[96];
+        snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u/cpufreq/cpuinfo_max_freq", i);
+        FILE * f = fopen(path, "r");
+        if (f == nullptr) continue;
+        long khz = 0;
+        if (fscanf(f, "%ld", &khz) == 1 && khz > 0) freqs.push_back(khz);
+        fclose(f);
     }
-    return static_cast<int32_t>(hw > 4 ? hw - 2 : hw);
+    if (hw == 0 || freqs.size() != hw) {
+        return hw == 0 ? 4 : static_cast<int32_t>(hw > 4 ? hw - 2 : hw);
+    }
+    const long slowest = *std::min_element(freqs.begin(), freqs.end());
+    const int32_t fast = static_cast<int32_t>(
+        std::count_if(freqs.begin(), freqs.end(), [&](long k) { return k > slowest; }));
+    return fast > 0 ? fast : static_cast<int32_t>(hw);
+}
+
+// Prompt processing is compute-bound and scales with the fast cores. Token
+// generation is memory-bound and stops scaling at about 4 threads on a phone:
+// MEASURED Pixel 10 Pro, LFM3-1.7B Q4_K_M, llama-bench: pp256 152/211/148 t/s
+// at 4/6/8 threads, tg64 24.0/23.7/21.0 t/s.
+struct ThreadPlan {
+    int32_t decode;
+    int32_t prefill;
+};
+
+ThreadPlan pick_thread_plan(int32_t requested) {
+    if (requested > 0) return {requested, requested};
+    const int32_t fast = fast_cores();
+    return {std::min(fast, 4), fast};
+}
+
+int32_t pick_threads(int32_t requested) {
+    return pick_thread_plan(requested).prefill;
 }
 
 // Splits a token's bytes at the last complete UTF-8 character boundary.
@@ -376,6 +417,17 @@ std::string neutralise_control_text(std::string s, const std::vector<std::string
 }
 
 // Builds the sampling chain. Returns null only if llama.cpp cannot allocate one.
+// The action grammar, or null. Kept out of the chain on purpose: applying a
+// grammar to the whole vocabulary on every token is the most expensive step in
+// sampling, so the decode loop samples first and only constrains when the
+// sampled token breaks the grammar (llama.cpp's own common sampler does the
+// same). A grammar that fails to compile yields null: unconstrained output is
+// better than no output, and the parser then rejects a malformed action.
+llama_sampler * build_grammar(const llama_vocab * vocab, const std::string & grammar_str) {
+    if (grammar_str.empty()) return nullptr;
+    return llama_sampler_init_grammar(vocab, grammar_str.c_str(), "root");
+}
+
 llama_sampler * build_chain(const llama_vocab * vocab, const std::string & grammar_str,
                             float temperature, int32_t top_k, float top_p, float min_p,
                             float repeat_penalty, int32_t penalty_last_n,
@@ -389,15 +441,13 @@ llama_sampler * build_chain(const llama_vocab * vocab, const std::string & gramm
         return nullptr;
     }
 
-    // Grammar goes in first, so the candidate set is already constrained before
-    // top-p/min-p narrow it. A grammar that fails to compile yields a null
-    // sampler, which we drop: unconstrained output is better than no output,
-    // and the caller sees a non-parseable action rather than a crash.
-    if (!grammar_str.empty()) {
-        llama_sampler * g = llama_sampler_init_grammar(vocab, grammar_str.c_str(), "root");
-        if (g != nullptr) {
-            llama_sampler_chain_add(chain, g);
-        }
+    (void) grammar_str;  // the grammar is a separate sampler: see build_grammar
+    // Top-k first: everything after it then works on k candidates instead of
+    // the whole vocabulary (128k tokens for LFM3), every token. It cannot
+    // change a greedy pick, and a penalised token outside the top k could not
+    // have been sampled anyway.
+    if (top_k > 0) {
+        llama_sampler_chain_add(chain, llama_sampler_init_top_k(top_k));
     }
     // Penalties only go in when one is active. A window of 0 turns all of them
     // off, and llama.cpp treats a repeat penalty of exactly 1 as a no-op.
@@ -408,11 +458,6 @@ llama_sampler * build_chain(const llama_vocab * vocab, const std::string & gramm
         llama_sampler_chain_add(
             chain, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), penalty_last_n,
                                                 repeat, freq_penalty, presence_penalty));
-    }
-    // Top-k goes before top-p, the usual order. It cannot change a greedy pick,
-    // since the most likely token always survives it.
-    if (top_k > 0) {
-        llama_sampler_chain_add(chain, llama_sampler_init_top_k(top_k));
     }
     if (top_p > 0.0f && top_p < 1.0f) {
         llama_sampler_chain_add(chain, llama_sampler_init_top_p(top_p, /*min_keep=*/1));
@@ -430,37 +475,149 @@ llama_sampler * build_chain(const llama_vocab * vocab, const std::string & gramm
     return chain;
 }
 
+// The directory this library was loaded from. The APK's other native
+// libraries, the ggml backends among them, are extracted next to it.
+std::string native_lib_dir() {
+    Dl_info info;
+    if (dladdr(reinterpret_cast<void *>(&native_lib_dir), &info) == 0 || info.dli_fname == nullptr) {
+        return {};
+    }
+    std::string dir = info.dli_fname;
+    const size_t slash = dir.find_last_of('/');
+    return slash == std::string::npos ? std::string() : dir.substr(0, slash);
+}
+
+void log_devices() {
+    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "backend device %zu: %s (%s)", i,
+                            ggml_backend_dev_name(dev), ggml_backend_dev_description(dev));
+    }
+}
+
+// Registers the one CPU variant that suits this phone. Each libggml-cpu-*.so
+// reports a score for the running CPU (0 = cannot run here) and the highest
+// wins, which is ggml's own rule; ggml_backend_load_best() is not exported,
+// and ggml_backend_load_all_from_path() would also start every GPU driver.
+void load_cpu_backend(const std::string & dir) {
+    // Testing aid: `adb shell setprop debug.localintelligence.cpu android_armv8.6_1`
+    // loads that one CPU variant instead of the best-scored one, so kernel
+    // families can be compared on a real phone without a rebuild.
+    char forced[PROP_VALUE_MAX] = {0};
+    __system_property_get("debug.localintelligence.cpu", forced);
+    if (forced[0] != '\0') {
+        const std::string lib = dir + "/libggml-cpu-" + forced + ".so";
+        if (ggml_backend_load(lib.c_str()) != nullptr) {
+            __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "CPU variant forced: %s", forced);
+            return;
+        }
+        __android_log_print(ANDROID_LOG_WARN, "LocalLlama", "forced CPU variant %s failed to load", forced);
+    }
+    std::string best;
+    int best_score = 0;
+    bool neon_i8mm_ok = false;
+    if (DIR * d = opendir(dir.c_str())) {
+        while (dirent * e = readdir(d)) {
+            const std::string name = e->d_name;
+            if (name.rfind("libggml-cpu-", 0) != 0 || name.size() < 3 || name.compare(name.size() - 3, 3, ".so") != 0) {
+                continue;
+            }
+            const std::string path = dir + "/" + name;
+            void * lib = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+            if (lib == nullptr) continue;
+            using score_fn = int (*)();
+            auto score = reinterpret_cast<score_fn>(dlsym(lib, "ggml_backend_score"));
+            const int s = score != nullptr ? score() : 0;
+            dlclose(lib);
+            if (s > 0 && name == "libggml-cpu-android_armv8.6_1.so") neon_i8mm_ok = true;
+            if (s > best_score) {
+                best_score = s;
+                best = path;
+            }
+        }
+        closedir(d);
+    }
+    // The SVE2 build (armv9.0, no SME) outscores the NEON i8mm build, but phone
+    // cores run SVE at 128 bits, the same width as NEON, and on a Pixel 10 Pro it
+    // measured 15-25% slower prefill with equal decode (Q4_0 and Q4_K_M alike).
+    // Wider SVE, or SME in the armv9.2 builds, keeps the higher score.
+    const int sve_vl = prctl(PR_SVE_GET_VL);
+    const int sve_bytes = sve_vl < 0 ? 0 : sve_vl & PR_SVE_VL_LEN_MASK;
+    if (neon_i8mm_ok && best.find("android_armv9.0_") != std::string::npos && sve_bytes > 0 && sve_bytes <= 16) {
+        best = dir + "/libggml-cpu-android_armv8.6_1.so";
+    }
+    __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "CPU variant: %s (SVE %d bytes)",
+                        best.empty() ? "none" : best.substr(best.rfind('/') + 1).c_str(), sve_bytes);
+    if (best.empty() || ggml_backend_load(best.c_str()) == nullptr) {
+        // No variant scored (or the directory was unreadable): let ggml look on its own.
+        ggml_backend_load_all_from_path(dir.c_str());
+    }
+}
+
+// Vulkan and OpenCL are registered the first time a GPU is asked for, not at
+// start-up: creating a Vulkan instance or an OpenCL platform costs driver
+// memory and launch time on every start, and a CPU-only user never needs it.
+// A backend whose driver is missing (no libOpenCL.so on a Mali phone) simply
+// fails to load.
+void ensure_gpu_backends() {
+    static std::once_flag gpu_loaded;
+    std::call_once(gpu_loaded, [] {
+        const std::string dir = native_lib_dir();
+        if (dir.empty()) return;
+        for (const char * gpu : {"vulkan", "opencl"}) {
+            const std::string path = dir + "/libggml-" + gpu + ".so";
+            if (access(path.c_str(), F_OK) == 0 && ggml_backend_load(path.c_str()) == nullptr) {
+                __android_log_print(ANDROID_LOG_WARN, "LocalLlama", "GPU backend %s did not load", gpu);
+            }
+        }
+        log_devices();
+    });
+}
+
+bool is_gpu(ggml_backend_dev_t dev) {
+    const enum ggml_backend_dev_type t = ggml_backend_dev_type(dev);
+    return t == GGML_BACKEND_DEVICE_TYPE_GPU || t == GGML_BACKEND_DEVICE_TYPE_IGPU;
+}
+
+// The first GPU device of the backend named [backend] ("Vulkan", "OpenCL"), or null.
+ggml_backend_dev_t find_gpu(const std::string & backend) {
+    ensure_gpu_backends();
+    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        if (is_gpu(dev) && strcasecmp(ggml_backend_reg_name(ggml_backend_dev_backend_reg(dev)), backend.c_str()) == 0) {
+            return dev;
+        }
+    }
+    return nullptr;
+}
+
+// An empty device list: llama.cpp then keeps every layer, the KV cache and
+// every op on the CPU, even when a GPU backend is registered.
+ggml_backend_dev_t kNoDevices[] = {nullptr};
+
 }  // namespace
 
 extern "C" {
 
 JNIEXPORT jlong JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeCreate(JNIEnv *, jclass) {
-    // The CPU kernels (one library per ARM/x86 feature level) and any GPU
-    // backend are dynamic libraries next to this one. ggml scores the CPU
-    // variants against the running phone and keeps the best; a GPU backend
-    // whose driver is missing simply fails to load. Once per process.
+    // The CPU kernels (one library per ARM/x86 feature level) are dynamic
+    // libraries next to this one; the best one for this phone is registered
+    // once per process. GPU backends wait until a GPU is asked for
+    // (ensure_gpu_backends).
     static std::once_flag backends_loaded;
     std::call_once(backends_loaded, [] {
         ggml_log_set(log_to_logcat, nullptr);
-        Dl_info info;
-        std::string dir;
-        if (dladdr(reinterpret_cast<void *>(&Java_dev_localintelligence_android_inference_LlamaBridge_nativeCreate),
-                   &info) != 0 && info.dli_fname != nullptr) {
-            dir = info.dli_fname;
-            const size_t slash = dir.find_last_of('/');
-            dir = slash == std::string::npos ? std::string() : dir.substr(0, slash);
-        }
+        // llama.cpp's own messages (model load, layers offloaded, buffer sizes)
+        // otherwise go to stderr, which an app never sees.
+        llama_log_set(log_to_logcat, nullptr);
+        const std::string dir = native_lib_dir();
         if (dir.empty()) {
             ggml_backend_load_all();
         } else {
-            ggml_backend_load_all_from_path(dir.c_str());
+            load_cpu_backend(dir);
         }
-        for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
-            ggml_backend_dev_t dev = ggml_backend_dev_get(i);
-            __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "backend device %zu: %s (%s)", i,
-                                ggml_backend_dev_name(dev), ggml_backend_dev_description(dev));
-        }
+        log_devices();
     });
     auto * h = new (std::nothrow) LlamaHandle();
     return reinterpret_cast<jlong>(h);
@@ -496,7 +653,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSystemInfo(JNIEnv
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
         JNIEnv * env, jclass, jlong handle, jstring path, jint n_ctx, jint n_threads,
-        jboolean use_mmap) {
+        jboolean use_mmap, jstring gpu_backend, jint gpu_layers) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
         return to_jstring(env, "null handle");
@@ -507,6 +664,12 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     std::string model_path;
     if (!jstring_utf8(env, path, model_path)) {
         return to_jstring(env, "could not read the model path");
+    }
+
+    // Null or empty: the CPU. Otherwise a GPU backend's name, "Vulkan" or "OpenCL".
+    std::string gpu_name;
+    if (gpu_backend != nullptr && !jstring_utf8(env, gpu_backend, gpu_name)) {
+        return to_jstring(env, "could not read the GPU backend name");
     }
 
     std::lock_guard<std::mutex> lock(h->state);
@@ -521,14 +684,28 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     h->backend_initialised = true;
 
     llama_model_params mparams = llama_model_default_params();
-    mparams.n_gpu_layers = 0;  // no GPU backend in this Android build
+    ggml_backend_dev_t gpu_devices[] = {nullptr, nullptr};
+    if (gpu_name.empty()) {
+        mparams.devices = kNoDevices;
+        mparams.n_gpu_layers = 0;
+    } else {
+        gpu_devices[0] = find_gpu(gpu_name);
+        if (gpu_devices[0] == nullptr) {
+            return to_jstring(env, "no " + gpu_name + " GPU on this device");
+        }
+        // One GPU, the layers that fit it; a negative count means every layer.
+        mparams.devices = gpu_devices;
+        mparams.split_mode = LLAMA_SPLIT_MODE_NONE;
+        mparams.main_gpu = 0;
+        mparams.n_gpu_layers = gpu_layers;
+    }
     // mlock would pin ~2 GB for the model's whole life, which on Android
     // makes the process an immediate low-memory-killer target. Leave it off:
     // MMAP, never MMAP_MLOCK.
     mparams.load_mode = use_mmap == JNI_TRUE ? LLAMA_LOAD_MODE_MMAP : LLAMA_LOAD_MODE_NONE;
     mparams.vocab_only = false;
 
-    const int32_t threads = pick_threads(n_threads);
+    // Decode and prefill thread counts are set separately below.
 
     llama_model * model = llama_model_load_from_file(model_path.c_str(), mparams);
     if (model == nullptr) {
@@ -551,8 +728,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     cparams.n_ctx = static_cast<uint32_t>(ctx_len);
     cparams.n_batch = static_cast<uint32_t>(std::min(ctx_len, kDefaultBatch));
     cparams.n_ubatch = static_cast<uint32_t>(std::min(ctx_len, kDefaultBatch));
-    cparams.n_threads = threads;
-    cparams.n_threads_batch = threads;
+    cparams.n_threads = pick_thread_plan(n_threads).decode;
+    cparams.n_threads_batch = pick_thread_plan(n_threads).prefill;
     // Only the last token of each decode needs logits: it is the row we sample
     // the next token from. The batch's per-token logits flags say so; there is
     // no context-wide switch any more.
@@ -560,7 +737,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     // AUTO, not ENABLED: an architecture without flash-attention support falls
     // back instead of failing the context.
     cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
-    cparams.offload_kqv = false;
+    // On a GPU the KV cache and attention go with the layers; on the CPU there
+    // is nothing to offload to.
+    cparams.offload_kqv = !gpu_name.empty();
+    cparams.op_offload = !gpu_name.empty();
     // f16 KV cache, which is what RamEstimate assumes.
     cparams.type_k = GGML_TYPE_F16;
     cparams.type_v = GGML_TYPE_F16;
@@ -586,7 +766,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     h->n_vocab = llama_vocab_n_tokens(vocab);
     h->eog_token = static_cast<int32_t>(llama_vocab_eot(vocab));
     h->path = model_path;
-    h->n_threads = threads;
+    h->n_threads = pick_threads(n_threads);
+    h->state_snapshots = llama_model_is_recurrent(model) || llama_model_is_hybrid(model);
     h->loaded = true;
     // A fresh load starts uncancelled.
     h->cancelled.store(false);
@@ -648,6 +829,29 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeCountTokens(
         return -1;
     }
     return static_cast<jint>(tokens.size());
+}
+
+// The GPUs llama.cpp can use here, one "backend\tdescription" entry each
+// ("Vulkan\tPowerVR D-Series DXT-48-1536"). Registers the GPU backends on
+// first call, which starts their drivers.
+JNIEXPORT jobjectArray JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeGpuDevices(JNIEnv * env, jclass) {
+    ensure_gpu_backends();
+    std::vector<std::string> found;
+    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        if (!is_gpu(dev)) continue;
+        found.push_back(std::string(ggml_backend_reg_name(ggml_backend_dev_backend_reg(dev))) + "\t" +
+                        ggml_backend_dev_description(dev));
+    }
+    jclass string_class = env->FindClass("java/lang/String");
+    jobjectArray out = env->NewObjectArray(static_cast<jsize>(found.size()), string_class, nullptr);
+    for (size_t i = 0; i < found.size(); ++i) {
+        jstring s = to_jstring(env, found[i]);
+        env->SetObjectArrayElement(out, static_cast<jsize>(i), s);
+        env->DeleteLocalRef(s);
+    }
+    return out;
 }
 
 JNIEXPORT jboolean JNICALL
@@ -875,8 +1079,12 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         return to_jstring(env, outcome.error);
     }
     llama_sampler_reset(chain);
+    llama_sampler * grammar_smpl = build_grammar(vocab, grammar_str);
 
     constexpr llama_seq_id kPromptSeq = 0;
+    // How far before a prompt's end a hybrid model's state is copied: past the
+    // assistant turn's opening, whose tokens change once a reply follows it.
+    constexpr int32_t kSnapshotTail = 16;
 
     const int64_t start = now_ms();
     int32_t pos = 0;
@@ -915,7 +1123,63 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     }
 
     // ---- prefill --------------------------------------------------------------
-    llama_memory_clear(llama_get_memory(ctx), true);
+    // Prompt-prefix reuse. Every agent step rebuilds the prompt, and the new
+    // one starts like the previous one (same system part, same history) and
+    // grows by the last action and its observation. The tokens where the two
+    // agree are not processed again. They rarely agree to the very end: the
+    // previous prompt ended in the assistant turn's opening, which tokenizes
+    // differently once the reply follows it.
+    //
+    // An attention-only model still holds the previous prompt, and the reply
+    // after it, in its KV cache: the cache is cut back to where the prompts
+    // part and reused in place. A hybrid model (LFM's short convolutions)
+    // keeps recurrent state that cannot be cut back, so its state was copied
+    // during the previous prefill, kSnapshotTail tokens before the end, and is
+    // restored when the new prompt agrees at least that far.
+    //
+    // Only a longer prompt reuses anything: an agent step always grows, and a
+    // repeated identical prompt (the speed test) is processed in full.
+    llama_memory_t mem = llama_get_memory(ctx);
+    int32_t reused = 0;
+    const int32_t previous = static_cast<int32_t>(h->snap_tokens.size());
+    const int32_t common = mm_chunks ? 0 : static_cast<int32_t>(
+        std::mismatch(h->snap_tokens.begin(), h->snap_tokens.end(), tokens.begin(),
+                      tokens.end()).first - h->snap_tokens.begin());
+    const bool grows = !mm_chunks && previous > 0 && prompt_tokens > previous;
+    // A sliding-window model (Gemma) evicts positions that fall out of its
+    // window; the first new token attends back n_swa positions, so those must
+    // still be cached (the rule llama-server uses).
+    const int32_t n_swa = llama_model_n_swa(as_model(h->model));
+    const llama_pos window_from = std::max(0, n_swa > 0 ? common - n_swa + 2 : common);
+    const llama_pos cached_from = llama_memory_seq_pos_min(mem, kPromptSeq);
+    const bool window_ok = cached_from >= 0 && cached_from <= window_from;
+    if (grows && !h->state_snapshots && common > 0 && window_ok &&
+        llama_memory_seq_rm(mem, kPromptSeq, common, -1)) {
+        reused = common;
+    } else {
+        llama_memory_clear(mem, true);
+        if (grows && h->state_snapshots && !h->snap_state.empty() && h->snap_at > 0 && common >= h->snap_at) {
+            if (llama_state_seq_set_data(ctx, h->snap_state.data(), h->snap_state.size(), kPromptSeq) > 0) {
+                reused = h->snap_at;
+            } else {
+                llama_memory_clear(mem, true);
+            }
+        }
+    }
+    // Where this prompt's state is copied for the next step (hybrid models
+    // only). When that point is already covered by the restored copy, the copy
+    // is that state and is kept as it is.
+    int32_t snap_at = 0;
+    bool snapped = false;
+    if (h->state_snapshots && !mm_chunks) {
+        snap_at = std::max(0, prompt_tokens - kSnapshotTail);
+        if (snap_at <= reused) {
+            snap_at = reused;
+            snapped = reused > 0;
+        }
+    }
+    pos = reused;
+    outcome.reused_tokens = reused;
     const int32_t batch_limit = std::max(1, std::min(n_ctx, kDefaultBatch));
     if (mm_chunks) {
         // Text chunks are decoded, media chunks encoded by the projector and
@@ -931,12 +1195,14 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             pos = static_cast<int32_t>(new_n_past);
         }
     }
-    for (int32_t off = 0; !mm_chunks && off < prompt_tokens; off += batch_limit) {
+    for (int32_t off = reused, n = 0; !mm_chunks && off < prompt_tokens; off += n) {
         if (h->cancelled.load()) {
             outcome.stop = static_cast<int32_t>(StopCode::CANCELLED);
             break;
         }
-        const int32_t n = std::min(batch_limit, prompt_tokens - off);
+        n = std::min(batch_limit, prompt_tokens - off);
+        // A batch ends exactly where the state is to be copied.
+        if (snap_at > off && snap_at < off + n) n = snap_at - off;
         llama_batch batch = llama_batch_init(n, 0, 1);
         for (int32_t i = 0; i < n; ++i) {
             batch.token[i] = tokens[static_cast<size_t>(off + i)];
@@ -963,11 +1229,31 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             break;
         }
         pos += n;
+        if (!snapped && snap_at > 0 && off + n == snap_at) {
+            const size_t size = llama_state_seq_get_size(ctx, kPromptSeq);
+            h->snap_state.resize(size);
+            snapped = size > 0 && llama_state_seq_get_data(ctx, h->snap_state.data(), size, kPromptSeq) == size;
+        }
+    }
+
+    // Remember the prompt for the next step. A media prompt is not
+    // represented by its tokens, so it is never reused.
+    if (!failed && outcome.stop != static_cast<int32_t>(StopCode::CANCELLED) && !mm_chunks) {
+        h->snap_tokens = tokens;
+        h->snap_at = snapped ? snap_at : 0;
+        if (!snapped) h->snap_state.clear();
+    } else {
+        h->snap_tokens.clear();
+        h->snap_state.clear();
+        h->snap_at = 0;
     }
 
     const int64_t after_prefill = now_ms();
     if (!failed) {
         outcome.prefill_ms = after_prefill - start;
+        __android_log_print(ANDROID_LOG_INFO, "LocalLlama",
+                            "prefill: %d tokens, %d reused (%d of the last %d agree), %lld ms",
+                            prompt_tokens, reused, common, previous, static_cast<long long>(outcome.prefill_ms));
     }
 
     // ---- decode loop ----------------------------------------------------------
@@ -1007,6 +1293,26 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
                     static_cast<size_t>(cur.selected) < cur.size) {
                     id = cur.data[cur.selected].id;
                 }
+                // Grammar check on the one sampled token; only when it breaks the
+                // grammar is the full vocabulary constrained and sampled again.
+                if (grammar_smpl != nullptr && id >= 0) {
+                    llama_token_data single{id, logits[id], 0.0f};
+                    llama_token_data_array one{&single, 1, -1, false};
+                    llama_sampler_apply(grammar_smpl, &one);
+                    if (single.logit == -INFINITY) {
+                        for (int32_t v = 0; v < n_vocab; ++v) {
+                            candidates[static_cast<size_t>(v)] = llama_token_data{v, logits[v], 0.0f};
+                        }
+                        cur.data = candidates.data();
+                        cur.size = candidates.size();
+                        cur.selected = -1;
+                        cur.sorted = false;
+                        llama_sampler_apply(grammar_smpl, &cur);
+                        llama_sampler_apply(chain, &cur);
+                        id = (cur.selected >= 0 && static_cast<size_t>(cur.selected) < cur.size)
+                            ? cur.data[cur.selected].id : -1;
+                    }
+                }
             }
             if (id < 0) {
                 outcome.stop = static_cast<int32_t>(StopCode::ERROR);
@@ -1023,6 +1329,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
                 outcome.stop = static_cast<int32_t>(StopCode::MAX_TOKENS);
             }
 
+            if (grammar_smpl != nullptr) llama_sampler_accept(grammar_smpl, id);
             llama_sampler_accept(chain, id);
             outcome.completion_tokens++;
 
@@ -1070,6 +1377,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     publish();
 
     llama_sampler_free(chain);
+    if (grammar_smpl != nullptr) llama_sampler_free(grammar_smpl);
 
     // The accumulated text is authoritative; the token stream was for latency.
     if (!failed && !outcome.error.empty()) {
@@ -1096,7 +1404,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadProjector(
         h->mtmd = nullptr;
     }
     mtmd_context_params params = mtmd_context_params_default();
-    params.use_gpu = false;  // no GPU backend in this build
+    // The projector stays on the CPU even when the model is on a GPU: clip
+    // would take the first GPU it finds, not necessarily the model's, and its
+    // load sits outside the GPU crash guard.
+    params.use_gpu = false;
     params.print_timings = false;
     params.warmup = false;   // a warmup encode costs seconds of CPU on a phone
     params.n_threads = pick_threads(h->n_threads);
@@ -1300,6 +1611,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSpeak(
 
     // Hidden states feed the audio head, so embeddings are on for this call only.
     llama_memory_clear(llama_get_memory(ctx), true);
+    h->snap_tokens.clear();
+    h->snap_state.clear();
     llama_set_embeddings(ctx, true);
     mtmd_helper_gen_audio * gen = mtmd_helper_gen_audio_init(ctx, mctx);
     llama_sampler * smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
@@ -1382,6 +1695,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadEmbeddingMode
     h->backend_initialised = true;
 
     llama_model_params mparams = llama_model_default_params();
+    mparams.devices = kNoDevices;  // embeddings stay on the CPU, next to the chat model
     mparams.n_gpu_layers = 0;
     // Same reasoning as nativeLoadModel: MMAP, never MMAP_MLOCK.
     mparams.load_mode = LLAMA_LOAD_MODE_MMAP;
@@ -1405,8 +1719,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadEmbeddingMode
     // One passage per decode, so the batch holds a whole passage.
     cparams.n_batch = static_cast<uint32_t>(ctx_len);
     cparams.n_ubatch = static_cast<uint32_t>(ctx_len);
-    cparams.n_threads = threads;
-    cparams.n_threads_batch = threads;
+    cparams.n_threads = pick_thread_plan(n_threads).decode;
+    cparams.n_threads_batch = pick_thread_plan(n_threads).prefill;
     // Pooled embeddings: llama_get_embeddings_seq returns one vector per sequence.
     // UNSPECIFIED lets the model's GGUF choose its pooling (mean for EmbeddingGemma).
     cparams.embeddings = true;

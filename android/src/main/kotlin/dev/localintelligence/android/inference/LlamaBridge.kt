@@ -83,11 +83,28 @@ object LlamaBridge {
         contextLength: Int = 0,
         threads: Int = 0,
         useMmap: Boolean = true,
+        compute: LlamaCompute = LlamaCompute.CPU,
     ): String? = if (isAvailable) {
-        nativeLoadModel(handle.ptr, path, contextLength, threads, useMmap)
+        nativeLoadModel(handle.ptr, path, contextLength, threads, useMmap, compute.gpuBackend, compute.gpuLayers)
     } else {
         "the llama.cpp native library is not available on this device"
     }
+
+    /**
+     * The GPUs llama.cpp can run a model on here, one per backend that found one.
+     * The first call starts the Vulkan and OpenCL drivers, so it is made only when
+     * a GPU is actually wanted (the speed test's comparison), never at launch.
+     */
+    fun gpuDevices(): List<GpuDevice> {
+        if (!isAvailable) return emptyList()
+        return nativeGpuDevices().mapNotNull { entry ->
+            val parts = entry.split('\t', limit = 2)
+            if (parts.size == 2) GpuDevice(backend = parts[0], description = parts[1]) else null
+        }
+    }
+
+    /** A GPU as llama.cpp names it: [backend] is "Vulkan" or "OpenCL". */
+    data class GpuDevice(val backend: String, val description: String)
 
     /** Frees the model and context. The handle remains usable. */
     fun unload(handle: Handle) {
@@ -276,7 +293,9 @@ object LlamaBridge {
     @JvmStatic private external fun nativeSystemInfo(): String
     @JvmStatic private external fun nativeLoadModel(
         ptr: Long, path: String, contextLength: Int, threads: Int, useMmap: Boolean,
+        gpuBackend: String?, gpuLayers: Int,
     ): String?
+    @JvmStatic private external fun nativeGpuDevices(): Array<String>
     @JvmStatic private external fun nativeUnload(ptr: Long)
     @JvmStatic private external fun nativeModelContextLength(ptr: Long): Int
     @JvmStatic private external fun nativeCountTokens(ptr: Long, text: String): Int

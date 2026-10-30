@@ -36,6 +36,8 @@ struct GenOutcome {
     int32_t stop = static_cast<int32_t>(StopCode::ERROR);
     int64_t prefill_ms = 0;
     int64_t decode_ms = 0;
+    // Prompt tokens restored from the previous step instead of processed.
+    int32_t reused_tokens = 0;
     // Non-empty when generation failed; the message is the reason.
     std::string error;
 };
@@ -62,6 +64,17 @@ struct LlamaHandle {
     int32_t n_embd = 0;
     // Encoded images/audio (jpg, png, wav, mp3...) for the next generate only.
     std::vector<std::vector<uint8_t>> pending_media;
+    // Prompt-prefix reuse: the tokens of the last prefilled prompt and the
+    // sequence state right after it (see the prefill in nativeGenerate).
+    std::vector<int32_t> snap_tokens;
+    std::vector<uint8_t> snap_state;
+    // True for hybrid and recurrent models (LFM's convolutions, Mamba): their
+    // state cannot be cut back to an earlier position, so prefix reuse restores
+    // a copy (snap_state). Attention-only models trim their KV cache in place
+    // and keep no copy, which the RAM estimate does not price.
+    bool state_snapshots = false;
+    // The prompt position snap_state was copied at, 0 when there is none.
+    int32_t snap_at = 0;
     bool backend_initialised = false;
 
     // The SAF descriptor's /proc/self/fd path is valid only while the
@@ -100,10 +113,16 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSystemInfo(JNIEnv
 
 // Loads `path` with the given context length. Returns null on success, else a
 // non-empty error string. `n_threads` 0 means "let llama.cpp decide".
+// `gpu_backend` null runs on the CPU; "Vulkan" or "OpenCL" puts `gpu_layers`
+// layers (negative: all) on that backend's first GPU.
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
         JNIEnv * env, jclass, jlong handle, jstring path, jint n_ctx, jint n_threads,
-        jboolean use_mmap);
+        jboolean use_mmap, jstring gpu_backend, jint gpu_layers);
+
+// The usable GPUs, "backend\tdescription" each. Starts the GPU drivers.
+JNIEXPORT jobjectArray JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeGpuDevices(JNIEnv * env, jclass);
 
 // Unloads. Frees native memory; the handle stays valid and can be reloaded.
 JNIEXPORT void JNICALL

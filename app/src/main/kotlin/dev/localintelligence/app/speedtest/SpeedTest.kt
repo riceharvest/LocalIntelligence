@@ -1,6 +1,9 @@
 package dev.localintelligence.app.speedtest
 
+import dev.localintelligence.android.inference.LlamaCompute
+import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.android.inference.ModelImporter
+import dev.localintelligence.app.settings.ComputeChoice
 import dev.localintelligence.core.execution.RunGate
 import dev.localintelligence.core.model.AcceleratorAware
 import dev.localintelligence.core.model.ChatMessage
@@ -15,10 +18,12 @@ import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -30,6 +35,27 @@ class SpeedTestTarget(
     val backend: ModelBackend,
     val modelUri: String,
     val modelFile: String,
+    /** Set when Compute is Auto: the test then also measures the model's other places to run. */
+    val comparison: ComputeComparison? = null,
+    /** Why nothing was compared although Compute is Auto, shown with the result. */
+    val note: String? = null,
+)
+
+/**
+ * A llama.cpp model that can be moved between the CPU and the phone's GPUs, and
+ * the choice that remembers which was fastest.
+ */
+class ComputeComparison(
+    val backend: LlamaCppBackend,
+    val choice: ComputeChoice,
+)
+
+/** One place the model was measured: its rates, or why it could not run there. */
+data class ComputeRun(
+    val label: String,
+    val prefillTokensPerSecond: Double = 0.0,
+    val decodeTokensPerSecond: Double = 0.0,
+    val error: String? = null,
 )
 
 /**
@@ -49,14 +75,23 @@ data class SpeedTestResult(
     val modelFile: String,
     val modelUri: String,
     val measuredAtMillis: Long,
+    /** Every place Auto compared, the winner included. Empty when nothing was compared. */
+    val compared: List<ComputeRun> = emptyList(),
+    /** [SpeedTestTarget.note], carried to the screen. */
+    val note: String? = null,
+    /** The prompt's length in this model's tokens; it differs between tokenizers. */
+    val promptTokens: Int = 0,
 )
 
 /** Where the speed test is right now. */
 sealed interface SpeedTestStatus {
     data object Idle : SpeedTestStatus
 
-    /** Pass [pass] of [passes] is running. */
-    data class Running(val pass: Int, val passes: Int) : SpeedTestStatus
+    /**
+     * Pass [pass] of [passes] is running, on [on] when the test compares places to
+     * run. Pass 0 is the model being loaded there.
+     */
+    data class Running(val pass: Int, val passes: Int, val on: String? = null) : SpeedTestStatus
 
     /** The test did not start, and [reason] says what to do about it. */
     data class Refused(val reason: String) : SpeedTestStatus
@@ -70,7 +105,8 @@ sealed interface SpeedTestStatus {
  *
  * ## What one run does
  *
- * Two passes. Each pass sends the same fixed prompt of about 256 tokens and asks for
+ * Two passes. Each pass sends the same fixed prompt (about 160 to 260 tokens, by
+ * tokenizer; the result records the exact count) and asks for
  * 64 generated tokens. Prefill and decode come from the backend's own timings when it
  * reports them (llama.cpp does, from its native clock), and from wall-clock time when
  * it does not. The reported figure is the median of the passes. With two passes the
@@ -154,24 +190,22 @@ class SpeedTestRunner(
                 }
                 synchronized(lock) { activeBackend = target.backend }
 
-                val prefill = ArrayList<Double>(PASSES)
-                val decode = ArrayList<Double>(PASSES)
-                for (pass in 1..PASSES) {
-                    coroutineContext.ensureActive()
-                    _status.value = SpeedTestStatus.Running(pass, PASSES)
-                    val rates = measurePass(target.backend)
-                    prefill += rates.prefill
-                    decode += rates.decode
-                }
+                val comparison = target.comparison
+                val here = measure(target.backend, on = comparison?.let { acceleratorLabel(it.backend) })
+                val compared = ArrayList<ComputeRun>()
+                val headline = if (comparison != null) compare(comparison, here, compared) else here
                 _last.value = SpeedTestResult(
-                    prefillTokensPerSecond = median(prefill),
-                    decodeTokensPerSecond = median(decode),
+                    prefillTokensPerSecond = headline.prefill,
+                    decodeTokensPerSecond = headline.decode,
                     backendId = target.backend.id,
                     accelerator = acceleratorLabel(target.backend),
                     countsExact = target.backend.id == ModelImporter.BACKEND_LLAMA_CPP,
                     modelFile = target.modelFile,
                     modelUri = target.modelUri,
                     measuredAtMillis = System.currentTimeMillis(),
+                    compared = compared,
+                    note = target.note,
+                    promptTokens = headline.promptTokens,
                 )
                 _status.value = SpeedTestStatus.Idle
             } catch (e: CancellationException) {
@@ -191,10 +225,88 @@ class SpeedTestRunner(
         }
     }
 
-    private class PassRates(val prefill: Double, val decode: Double)
+    /** [text] is the reply, kept so a GPU's output can be checked against the CPU's. */
+    private class PassRates(val prefill: Double, val decode: Double, val text: String = "", val promptTokens: Int = 0)
+
+    /** [PASSES] passes on [backend], their medians, and the first pass's reply. */
+    private suspend fun measure(backend: ModelBackend, on: String?): PassRates {
+        val prefill = ArrayList<Double>(PASSES)
+        val decode = ArrayList<Double>(PASSES)
+        var first: PassRates? = null
+        for (pass in 1..PASSES) {
+            coroutineContext.ensureActive()
+            _status.value = SpeedTestStatus.Running(pass, PASSES, on)
+            val rates = measurePass(backend)
+            prefill += rates.prefill
+            decode += rates.decode
+            if (first == null) first = rates
+        }
+        return PassRates(median(prefill), median(decode), first?.text.orEmpty(), first?.promptTokens ?: 0)
+    }
 
     /**
-     * One pass: the 256-token prompt with 64 generated tokens.
+     * Measures the model on every other place Auto can run it, leaves it on the
+     * fastest and stores that for Auto. [here] is the measurement where it already
+     * was. A place that cannot load the model, or falls over running it, is listed
+     * with its reason and left out. A cancel puts the model back where it started.
+     *
+     * Fastest means the shortest typical agent step, 512 prompt tokens read and 128
+     * written, so neither a fast prefill nor a fast decode wins on its own.
+     *
+     * A GPU whose kernels compute wrong answers can still be fast, and Simple mode
+     * would then pick it for everyone. Every pass decodes greedily from the same
+     * prompt, so a correct GPU starts its reply exactly like the CPU; one that does
+     * not is listed as failed. Only the start is compared, because f16 rounding can
+     * legitimately make a long reply drift.
+     */
+    private suspend fun compare(cmp: ComputeComparison, here: PassRates, runs: MutableList<ComputeRun>): PassRates {
+        val origin = cmp.backend.activeCompute ?: LlamaCompute.CPU
+        val measured = linkedMapOf(origin to here)
+        runs += ComputeRun(origin.label, here.prefill, here.decode)
+        try {
+            for (candidate in cmp.choice.candidates()) {
+                if (candidate == origin) continue
+                coroutineContext.ensureActive()
+                _status.value = SpeedTestStatus.Running(0, PASSES, candidate.label)
+                val error = cmp.backend.reloadOn(candidate)
+                if (error != null) {
+                    runs += ComputeRun(candidate.label, error = error)
+                    continue
+                }
+                try {
+                    val rates = measure(cmp.backend, candidate.label)
+                    measured[candidate] = rates
+                    runs += ComputeRun(candidate.label, rates.prefill, rates.decode)
+                } catch (e: SpeedTestFailure) {
+                    runs += ComputeRun(candidate.label, error = e.message)
+                }
+            }
+        } catch (t: Throwable) {
+            withContext(NonCancellable) {
+                if (cmp.backend.activeCompute != origin) cmp.backend.reloadOn(origin)
+            }
+            throw t
+        }
+        val reference = measured[LlamaCompute.CPU]?.text?.let(::replyStart)
+        if (reference != null) {
+            for ((compute, rates) in measured.entries.toList()) {
+                if (!compute.isGpu || replyStart(rates.text) == reference) continue
+                measured.remove(compute)
+                val i = runs.indexOfFirst { it.label == compute.label }
+                if (i >= 0) runs[i] = runs[i].copy(error = "its reply did not match the CPU's")
+            }
+        }
+        val best = measured.minBy { (_, r) -> STEP_PROMPT_TOKENS / r.prefill + STEP_OUTPUT_TOKENS / r.decode }
+        if (cmp.backend.activeCompute != best.key) {
+            _status.value = SpeedTestStatus.Running(0, PASSES, best.key.label)
+            withContext(NonCancellable) { cmp.backend.reloadOn(best.key) }
+        }
+        cmp.choice.setAutoWinner(best.key)
+        return best.value
+    }
+
+    /**
+     * One pass: the fixed prompt with 64 generated tokens.
      *
      * When the backend reports both phases, its clock is used and nothing else runs.
      * When it does not, a second 1-token run gives the prefill wall-clock, and the
@@ -210,6 +322,8 @@ class SpeedTestRunner(
             return PassRates(
                 prefill = promptTokens * 1000.0 / full.result.prefillMs,
                 decode = full.result.completionTokens * 1000.0 / full.result.decodeMs,
+                text = full.result.text,
+                promptTokens = promptTokens,
             )
         }
 
@@ -223,6 +337,8 @@ class SpeedTestRunner(
         return PassRates(
             prefill = promptTokens * 1000.0 / one.wallMs,
             decode = decodeTokens * 1000.0 / decodeMs,
+            text = full.result.text,
+            promptTokens = promptTokens,
         )
     }
 
@@ -271,8 +387,12 @@ class SpeedTestRunner(
         /** Tokens generated in each pass. */
         const val DECODE_TOKENS = 64
 
+        /** The typical agent step the comparison scores: tokens read, tokens written. */
+        private const val STEP_PROMPT_TOKENS = 512.0
+        private const val STEP_OUTPUT_TOKENS = 128.0
+
         /**
-         * About 256 tokens of prompt, ending in a request that keeps the model writing.
+         * About 160 to 260 tokens of prompt, by tokenizer, ending in a request that keeps the model writing.
          * A numbered list is used on purpose: it does not end early, so the 64-token
          * decode is measured in full rather than cut short by an end-of-text token.
          * The exact prompt token count is taken from the backend on each pass.
@@ -298,19 +418,21 @@ class SpeedTestRunner(
 }
 
 /**
- * The accelerator the model ran on, as one word.
+ * The accelerator the model ran on: "CPU", "GPU (Vulkan)", "NPU"...
  *
- * llama.cpp is CPU-only in this build. `android/src/main/cpp/CMakeLists.txt` sets the
- * GGML CPU options and no GPU or NPU backend (no Vulkan, OpenCL or Hexagon flag appears
- * anywhere in `android/src/main/cpp` or `android/build.gradle.kts`), so a llama.cpp
- * model is on the CPU by construction. Any other backend says what it used through
- * [AcceleratorAware], and one that says nothing is reported as such, not guessed.
+ * llama.cpp says where its resident model is ([LlamaCppBackend.activeCompute]). Any
+ * other backend says what it used through [AcceleratorAware], and one that says
+ * nothing is reported as such, not guessed.
  */
 internal fun acceleratorLabel(backend: ModelBackend): String {
+    (backend as? LlamaCppBackend)?.let { return (it.activeCompute ?: LlamaCompute.CPU).label }
     if (backend.id == ModelImporter.BACKEND_LLAMA_CPP) return "CPU"
     val report = (backend as? AcceleratorAware)?.acceleratorReport ?: return "unreported accelerator"
     return report.active.name
 }
+
+/** The first characters of a reply, whitespace collapsed: what two correct backends agree on. */
+internal fun replyStart(text: String): String = text.trim().replace(Regex("\\s+"), " ").take(32)
 
 /** Median of a non-empty list. For two values this is their mean. */
 internal fun median(values: List<Double>): Double {
@@ -324,6 +446,15 @@ fun SpeedTestResult.summary(): String {
     val backend = if (backendId == ModelImporter.BACKEND_LLAMA_CPP) "llama.cpp" else backendId
     return "Prefill ${rate(prefillTokensPerSecond)} tok/s · Decode ${rate(decodeTokensPerSecond)} tok/s · " +
         "$backend on $accelerator · $modelFile"
+}
+
+/** "CPU 143.3 / 14.3 · GPU (Vulkan) 80.1 / 20.4 tok/s", or null when nothing was compared. */
+fun SpeedTestResult.comparison(): String? {
+    if (compared.size < 2) return null
+    return compared.joinToString(" · ", prefix = "Compared (prefill / decode): ") { run ->
+        run.error?.let { "${run.label} failed: $it" }
+            ?: "${run.label} ${rate(run.prefillTokensPerSecond)} / ${rate(run.decodeTokensPerSecond)} tok/s"
+    }
 }
 
 /** The date line under a result, in the phone's own locale. */

@@ -35,7 +35,11 @@ fun SpeedTestButton(runner: SpeedTestRunner, modifier: Modifier = Modifier) {
                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    text = "Speed test, pass ${running.pass} of ${running.passes}…",
+                    text = when {
+                        running.pass == 0 -> "Speed test, loading the model on ${running.on}…"
+                        running.on != null -> "Speed test on ${running.on}, pass ${running.pass} of ${running.passes}…"
+                        else -> "Speed test, pass ${running.pass} of ${running.passes}…"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f),
                 )
@@ -64,7 +68,8 @@ fun SpeedTestButton(runner: SpeedTestRunner, modifier: Modifier = Modifier) {
  * A finished result: the summary line, and the date it was measured on this phone.
  *
  * The method is printed because a number without it cannot be compared with another:
- * two passes of a 256-token prompt, 64 generated, and the median (the mean, for two).
+ * two passes of one fixed prompt (its length in this model's tokens is shown), 64
+ * generated, and the median (the mean, for two).
  */
 @Composable
 fun SpeedTestResultBlock(result: SpeedTestResult, modifier: Modifier = Modifier) {
@@ -74,9 +79,15 @@ fun SpeedTestResultBlock(result: SpeedTestResult, modifier: Modifier = Modifier)
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
+        result.comparison()?.let {
+            Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+        }
+        result.note?.let {
+            Text(text = it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Text(
             text = buildString {
-                append("${result.measuredOn()}. Median of 2 runs: 256-token prompt, 64 tokens generated.")
+                append("${result.measuredOn()}. Median of 2 runs: ${result.promptTokens}-token prompt, 64 tokens generated.")
                 if (!result.countsExact) append(" Token counts are estimated by this backend.")
             },
             style = MaterialTheme.typography.labelSmall,

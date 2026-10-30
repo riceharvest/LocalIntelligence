@@ -100,6 +100,86 @@ else()
     set(GGML_CPU_KLEIDIAI OFF CACHE BOOL "" FORCE)
 endif()
 
+# ---------------------------------------------------------------------------
+# GPU backends: Vulkan (Adreno, Mali, PowerVR, Xclipse, Intel) and OpenCL
+# (Qualcomm Adreno kernels). Both are dynamic backends like the CPU variants:
+# a phone whose driver is missing or too old just doesn't load that library,
+# and inference stays on the CPU. Which device runs a model is chosen at load
+# time (Settings -> Model -> Compute), never assumed.
+#
+# The NDK ships the Vulkan C headers and libvulkan.so but not the C++ headers
+# (vulkan.hpp) or SPIRV-Headers that ggml-vulkan needs, and no OpenCL at all,
+# so the Khronos repositories are fetched at a pinned tag.
+# ---------------------------------------------------------------------------
+option(PIDROID_GPU "Build the Vulkan and OpenCL backends" ON)
+if(PIDROID_GPU)
+    include(FetchContent)
+    set(_khronos_vk_tag  "vulkan-sdk-1.4.363.0")
+    set(_khronos_cl_tag  "v2026.05.29")
+    FetchContent_Declare(li_vulkan_headers GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+        GIT_TAG ${_khronos_vk_tag} GIT_SHALLOW TRUE)
+    FetchContent_Declare(li_spirv_headers GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
+        GIT_TAG ${_khronos_vk_tag} GIT_SHALLOW TRUE)
+    FetchContent_Declare(li_opencl_headers GIT_REPOSITORY https://github.com/KhronosGroup/OpenCL-Headers.git
+        GIT_TAG ${_khronos_cl_tag} GIT_SHALLOW TRUE)
+    FetchContent_Declare(li_opencl_icd GIT_REPOSITORY https://github.com/KhronosGroup/OpenCL-ICD-Loader.git
+        GIT_TAG ${_khronos_cl_tag} GIT_SHALLOW TRUE)
+    foreach(_dep li_vulkan_headers li_spirv_headers li_opencl_headers li_opencl_icd)
+        FetchContent_GetProperties(${_dep})
+        if(NOT ${_dep}_POPULATED)
+            FetchContent_Populate(${_dep})
+        endif()
+    endforeach()
+
+    # --- Vulkan ---------------------------------------------------------------
+    # SPIRV-Headers is consumed through its CMake package config. Install the
+    # header-only package into the build tree at configure time and point
+    # find_package straight at it (the NDK toolchain restricts package search
+    # to the sysroot, so a prefix path would not be searched).
+    set(_spirv_install "${CMAKE_BINARY_DIR}/spirv-headers-install")
+    if(NOT EXISTS "${_spirv_install}/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake")
+        execute_process(COMMAND ${CMAKE_COMMAND} -S ${li_spirv_headers_SOURCE_DIR}
+            -B ${CMAKE_BINARY_DIR}/spirv-headers-build -G ${CMAKE_GENERATOR}
+            -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM} -DCMAKE_INSTALL_PREFIX=${_spirv_install}
+            -DSPIRV_HEADERS_ENABLE_TESTS=OFF -DSPIRV_HEADERS_ENABLE_INSTALL=ON
+            RESULT_VARIABLE _rc OUTPUT_QUIET)
+        execute_process(COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR}/spirv-headers-build
+            RESULT_VARIABLE _rc OUTPUT_QUIET)
+    endif()
+    set(SPIRV-Headers_DIR "${_spirv_install}/share/cmake/SPIRV-Headers" CACHE PATH "" FORCE)
+
+    if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+        set(_ndk_host "linux-x86_64")
+    elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+        set(_ndk_host "darwin-x86_64")
+    else()
+        set(_ndk_host "windows-x86_64")
+    endif()
+    set(Vulkan_INCLUDE_DIR "${li_vulkan_headers_SOURCE_DIR}/include" CACHE PATH "" FORCE)
+    # Linked against the API 28 libvulkan stub, not the minSdk one: ggml-vulkan
+    # calls vkGetPhysicalDeviceFeatures2, which Android's loader exports from
+    # Android 9 on. On an older phone libggml-vulkan.so then fails to load,
+    # and the model runs on the CPU (or OpenCL) as on a phone without Vulkan.
+    set(Vulkan_LIBRARY "${CMAKE_SYSROOT}/usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/28/libvulkan.so" CACHE FILEPATH "" FORCE)
+    set(Vulkan_GLSLC_EXECUTABLE "${ANDROID_NDK}/shader-tools/${_ndk_host}/glslc" CACHE FILEPATH "" FORCE)
+    set(GGML_VULKAN ON CACHE BOOL "" FORCE)
+
+    # --- OpenCL ---------------------------------------------------------------
+    # Linked against the Khronos ICD loader so the backend links with
+    # --no-undefined; the loader's libOpenCL.so is NOT packaged (see
+    # app/build.gradle.kts), so at runtime the phone vendor's libOpenCL.so,
+    # declared in the manifest, is the one that loads.
+    set(OPENCL_ICD_LOADER_HEADERS_DIR "${li_opencl_headers_SOURCE_DIR}" CACHE PATH "" FORCE)
+    set(OPENCL_ICD_LOADER_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${li_opencl_icd_SOURCE_DIR} ${CMAKE_BINARY_DIR}/opencl-icd EXCLUDE_FROM_ALL)
+    set(OpenCL_INCLUDE_DIR "${li_opencl_headers_SOURCE_DIR}" CACHE PATH "" FORCE)
+    set(OpenCL_LIBRARY OpenCL CACHE STRING "" FORCE)
+    set(GGML_OPENCL ON CACHE BOOL "" FORCE)
+    set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "" FORCE)
+    set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "" FORCE)
+endif()
+
 # -----------------------------------------------------------------------
 # Locate llama.cpp
 # -----------------------------------------------------------------------
@@ -232,6 +312,14 @@ endif()
 # ---------------------------------------------------------------------------
 if(NOT _llama_src_dir_from_fetchcontent)
     add_subdirectory("${_llama_src_dir}" llama.cpp EXCLUDE_FROM_ALL)
+endif()
+
+# ggml-vulkan includes <spirv/unified1/spirv.hpp> but only find_package()s
+# SPIRV-Headers without linking it: it counts on a Vulkan SDK, whose include
+# directory has spirv/ next to vulkan/. The Khronos headers fetched above are
+# two separate trees, so the SPIRV one is added to the target here.
+if(PIDROID_GPU AND TARGET ggml-vulkan)
+    target_include_directories(ggml-vulkan PRIVATE "${li_spirv_headers_SOURCE_DIR}/include")
 endif()
 
 # -----------------------------------------------------------------------
