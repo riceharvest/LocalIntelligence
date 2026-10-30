@@ -75,6 +75,11 @@ struct LlamaHandle {
     bool state_snapshots = false;
     // The prompt position snap_state was copied at, 0 when there is none.
     int32_t snap_at = 0;
+    // Hybrid models: the state after the last reply, so a next prompt that
+    // repeats the reply's tokens (the agent replays the model's own output)
+    // continues from there. gen_at is its position, 0 when there is none.
+    std::vector<uint8_t> gen_state;
+    int32_t gen_at = 0;
     // The sequence state at the end of the system prompt (the rules and the
     // tools, which stay the same from message to message), and its tokens.
     // Restored when a prompt changes after that point (a compaction, a new

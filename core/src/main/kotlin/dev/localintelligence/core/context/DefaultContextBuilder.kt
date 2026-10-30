@@ -156,7 +156,7 @@ class DefaultContextBuilder(
             taskIndex = out.size
             out.add(taskMessage)
         }
-        out.addAll(current.subList(currentFrom, current.size))
+        current.subList(currentFrom, current.size).mapTo(out) { asSent(it) }
 
         // 6. Still over budget even with zero turns kept. That can only mean the
         //    fixed slots alone exceed the limit, so drop the oldest remaining
@@ -174,9 +174,12 @@ class DefaultContextBuilder(
         return out
     }
 
-    /** A user turn as the model was given it; anything else unchanged. */
-    private fun asSent(message: ChatMessage): ChatMessage =
-        if (message is ChatMessage.User && message.rendered != null) ChatMessage.User(message.rendered) else message
+    /** A turn as the model saw or wrote it (its rendered text); anything else unchanged. */
+    private fun asSent(message: ChatMessage): ChatMessage = when {
+        message is ChatMessage.User && message.rendered != null -> ChatMessage.User(message.rendered)
+        message is ChatMessage.Assistant && message.rendered != null -> ChatMessage.Assistant(message.rendered)
+        else -> message
+    }
 
     /**
      * The compacted summary, if the loop prepended one, else null.

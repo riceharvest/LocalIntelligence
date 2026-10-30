@@ -160,6 +160,10 @@ object V0ToolCatalogue {
     )
 
     val definitions: List<ToolDefinition> = listOf(
+        // ---------------------------------------------------------------- tools
+        // Offered only with "Let the model look up tools" (Technical); see ToolFinder.
+        dev.localintelligence.core.tool.ToolFinder.DEFINITION,
+
         // ---------------------------------------------------------------- files
         ToolDefinition(
             name = "files.list",

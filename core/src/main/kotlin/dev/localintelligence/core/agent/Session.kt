@@ -167,6 +167,13 @@ class Session(
     val epochTools: MutableList<String> = mutableListOf()
 
     /**
+     * Tools the model found with `tools.find`: callable though the system prompt
+     * does not list them (their descriptions are in the lookup's result).
+     * Cleared at a compaction, which folds that result away.
+     */
+    val discoveredTools: MutableList<String> = mutableListOf()
+
+    /**
      * Runtime-to-model message: a malformed-output correction, a loop warning, or
      * a declined confirmation.
      *
@@ -176,7 +183,17 @@ class Session(
      */
     fun observe(text: String) = appendAssistant(text)
 
-    fun appendAssistant(text: String) = record(ChatMessage.Assistant(text))
+    fun appendAssistant(text: String, rendered: String? = null) =
+        record(ChatMessage.Assistant(text, rendered?.takeIf { it != text }))
+
+    /**
+     * The model's tool call, as it produced it. Not shown or stored as an answer
+     * (its text is blank); it is in the prompt so the model sees what it called
+     * and the next prompt repeats the tokens it generated.
+     */
+    fun recordCall(raw: String) {
+        if (raw.isNotBlank()) record(ChatMessage.Assistant("", raw))
+    }
 
     /** [observation] must already be truncated to the model-visible budget. */
     fun appendToolObservation(tool: AgentTool, observation: String, success: Boolean) =
@@ -272,6 +289,7 @@ class Session(
         messages.clear()
         workingSummary = null
         epochTools.clear()
+        discoveredTools.clear()
     }
 
     /**

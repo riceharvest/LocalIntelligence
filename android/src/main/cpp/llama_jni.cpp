@@ -136,6 +136,8 @@ void free_model_locked(LlamaHandle * h) {
     h->pending_media.clear();
     h->snap_tokens.clear();
     h->snap_state.clear();
+    h->gen_state.clear();
+    h->gen_at = 0;
     h->anchor_tokens.clear();
     h->anchor_state.clear();
     h->prefix_key.clear();
@@ -605,6 +607,9 @@ ggml_backend_dev_t kNoDevices[] = {nullptr};
 
 // Bumped when llama.cpp's state format may have changed (a llama.cpp update),
 // so an old file is never fed to a new build.
+// The sequence speech runs on when the context has two (see nativeLoadModel).
+constexpr llama_seq_id kSpeechSeq = 1;
+
 constexpr char kAnchorFormat[] = "b11988-1";
 // Below this the system prompt is cheap to prefill and not worth a file.
 constexpr int32_t kMinAnchorTokens = 64;
@@ -891,6 +896,13 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     // (window_ok in nativeGenerate) and hybrid models restore a whole state
     // snapshot, so nothing relied on the full-size cache.
     cparams.swa_full = false;
+    // A model with a projector may speak in its own voice. Speech then runs on
+    // its own sequence (1), next to the chat (0) in one shared cache, so a
+    // spoken reply no longer wipes the conversation the next message reuses.
+    if (outputs_max == 0) {
+        cparams.n_seq_max = 2;
+        cparams.kv_unified = true;
+    }
 
     llama_context * ctx = llama_init_from_model(model, cparams);
     if (ctx == nullptr) {
@@ -1332,7 +1344,16 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         reused = common;
     } else {
         llama_memory_clear(mem, true);
-        if (grows && h->state_snapshots && !h->snap_state.empty() && h->snap_at > 0 && common >= h->snap_at) {
+        // The state after the last reply first: it covers the reply too.
+        if (grows && h->state_snapshots && !h->gen_state.empty() && h->gen_at > 0 && common >= h->gen_at) {
+            if (llama_state_seq_set_data(ctx, h->gen_state.data(), h->gen_state.size(), kPromptSeq) > 0) {
+                reused = h->gen_at;
+            } else {
+                llama_memory_clear(mem, true);
+            }
+        }
+        if (reused == 0 && grows && h->state_snapshots && !h->snap_state.empty() && h->snap_at > 0 &&
+            common >= h->snap_at) {
             if (llama_state_seq_set_data(ctx, h->snap_state.data(), h->snap_state.size(), kPromptSeq) > 0) {
                 reused = h->snap_at;
             } else {
@@ -1444,8 +1465,11 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     }
 
     // ---- decode loop ----------------------------------------------------------
+    std::vector<llama_token> gen_tokens;
     if (!failed && outcome.stop != static_cast<int32_t>(StopCode::CANCELLED)) {
-        const int32_t limit = max_tokens > 0 ? max_tokens : 512;
+        // max_tokens < 0: prefill only (the agent warming the next turn while
+        // the user reads); 0: the default 512.
+        const int32_t limit = max_tokens < 0 ? 0 : (max_tokens > 0 ? max_tokens : 512);
         outcome.stop = static_cast<int32_t>(StopCode::COMPLETED);
 
         for (int32_t i = 0; i < limit; ++i) {
@@ -1519,6 +1543,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             if (grammar_smpl != nullptr) llama_sampler_accept(grammar_smpl, id);
             llama_sampler_accept(chain, id);
             outcome.completion_tokens++;
+            gen_tokens.push_back(id);
 
             // Decode the sampled token so the next one has context.
             llama_batch batch = llama_batch_init(1, 0, 1);
@@ -1561,6 +1586,29 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
 
     outcome.decode_ms = now_ms() - after_prefill;
     outcome.prompt_tokens = prompt_tokens;
+
+    // The reply is in the cache after the prompt (every sampled token but the
+    // end token was decoded). The agent replays the model's own output in its
+    // next prompt, so the reusable prefix runs through the reply: attention
+    // models trim to the first mismatch as before, hybrid models keep a copy of
+    // the state here. A reply that re-tokenises differently falls back to the
+    // copy taken before the reply.
+    h->gen_state.clear();
+    h->gen_at = 0;
+    if (!failed && !mm_chunks && !gen_tokens.empty() &&
+        outcome.stop != static_cast<int32_t>(StopCode::CANCELLED) &&
+        h->snap_tokens.size() == tokens.size() && pos == prompt_tokens + static_cast<int32_t>(gen_tokens.size())) {
+        h->snap_tokens.insert(h->snap_tokens.end(), gen_tokens.begin(), gen_tokens.end());
+        if (h->state_snapshots) {
+            const size_t size = llama_state_seq_get_size(ctx, kPromptSeq);
+            h->gen_state.resize(size);
+            if (size > 0 && llama_state_seq_get_data(ctx, h->gen_state.data(), size, kPromptSeq) == size) {
+                h->gen_at = pos;
+            } else {
+                h->gen_state.clear();
+            }
+        }
+    }
     publish();
 
     llama_sampler_free(chain);
@@ -1796,10 +1844,22 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSpeak(
     h->cancelled.store(false);
     h->generating.store(true);
 
+    // Speech runs on its own sequence when the context has one (a model loaded
+    // with a projector), leaving the chat's cache and its kept states alone.
+    // Otherwise, or if it does not fit beside the chat, it runs on the chat's
+    // sequence after clearing it, as it always did.
+    llama_memory_t speech_mem = llama_get_memory(ctx);
+    llama_seq_id speech_seq = llama_n_seq_max(ctx) > 1 ? kSpeechSeq : 0;
+    auto clear_chat = [&]() {
+        llama_memory_clear(speech_mem, true);
+        h->snap_tokens.clear();
+        h->snap_state.clear();
+        h->gen_state.clear();
+        h->gen_at = 0;
+    };
+    if (speech_seq == 0) clear_chat();
+    else llama_memory_seq_rm(speech_mem, speech_seq, -1, -1);
     // Hidden states feed the audio head, so embeddings are on for this call only.
-    llama_memory_clear(llama_get_memory(ctx), true);
-    h->snap_tokens.clear();
-    h->snap_state.clear();
     llama_set_embeddings(ctx, true);
     mtmd_helper_gen_audio * gen = mtmd_helper_gen_audio_init(ctx, mctx);
     llama_sampler * smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
@@ -1809,7 +1869,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSpeak(
     bool ok = gen != nullptr;
     if (ok) {
         mtmd_helper_gen_audio_inp inp = mtmd_helper_gen_audio_inp_default();
-        inp.seq_id = 0;
+        inp.seq_id = speech_seq;
         inp.prompt = prompt.c_str();
         inp.prompt_len = prompt.size();
         inp.out_type = MTMD_HELPER_GEN_AUDIO_OUTTYPE_WAV;
@@ -1817,6 +1877,22 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSpeak(
     }
     while (ok) {
         const int32_t left = mtmd_helper_gen_audio_step_prompt(gen, n_batch);
+        if (left < 0 && speech_seq != 0 && !h->cancelled.load()) {
+            // No room beside the chat: fall back to the chat's sequence.
+            __android_log_print(ANDROID_LOG_INFO, "LocalLlama",
+                                "speech: no room beside the chat, clearing it to speak");
+            llama_memory_seq_rm(speech_mem, speech_seq, -1, -1);
+            speech_seq = 0;
+            clear_chat();
+            mtmd_helper_gen_audio_reset(gen);
+            mtmd_helper_gen_audio_inp retry = mtmd_helper_gen_audio_inp_default();
+            retry.seq_id = 0;
+            retry.prompt = prompt.c_str();
+            retry.prompt_len = prompt.size();
+            retry.out_type = MTMD_HELPER_GEN_AUDIO_OUTTYPE_WAV;
+            ok = mtmd_helper_gen_audio_set_input(gen, &retry) == 0;
+            continue;
+        }
         if (left < 0) ok = false;
         if (left <= 0) break;
         if (h->cancelled.load()) ok = false;
@@ -1850,7 +1926,11 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSpeak(
     llama_sampler_free(smpl);
     if (gen != nullptr) mtmd_helper_gen_audio_free(gen);
     llama_set_embeddings(ctx, false);
-    llama_memory_clear(llama_get_memory(ctx), true);
+    if (speech_seq != 0) {
+        llama_memory_seq_rm(speech_mem, speech_seq, -1, -1);
+    } else {
+        clear_chat();
+    }
     h->generating.store(false);
     return result;
 }
