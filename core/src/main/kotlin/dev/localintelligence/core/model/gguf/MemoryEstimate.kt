@@ -73,7 +73,8 @@ enum class EstimateBasis {
  *             pad256(window + ubatch) for sliding-window layers
  * recurrent = fixed per-sequence state of the conv / Gated DeltaNet layers
  * overhead  = the compute buffer: n_vocab * n_outputs_max * 4 + a size-dependent base
- * total     = weights + kvCache + recurrentState + overhead
+ * kept      = the llama.cpp states the app keeps for prompt reuse (see [keptStatesBytes])
+ * total     = weights + kvCache + recurrentState + overhead + kept
  * ```
  *
  * [overheadBytes] is the one fitted number here; the fit and its error are documented
@@ -122,6 +123,14 @@ data class MemoryEstimate(
      * [totalBytes]; the page cache can drop them under pressure.
      */
     val lookupOnlyBytes: Long = 0L,
+    /**
+     * Copies of the model's state the app keeps so later prompts reuse their
+     * prefill (llama_jni.cpp): the system prompt's state for every model, and
+     * for a hybrid or recurrent model (whose state cannot be cut back) up to two
+     * copies of the conversation's, before and after the last reply. Priced at
+     * the full context, the most a copy can hold. Part of [totalBytes].
+     */
+    val keptStatesBytes: Long = 0L,
 ) {
     /** Always true. Present so a UI cannot accidentally present this as a measurement. */
     val isEstimate: Boolean get() = true
@@ -164,7 +173,8 @@ data class MemoryEstimate(
     fun describe(): String =
         "${formatBytes(totalBytes)} estimated (${confidence.name.lowercase()}, " +
             "${weightsLabel()} weights, ${formatBytes(kvCacheBytes)} KV, " +
-            "${formatBytes(recurrentStateBytes)} recurrent, ${formatBytes(overheadBytes)} compute)"
+            "${formatBytes(recurrentStateBytes)} recurrent, ${formatBytes(overheadBytes)} compute, " +
+            "${formatBytes(keptStatesBytes)} kept states)"
 
     private fun weightsLabel(): String = quantType?.label ?: "unquantized"
 
