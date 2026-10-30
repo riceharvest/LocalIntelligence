@@ -1329,6 +1329,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
         // Thinking off: decoding is 7 tokens/s on the slowest phones, and the
         // models this app runs answer well without it.
         inputs.enable_thinking = false;
+        // Thinking off is a request, not a guarantee: LFM3 still writes a thought
+        // and a closing </think> now and then. The parser takes any thought out of
+        // the reply (llama-server's default), so the user sees only the answer.
+        inputs.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
 
         // The prompt lists the conversation's fixed tools, so its start does not
         // change when a tool is described in one turn (see planTurnTools).
