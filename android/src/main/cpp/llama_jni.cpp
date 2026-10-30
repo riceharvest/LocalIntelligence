@@ -21,11 +21,13 @@
 // logcat. Without this, every native failure looked identical and none of it was
 // diagnosable from the device.
 static void log_to_logcat(enum ggml_log_level level, const char * text, void * /*ud*/) {
-    if (text == nullptr) return;
+    // Per-tensor debug lines (a repack line for every weight) and the model
+    // loader's progress dots fill logcat's 256 KB ring and push out the lines
+    // that matter.
+    if (text == nullptr || level == GGML_LOG_LEVEL_DEBUG) return;
     int pri = ANDROID_LOG_INFO;
     if (level == GGML_LOG_LEVEL_ERROR) pri = ANDROID_LOG_ERROR;
     else if (level == GGML_LOG_LEVEL_WARN) pri = ANDROID_LOG_WARN;
-    else if (level == GGML_LOG_LEVEL_DEBUG) pri = ANDROID_LOG_DEBUG;
     // logcat truncates long lines and ggml puts the whole reason on one, so
     // split on newlines rather than losing the tail.
     const std::string line(text);
@@ -35,22 +37,17 @@ static void log_to_logcat(enum ggml_log_level level, const char * text, void * /
         const std::string chunk = (nl == std::string::npos)
             ? line.substr(pos)
             : line.substr(pos, nl - pos);
-        if (!chunk.empty()) __android_log_print(pri, "LocalLlama", "%s", chunk.c_str());
+        if (!chunk.empty() && chunk != ".") __android_log_print(pri, "LocalLlama", "%s", chunk.c_str());
         if (nl == std::string::npos) break;
         pos = nl + 1;
     }
-}
-
-// llama.cpp's messages, minus its per-tensor debug lines.
-static void llama_log_to_logcat(enum ggml_log_level level, const char * text, void * ud) {
-    if (level == GGML_LOG_LEVEL_DEBUG) return;
-    log_to_logcat(level, text, ud);
 }
 
 #include <algorithm>
 #include <dirent.h>
 #include <dlfcn.h>
 #include <strings.h>
+#include <sys/prctl.h>
 #include <sys/system_properties.h>
 #include <unistd.h>
 #include <mutex>
@@ -518,6 +515,7 @@ void load_cpu_backend(const std::string & dir) {
     }
     std::string best;
     int best_score = 0;
+    bool neon_i8mm_ok = false;
     if (DIR * d = opendir(dir.c_str())) {
         while (dirent * e = readdir(d)) {
             const std::string name = e->d_name;
@@ -531,6 +529,7 @@ void load_cpu_backend(const std::string & dir) {
             auto score = reinterpret_cast<score_fn>(dlsym(lib, "ggml_backend_score"));
             const int s = score != nullptr ? score() : 0;
             dlclose(lib);
+            if (s > 0 && name == "libggml-cpu-android_armv8.6_1.so") neon_i8mm_ok = true;
             if (s > best_score) {
                 best_score = s;
                 best = path;
@@ -538,6 +537,17 @@ void load_cpu_backend(const std::string & dir) {
         }
         closedir(d);
     }
+    // The SVE2 build (armv9.0, no SME) outscores the NEON i8mm build, but phone
+    // cores run SVE at 128 bits, the same width as NEON, and on a Pixel 10 Pro it
+    // measured 15-25% slower prefill with equal decode (Q4_0 and Q4_K_M alike).
+    // Wider SVE, or SME in the armv9.2 builds, keeps the higher score.
+    const int sve_vl = prctl(PR_SVE_GET_VL);
+    const int sve_bytes = sve_vl < 0 ? 0 : sve_vl & PR_SVE_VL_LEN_MASK;
+    if (neon_i8mm_ok && best.find("android_armv9.0_") != std::string::npos && sve_bytes > 0 && sve_bytes <= 16) {
+        best = dir + "/libggml-cpu-android_armv8.6_1.so";
+    }
+    __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "CPU variant: %s (SVE %d bytes)",
+                        best.empty() ? "none" : best.substr(best.rfind('/') + 1).c_str(), sve_bytes);
     if (best.empty() || ggml_backend_load(best.c_str()) == nullptr) {
         // No variant scored (or the directory was unreadable): let ggml look on its own.
         ggml_backend_load_all_from_path(dir.c_str());
@@ -600,7 +610,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeCreate(JNIEnv *, 
         ggml_log_set(log_to_logcat, nullptr);
         // llama.cpp's own messages (model load, layers offloaded, buffer sizes)
         // otherwise go to stderr, which an app never sees.
-        llama_log_set(llama_log_to_logcat, nullptr);
+        llama_log_set(log_to_logcat, nullptr);
         const std::string dir = native_lib_dir();
         if (dir.empty()) {
             ggml_backend_load_all();

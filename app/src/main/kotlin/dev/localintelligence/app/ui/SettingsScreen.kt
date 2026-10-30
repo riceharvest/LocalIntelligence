@@ -86,7 +86,8 @@ fun SettingsScreen(
 ) {
     // Any write bumps this, which recomposes the screen with fresh values.
     val revision by store.changes.collectAsState()
-    val technical = store.mode == SettingsMode.TECHNICAL
+    // Outside key(revision), so a write does not scroll the page back to the top.
+    val scroll = rememberScrollState()
 
     Scaffold(
         modifier = modifier,
@@ -102,11 +103,14 @@ fun SettingsScreen(
         },
     ) { padding ->
         key(revision) {
+            // Read here, not above the Scaffold: only this block recomposes on a write,
+            // so a value read outside it would keep the old mode.
+            val technical = store.mode == SettingsMode.TECHNICAL
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scroll)
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -209,9 +213,10 @@ private fun SpeedTestRow(runner: SpeedTestRunner) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         RowTitle(
             title = "Speed test",
-            help = "Runs the loaded model twice: a 256-token prompt, then 64 tokens generated. " +
-                "Measures prefill and decode speed on this phone. Refused while an agent run " +
-                "is active. The conversation is not changed.",
+            help = "Runs the loaded model twice: a prompt of about 160 tokens, then 64 tokens " +
+                "generated. Measures prefill and decode speed on this phone. With Compute on Auto " +
+                "it also tries each GPU and keeps the fastest. Refused while an agent run is " +
+                "active. The conversation is not changed.",
         )
         SpeedTestButton(runner)
         last?.let { SpeedTestResultBlock(it) }
