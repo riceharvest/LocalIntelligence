@@ -7,14 +7,23 @@ import dev.localintelligence.core.tool.ToolDefinition
 /**
  * Deterministic prompt assembly for a small local model.
  *
- * Order of the returned list is the whole contract:
+ * Order of the returned list is the whole contract, and it runs from what
+ * never changes to what changes every turn, so a new message only adds to the
+ * end of the previous prompt and llama.cpp reuses everything before it:
  *
- *  1. system message — the tiny base prompt plus ONLY the currently selected tools
- *  2. the compacted working summary, if the loop supplied one (see [SummaryWriter])
- *  3. memories, as short labelled lines, capped and truncated
- *  4. earlier conversation, oldest-first, trimmed first when the budget runs out
- *  5. the current task, as the current user message
- *  6. this run's own turns, oldest-first, budgeted before the earlier conversation
+ *  1. system message — the base prompt and the session's tools (stable)
+ *  2. the compacted working summary, if the loop supplied one (changes only at
+ *     a compaction; see [SummaryWriter])
+ *  3. earlier conversation, oldest-first, each user turn as it was rendered
+ *     when it was sent ([ChatMessage.User.rendered])
+ *  4. the current task, rendered with this turn's clock, memories and skill
+ *     hints ([renderTurn])
+ *  5. this run's own turns, oldest-first
+ *
+ * Memories used to be their own block between 2 and 3. They depend on the
+ * task, so the prompt changed near its start on every message and nothing
+ * after that point could be reused; they now ride in the turn they were
+ * found for.
  *
  * The history is one long-lived session shared by every run, so earlier
  * conversation comes before the task and this run's own steps after it.
@@ -60,9 +69,26 @@ import dev.localintelligence.core.tool.ToolDefinition
  * there must never be one.
  */
 class DefaultContextBuilder(
-    private val systemPrompt: (List<ToolDefinition>) -> String = SystemPrompts::forTools,
+    private val systemPrompt: (List<ToolDefinition>) -> String = { SystemPrompts.forTools(it) },
+    /**
+     * A safety net, not the compaction policy: the agent loop compacts before a
+     * prompt gets near this. Trimming here drops the oldest turn, which shifts
+     * every later token and costs a full prefill, so it only happens when the
+     * loop's own budget was wrong.
+     */
     private val workingLimit: Int = 6000,
+    /** What starts every new user turn: the clock line. Read once per turn. */
+    private val turnPreamble: () -> String = { "" },
 ) : ContextBuilder {
+
+    override fun renderTurn(task: String, memories: List<Memory>, hints: List<String>): String {
+        val parts = ArrayList<String>(3)
+        turnPreamble().takeIf { it.isNotBlank() }?.let { parts += it }
+        renderMemories(memories)?.let { parts += it }
+        hints.filter { it.isNotBlank() }.takeIf { it.isNotEmpty() }?.let { parts += it.joinToString("\n") }
+        if (parts.isEmpty()) return task
+        return parts.joinToString("\n\n") + "\n\n" + task
+    }
 
     override fun build(
         task: String,
@@ -102,17 +128,14 @@ class DefaultContextBuilder(
             used += TokenEstimate.tokens(summary)
         }
 
-        // 3. Memories. Facts, not prose: capped, one truncated line each.
-        val memoryBlock = renderMemories(memories)
-        if (memoryBlock != null) {
-            val message = ChatMessage.User(memoryBlock)
-            out.add(message)
-            used += TokenEstimate.tokens(message)
-        }
+        // 3. Memories are in the task turn now ([renderTurn]); `memories` is
+        //    unused here and kept for the interface.
 
-        // 4. The current task. A blank task is not a task; spending 4 tokens on
-        //    an empty user turn helps nobody.
-        val taskMessage = if (task.isBlank()) null else ChatMessage.User(task)
+        // 4. The current task, as it was rendered when the turn started. A
+        //    blank task is not a task; spending 4 tokens on an empty user turn
+        //    helps nobody.
+        val liveTurn = if (live >= 0) window[live] as ChatMessage.User else null
+        val taskMessage = if (task.isBlank()) null else ChatMessage.User(liveTurn?.rendered ?: task)
         if (taskMessage != null) used += TokenEstimate.tokens(taskMessage)
 
         // 5. Turns. This run's own turns are budgeted first, then the earlier
@@ -123,7 +146,9 @@ class DefaultContextBuilder(
         used += TokenEstimate.tokens(prior.subList(priorFrom, prior.size))
 
         // Emitted in conversation order: earlier conversation, the task, this run.
-        out.addAll(prior.subList(priorFrom, prior.size))
+        // Earlier user turns go in as they were rendered, so the tokens match
+        // the previous prompt's exactly.
+        prior.subList(priorFrom, prior.size).mapTo(out) { asSent(it) }
         var taskIndex = -1
         if (taskMessage != null) {
             taskIndex = out.size
@@ -146,6 +171,10 @@ class DefaultContextBuilder(
 
         return out
     }
+
+    /** A user turn as the model was given it; anything else unchanged. */
+    private fun asSent(message: ChatMessage): ChatMessage =
+        if (message is ChatMessage.User && message.rendered != null) ChatMessage.User(message.rendered) else message
 
     /**
      * The compacted summary, if the loop prepended one, else null.

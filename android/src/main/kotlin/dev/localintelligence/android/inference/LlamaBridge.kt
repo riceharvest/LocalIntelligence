@@ -84,8 +84,10 @@ object LlamaBridge {
         threads: Int = 0,
         useMmap: Boolean = true,
         compute: LlamaCompute = LlamaCompute.CPU,
+        /** Logits rows one batch may ask for; 0 is a whole batch. See llama_jni.cpp. */
+        outputsMax: Int = 0,
     ): String? = if (isAvailable) {
-        nativeLoadModel(handle.ptr, path, contextLength, threads, useMmap, compute.gpuBackend, compute.gpuLayers)
+        nativeLoadModel(handle.ptr, path, contextLength, threads, useMmap, compute.gpuBackend, compute.gpuLayers, outputsMax)
     } else {
         "the llama.cpp native library is not available on this device"
     }
@@ -293,7 +295,7 @@ object LlamaBridge {
     @JvmStatic private external fun nativeSystemInfo(): String
     @JvmStatic private external fun nativeLoadModel(
         ptr: Long, path: String, contextLength: Int, threads: Int, useMmap: Boolean,
-        gpuBackend: String?, gpuLayers: Int,
+        gpuBackend: String?, gpuLayers: Int, outputsMax: Int,
     ): String?
     @JvmStatic private external fun nativeGpuDevices(): Array<String>
     @JvmStatic private external fun nativeUnload(ptr: Long)

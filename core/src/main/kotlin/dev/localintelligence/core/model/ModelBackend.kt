@@ -49,7 +49,14 @@ data class ModelCapabilities(
 /** One message in the conversation. Plain data, no backend types. */
 sealed interface ChatMessage {
     data class System(val text: String) : ChatMessage
-    data class User(val text: String) : ChatMessage
+    /**
+     * [text] is what the user wrote, which is what is shown and stored.
+     * [rendered] is what the model was given for this turn, when that differs:
+     * the turn's clock line, memories and skill hints in front of the text. It
+     * is kept so every later prompt repeats the same tokens and llama.cpp can
+     * reuse them instead of prefilling the conversation again.
+     */
+    data class User(val text: String, val rendered: String? = null) : ChatMessage
     data class Assistant(val text: String) : ChatMessage
     /**
      * A tool result fed back to the model. [observation] is the ONLY part the

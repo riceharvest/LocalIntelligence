@@ -114,11 +114,12 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSystemInfo(JNIEnv
 // Loads `path` with the given context length. Returns null on success, else a
 // non-empty error string. `n_threads` 0 means "let llama.cpp decide".
 // `gpu_backend` null runs on the CPU; "Vulkan" or "OpenCL" puts `gpu_layers`
-// layers (negative: all) on that backend's first GPU.
+// layers (negative: all) on that backend's first GPU. `outputs_max` caps the
+// logits rows one batch may ask for (0: a whole batch).
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
         JNIEnv * env, jclass, jlong handle, jstring path, jint n_ctx, jint n_threads,
-        jboolean use_mmap, jstring gpu_backend, jint gpu_layers);
+        jboolean use_mmap, jstring gpu_backend, jint gpu_layers, jint outputs_max);
 
 // The usable GPUs, "backend\tdescription" each. Starts the GPU drivers.
 JNIEXPORT jobjectArray JNICALL

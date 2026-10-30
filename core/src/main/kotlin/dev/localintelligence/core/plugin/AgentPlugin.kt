@@ -46,7 +46,17 @@ interface AgentPlugin {
  * call, never allowed to end the run.
  */
 interface PluginHooks {
-    /** Extra lines for the system prompt of the next model request. */
+    /**
+     * Lines for the system prompt that do not depend on the task (the user's
+     * profile). They stay put from one message to the next, so the prompt
+     * before them can be reused.
+     */
+    fun contextForSession(): List<String> = emptyList()
+
+    /**
+     * Lines for this turn only, chosen from the task (matched skills). They go
+     * into the user turn, not the system prompt, because they change per task.
+     */
     fun contextForStep(task: String): List<String> = emptyList()
 
     /** Before a validated tool call is judged by the risk policy. First [ToolGate.Deny] wins. */
@@ -90,6 +100,9 @@ class PluginSet(
     private fun chain(all: List<PluginHooks>): PluginHooks {
         if (all.isEmpty()) return PluginHooks.NONE
         return object : PluginHooks {
+            override fun contextForSession(): List<String> =
+                all.flatMap { h -> runCatching { h.contextForSession() }.getOrDefault(emptyList()) }
+
             override fun contextForStep(task: String): List<String> =
                 all.flatMap { h -> runCatching { h.contextForStep(task) }.getOrDefault(emptyList()) }
 

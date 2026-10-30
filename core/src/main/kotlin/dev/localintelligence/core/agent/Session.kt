@@ -155,7 +155,16 @@ class Session(
      * loop calls it mid-run when the token budget is exceeded - so it is not
      * what stops the list growing across a day of scheduled runs.
      */
-    fun start(task: String) = record(ChatMessage.User(task))
+    /** Starts a turn: [task] as written, [rendered] as the model is given it (see [ChatMessage.User]). */
+    fun start(task: String, rendered: String? = null) = record(ChatMessage.User(task, rendered?.takeIf { it != task }))
+
+    /**
+     * The tools this conversation's prompt lists, in prompt order. Kept across
+     * runs so the system prompt stays the same from message to message; a run
+     * that needs another tool appends it rather than reordering the list. See
+     * `AgentController.selectTools`.
+     */
+    val epochTools: MutableList<String> = mutableListOf()
 
     /**
      * Runtime-to-model message: a malformed-output correction, a loop warning, or
@@ -262,6 +271,7 @@ class Session(
     fun clear() {
         messages.clear()
         workingSummary = null
+        epochTools.clear()
     }
 
     /**

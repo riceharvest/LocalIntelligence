@@ -18,6 +18,14 @@ interface ContextBuilder {
         memories: List<Memory>,
         tools: List<ToolDefinition>,
     ): List<ChatMessage>
+
+    /**
+     * The model's text for a new user turn: what changes per turn (the clock,
+     * the memories found for this task, matched skill hints) followed by the
+     * task. Rendered once per turn and stored on the turn, so the start of the
+     * prompt stays the same from one message to the next.
+     */
+    fun renderTurn(task: String, memories: List<Memory>, hints: List<String>): String = task
 }
 
 /**
@@ -69,19 +77,23 @@ response is to report it.
 
     private val NOW_FORMAT = DateTimeFormatter.ofPattern("EEE yyyy-MM-dd HH:mm", Locale.ENGLISH)
 
+    /** The clock, for the start of a user turn. */
+    fun nowLine(now: ZonedDateTime = ZonedDateTime.now()): String =
+        "Now: ${NOW_FORMAT.format(now)}, time zone ${now.zone.id}. Times without an offset are local."
+
+    /**
+     * The system prompt: the rules, the reply format and the session's tools.
+     * Nothing in it changes from one message to the next (the clock moved to
+     * [nowLine], in the user turn), so llama.cpp can reuse it.
+     */
     fun forTools(
         tools: List<ToolDefinition>,
-        now: ZonedDateTime = ZonedDateTime.now(),
         /** The name the user gave the assistant in Settings. Blank: no name line. */
         assistantName: String = "",
     ): String = buildString {
         if (assistantName.isNotBlank()) appendLine("Your name is ${assistantName.trim()}.")
         appendLine(BASE)
         appendLine()
-        appendLine(
-            "Now: ${NOW_FORMAT.format(now)}, time zone ${now.zone.id}. " +
-                "Times without an offset are local.",
-        )
         // The wire format the parser accepts. A grammar backend is held to it
         // anyway; a backend without one only knows it from this line.
         if (tools.isEmpty()) {
