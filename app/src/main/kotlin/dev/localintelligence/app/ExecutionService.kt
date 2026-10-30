@@ -533,10 +533,11 @@ class ExecutionService : Service() {
      *
      * The live run owns `sinks`, so writing a terminal state here would
      * replace the answer currently being generated with "already running".
-     * Instead the refused start is finished at the service level with
-     * [stopSelfResult], which resolves the *caller's* start without ending the
-     * service — `stopSelfResult(startId)` marks this one start delivered and
-     * leaves the service alive for the run that actually owns it.
+     * Instead nothing is called on the service. The refused start is simply
+     * not a reason to stop it: calling `stopSelfResult(startId)` here looked
+     * harmless, but the refused start is the newest one the service has seen,
+     * so Android treats the service as finished and destroys it, cancelling the
+     * run that owns it (#144). Only the live run's watcher stops the service.
      *
      * A scheduled run that is refused still has to be recorded: the task row
      * would otherwise keep saying the earlier result forever, implying this
@@ -558,7 +559,6 @@ class ExecutionService : Service() {
             }.onFailure { Log.w(TAG, "could not record refused schedule: ${it.message}") }
         }
         Log.i(TAG, "refused start $startId (task \"$task\"): a run is already active")
-        stopSelfResult(startId)
     }
 
     private fun stopForegroundAndSelf() {

@@ -402,13 +402,34 @@ internal object CalendarText {
 
     private fun clock(millis: Long, zone: ZoneId): String = CLOCK.format(Instant.ofEpochMilli(millis).atZone(zone))
 
+    /**
+     * An all-day event is a calendar date, stored at UTC midnight (see
+     * [CalendarProvider.insert]). Its date is read in UTC, never in the device zone:
+     * in New York the same row would otherwise show as the day before.
+     */
+    fun allDayUtcMidnight(millis: Long, zone: ZoneId): Long =
+        Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
+            .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+
+    /**
+     * True when an all-day row's date falls inside the local dates of the window. The
+     * provider matches by instant overlap, and a UTC-midnight row overlaps the local day
+     * before it in zones east of UTC, so overlap alone would leak it into the next day.
+     */
+    fun allDayInWindow(event: CalendarEvent, fromMillis: Long, toMillis: Long, zone: ZoneId): Boolean {
+        val day = Instant.ofEpochMilli(event.startMillis).atZone(ZoneOffset.UTC).toLocalDate()
+        val first = Instant.ofEpochMilli(fromMillis).atZone(zone).toLocalDate()
+        val last = Instant.ofEpochMilli(toMillis - 1).atZone(zone).toLocalDate()
+        return !day.isBefore(first) && !day.isAfter(last)
+    }
+
     /** One line per event. Dense on purpose: the model pays for every character. */
     fun eventLine(event: CalendarEvent, zone: ZoneId): String {
         val title = CalendarArgs.clean(event.title, 70) ?: "(no title)"
         val start = Instant.ofEpochMilli(event.startMillis).atZone(zone)
         val end = Instant.ofEpochMilli(event.endMillis).atZone(zone)
         val whenText = when {
-            event.allDay -> "${DAY.format(start)} all-day"
+            event.allDay -> "${DAY.format(Instant.ofEpochMilli(event.startMillis).atZone(ZoneOffset.UTC))} all-day"
             start.toLocalDate() == end.toLocalDate() -> "${DAY.format(start)} ${clock(event.startMillis, zone)}-${clock(event.endMillis, zone)}"
             else -> "${DAY.format(start)} ${clock(event.startMillis, zone)} - ${DAY.format(end)} ${clock(event.endMillis, zone)}"
         }
@@ -622,14 +643,17 @@ internal class ResolverCalendarProvider(private val resolver: ContentResolver) :
  */
 class CalendarSearchTool internal constructor(
     private val provider: CalendarProvider,
-    private val zone: ZoneId,
+    private val zoneOf: () -> ZoneId,
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    /** Production wiring: `CalendarSearchTool(context.contentResolver)`. */
-    @JvmOverloads
-    constructor(resolver: ContentResolver, zone: ZoneId = ZoneId.systemDefault(), grant: PlatformGrant) :
-        this(ResolverCalendarProvider(resolver), zone, grant)
+    /**
+     * Production wiring: `CalendarSearchTool(context.contentResolver, grant)`. The zone is
+     * read on each call: the tool objects live as long as the process, and a zone change
+     * (a flight) must apply to the next search, as alarm.create already does.
+     */
+    constructor(resolver: ContentResolver, grant: PlatformGrant) :
+        this(ResolverCalendarProvider(resolver), { ZoneId.systemDefault() }, grant)
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "calendar.search",
@@ -675,6 +699,7 @@ class CalendarSearchTool internal constructor(
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         withContext(Dispatchers.IO) {
+            val zone = zoneOf()
             // Asked of the platform, not of `context.permissionGranted` — that
             // flag comes from a set nothing populates and is false on every
             // call. Trusting it fabricates a denial; ignoring it returns
@@ -733,11 +758,16 @@ class CalendarSearchTool internal constructor(
                             wasCancelled = true
                             break
                         }
+                        val event = cursor.toEvent()
+                        // Not a match, so it neither fills the limit nor sets hasMore.
+                        if (event.allDay && !CalendarText.allDayInWindow(event, resolved.fromMillis, resolved.toMillis, zone)) {
+                            continue
+                        }
                         if (events.size >= limit) {
                             hasMore = true
                             break
                         }
-                        events += cursor.toEvent()
+                        events += event
                     }
                 } finally {
                     cursor.close()
@@ -845,14 +875,13 @@ private fun Cursor.intOrNull(column: String): Int? {
  */
 class CalendarCreateTool internal constructor(
     private val provider: CalendarProvider,
-    private val zone: ZoneId,
+    private val zoneOf: () -> ZoneId,
     private val grant: PlatformGrant,
 ) : AgentTool {
 
-    /** Production wiring: `CalendarCreateTool(context.contentResolver)`. */
-    @JvmOverloads
-    constructor(resolver: ContentResolver, zone: ZoneId = ZoneId.systemDefault(), grant: PlatformGrant) :
-        this(ResolverCalendarProvider(resolver), zone, grant)
+    /** Production wiring: `CalendarCreateTool(context.contentResolver, grant)`. Zone read per call, see the search tool. */
+    constructor(resolver: ContentResolver, grant: PlatformGrant) :
+        this(ResolverCalendarProvider(resolver), { ZoneId.systemDefault() }, grant)
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "calendar.create",
@@ -896,6 +925,7 @@ class CalendarCreateTool internal constructor(
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         withContext(Dispatchers.IO) {
+            val zone = zoneOf()
             // Platform truth, not the unmaintained context flag — see the note
             // on calendar.search. Here it matters twice over, because the
             // create path's failure mode is a provider insert that returns
@@ -949,7 +979,8 @@ class CalendarCreateTool internal constructor(
             val event = CalendarEvent(
                 id = 0L,
                 title = title,
-                startMillis = startMillis,
+                // The confirmation reads an all-day row the way the provider stores it.
+                startMillis = if (allDay) CalendarText.allDayUtcMidnight(startMillis, zone) else startMillis,
                 endMillis = end,
                 allDay = allDay,
                 location = optionalString(args, "location", CalendarArgs.MAX_LOCATION_CHARS),
@@ -1055,7 +1086,7 @@ class CalendarCreateTool internal constructor(
 fun calendarTools(context: Context, grant: PlatformGrant): List<AgentTool> {
     val resolver = context.applicationContext.contentResolver
     return listOf(
-        CalendarSearchTool(resolver, ZoneId.systemDefault(), grant),
-        CalendarCreateTool(resolver, ZoneId.systemDefault(), grant),
+        CalendarSearchTool(resolver, grant),
+        CalendarCreateTool(resolver, grant),
     )
 }

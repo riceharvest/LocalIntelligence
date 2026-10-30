@@ -216,6 +216,19 @@ class RiskPolicy(
         //     contact and the same share to a stranger are different risks.
         if (definition.risk == ToolRisk.EXTERNAL_COMMUNICATION) {
             val target = analysis.target
+            // The bare-link check comes before the target checks. A link-only body
+            // must always ask, and "Send without asking" only auto-accepts the
+            // unknown-target rule, so the target branches must not decide first
+            // (#153). MESSAGE_IS_BARE_LINK is not in AUTO_ACCEPTABLE_RULES.
+            if (analysis.bodyIsBareLink) {
+                val recipient = target?.let { " to $it" }.orEmpty()
+                return decide(
+                    definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.MESSAGE_IS_BARE_LINK,
+                    "The message ${definition.name} would send$recipient is a bare link with no other text. " +
+                        "Links are the easiest way to send someone somewhere harmful, so read the address " +
+                        "before allowing it.",
+                )
+            }
             if (target == null) {
                 return decide(
                     definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.EXTERNAL_TO_UNKNOWN_TARGET,
@@ -228,14 +241,6 @@ class RiskPolicy(
                     definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.EXTERNAL_TO_UNKNOWN_TARGET,
                     "${definition.name} sends to $target, which is not one of the contacts you marked as " +
                         "trusted. Check that this is who you mean before sending.",
-                )
-            }
-            if (analysis.bodyIsBareLink) {
-                return decide(
-                    definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.MESSAGE_IS_BARE_LINK,
-                    "The message ${definition.name} would send to $target is a bare link with no other text. " +
-                        "Links are the easiest way to send someone somewhere harmful, so read the address " +
-                        "before allowing it.",
                 )
             }
             return decide(
@@ -313,7 +318,7 @@ class RiskPolicy(
 
     /**
      * The first privileged marker found in any argument key, or in any scalar
-     * value that is not free text, or null.
+     * value that is not free text or a recipient, or null.
      *
      * WHY keys as well as values: `settings.write{key: "enabled", value:
      * "com.evil.AccessibilityService"}` puts the capability in the value, and
@@ -322,14 +327,22 @@ class RiskPolicy(
      */
     private fun findPrivilegedMarker(args: ToolArgs, config: PolicyConfig): String? {
         if (config.privilegedArgumentMarkers.isEmpty()) return null
+        // Whole words, not substrings: "root" must not match "jan.degroot@example.nl"
+        // and "overlay" must not match "rootbeer". A marker that is not bounded by
+        // letters or digits on either side is a word of its own.
         fun scan(text: String): String? {
             val lowered = text.lowercase()
-            return config.privilegedArgumentMarkers.firstOrNull { lowered.contains(it) }
+            return config.privilegedArgumentMarkers.firstOrNull { marker ->
+                Regex("(?<![a-z0-9])${Regex.escape(marker)}(?![a-z0-9])").containsMatchIn(lowered)
+            }
         }
         for ((key, value) in args) {
             scan(key)?.let { return it }
-            // Free text names no capability, so only its key is scanned.
-            if (key in config.bodyArgumentNames || key in config.freeTextArgumentNames) continue
+            // Free text names no capability, so only its key is scanned. A recipient
+            // is a person or address, not a capability, so it is treated the same way.
+            if (key in config.bodyArgumentNames || key in config.freeTextArgumentNames ||
+                key in config.targetArgumentNames
+            ) continue
             when (value) {
                 is kotlinx.serialization.json.JsonPrimitive -> scan(value.content)?.let { return it }
                 is kotlinx.serialization.json.JsonArray -> {

@@ -1,5 +1,6 @@
 package dev.localintelligence.android.hub
 
+import dev.localintelligence.core.hub.DeviceBudget
 import dev.localintelligence.core.hub.DownloadPlan
 import dev.localintelligence.core.hub.DownloadProgress
 import dev.localintelligence.core.hub.HubError
@@ -17,18 +18,23 @@ import dev.localintelligence.core.hub.Sha256
 import dev.localintelligence.core.hub.TransferRate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Downloads a GGUF from HuggingFace into app-private storage, resumably,
@@ -89,6 +95,7 @@ class ModelDownloader(
      *   with a non-null [DownloadPlan.reject] does not start a transfer: this
      *   is the enforcement point for the RAM and disk gates, not the UI.
      */
+    @OptIn(InternalCoroutinesApi::class)
     fun download(file: HubGgufFile, plan: DownloadPlan): Flow<DownloadProgress> = flow {
         val rejection = plan.reject
         if (rejection != null && rejection !is HubError.InsufficientStorage) {
@@ -100,19 +107,19 @@ class ModelDownloader(
         val url = client.downloadUrl(file.repo, file.path)
         val token = tokenSource.token()?.takeIf { it.isNotBlank() }
 
-        // Re-open the plan against what is actually on disk. A `.part` left by
-        // a previous attempt changes the disk requirement, and deciding that
-        // before the request rather than after is what keeps a resumed
-        // download from failing its own space check.
+        // Re-open the disk check against what is actually on disk: a `.part`
+        // left by a previous attempt changes the requirement, and the volume
+        // may have filled since the plan was made. The RAM verdict is NOT run
+        // again: the user approved it on the screen, which had the GGUF header.
+        // Re-running it here without the header charged the whole file as
+        // resident weights and refused models the screen showed as fitting.
         val localBytes = partial.localBytes()
         val effectivePlan = client.plan(
             file = file,
             contextLength = PreDownloadContextLength,
-            budget = budgetForPlan(plan),
+            budget = liveDiskBudget(),
             alreadyOnDiskBytes = localBytes,
-            // A LiteRT-LM file has no GGUF header for the RAM gate to read. Its
-            // disk check still runs, and the transfer below is the same one.
-            ramGate = !file.isLiteRtLm,
+            ramGate = false,
         )
         effectivePlan.reject?.let {
             emit(DownloadProgress.Stopped(it, partialBytesKept = localBytes))
@@ -136,14 +143,13 @@ class ModelDownloader(
 
         var response: HubResponse? = null
         // WHY a cancellation handler on the response body: `ensureActive()`
-        // inside the copy loop is only reached BETWEEN buffer reads. A download
-        // parked in a blocked read on a dead link would not observe a cancel
-        // until that read returned, which on a real socket is up to the full
-        // read timeout. Closing the stream shuts the socket, which unblocks the
-        // read immediately and turns the cancel into a prompt one.
-        //
-        // This is the same reason `docs/tool-contract.md` requires a long read
-        // to check `context.signal`.
+        // inside the copy loop is only reached BETWEEN buffer reads, so a
+        // download parked in a blocked read on a dead link would not see a
+        // cancel until the read timeout. `onCancelling = true` runs the handler
+        // as soon as the job starts cancelling, not when it finishes (the
+        // default, which is why cancel used to wait out the read). Closing the
+        // body disconnects the socket, which unblocks the read. The close runs
+        // on the IO dispatcher because cancel() may come from the main thread.
         var cancelHandle: DisposableHandle? = null
         try {
             if (decision !is ResumeDecision.Complete) {
@@ -161,6 +167,7 @@ class ModelDownloader(
                         file = file.fileName,
                         errorCode = response.header("X-Error-Code"),
                         retryAfterSeconds = response.header("Retry-After")?.toLongOrNull(),
+                        tokenSent = token != null,
                     )
                     emit(DownloadProgress.Stopped(error, partialBytesKept = localBytes))
                     return@flow
@@ -184,8 +191,10 @@ class ModelDownloader(
 
                 val body = response.body
                 if (body != null) {
-                    cancelHandle = currentCoroutineContext()[Job]?.invokeOnCompletion { cause ->
-                        if (cause is CancellationException) runCatching { body.close() }
+                    cancelHandle = currentCoroutineContext()[Job]?.invokeOnCompletion(onCancelling = true) { cause ->
+                        if (cause is CancellationException) {
+                            CoroutineScope(ioDispatcher).launch { runCatching { body.close() } }
+                        }
                     }
                 }
                 val copyOutcome = copyToFile(response, partial, writeFrom, totalBytes, file, emitProgress = { emit(it) })
@@ -215,7 +224,14 @@ class ModelDownloader(
                 return@flow
             }
 
-            val digest = Sha256.ofFile(partial.partFile)
+            // WHY the job is polled inside the hash: a 2 GB pass on a slow phone
+            // is many seconds, and a cancel must not wait for it. A cancelled
+            // pass returns null or a wrong digest, so the check must come before
+            // the comparison: otherwise a cancel reads as a checksum mismatch
+            // and deletes the .part, and with no checksum it would promote.
+            val coroutine = currentCoroutineContext()
+            val digest = Sha256.ofFile(partial.partFile) { coroutine.isActive }
+            coroutine.ensureActive()
             val expected = file.sha256
             if (expected != null && !Sha256.matches(expected, digest)) {
                 // Discard rather than keep: a GGUF with a wrong checksum fails
@@ -240,7 +256,7 @@ class ModelDownloader(
             emit(DownloadProgress.Done(file, partial.finalFile.absolutePath))
         } catch (e: IOException) {
             val kept = partial.localBytes()
-            emit(DownloadProgress.Stopped(mapIoException(e), partialBytesKept = kept))
+            emit(DownloadProgress.Stopped(mapIoException(e, partial, totalBytes), partialBytesKept = kept))
         } finally {
             cancelHandle?.dispose()
             response?.body?.close()
@@ -318,6 +334,10 @@ class ModelDownloader(
                 currentCoroutineContext().ensureActive()
                 val read = body.read(buffer)
                 if (read < 0) break
+                // WHY checked again after the read: a cancel that closed the
+                // stream unblocks this read, and bytes it returns must not be
+                // written at the old offset after the cancel.
+                currentCoroutineContext().ensureActive()
                 raf.write(buffer, 0, read)
                 written += read
                 if (throttle.shouldEmit(written)) {
@@ -335,20 +355,33 @@ class ModelDownloader(
         } catch (e: kotlinx.coroutines.CancellationException) {
             CopyOutcome.Cancelled(written)
         } catch (e: IOException) {
-            CopyOutcome.Failed(mapIoException(e))
+            // WHY the job is checked first: closing the body to cancel makes the
+            // blocked read throw an IOException, which must read as the cancel
+            // the user asked for, not as a dropped connection to resume.
+            if (!currentCoroutineContext().isActive) {
+                CopyOutcome.Cancelled(written)
+            } else {
+                CopyOutcome.Failed(mapIoException(e, partial, totalBytes))
+            }
         } finally {
             runCatching { raf?.close() }
         }
     }
 
-    private fun mapIoException(e: IOException): HubError {
+    private fun mapIoException(e: IOException, partial: PartialFile, totalBytes: Long): HubError {
         val message = (e.message ?: "").lowercase()
         return when {
             message.contains("cancel") -> HubError.Cancelled
             message.contains("timeout") || message.contains("timed out") ->
                 HubError.ConnectionLost(e.message ?: "timeout")
             message.contains("enospc") || message.contains("no space") ->
-                HubError.InsufficientStorage(0L, 0L)
+                // WHY measured: the screen prints both figures. The old 0 B
+                // values were placeholders, and read as a false claim that the
+                // phone had no space at all.
+                HubError.InsufficientStorage(
+                    neededBytes = (totalBytes - partial.localBytes()).coerceAtLeast(0L),
+                    availableBytes = liveFreeBytes(),
+                )
             else -> HubError.ConnectionLost(e.message ?: "transfer failed")
         }
     }
@@ -366,6 +399,10 @@ class ModelDownloader(
 
     /**
      * True when this exact file is already on disk, complete and correct.
+     *
+     * Never deletes anything: this runs on every listing and every quant tap,
+     * and the file at the final path may be the copy a loaded chat model uses.
+     * A digest mismatch returns false and leaves the file where it is.
      *
      * ## Why the digest, and not just the length
      *
@@ -386,15 +423,41 @@ class ModelDownloader(
         val partial = partialFileFor(file)
         if (!partial.isComplete(file.sizeBytes)) return false
         val expected = file.sha256 ?: return true
-        val actual = Sha256.ofFile(partial.finalFile) ?: return false
-        if (!Sha256.matches(expected, actual)) {
-            // Wrong bytes under the right name. Discard so the next download is a
-            // real one rather than a resume from a partial that matches nothing.
-            partial.finalFile.delete()
-            return false
-        }
-        return true
+        val final = partial.finalFile
+        val length = final.length()
+        val modified = final.lastModified()
+        val key = final.path
+        // WHY cached: every quant tap on a file the phone already has used to read
+        // the whole 2-4 GB file again before the selection changed. The verdict only
+        // changes when the bytes or the digest it was checked against change, so the
+        // key is exactly those three.
+        verified[key]
+            ?.takeIf { it.expectedSha == expected && it.length == length && it.modifiedMs == modified }
+            ?.let { return it.matches }
+        val actual = Sha256.ofFile(final) ?: return false
+        val matches = Sha256.matches(expected, actual)
+        verified[key] = VerifiedCopy(expected, length, modified, matches)
+        // WHY kept: the bytes were verified when they were downloaded, so a
+        // changed digest means the repository published a newer revision, not
+        // that this copy is broken. Deleting it on a lookup removed a model
+        // the user still had.
+        return matches
     }
+
+    /**
+     * One digest check of a final file, remembered by [isDownloaded]. Keyed by the
+     * file's length and modification time as well as the expected digest, so a
+     * replaced file or a newer revision is checked again rather than trusted.
+     */
+    private class VerifiedCopy(
+        val expectedSha: String,
+        val length: Long,
+        val modifiedMs: Long,
+        val matches: Boolean,
+    )
+
+    /** Verdicts by final path. Written from the IO dispatcher, read from the same. */
+    private val verified = ConcurrentHashMap<String, VerifiedCopy>()
 
     /**
      * The `.part` and final paths for [file].
@@ -418,20 +481,26 @@ class ModelDownloader(
     }
 
     /**
-     * Recovers a [DeviceBudget] for the re-plan.
+     * Free space on the volume that holds [modelsDir], read now.
      *
-     * WHY this is derived from the plan rather than injected: the plan already
-     * carries the figures the gate used, and holding a second live budget
-     * object would mean the two could disagree (a disk check against a volume
-     * that changed). A fixed view keeps the re-plan consistent with the
-     * pre-flight the user actually saw and approved.
+     * WHY read at transfer time and not from the plan: the plan was made when
+     * the model was selected, and a projector download or another app can fill
+     * the volume after that. The walk up to an existing ancestor matters because
+     * `File.usableSpace` is 0 for a path that does not exist yet, which would
+     * refuse the first download.
      */
-    private fun budgetForPlan(plan: DownloadPlan): dev.localintelligence.core.hub.DeviceBudget =
-        object : dev.localintelligence.core.hub.DeviceBudget {
-            override fun availableRamBytes(): Long = plan.ram.availableBytes
-            override fun freeDiskBytes(): Long = plan.freeDiskBytes
-            override fun totalRamBytes(): Long = plan.ram.availableBytes
-        }
+    private fun liveFreeBytes(): Long {
+        val dir = generateSequence(modelsDir) { it.parentFile }.firstOrNull { it.exists() }
+            ?: return 0L
+        return dir.usableSpace
+    }
+
+    /** The budget for the transfer's disk check. RAM is not consulted there (ramGate = false). */
+    private fun liveDiskBudget(): DeviceBudget = object : DeviceBudget {
+        override fun availableRamBytes(): Long = 0L
+        override fun freeDiskBytes(): Long = liveFreeBytes()
+        override fun totalRamBytes(): Long = 0L
+    }
 
     companion object {
         /**
@@ -442,13 +511,10 @@ class ModelDownloader(
         const val BUFFER_SIZE = 64 * 1024
 
         /**
-         * The context length used for the on-disk re-check.
-         *
-         * WHY it matches the default rather than the user's setting: the disk
-         * re-check exists to catch a full volume, and RAM does not change
-         * between the pre-flight and the transfer. Re-asking for a context
-         * length would mean the download function has a parameter the UI has to
-         * keep in sync with the plan it already passed in.
+         * The context length passed to the transfer's plan call. It is not
+         * priced: the transfer's re-check is disk-only (`ramGate = false`), so
+         * this exists only to keep the plan call's arguments the same as the
+         * screen's default.
          */
         const val PreDownloadContextLength = 2_048
     }

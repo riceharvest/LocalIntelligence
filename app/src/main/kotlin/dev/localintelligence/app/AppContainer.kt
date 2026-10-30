@@ -28,6 +28,7 @@ import dev.localintelligence.android.scripts.ScriptPluginRepository
 import dev.localintelligence.android.scripts.ScriptRunner
 import dev.localintelligence.app.settings.ContextLength
 import dev.localintelligence.app.settings.DeviceFacts
+import dev.localintelligence.app.execution.ScheduledRunReporter
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.ComputeChoice
 import dev.localintelligence.app.settings.SimpleSetup
@@ -80,7 +81,6 @@ import dev.localintelligence.core.hub.DeviceBudget
 import dev.localintelligence.core.hub.HubTokenSource
 import dev.localintelligence.core.hub.HuggingFaceClient
 import dev.localintelligence.android.hub.AndroidDeviceBudget
-import dev.localintelligence.android.hub.KeystoreTokenStore
 import dev.localintelligence.android.hub.ModelDownloader
 import dev.localintelligence.android.hub.UrlConnectionTransport
 import dev.localintelligence.app.ui.HubViewModel
@@ -598,7 +598,12 @@ class AppContainer(private val context: Context) {
         // idempotent and nothing is inferred from positions.
         // A tool call's own turn (blank text, see Session.recordCall) is prompt
         // plumbing, not conversation: it is not stored or shown after a restart.
-        return session.messages.filter { session.writtenIds.add(session.idOf(it)) }
+        // Under the session lock: the idle compaction folds the window on another thread,
+        // and reading the list while it is cleared would throw or see a half-refilled window.
+        val pending = session.locked {
+            session.messages.filter { session.writtenIds.add(session.idOf(it)) }
+        }
+        return pending
             .filterNot { (it is ChatMessage.Assistant && it.text.isBlank()) || (it is ChatMessage.User && it.text.isBlank()) }
     }
 
@@ -612,7 +617,7 @@ class AppContainer(private val context: Context) {
         } catch (t: Throwable) {
             android.util.Log.w(TAG, "Could not open a durable session; skipping write.", t)
             // Nothing was written, so nothing may stay marked as written.
-            pending.forEach { session.writtenIds.remove(session.idOf(it)) }
+            session.locked { pending.forEach { session.writtenIds.remove(session.idOf(it)) } }
             return
         }
         // Counts the rows the store accepted. A failure part-way through a batch must
@@ -632,7 +637,7 @@ class AppContainer(private val context: Context) {
             // answer has already been produced and shown. Un-mark the rows that were
             // not stored so the next run genuinely retries them, rather than leaving
             // them marked as written and silently dropping them.
-            pending.drop(stored).forEach { session.writtenIds.remove(session.idOf(it)) }
+            session.locked { pending.drop(stored).forEach { session.writtenIds.remove(session.idOf(it)) } }
             android.util.Log.w(TAG, "Could not persist the conversation; will retry next run.", t)
         }
     }
@@ -1232,6 +1237,8 @@ class AppContainer(private val context: Context) {
      */
     suspend fun restoreOnLaunch(): List<ChatMessage> = readinessLock.withLock {
         restoreConversationOnce()
+        // A scheduled run the last process died during has no result coming (#167).
+        ScheduledRunReporter.settleInterrupted(context)
         if (!modelAvailability.current.canRun) loadSelectedModel()
         restoredTurns
     }
@@ -1463,11 +1470,17 @@ class AppContainer(private val context: Context) {
     val hubBudget: DeviceBudget by lazy { AndroidDeviceBudget(context, modelsDir) }
 
     /**
-     * The optional read token. Null on a fresh install, and every ungated
-     * download works without it — the gate is a capability, not a
-     * requirement.
+     * The optional read token, typed in Settings (Technical mode) and kept
+     * encrypted by [SettingsStore] like the other API keys. Null on a fresh
+     * install, and every ungated download works without it — the gate is a
+     * capability, not a requirement.
+     *
+     * Read with `stored`, not the mode-aware getter: the token must not vanish
+     * in Simple mode, where the Simple table would answer "" for this row.
      */
-    val hubTokenSource: HubTokenSource by lazy { KeystoreTokenStore(context) }
+    val hubTokenSource: HubTokenSource by lazy {
+        HubTokenSource { settings.stored(CoreSettings.HF_READ_TOKEN).takeIf { it.isNotBlank() } }
+    }
 
     val hubClient: HuggingFaceClient by lazy {
         HuggingFaceClient(UrlConnectionTransport(), tokenSource = hubTokenSource)

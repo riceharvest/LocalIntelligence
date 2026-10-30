@@ -144,6 +144,15 @@ class AgentViewModel(
         // A load has no controller to cancel, and the load itself cannot be interrupted from
         // here, so the STOP is answered now rather than when the load ends.
         if (controller == null && sinks.state.value == RunState.LoadingModel) answerStopBeforeRun()
+        // A run waiting for an approval has no job: the loop returned
+        // AwaitingConfirmation and parked, so nothing will end it until Allow or
+        // Deny. STOP has to settle it here, or the service and the run gate stay
+        // held (#147). confirmAndResume returns Cancelled at once because the
+        // controller's cancelled flag is already set.
+        val parked = controller
+        if (job?.isActive != true && parked != null && sinks.state.value is RunState.AwaitingApproval) {
+            job = scope.launch { runAndPublish(parked) { parked.confirmAndResume(approved = false) } }
+        }
     }
 
     /**

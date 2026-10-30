@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -75,7 +76,10 @@ fun DocumentsScreen(
     val scope = rememberCoroutineScope()
     // Adding or removing bumps this, which re-reads the list.
     var reload by remember { mutableIntStateOf(0) }
-    val documents: List<DocumentEntry> = remember(reload) { repository.list() }
+    // The store lock is held for a whole import's embedding, so the read runs off the main thread.
+    val documents: List<DocumentEntry> by produceState(initialValue = emptyList(), reload) {
+        value = withContext(Dispatchers.IO) { repository.list() }
+    }
 
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -185,11 +189,18 @@ fun DocumentsScreen(
             title = { Text("Remove ${doc.title}?") },
             text = { Text("The assistant will no longer answer from this document.") },
             confirmButton = {
-                TextButton(onClick = {
-                    repository.remove(doc.id)
-                    deleting = null
-                    reload++
-                }) { Text("Remove") }
+                TextButton(
+                    enabled = !busy,
+                    onClick = {
+                        // Off the main thread for the same lock reason as the list read. Disabled while
+                        // an import runs, which holds that lock for its whole embedding.
+                        scope.launch {
+                            withContext(Dispatchers.IO) { repository.remove(doc.id) }
+                            deleting = null
+                            reload++
+                        }
+                    },
+                ) { Text("Remove") }
             },
             dismissButton = {
                 TextButton(onClick = { deleting = null }) { Text("Cancel") }

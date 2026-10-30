@@ -183,6 +183,9 @@ internal object Notifications {
         // observation, so it is the one place that must not depend on every
         // caller having remembered to sanitise. A raw newline in a body would
         // otherwise let a message forge an extra numbered line.
+        // Two items with one short key cannot be told apart by it, so they are listed with the
+        // full key; the model echoes that back and keyMatches takes it as an exact key.
+        val shortKeyCounts = items.groupingBy { shortKey(it.key) }.eachCount()
         val lines = items.mapIndexed { index, n ->
             val title = clamp(n.title)
             val body = clamp(n.body)
@@ -193,7 +196,8 @@ internal object Notifications {
                 if (n.canReply) append(" [replyable]")
                 if (n.isOngoing) append(" [ongoing]")
             }
-            "${index + 1}. $head$tail$flags (key ${shortKey(n.key)}, app ${n.packageName})"
+            val key = shortKey(n.key).let { if ((shortKeyCounts[it] ?: 0) > 1) n.key else it }
+            "${index + 1}. $head$tail$flags (key $key, app ${n.packageName})"
         }
         val header = if (items.size == totalActive) {
             "${items.size} active notification${if (items.size == 1) "" else "s"}:"
@@ -230,13 +234,23 @@ internal object Notifications {
         }
     }
 
-    fun keyMatches(short: String, candidates: List<NotificationSummary>): NotificationSummary? {
-        if (short.isBlank()) return null
+    /**
+     * Every notification the key names. An exact key names one; a short key can name
+     * several, because it leaves out the user id, so the same app's same id and tag under
+     * two profiles give the same short key. The caller must refuse more than one rather
+     * than act on whichever comes first.
+     */
+    fun keyMatches(short: String, candidates: List<NotificationSummary>): List<NotificationSummary> {
+        if (short.isBlank()) return emptyList()
         val target = short.trim()
-        val exact = candidates.firstOrNull { it.key == short || it.key == target }
-        if (exact != null) return exact
-        return candidates.firstOrNull { shortKey(it.key).equals(target, ignoreCase = true) }
+        val exact = candidates.filter { it.key == short || it.key == target }
+        if (exact.isNotEmpty()) return exact
+        return candidates.filter { shortKey(it.key).equals(target, ignoreCase = true) }
     }
+
+    fun ambiguousKeyNotice(short: String): String =
+        "More than one active notification has the key \"$short\", so it is not known which one " +
+            "is meant. Run notifications.list again and use the full key shown for those entries."
 
     /**
      * Why a reply is impossible, in the words a user can act on. Returning
@@ -654,7 +668,9 @@ class NotificationListTool(
             put("required", buildJsonArray { })
         },
         risk = ToolRisk.READ_ONLY,
-        observationOrigin = ObservationOrigin.LOCAL,
+        // The text is written by the senders, not the device: NETWORK keeps the
+        // untrusted fence on the observation and in the compacted summary.
+        observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf(
             "notifications", "alerts", "messages", "list", "banner",
             "inbox", "what came in", "ping",
@@ -898,7 +914,15 @@ class NotificationReplyTool(
             )
 
             val summaries = active.map { sbn -> NotificationProjector.project(sbn, LABELS::labelFor) }
-            val target = Notifications.keyMatches(rawKey, summaries)
+            val matches = Notifications.keyMatches(rawKey, summaries)
+            if (matches.size > 1) {
+                return ToolResult(
+                    success = false,
+                    observation = Notifications.ambiguousKeyNotice(rawKey) + " No reply was sent.",
+                    error = ToolError.InvalidArguments("${matches.size} notifications share the key $rawKey"),
+                )
+            }
+            val target = matches.firstOrNull()
                 ?: return ToolResult(
                     success = false,
                     observation = Notifications.notFoundNotice(rawKey),
@@ -1096,7 +1120,15 @@ class NotificationDismissTool(
             )
 
             val summaries = active.map { sbn -> NotificationProjector.project(sbn, LABELS::labelFor) }
-            val target = Notifications.keyMatches(rawKey, summaries)
+            val matches = Notifications.keyMatches(rawKey, summaries)
+            if (matches.size > 1) {
+                return ToolResult(
+                    success = false,
+                    observation = Notifications.ambiguousKeyNotice(rawKey) + " Nothing was dismissed.",
+                    error = ToolError.InvalidArguments("${matches.size} notifications share the key $rawKey"),
+                )
+            }
+            val target = matches.firstOrNull()
                 ?: return ToolResult(
                     success = false,
                     observation = Notifications.notFoundNotice(rawKey),

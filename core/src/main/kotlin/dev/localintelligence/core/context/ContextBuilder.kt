@@ -45,7 +45,7 @@ data class CompactedState(
     val openHandles: List<String> = emptyList(),
 ) {
     fun render(): String = buildString {
-        appendLine("Task: $task")
+        if (task.isNotBlank()) appendLine("Task: $task")
         if (progress.isNotEmpty()) appendLine("Progress: ${progress.joinToString("; ")}")
         if (knownFacts.isNotEmpty()) appendLine("Known facts: ${knownFacts.joinToString("; ")}")
         if (actionsTaken.isNotEmpty()) appendLine("Actions already taken: ${actionsTaken.joinToString("; ")}")

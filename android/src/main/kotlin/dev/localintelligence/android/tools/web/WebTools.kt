@@ -660,13 +660,25 @@ internal data class PlainText(
  */
 internal object HtmlText {
 
+    /**
+     * The longest tag the stripper will match, from `<` to `>`.
+     *
+     * WHY A BOUND: `[^>]*` with no `>` after a `<` runs to the end of the body, and
+     * the regex retries from every `<`, so a page of a few hundred KB with a long run
+     * of `<` and no `>` costs on the order of n² steps inside one `web.fetch`. Real
+     * tags are far shorter than this; a longer "tag" is not stripped and stays as
+     * text, which is harmless. The bound makes a missing `>` cost a fixed amount of
+     * scanning per `<`.
+     */
+    private const val MAX_TAG_CHARS = 2000
+
     private val DROP_WITH_CONTENT = Regex(
-        "<(script|style|noscript|template|svg|math|head|iframe)\\b[^>]*>.*?</\\1\\s*>",
+        "<(script|style|noscript|template|svg|math|head|iframe)\\b[^>]{0,$MAX_TAG_CHARS}>.*?</\\1\\s*>",
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
     )
 
     private val UNCLOSED_SCRIPT = Regex(
-        "<(script|style)\\b[^>]*>.*",
+        "<(script|style)\\b[^>]{0,$MAX_TAG_CHARS}>.*",
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
     )
 
@@ -675,11 +687,11 @@ internal object HtmlText {
     /** Tags that imply a line break in the rendered page. */
     private val BLOCK_TAG = Regex(
         "</?(p|div|br|li|ul|ol|tr|td|th|table|thead|tbody|h[1-6]|section|article|header|" +
-            "footer|nav|aside|blockquote|pre|hr|figure|figcaption)\\b[^>]*>",
+            "footer|nav|aside|blockquote|pre|hr|figure|figcaption)\\b[^>]{0,$MAX_TAG_CHARS}>",
         RegexOption.IGNORE_CASE,
     )
 
-    private val ANY_TAG = Regex("<[a-zA-Z/!?][^>]*>", RegexOption.DOT_MATCHES_ALL)
+    private val ANY_TAG = Regex("<[a-zA-Z/!?][^>]{0,$MAX_TAG_CHARS}>", RegexOption.DOT_MATCHES_ALL)
 
     private val NAMED = mapOf(
         "amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'",

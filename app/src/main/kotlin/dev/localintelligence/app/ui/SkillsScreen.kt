@@ -29,6 +29,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,13 +75,15 @@ fun SkillsScreen(
     var reload by remember { mutableStateOf(0) }
     val installed: List<InstalledSkill> = remember(changes, reload) { repository.list() }
 
-    var showChoice by remember { mutableStateOf(false) }
-    var showUrl by remember { mutableStateOf(false) }
-    var url by remember { mutableStateOf("https://") }
-    var urlError by remember { mutableStateOf<String?>(null) }
+    // Saved, not remembered, so a rotation keeps the dialogs open and the typed text.
+    // [fetching] stays remembered: a recreation cancels the fetch.
+    var showChoice by rememberSaveable { mutableStateOf(false) }
+    var showUrl by rememberSaveable { mutableStateOf(false) }
+    var url by rememberSaveable { mutableStateOf("https://") }
+    var urlError by rememberSaveable { mutableStateOf<String?>(null) }
     var fetching by remember { mutableStateOf(false) }
-    var editorText by remember { mutableStateOf<String?>(null) }
-    var showForm by remember { mutableStateOf(false) }
+    var editorText by rememberSaveable { mutableStateOf<String?>(null) }
+    var showForm by rememberSaveable { mutableStateOf(false) }
     val technical = store.mode == SettingsMode.TECHNICAL
     var deleting by remember { mutableStateOf<InstalledSkill?>(null) }
 
@@ -263,9 +267,9 @@ fun SkillsScreen(
  */
 @Composable
 private fun SkillFormDialog(onDismiss: () -> Unit, onConfirm: (String) -> String?) {
-    var name by remember { mutableStateOf("") }
-    var whenToUse by remember { mutableStateOf("") }
-    var steps by remember { mutableStateOf("") }
+    var name by rememberSaveable { mutableStateOf("") }
+    var whenToUse by rememberSaveable { mutableStateOf("") }
+    var steps by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -328,7 +332,7 @@ fun SkillEditorDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> String?,
 ) {
-    var text by remember { mutableStateOf(initialText) }
+    var text by rememberSaveable(initialText) { mutableStateOf(initialText) }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,

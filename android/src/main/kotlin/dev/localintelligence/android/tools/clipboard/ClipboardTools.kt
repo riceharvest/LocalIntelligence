@@ -174,6 +174,9 @@ object ClipboardText {
             "Ask the user to copy some text and try again."
     }
 
+    /** Some apps clear the clipboard by writing an empty text clip; that is not a readable text. */
+    fun describeBlank(): String = "The clipboard holds no text."
+
     fun describeEmpty(): String =
         "The clipboard reads as empty. This is the same result Android returns when the app is " +
             "in the background, which it is not allowed to read from Android 10 onward, so the " +
@@ -386,6 +389,15 @@ class ClipboardReadTool(private val platform: ClipboardPlatform) : AgentTool {
                     observation = ClipboardText.describeNonText(snapshot.mimeTypes),
                     data = ClipboardText.readData(snapshot),
                     error = ToolError.Unavailable("clipboard holds a non-text item"),
+                )
+            }
+            // An empty or blank text clip is an empty clipboard. Read as a success it would say
+            // "Clipboard holds ." and the model would have nothing to report.
+            if (snapshot.text?.isBlank() == true) {
+                return@guarded ToolResult(
+                    success = false,
+                    observation = ClipboardText.describeBlank(),
+                    error = ToolError.NotFound("clipboard holds no text"),
                 )
             }
             if (snapshot.text == null) {

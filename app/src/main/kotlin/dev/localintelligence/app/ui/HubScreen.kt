@@ -592,7 +592,7 @@ fun HubScreen(
                         // "Add to models" is the action that will.
                         Text(
                             when {
-                                state.alreadyOnDevice -> "Download"
+                                state.alreadyOnDevice -> "Add to models"
                                 // A resume moves only the missing bytes, so the
                                 // full size next to it would be a second
                                 // overstatement on the same button.

@@ -390,7 +390,7 @@ class OpenRouterChatBackend(
             return cleaned.replace(Regex("\\s+"), " ").trim().take(HTTP_ERROR_CHARS)
         }
 
-        /** An error body is a few hundred bytes. One read of at most 16 KB is enough, and avoids readNBytes (API 33). */
+        /** An error body is a few hundred bytes. One read of at most 16 KB is enough, and avoids readNBytes (API 33); see io.readUpTo. */
         private fun readSmall(input: InputStream): String {
             val buffer = ByteArray(16 * 1024)
             val n = input.read(buffer)

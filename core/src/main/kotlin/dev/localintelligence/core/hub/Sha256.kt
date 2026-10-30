@@ -35,23 +35,32 @@ object Sha256 {
     private const val BUFFER_SIZE = 8 * 1024
 
     /**
+     * @param keepGoing polled once per buffer. When it returns false the pass
+     *   stops early and returns null. WHY a lambda and not a coroutine check:
+     *   this module has no coroutines, and the caller's cancel must reach a
+     *   multi-second hash on a slow phone.
      * @return lowercase hex, or null when the file could not be read (it was
-     *   deleted mid-hash, or the storage went away). Null means "could not
-     *   verify", which the caller must treat as a failure, never as a pass.
+     *   deleted mid-hash, or the storage went away) or [keepGoing] stopped the
+     *   pass. Null means "could not verify", which the caller must treat as a
+     *   failure, never as a pass. A caller that stopped the pass must check its
+     *   own cancellation before it reads the null as a mismatch.
      */
-    fun ofFile(path: java.io.File): String? = try {
-        path.inputStream().buffered(BUFFER_SIZE).use { stream ->
-            val digest = MessageDigest.getInstance("SHA-256")
-            val buffer = ByteArray(BUFFER_SIZE)
-            while (true) {
-                val read = stream.read(buffer)
-                if (read < 0) break
-                digest.update(buffer, 0, read)
+    fun ofFile(path: java.io.File, keepGoing: () -> Boolean = { true }): String? {
+        return try {
+            path.inputStream().buffered(BUFFER_SIZE).use { stream ->
+                val digest = MessageDigest.getInstance("SHA-256")
+                val buffer = ByteArray(BUFFER_SIZE)
+                while (true) {
+                    if (!keepGoing()) return null
+                    val read = stream.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+                toHex(digest.digest())
             }
-            toHex(digest.digest())
+        } catch (_: Exception) {
+            null
         }
-    } catch (_: Exception) {
-        null
     }
 
     /**

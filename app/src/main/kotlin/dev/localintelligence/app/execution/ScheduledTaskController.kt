@@ -134,7 +134,14 @@ object ScheduledTaskController {
         if (task.enabled) return true
         if (!TaskAlarmScheduler.canScheduleExactAlarms(context)) return false
 
-        val next = TaskCadence.nextAfter(task.cadence, nowMillis) ?: return false
+        // A one-time task has no cadence to recompute from: pause leaves its fire
+        // time in place, so it resumes to that time while it is still ahead. Once
+        // it has fired there is no next occurrence, and the refusal is reported
+        // as such rather than as an alarm-permission problem (#174).
+        val next = when (task.cadence) {
+            TaskCadence.Once -> task.nextRunAtMillis.takeIf { it > nowMillis }
+            else -> TaskCadence.nextAfter(task.cadence, nowMillis)
+        } ?: return false
         val resumed = task.copy(enabled = true, nextRunAtMillis = next)
         return try {
             TaskAlarmScheduler.arm(context, resumed)

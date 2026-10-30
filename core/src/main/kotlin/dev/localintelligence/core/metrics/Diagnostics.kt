@@ -448,12 +448,17 @@ object RamGateCrossCheck {
                 append(" against ")
                 append(MemoryEstimate.formatBytes(estimate.totalBytes))
                 append("). ")
+                // WHY the loader's figure is named as the compute buffer: it is
+                // computed from vocabulary logits, a fitted base and the context
+                // mask, not from the gate's max(64 MiB, 2% of weights) rule, so
+                // printing that rule beside it would contradict the numbers.
                 append(
-                    "Both include an unmeasured runtime allowance of " +
+                    "The gate's allowance is max(64 MiB, 2% of weights). The loader's " +
+                        "unmeasured compute buffer is " +
                         MemoryEstimate.formatBytes(estimate.overheadBytes) +
-                        " — max(64 MiB, 2% of weights) — which has never been measured " +
-                        "on a device, so the agreement is between two estimates and not " +
-                        "between an estimate and reality.",
+                        " (vocabulary logits, fitted base and context mask). Neither has " +
+                        "been measured on a device, so the agreement is between two " +
+                        "estimates and not between an estimate and reality.",
                 )
             },
             cannotTell = "Whether the model will actually load. That is a native call " +

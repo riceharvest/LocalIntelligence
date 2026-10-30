@@ -14,6 +14,7 @@ import dev.localintelligence.core.hub.HubTokenSource
 import dev.localintelligence.core.hub.HubTransport
 import dev.localintelligence.core.hub.HuggingFaceClient
 import dev.localintelligence.core.hub.formatBytes
+import dev.localintelligence.core.model.gguf.GgufHeader
 import dev.localintelligence.android.hub.ModelDownloader
 import dev.localintelligence.android.hub.UrlConnectionTransport
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -32,6 +34,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Registers a finished download with the rest of the app so it can be selected
@@ -177,11 +180,13 @@ data class HubUiState(
     /**
      * True when the next tap continues a transfer rather than starting one.
      *
-     * The button label, the byte count and the size estimate all have to agree
-     * with this, or the user is quoted 668 MB for 120 MB of work.
+     * Read from the bytes on disk, not from a stop event: a Hub reopened after the
+     * app was closed has no event, but the `.part` file is still there and the
+     * downloader resumes it. The button label, the byte count and the size estimate
+     * all have to agree with this, or the user is quoted 668 MB for 120 MB of work.
      */
     val resumable: Boolean
-        get() = partialBytesKept > 0 && progress is DownloadProgress.Stopped
+        get() = partialBytesKept > 0
 
     /**
      * True when the finished download is loaded and the chat can use it. A failure, or
@@ -314,6 +319,14 @@ class HubViewModel(
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HubUiState())
+
+    /**
+     * Header probes already read for the listing on screen, by file. A probe is up
+     * to 16 MiB over the network, so re-tapping a quant must not pay for it again.
+     * Cleared when a new repository is listed. Only successful reads are kept, so a
+     * failed probe is tried again on the next tap.
+     */
+    private val headerCache = ConcurrentHashMap<HubGgufFile, GgufHeader>()
     val state: StateFlow<HubUiState> = _state.asStateFlow()
 
     /** Search hits. Best-effort: an empty list is a valid, non-error state. */
@@ -399,13 +412,22 @@ class HubViewModel(
         _searching.value = true
         searchJob = viewModelScope.launch {
             if (delayMs > 0) delay(delayMs)
+            var tokenRejected = false
             val hits = withContext(Dispatchers.IO) {
-                client.browse(query, limit = if (query.isEmpty()) POPULAR_LIMIT else SEARCH_LIMIT, token = tokenSource.token())
+                try {
+                    client.browse(query, limit = if (query.isEmpty()) POPULAR_LIMIT else SEARCH_LIMIT, token = tokenSource.token())
+                } catch (_: HubError.Unauthorized) {
+                    // A rejected token is not a dropped connection: say so, so the
+                    // user checks the token in Settings.
+                    tokenRejected = true
+                    null
+                }
             }
             _searching.value = false
             _searchResults.value = hits.orEmpty()
             _showingPopular.value = false
             _searchNote.value = when {
+                tokenRejected -> "Hugging Face rejected the access token. Check it in Settings."
                 hits == null -> "Couldn't reach Hugging Face. Check the connection and try again."
                 hits.isEmpty() && query.isNotEmpty() -> "No models found for \u201c$query\u201d."
                 else -> null
@@ -432,6 +454,10 @@ class HubViewModel(
     fun resolve() {
         // The suggestions are for finding a repo; once one is being listed they go.
         searchJob?.cancel()
+        // A listing still out for the previous repository must not write its files,
+        // selection or error after this one has started. Its selection goes too.
+        resolveJob?.cancel()
+        selectJob?.cancel()
         _searching.value = false
         _searchNote.value = null
         _searchResults.value = emptyList()
@@ -443,6 +469,7 @@ class HubViewModel(
                 return
             }
             is HubRepoId.Result.Valid -> {
+                headerCache.clear()
                 // Taken here, once, so a prefill applies to the listing it asked
                 // for and never to a later resolve the user types by hand.
                 val wantedFile = pendingPrefill
@@ -468,12 +495,15 @@ class HubViewModel(
                         downloadJob = null,
                     )
                 }
-                viewModelScope.launch {
+                resolveJob = viewModelScope.launch {
                     // On IO: the transport is a blocking HttpURLConnection, and Android
                     // refuses network calls on the main thread.
                     val result = runCatching {
                         withContext(Dispatchers.IO) { client.listGgufFiles(parsed.repoId, tokenSource.token()) }
                     }
+                    // runCatching also catches the CancellationException of a listing that
+                    // was replaced. Stop here, so its error is never written over the new one.
+                    ensureActive()
                     result.onSuccess { files ->
                         val loadable = client.loadableFiles(files)
                         val guess = client.chooseBestFitting(
@@ -488,7 +518,7 @@ class HubViewModel(
                         // as unrecommended on a 3.6 GB phone it fits.
                         val pick = preferQ4(loadable, guess) ?: loadable.firstOrNull()
                         val planned = pick?.let { planFor(it) }
-                        val best = (if (guess != null) pick else null) ?: pick?.takeIf { planned?.first?.isAllowed == true }
+                        val best = (if (guess != null) pick else null) ?: pick?.takeIf { planned?.plan?.isAllowed == true }
                         // WHY THE PROBE RUNS EVEN WHEN `loadable` IS NON-EMPTY:
                         // a repository can publish both, and in that case the
                         // `.litertlm` is the more interesting half — it is the
@@ -516,9 +546,10 @@ class HubViewModel(
                                 projector = chooseProjector(files),
                                 selected = pick,
                                 recommended = best,
-                                plan = planned?.first,
-                                exactFit = planned?.second == true,
-                                alreadyOnDevice = planned?.third == true,
+                                plan = planned?.plan,
+                                exactFit = planned?.exactFit == true,
+                                alreadyOnDevice = planned?.onDevice == true,
+                                partialBytesKept = planned?.keptBytes ?: 0,
                             )
                         }
                         // A suggested file that the repository does not list is
@@ -544,6 +575,9 @@ class HubViewModel(
         }
     }
 
+    /** The listing in progress. A new [resolve] cancels it, so only the last repository typed is shown. */
+    private var resolveJob: Job? = null
+
     /**
      * The file name a Settings suggestion asked for, to select once its
      * repository is listed. Set by [prefill], consumed by the next [resolve].
@@ -564,10 +598,21 @@ class HubViewModel(
         resolve()
     }
 
+    /**
+     * The quant tap in progress. Each tap cancels the one before it, so a slow header
+     * probe for an earlier quant cannot land last and show that quant under a later
+     * tap, with Download fetching it.
+     */
+    private var selectJob: Job? = null
+
     /** Selects a specific quant and recomputes the plan for it. */
     fun select(file: HubGgufFile) {
-        viewModelScope.launch {
+        selectJob?.cancel()
+        selectJob = viewModelScope.launch {
             val planned = planFor(file)
+            // Cancelling does not stop the blocking probe, so the result of a probe
+            // that finished after its tap was replaced is dropped here.
+            ensureActive()
             _state.update {
                 // The transfer state belongs to the file it happened on. Tapping
                 // a different quant used to leave the previous file's progress
@@ -575,11 +620,11 @@ class HubViewModel(
                 // not this file's.
                 it.copy(
                     selected = file,
-                    plan = planned.first,
-                    exactFit = planned.second,
-                    alreadyOnDevice = planned.third,
+                    plan = planned.plan,
+                    exactFit = planned.exactFit,
+                    alreadyOnDevice = planned.onDevice,
                     progress = null,
-                    partialBytesKept = 0,
+                    partialBytesKept = planned.keptBytes,
                     registeredNote = null,
                     registeredReady = false,
                     error = null,
@@ -698,6 +743,19 @@ class HubViewModel(
     }
 
     /**
+     * The plan for one quant, and what the screen needs to show it.
+     *
+     * [keptBytes] is what the `.part` file holds from an earlier attempt, so a Hub
+     * reopened after a stopped transfer can offer Resume.
+     */
+    private data class PlannedFile(
+        val plan: DownloadPlan,
+        val exactFit: Boolean,
+        val onDevice: Boolean,
+        val keptBytes: Long,
+    )
+
+    /**
      * Computes the plan for [file] against the device, using the real header when
      * one can be fetched.
      *
@@ -705,18 +763,19 @@ class HubViewModel(
      * network call, and this is the one place in the screen's lifecycle where a
      * network call belongs — it is already off the main thread inside
      * `viewModelScope`, it happens once per selection rather than once per
-     * recomposition, and its result is cached in [HubUiState] so tapping a
-     * different quant does not re-probe the one already probed.
+     * recomposition, and its result is kept in [headerCache] so tapping a
+     * different quant, or the same one again, does not re-probe it.
      *
      * @return plan, whether the verdict is exact (from the tensor table rather
-     *   than the file name), and whether the file is already on disk.
+     *   than the file name), whether the file is already on disk, and how many
+     *   bytes a stopped attempt left in the `.part` file.
      */
-    private suspend fun planFor(file: HubGgufFile): Triple<DownloadPlan, Boolean, Boolean> =
+    private suspend fun planFor(file: HubGgufFile): PlannedFile =
         // All of it on IO: the header probe is a network request, and on the main
         // thread Android refuses it with NetworkOnMainThreadException. Picking any
         // repository crashed the app this way (seen on the Samsung A05s).
         withContext(Dispatchers.IO) {
-            val header = client.probeHeader(file, tokenSource.token())
+            val header = headerCache[file] ?: client.probeHeader(file, tokenSource.token())?.also { headerCache[file] = it }
             val alreadyOnDisk = downloader.partialFileFor(file).localBytes()
             val onDevice = downloader.isDownloaded(file)
             val plan = client.plan(
@@ -726,7 +785,7 @@ class HubViewModel(
                 alreadyOnDiskBytes = alreadyOnDisk,
                 header = header,
             )
-            Triple(plan, header != null, onDevice)
+            PlannedFile(plan, header != null, onDevice, alreadyOnDisk)
         }
 
     /**
@@ -743,16 +802,45 @@ class HubViewModel(
         val file = current.selected ?: return
         val plan = current.plan ?: return
         if (plan.reject != null) return
+        // A quant tap still probing must not change the selection under this download.
+        selectJob?.cancel()
 
         // Already on disk, already checksum-verified. Starting again would spend
         // 668 MB of the user's data to produce the identical file, and the
         // downloader would answer `Discard("already complete")` and restart from
         // byte 0 anyway. So the button adopts instead of downloading.
+        //
+        // WHY this runs as a tracked download: the projector transfer below shows
+        // progress and can be cancelled, which needs `downloading` and `downloadJob`
+        // set as they are for a transfer. The result is written the same way the
+        // transfer's Done is, so a failed registration is shown, not dropped.
         if (current.alreadyOnDevice) {
-            viewModelScope.launch {
-                current.projector?.let { fetchProjector(it) }
-                adopt(file)
+            current.downloadJob?.cancel()
+            _state.update {
+                it.copy(
+                    downloading = true,
+                    progress = null,
+                    error = null,
+                    registeredNote = null,
+                    registeredReady = false,
+                )
             }
+            val job = viewModelScope.launch {
+                current.projector?.let { if (!fetchProjector(it)) return@launch }
+                val note = adopt(file)
+                _state.update {
+                    it.copy(
+                        downloading = false,
+                        downloadJob = null,
+                        progress = DownloadProgress.Done(file, downloader.localFileFor(file).absolutePath),
+                        registeredNote = note.note,
+                        registeredReady = note.chatReady,
+                        alreadyOnDevice = true,
+                        partialBytesKept = 0,
+                    )
+                }
+            }
+            _state.update { it.copy(downloadJob = job) }
             return
         }
 
@@ -859,6 +947,7 @@ class HubViewModel(
     fun startNonGgufDownload(file: NonGgufModelFile) {
         if (file.sizeBytes <= 0L) return
         val hubFile = file.toHubFile()
+        selectJob?.cancel()
         _state.value.downloadJob?.cancel()
         _state.update {
             it.copy(
