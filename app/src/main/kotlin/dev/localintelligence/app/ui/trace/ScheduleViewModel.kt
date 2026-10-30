@@ -14,6 +14,7 @@ import dev.localintelligence.app.data.intentForTaskAction
 import dev.localintelligence.app.data.readTaskReadiness
 import dev.localintelligence.app.execution.ScheduledRunRegistry
 import dev.localintelligence.app.execution.ScheduledTaskController
+import dev.localintelligence.app.execution.TaskAlarmScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -178,15 +179,17 @@ class ScheduleViewModel(
      */
     fun resume(taskId: String) {
         viewModelScope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                ScheduledTaskController.resume(context, taskId)
+            val (ok, exactAllowed) = withContext(Dispatchers.IO) {
+                ScheduledTaskController.resume(context, taskId) to
+                    TaskAlarmScheduler.canScheduleExactAlarms(context)
             }
             reload(
-                notice = if (ok) {
-                    null
-                } else {
-                    "Could not resume: Android is not allowing this app to " +
+                notice = when {
+                    ok -> null
+                    // Only name exact alarms when they really are the cause (#174).
+                    !exactAllowed -> "Could not resume: Android is not allowing this app to " +
                         "schedule exact alarms. See the blockers above."
+                    else -> "Could not resume: this task has no later time to run at."
                 },
             )
         }
