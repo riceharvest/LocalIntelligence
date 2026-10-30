@@ -1361,10 +1361,11 @@ class AgentController(
             // tool no matter how many were wired up. GBNF makes the only
             // token-continuations valid be ones that parse as an action.
             //
-            // WHY IT IS SAFE: an empty tool list yields an empty grammar, and the
-            // JNI sampler chain treats an empty grammar string as "no constraint"
-            // rather than a sampler that accepts nothing. A plain question with
-            // nothing selected therefore still answers in prose.
+            // WHY IT IS SAFE: with no tools the grammar is the reply rule alone
+            // (`root ::= action`, `action ::= resp`), so the model still has to
+            // answer inside <respond>, and that is the only shape this turn
+            // accepts. A plain question with nothing selected therefore answers in
+            // prose, and the answer keeps its line breaks.
             //
             // WHY IT IS NULL OTHERWISE: LiteRT-LM refuses any request that carries a
             // grammar, so a backend that cannot enforce one gets none.
