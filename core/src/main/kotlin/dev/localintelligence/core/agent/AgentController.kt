@@ -30,6 +30,7 @@ import dev.localintelligence.core.policy.ConfirmationOutcome
 import dev.localintelligence.core.policy.ConfirmationSession
 import dev.localintelligence.core.policy.Decision
 import dev.localintelligence.core.policy.PolicyOutcome
+import dev.localintelligence.core.policy.PolicyRule
 import dev.localintelligence.core.policy.RiskPolicy
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.CancellationSignal
@@ -757,7 +758,20 @@ class AgentController(
         // would let a repeated call burn the user's confirmation dialog.
         // The tool names what the call acts on before the policy reads it, so a
         // confirmation can say which conversation a reply goes to (#201).
-        val decision = riskPolicy.evaluate(tool.definition, action.arguments, tool.describeTarget(action.arguments))
+        //
+        // WHY the score and not the model: the model chooses these calls itself, even when
+        // the message needs no tool. A tool the message does not match (score 0) is one the
+        // user did not ask for. A selector that scores nothing returns null, and that means
+        // "unknown", so the call is judged as requested, as it was before this guard.
+        val requested = toolSelector.scores(task, emptyList(), listOf(tool))
+            ?.get(tool.definition.name)?.let { it > 0 } ?: true
+        val decision = riskPolicy.evaluate(
+            tool.definition, action.arguments, tool.describeTarget(action.arguments), requested,
+        )
+        if (decision.rule == PolicyRule.NOT_REQUESTED) {
+            // Core has no logger. System.out is routed to logcat on Android.
+            println("guard: ${action.name} not asked for by the message, confirming first")
+        }
         metrics?.recordToolCall(
             action.name,
             action.arguments,

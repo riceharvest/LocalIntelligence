@@ -716,6 +716,8 @@ class AlarmCreateTool(
         tags = setOf(
             "alarm", "set an alarm", "wake me up", "remind me at", "timer", "ring at",
             "wake up call", "set a reminder",
+            // Dutch: the scorer reads only the tool's English text, so a Dutch request needs these to count as asked.
+            "wekker", "wek me", "maak me wakker",
         ),
         // SCHEDULE_EXACT_ALARM is needed on Android 12+ for setExactAndAllowWhileIdle.
         requiredPermission = "android.permission.SCHEDULE_EXACT_ALARM",

@@ -46,6 +46,9 @@ import dev.localintelligence.core.tool.ToolRisk
  *  8. Caller rules → used only to restrict further, never to lift 1–7.
  *  9. Risk tier → the documented fallback. Anything not explicitly safe and
  *     not matched above is UNCLASSIFIED → BLOCK.
+ *  10. Not requested by the message (guarded tools only, see [isGuarded]) →
+ *     an EXECUTE from 1–9 becomes REQUIRE_CONFIRMATION, and no auto-accept applies.
+ *     A refusal or confirmation from 1–9 stands as it is.
  *
  * Step 9's default is the reason this class is safe to extend: a new
  * [ToolRisk] constant cannot be executed by accident, because the fallback for
@@ -65,10 +68,24 @@ class RiskPolicy(
      * this call (see `AgentTool.describeTarget`), or null. It only changes the
      * wording of an external-communication confirmation that names no recipient
      * in its arguments; it never changes which outcome is chosen.
+     *
+     * [requestedByMessage] is false when the user's own message does not ask for this tool
+     * (the controller scores the tool against the message). Only a guarded tool is affected:
+     * it is confirmed first and never auto-accepted. A call the message asked for is judged as
+     * before.
      */
-    fun evaluate(definition: ToolDefinition, args: ToolArgs, displayTarget: String? = null): Decision {
+    fun evaluate(
+        definition: ToolDefinition,
+        args: ToolArgs,
+        displayTarget: String? = null,
+        requestedByMessage: Boolean = true,
+    ): Decision {
         val gated = evaluateGates(definition, args, displayTarget)
-        val decision = autoAccepted(definition, gated) ?: gated
+        val decision = if (!requestedByMessage && isGuarded(definition)) {
+            notRequested(definition, args, gated)
+        } else {
+            autoAccepted(definition, gated) ?: gated
+        }
         // (3) Permission, judged LAST and only for a call that would run
         //     unattended. It used to be step 3 and returned early, which made
         //     every tool declaring a permission skip the confirmation steps
@@ -84,6 +101,22 @@ class RiskPolicy(
             )
         }
         return decision
+    }
+
+    /**
+     * A guarded call the user's message did not ask for.
+     *
+     * Runs AFTER the gates, so a refusal, a block or a confirmation already decided
+     * stays as it is. Only a call that would run unattended becomes a confirmation, and
+     * it is returned without [autoAccepted], so no Approvals setting can run it silently.
+     */
+    private fun notRequested(definition: ToolDefinition, args: ToolArgs, gated: Decision): Decision {
+        if (gated.outcome != PolicyOutcome.EXECUTE) return gated
+        val what = definition.description.substringBefore(". ").trimEnd('.').take(160)
+        return decide(
+            definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.NOT_REQUESTED,
+            "Your message did not ask for this. Allow ${definition.name}: $what?",
+        )
     }
 
     /**
@@ -495,6 +528,22 @@ class RiskPolicy(
 }
 
 /** The confirmations an Approvals setting may skip: the ones the tier alone causes. */
+/**
+ * Tools that must not run unless the user's own message asked for them.
+ *
+ * WHY every non-read tier, and not a list of tools: a model that is not asked
+ * for an action (a timer for "what is 17 times 23?") has done something the user
+ * did not request, and that is the same whatever the tool's tier. The one read
+ * exception is `location.get`: reading where the phone is is private, and a model
+ * that reads it on "hi" has read something the user did not ask for.
+ *
+ * Changing this set changes what asks before running. Keep it in this one place.
+ */
+private val PRIVATE_READS = setOf("location.get")
+
+private fun isGuarded(definition: ToolDefinition): Boolean =
+    definition.risk != ToolRisk.READ_ONLY || definition.name in PRIVATE_READS
+
 private val AUTO_ACCEPTABLE_RULES = setOf(
     PolicyRule.RISK_TIER,
     PolicyRule.EXTERNAL_TO_UNKNOWN_TARGET,

@@ -72,6 +72,8 @@ class LocationGetTool(
         tags = setOf(
             "where am i", "location", "gps", "my location", "where are we",
             "coordinates", "current location", "nearby",
+            // Dutch: the scorer reads only the tool's English text, so a Dutch request needs these to count as asked.
+            "waar ben ik", "locatie", "hier",
         ),
         requiredPermission = ToolPermissions.ACCESS_COARSE_LOCATION,
     )
