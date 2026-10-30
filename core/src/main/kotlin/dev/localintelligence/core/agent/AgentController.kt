@@ -308,6 +308,9 @@ class AgentController(
     /** The tools of the last request, so a prompt can be rebuilt after a compaction. */
     private var lastVisible: List<AgentTool> = emptyList()
 
+    /** Tools described in this run's own turn; they stay callable through a compaction. */
+    private var announced: List<String> = emptyList()
+
     /**
      * The frozen metrics for the current run, published when it ends.
      *
@@ -412,7 +415,11 @@ class AgentController(
             // Matched on the start of the text: a long memory is shown cut.
             found.filter { memory -> val head = memory.text.trim().take(MEMORY_MATCH_CHARS); shown.none { head in it } }
         }
-        val hints = hooks.contextForStep(task).filter { it.isNotBlank() }
+        // The tools for this message: the list stays, and a newly needed tool is
+        // described here, in the turn (see [planTurnTools]).
+        val extraTools = planTurnTools()
+        announced = extraTools.map { it.definition.name }
+        val hints = hooks.contextForStep(task).filter { it.isNotBlank() } + listOfNotNull(toolHint(extraTools))
         val rendered = try {
             contextBuilder.renderTurn(task, memories, hints)
         } catch (t: Throwable) {
@@ -1148,19 +1155,20 @@ class AgentController(
     // ------------------------------------------------------------ collaborators
 
     /**
-     * The tools for this step: the session's list, plus any this task needs that
-     * it lacks.
+     * The tools for this message, decided once at its start: the session's list
+     * stays as it is, and a tool this task needs that the list lacks is returned
+     * so [run] describes it in the user turn (and it becomes callable through
+     * [Session.discoveredTools]).
      *
-     * WHY A STICKY LIST: the tools are written into the system prompt, the first
-     * thing the model reads. Picked fresh per task, the list changed with almost
-     * every message, and a changed system prompt means llama.cpp prefills the
-     * whole conversation again: minutes on a slow phone. So the session keeps
-     * the list, a tool the selector wants is appended (the text before it stays
-     * the same), and only when that would pass [AgentConfig.maxVisibleTools]
-     * does the list start over from this task's choice. A tool that no longer
-     * exists (its family was switched off) leaves the list.
+     * WHY NOT CHANGE THE LIST: the tools are in the system prompt, ahead of the
+     * whole conversation. On a hybrid model (LFM) any change there means the
+     * conversation is prefilled again; measured on a Samsung A05s, a 302-token
+     * re-prefill cost 30 s of a 61 s message. A tool described in the turn adds
+     * only its own lines at the end of the prompt. The list is set from the
+     * first message's task and again only when one of its tools is gone (a
+     * family switched off), when the prompt changes anyway.
      */
-    private fun selectTools(): List<AgentTool> {
+    private fun planTurnTools(): List<AgentTool> {
         val all = tools.all()
         // With tool lookup on, the prompt lists a few tools and tools.find.
         val cap = if (config.toolLookup) minOf(LOOKUP_LISTED, config.maxVisibleTools) else config.maxVisibleTools
@@ -1172,35 +1180,43 @@ class AgentController(
         val byName = all.associateBy { it.definition.name }
         val kept = sessions.epochTools.filter { it in byName }
         // A saved result's preview names observations.read, and a result can be
-        // saved mid-answer, when the list must not change; so the read tool is
-        // always on the list when the store is there.
+        // saved mid-answer; so the read tool is always on the list when the
+        // store is there.
         val mustHave = listOfNotNull(
             ObservationStore.READ_TOOL.takeIf { it in byName && observationStore != null },
             ToolFinder.NAME.takeIf { config.toolLookup && it in byName },
         )
-        val wantedNames = (mustHave + wanted.map { it.definition.name }).distinct()
-        val added = wantedNames.filter { it !in kept }
-        // Mid-answer the list stays as it is: a changed system prompt there is a
-        // full prefill on a hybrid model (no state survives an earlier change),
-        // paid while the user waits. A tool the selector wants now is added at
-        // the next message.
-        if (step > 1 && kept.size == sessions.epochTools.size && kept.isNotEmpty()) {
-            if (added.isNotEmpty()) log("tool set: ${added.joinToString()} wanted mid-answer, deferred to the next message")
-            return kept.mapNotNull { byName[it] }
-        }
-        if (added.isNotEmpty() || kept.size != sessions.epochTools.size) {
-            val room = cap + mustHave.size
-            val appended = kept.size + added.size <= room
-            val next = if (appended) kept + added else (wantedNames + kept.filter { it !in wantedNames }).take(room)
-            log(
-                "tool set changed: ${sessions.epochTools.size} -> ${next.size} tools, " +
-                    (if (appended) "appended ${added.joinToString()}" else "started over") +
-                    "; the prompt is prefilled again from the tool list on",
-            )
+        if (kept.isEmpty() || kept.size != sessions.epochTools.size) {
+            val next = (mustHave + wanted.map { it.definition.name }).distinct()
+            log("tool list set: ${next.joinToString()} (the prompt is prefilled from the tool list on)")
             sessions.epochTools.clear()
             sessions.epochTools += next
+            sessions.discoveredTools.clear()
+            return emptyList()
         }
+        val listed = kept.toSet() + sessions.discoveredTools
+        val extra = wanted.filter { it.definition.name !in listed }
+        if (extra.isNotEmpty()) {
+            sessions.discoveredTools += extra.map { it.definition.name }
+            log("tools described in this turn instead of the list: ${extra.joinToString { it.definition.name }}")
+        }
+        return extra
+    }
+
+    /** The session's tool list, as it stands for this step. */
+    private fun selectTools(): List<AgentTool> {
+        val byName = tools.all().associateBy { it.definition.name }
         return sessions.epochTools.mapNotNull { byName[it] }
+    }
+
+    /** The turn lines that describe [extra] tools, so the model knows it may call them. */
+    private fun toolHint(extra: List<AgentTool>): String? {
+        if (extra.isEmpty()) return null
+        return "Also available for this request:\n" + extra.joinToString("\n") { tool ->
+            val def = tool.definition
+            val args = (def.schema["properties"] as? kotlinx.serialization.json.JsonObject)?.keys.orEmpty()
+            "- ${def.name}: ${def.description}" + if (args.isEmpty()) "" else " (arguments: ${args.joinToString()})"
+        }
     }
 
     private fun buildRequest(visible: List<AgentTool>, callable: List<AgentTool> = visible): GenerationRequest {
@@ -1431,8 +1447,9 @@ class AgentController(
                 .copy(task = truncateTask(task))
         sessions.workingSummary = state
         foldWindow(keep)
-        // The lookups' results are folded away, so what they made callable goes too.
-        sessions.discoveredTools.clear()
+        // Earlier turns that described tools (and lookups' results) are folded
+        // away, so what they made callable goes too; this run's own turn is kept.
+        sessions.discoveredTools.retainAll(announced.toSet())
 
         val detail = "compacted $before messages into working state ($reason): " +
             "${state.progress.size} progress, ${state.actionsTaken.size} actions, " +
