@@ -536,12 +536,13 @@ data class RamEstimate(
      * is being asked to trust.
      */
     fun maxAffordableContext(available: Long): Int {
-        val probe = at(1)
-        val perToken = probe.kvCacheBytes
+        // Two probes instead of one: sliding-window layers, recurrent state and the
+        // compute buffer make the total affine in the context, not proportional to it.
+        val lo = at(PROBE_LOW)
+        val hi = at(PROBE_HIGH)
+        val perToken = (hi.totalBytes - lo.totalBytes) / (PROBE_HIGH - PROBE_LOW)
         if (perToken <= 0L) return 0
-        // Everything that does not scale with context: weights plus the runtime
-        // buffer allowance, which the core estimator derives from the weights.
-        val fixed = probe.weightsBytes + probe.overheadBytes
+        val fixed = lo.totalBytes - perToken * PROBE_LOW
         val forKv = available - fixed
         if (forKv <= 0L) return 0
         val n = forKv / perToken
@@ -562,6 +563,9 @@ data class RamEstimate(
     fun warnings(): List<GgufWarning> = at(ModelImporter.DEFAULT_CONTEXT_LENGTH).warnings
 
     companion object {
+        private const val PROBE_LOW = 1_024
+        private const val PROBE_HIGH = 2_048
+
         /**
          * Usable memory, after the JVM heap, the app's own footprint, and the
          * headroom Android needs before it starts killing background processes.

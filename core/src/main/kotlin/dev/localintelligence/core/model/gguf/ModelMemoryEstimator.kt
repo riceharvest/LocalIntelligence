@@ -8,10 +8,10 @@ package dev.localintelligence.core.model.gguf
  * ```
  * weights  = sum over tensors:  ceil(elements / blockElements) * blockBytes
  *          (fallback: parameterCount * bitsPerWeight / 8, then: fileBytes)
- * kv cache = sum over layers of kvHeads_i * (keyDim + valueDim) * contextLength * bytesPerElement
- *            (= 2 * layers * kvHeads * headDim * ... when the layers are uniform)
- * overhead = max(RUNTIME_BUFFER_FLOOR, RUNTIME_BUFFER_RATIO * weights)
- * total    = weights + kvCache + overhead
+ * kv cache = sum over attention layers of kvHeads_i * (keyDim + valueDim) * cells_i * bytesPerElement
+ * recurrent = fixed state of the conv / Gated DeltaNet layers
+ * overhead = compute buffer = n_vocab * n_outputs_max * 4 + fitted base
+ * total    = weights + kvCache + recurrent + overhead
  * ```
  *
  * The `2` is the K and V tensors. Every term is a read from the file or exact block
@@ -29,36 +29,46 @@ package dev.localintelligence.core.model.gguf
  * count, and [GgufQuantType.bytesFor] reproduces llama.cpp's own `ceil(elements/256)*
  * 144` rule term for term.
  *
- * ## Why the KV cache formula is the conservative one
+ * ## How the KV cache is priced
  *
- * `2 * layers * kvHeads * headDim * ctx * bytesPerElement` is a *full* cache. llama.cpp
- * with a non-zero `--ubatch` and a `llama_context` sized to `ctx` does allocate roughly
- * that, and batched prefill is the moment peak usage occurs, so a fit-check that ignored
- * the cache would tell a user with 2.1 GiB of headroom that a 2.2 GiB model is fine.
- * Over-estimating the cache is the safe direction for a warning; the [KvCacheType]
- * argument is how a user who disagrees opts into the cheaper cache and re-checks.
+ * The app creates every llama.cpp context with `swa_full = false`, `n_ubatch = 512`
+ * and `n_outputs_max = 1` (the constructor parameters), so the cache is sized the way
+ * `llama_kv_cache_iswa` sizes it:
  *
- * ## The overhead constant, argued
+ * - a full-attention layer keeps `pad256(n_ctx)` cells;
+ * - a sliding-window layer keeps `min(that, pad256(n_swa + n_ubatch))` cells;
+ * - layers past `shared_kv_layers` store nothing (they read an earlier layer's cache);
+ * - recurrent layers (short-conv, Gated DeltaNet) have no per-token cache but a fixed
+ *   f32 state, priced into [MemoryEstimate.recurrentStateBytes].
  *
- * [RUNTIME_BUFFER_FLOOR] is 64 MiB. A llama.cpp decode step needs the compute graph,
- * the RoPE tables, the logits buffer (`vocab` floats — 151936 x 4 bytes = 0.6 MiB for
- * Qwen3), and the token/score arrays the tokenizer materialises at load. For a small
- * model on a phone the logits buffer and tokenizer dominate, and both are roughly
- * constant rather than proportional to the model, which is exactly the shape a flat
- * floor models. 64 MiB is a round number above the small-model floor and well below the
- * point where it would mask a real "does not fit".
+ * Checked against llama.cpp b11988 with `memprobe` (research-context-defaults.md 1.2):
+ * LFM3-1.7B at 4K is 56 MiB there and 56 MiB here, Spark-4B 252 vs 252, Gemma 4 E2B
+ * 36 vs 36, Qwen3.5-2B 67 vs 67.
  *
- * [RUNTIME_BUFFER_RATIO] is 2% of the weights. This covers the parts that genuinely do
- * scale: page-in slack, the mmap working set, and backend graph allocations that track
- * hidden size. 2% is deliberately modest. The failure mode of an over-generous ratio is
- * a model that would have loaded being reported as not fitting, and a user who is told
- * "no" for a model that works will not trust the next "yes" either.
+ * ## The compute buffer, fitted
  *
- * Both constants are `const` so a reader can diff the assumptions against a future
- * measurement instead of reverse-engineering a magic number.
+ * `n_vocab * n_outputs_max * 4` is the logits tensor. The rest is the graph's
+ * activations, which llama.cpp does not size from anything in the header, so it is a
+ * fit to the nine measured models: [COMPUTE_BASE_BYTES] plus [COMPUTE_BYTES_PER_WEIGHT_GIB]
+ * per GiB of tensors, clamped to [COMPUTE_BASE_MIN_BYTES]..[COMPUTE_BASE_MAX_BYTES],
+ * plus 1 MiB per 1K of context for the attention mask (2 MiB when sliding-window
+ * layers keep a second mask). The fit is within about 20 MiB of every measured row.
+ *
+ * ## Lookup-only tensors
+ *
+ * An untied `token_embd` and `per_layer_token_embd` are read one row per token. llama.cpp
+ * mmaps them, so only the touched pages are resident and the kernel can drop them. They
+ * are reported in [MemoryEstimate.lookupOnlyBytes] and left out of the total.
+ *
  */
 class ModelMemoryEstimator(
     private val limits: GgufLimits = GgufLimits(),
+    /** `swa_full` as the app creates its contexts. False: SWA layers keep a window, not the context. */
+    private val swaFull: Boolean = false,
+    /** `n_ubatch` the app creates its contexts with. */
+    private val ubatch: Int = 512,
+    /** `n_outputs_max` the app creates its contexts with (it only ever reads the last token's logits). */
+    private val outputsMax: Int = 1,
 ) {
 
     /**
@@ -71,12 +81,6 @@ class ModelMemoryEstimator(
      * The assumption is always reported as [GgufWarning.ContextLengthMissing].
      */
     val assumedContextLength: Long = 2_048
-
-    /** Flat runtime-buffer allowance. See the class KDoc for the argument. */
-    val runtimeBufferFloorBytes: Long = RUNTIME_BUFFER_FLOOR
-
-    /** Runtime buffers as a fraction of weight bytes. See the class KDoc for the argument. */
-    val runtimeBufferRatio: Double = RUNTIME_BUFFER_RATIO
 
     /**
      * Estimates the resident memory of a model at a given context length and cache type.
@@ -160,28 +164,14 @@ class ModelMemoryEstimator(
 
         // ---- kv cache ----------------------------------------------------------
         val bytesPerElement = kvCacheType.bytesPerElement
-        val kvCacheBytes = if (layers == null || kvHeadsPerLayer == null || headDimValue == null || valueDimValue == null) {
+        val kvPricing = if (layers == null || kvHeadsPerLayer == null || headDimValue == null || valueDimValue == null) {
             inputs += EstimateInput("KV cache", "not computable", "missing layer/head metadata")
-            0L
+            null
         } else {
-            // kv cache = sum over layers of (kvHeads_i * (keyDim + valueDim) * ctx * bytes),
-            // which is 2 * kvHeads * headDim per layer when K and V share a width. A layer
-            // with 0 KV heads (no attention, as in hybrid models) adds nothing.
-            //
-            // WHY this is the one place the estimate multiplies in floating point:
-            // bytesPerElement is fractional for the quantised cache types (q8_0 is
-            // 34/32 = 1.0625), and truncating it to a Long turns every quantised cache
-            // into an f16-sized one — the exact opposite of what the user asked for. All
-            // other factors are integers and the cache multipliers are exactly
-            // representable, so the product is exact up to 2^53, roughly 9000x larger than
-            // any real model's cache. Beyond that the product is not a number a phone has,
-            // and it saturates rather than wrapping.
-            val kvHeadSum = kvHeadsPerLayer.sum()
-            val exact = kvHeadSum.toDouble() * (headDimValue + valueDimValue).toDouble() * contextLength * bytesPerElement
-            val cache = if (!exact.isFinite() || exact >= Long.MAX_VALUE.toDouble()) Long.MAX_VALUE else exact.toLong()
-            inputs += EstimateInput("Bytes per KV element", "%.3f".format(bytesPerElement), kvCacheType.label)
-            cache
+            priceKv(m, layers.toInt(), kvHeadsPerLayer, headDimValue, valueDimValue, contextLength, bytesPerElement, inputs)
         }
+        val kvCacheBytes = kvPricing?.kvBytes ?: 0L
+        val recurrentBytes = recurrentStateBytes(m, kvPricing?.recurrent, inputs)
 
         // ---- weights -----------------------------------------------------------
         val tableParams = header.tensorTableParameterCount
@@ -205,20 +195,35 @@ class ModelMemoryEstimator(
             )
         }
 
-        // ---- overhead ----------------------------------------------------------
-        val ratioPart = (weights.toDouble() * runtimeBufferRatio).toLong()
-        val overhead = maxOf(runtimeBufferFloorBytes, ratioPart)
+        // ---- lookup-only tensors, compute buffer ---------------------------------
+        val lookupOnly = if (quantTypeOverride == null && basis == EstimateBasis.TENSOR_TABLE) {
+            lookupOnlyBytes(header)
+        } else {
+            0L
+        }
+        val residentWeights = (weights - lookupOnly).coerceAtLeast(0L)
+        if (lookupOnly > 0) {
+            inputs += EstimateInput(
+                "Lookup-only tables",
+                MemoryEstimate.formatBytes(lookupOnly),
+                "mmap-backed, not resident (untied token_embd / per_layer_token_embd)",
+            )
+        }
+        val overhead = computeBufferBytes(m, weights, contextLength, kvPricing?.hasSwa == true)
         inputs += EstimateInput(
-            "Runtime buffers",
+            "Compute buffer",
             MemoryEstimate.formatBytes(overhead),
-            "max(${MemoryEstimate.formatBytes(runtimeBufferFloorBytes)}, ${(runtimeBufferRatio * 100).toInt()}% of weights)",
+            "n_vocab x $outputsMax x 4 B + fitted base",
         )
 
-        val total = saturatingAdd(saturatingAdd(weights, kvCacheBytes), overhead)
+        val total = saturatingAdd(
+            saturatingAdd(residentWeights, kvCacheBytes),
+            saturatingAdd(recurrentBytes, overhead),
+        )
 
         return MemoryEstimate(
             basis = basis,
-            weightsBytes = weights,
+            weightsBytes = residentWeights,
             kvCacheBytes = kvCacheBytes,
             overheadBytes = overhead,
             totalBytes = total,
@@ -235,6 +240,8 @@ class ModelMemoryEstimator(
             headDimensionDerived = headDim?.source == GgufMetadata.HeadDimensionSource.EMBEDDING_LENGTH_OVER_HEAD_COUNT,
             inputs = inputs,
             warnings = warnings,
+            recurrentStateBytes = recurrentBytes,
+            lookupOnlyBytes = lookupOnly,
         )
     }
 
@@ -307,6 +314,114 @@ class ModelMemoryEstimator(
         return 0L to EstimateBasis.UNKNOWN
     }
 
+    /** What [priceKv] found: the cache bytes, whether any layer is sliding-window, and which layers are recurrent. */
+    private class KvPricing(val kvBytes: Long, val hasSwa: Boolean, val recurrent: List<Boolean>?)
+
+    private fun pad256(n: Long): Long = (n + 255L) / 256L * 256L
+
+    /**
+     * KV bytes the way llama.cpp sizes them with this estimator's `swa_full` / `n_ubatch`.
+     * See the class KDoc. A layer is skipped when it has no KV heads, is recurrent, or is
+     * one of the trailing `shared_kv_layers`.
+     */
+    private fun priceKv(
+        m: GgufMetadata,
+        layers: Int,
+        kvHeadsPerLayer: List<Long>,
+        keyDim: Long,
+        valueDim: Long,
+        contextLength: Long,
+        bytesPerElement: Double,
+        inputs: MutableList<EstimateInput>,
+    ): KvPricing {
+        val recurrent = m.recurrentLayers
+        val swa = m.swaLayers
+        val window = m.slidingWindow
+        val keySwa = m.keyLengthSwa ?: keyDim
+        val valueSwa = m.valueLengthSwa ?: valueDim
+        val storing = layers - (m.sharedKvLayers ?: 0L).coerceIn(0L, layers.toLong()).toInt()
+        val fullCells = pad256(contextLength)
+        val swaCells = if (window == null || swaFull) fullCells else minOf(fullCells, pad256(window + ubatch))
+        var total = 0.0
+        var globalLayers = 0
+        var swaLayerCount = 0
+        for (i in 0 until layers) {
+            if (i >= storing) continue
+            if (recurrent != null && recurrent[i]) continue
+            val heads = kvHeadsPerLayer[i]
+            if (heads <= 0L) continue
+            val isSwa = swa != null && swa[i]
+            if (isSwa) {
+                swaLayerCount++
+                total += heads.toDouble() * (keySwa + valueSwa).toDouble() * swaCells * bytesPerElement
+            } else {
+                globalLayers++
+                total += heads.toDouble() * (keyDim + valueDim).toDouble() * fullCells * bytesPerElement
+            }
+        }
+        inputs += EstimateInput("Bytes per KV element", "%.3f".format(bytesPerElement), "cache type")
+        inputs += EstimateInput(
+            "KV layers",
+            "$globalLayers full-attention" + if (swaLayerCount > 0) " + $swaLayerCount sliding-window ($swaCells cells)" else "",
+            "block_count, head_count_kv, sliding_window_pattern, shared_kv_layers, full_attention_interval",
+        )
+        val bytes = if (!total.isFinite() || total >= Long.MAX_VALUE.toDouble()) Long.MAX_VALUE else total.toLong()
+        return KvPricing(bytes, swaLayerCount > 0, recurrent)
+    }
+
+    /**
+     * Fixed per-sequence state of the non-attention layers, f32.
+     *
+     * - Short-conv (LFM2/LFM3): `(l_cache - 1) * n_embd` per layer.
+     * - Gated DeltaNet (qwen35): `(conv_kernel - 1) * (inner + 2 * groups * state)` conv
+     *   state plus `state_size * inner` recurrent state per layer.
+     */
+    private fun recurrentStateBytes(m: GgufMetadata, recurrent: List<Boolean>?, inputs: MutableList<EstimateInput>): Long {
+        val n = recurrent?.count { it } ?: return 0L
+        if (n == 0) return 0L
+        val perLayer: Long = run {
+            val inner = m.ssmInnerSize
+            val state = m.ssmStateSize
+            val kernel = m.ssmConvKernel
+            if (inner != null && state != null && kernel != null) {
+                val groups = m.ssmGroupCount ?: 1L
+                ((kernel - 1).coerceAtLeast(0) * (inner + 2 * groups * state) + state * inner) * 4L
+            } else {
+                val l = m.shortConvCache
+                val embd = m.embeddingLength
+                if (l != null && embd != null) (l - 1) * embd * 4L else 0L
+            }
+        }
+        val bytes = perLayer * n
+        if (bytes > 0) {
+            inputs += EstimateInput("Recurrent state", MemoryEstimate.formatBytes(bytes), "$n recurrent layers x f32 state")
+        }
+        return bytes
+    }
+
+    /** Tensor bytes that are only ever row-looked-up, so the OS need not keep them resident. */
+    private fun lookupOnlyBytes(header: GgufHeader): Long {
+        val untied = header.tensors.any { it.name == "output.weight" }
+        var total = 0L
+        for (t in header.tensors) {
+            if (t.name == "per_layer_token_embd.weight" || (untied && t.name == "token_embd.weight")) {
+                total = saturatingAdd(total, t.bytes ?: 0L)
+            }
+        }
+        return total
+    }
+
+    /** `n_vocab * n_outputs_max * 4` plus the fitted graph base. See the class KDoc. */
+    private fun computeBufferBytes(m: GgufMetadata, tensorBytes: Long, contextLength: Long, hasSwa: Boolean): Long {
+        val vocab = m.vocabularySize ?: DEFAULT_VOCAB
+        val logits = vocab * outputsMax * 4L
+        val gib = tensorBytes.toDouble() / (1024.0 * 1024 * 1024)
+        val base = (COMPUTE_BASE_BYTES + COMPUTE_BYTES_PER_WEIGHT_GIB * gib).toLong()
+            .coerceIn(COMPUTE_BASE_MIN_BYTES, COMPUTE_BASE_MAX_BYTES)
+        val mask = contextLength / 1024 * MIB * (if (hasSwa) 2 else 1)
+        return logits + base + mask
+    }
+
     private fun headDimSourceKey(source: GgufMetadata.HeadDimensionSource): String =
         when (source) {
             GgufMetadata.HeadDimensionSource.KEY_LENGTH -> "<arch>.attention.key_length"
@@ -323,10 +438,18 @@ class ModelMemoryEstimator(
     }
 
     companion object {
-        /** 64 MiB. Flat allowance for the compute graph, RoPE tables, logits and tokenizer arrays. */
-        const val RUNTIME_BUFFER_FLOOR: Long = 64L * 1024 * 1024
+        private const val MIB: Long = 1024L * 1024
 
-        /** 2% of weight bytes for page-in slack, mmap working set and graph allocations. */
-        const val RUNTIME_BUFFER_RATIO: Double = 0.02
+        /** Vocabulary assumed when the file has no token list. */
+        private const val DEFAULT_VOCAB: Long = 152_000L
+
+        /** Fitted graph base, bytes: the intercept of compute buffer against tensor size. */
+        const val COMPUTE_BASE_BYTES: Long = 28L * MIB
+
+        /** Fitted slope: extra graph base per GiB of tensors. */
+        const val COMPUTE_BYTES_PER_WEIGHT_GIB: Double = 22.0 * MIB
+
+        const val COMPUTE_BASE_MIN_BYTES: Long = 25L * MIB
+        const val COMPUTE_BASE_MAX_BYTES: Long = 130L * MIB
     }
 }
