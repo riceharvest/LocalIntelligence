@@ -77,6 +77,7 @@ data class SimpleDefaults(
  */
 object SimpleSetup {
     private const val GIB = 1024L * 1024 * 1024
+    private const val LFM3_MIN_RAM = (3.2 * GIB).toLong()
 
     private val SPARK_4B = SuggestedModel(
         repo = "XHToken/Spark-X2.6-4B-GGUF",
@@ -122,7 +123,12 @@ object SimpleSetup {
     }
 
     fun suggestedModel(facts: DeviceFacts): SuggestedModel = when {
-        facts.totalRamBytes >= 4 * GIB -> SuggestedModel(
+        // 3.2 GiB, not 4: LFM3 needs about 1.1 GiB at 4K, which leaves a 3.6 GB
+        // phone over 2 GiB for Android. What kept it off those phones was speed:
+        // every message re-prefilled the whole conversation at ~11 tok/s. With
+        // the prompt now growing only at its end, a message prefills only
+        // itself, so the agent model is usable there too.
+        facts.totalRamBytes >= LFM3_MIN_RAM -> SuggestedModel(
             repo = "LiquidAI/LFM3-1.7B-GGUF",
             // QAD Q4_0 over Q4_K_M: Q4_0 gets the ARM repack/KleidiAI kernels.
             // MEASURED Pixel 10 Pro, llama-bench 6 threads: pp256 254.6 vs 211.0
