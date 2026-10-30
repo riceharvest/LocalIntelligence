@@ -448,12 +448,19 @@ class HubViewModel(
                     }
                     result.onSuccess { files ->
                         val loadable = client.loadableFiles(files)
-                        val best = client.chooseBestFitting(
+                        val guess = client.chooseBestFitting(
                             candidates = loadable,
                             contextLength = contextLength(),
                             budget = budget,
                         )
-                        val planned = best?.let { planFor(it) }
+                        // The guess prices from the file size alone. When it says
+                        // nothing fits, the smallest file is still selected and its
+                        // header read: Gemma 4 E2B (3.3 GB on disk, 1.8 GB resident
+                        // once its lookup table is known to stay on disk) was shown
+                        // as unrecommended on a 3.6 GB phone it fits.
+                        val pick = guess ?: loadable.firstOrNull()
+                        val planned = pick?.let { planFor(it) }
+                        val best = guess ?: pick?.takeIf { planned?.first?.isAllowed == true }
                         // WHY THE PROBE RUNS EVEN WHEN `loadable` IS NON-EMPTY:
                         // a repository can publish both, and in that case the
                         // `.litertlm` is the more interesting half — it is the
@@ -478,7 +485,7 @@ class HubViewModel(
                                 },
                                 files = loadable,
                                 nonGgufFiles = nonGguf,
-                                selected = best,
+                                selected = pick,
                                 recommended = best,
                                 plan = planned?.first,
                                 exactFit = planned?.second == true,
