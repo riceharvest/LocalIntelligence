@@ -228,6 +228,11 @@ internal data class DedupedContacts(
     val total: Int,
     val truncated: Boolean,
     val duplicateRowsCollapsed: Int,
+    /**
+     * The row fetch hit its cap, so [total] counts only the contacts in those rows and
+     * more may match. Set by the caller; [total] is then a floor, not the count.
+     */
+    val incomplete: Boolean = false,
 )
 
 // ------------------------------------------------------------------------- rendering --
@@ -240,7 +245,10 @@ internal object ContactsText {
     ): String {
         if (deduped.contacts.isEmpty()) return "No contacts matched \"$query\"."
 
-        val header = if (deduped.truncated) {
+        val header = if (deduped.incomplete) {
+            "Showing ${deduped.contacts.size} of at least ${deduped.total} contacts matching \"$query\". " +
+                "More may match; narrow the query to see them:"
+        } else if (deduped.truncated) {
             "Showing ${deduped.contacts.size} of ${deduped.total} contacts matching \"$query\":"
         } else {
             "${deduped.contacts.size} contact${if (deduped.contacts.size == 1) "" else "s"} " +
@@ -447,8 +455,8 @@ class ContactsSearchTool internal constructor(
             val pattern = "%${ContactsArgs.escapeLike(ContactsArgs.stripPossessive(query))}%"
 
             val rows = ArrayList<ContactPhoneRow>(fetch)
+            var cursorRows = 0
             var wasCancelled = false
-            var overflow = false
 
             try {
                 val cursor: Cursor? = provider.queryPhones(pattern, fetch)
@@ -466,10 +474,7 @@ class ContactsSearchTool internal constructor(
                             wasCancelled = true
                             break
                         }
-                        if (rows.size >= fetch) {
-                            overflow = true
-                            break
-                        }
+                        cursorRows++
                         val name = cursor.stringOrEmpty(ContactsContract.Data.DISPLAY_NAME)
                         val mimetype = cursor.stringOrEmpty(ContactsContract.Data.MIMETYPE)
                         // Only a phone row carries a number. An email or nickname row still
@@ -500,8 +505,12 @@ class ContactsSearchTool internal constructor(
 
             if (wasCancelled) return@withContext cancelled()
 
+            // The SQL LIMIT stops the cursor at exactly `fetch` rows, so a full fetch means the
+            // contacts beyond it were never read. Counting only those would report a partial
+            // list as complete ("Showing 10 of 10").
+            val rowCapReached = cursorRows >= fetch
             val deduped = ContactsArgs.dedupe(rows, limit).let {
-                if (overflow && !it.truncated) it.copy(truncated = true) else it
+                if (rowCapReached) it.copy(truncated = true, incomplete = true) else it
             }
 
             ToolResult(
@@ -512,6 +521,7 @@ class ContactsSearchTool internal constructor(
                     put("count", deduped.contacts.size)
                     put("total", deduped.total)
                     put("truncated", deduped.truncated)
+                    put("incomplete", deduped.incomplete)
                     put("contactIds", deduped.contacts.map { it.contactId }.joinToString(","))
                 },
             )
