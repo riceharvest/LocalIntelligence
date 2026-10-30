@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
@@ -132,8 +133,13 @@ fun ChatComposer(
     liveStatus: String? = null,
     /** A one-line complaint, such as a photo that did not decode. */
     notice: String? = null,
+    /** Whether hands-free mode is on. Its button then shows as active, and tapping it stops the mode. */
+    handsFreeOn: Boolean = false,
+    /** Whether the hands-free button is offered. */
+    canHandsFree: Boolean = true,
     onAttach: () -> Unit = {},
     onMic: () -> Unit = {},
+    onHandsFree: () -> Unit = {},
     onRemoveAttachment: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -231,7 +237,7 @@ fun ChatComposer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    MediaButtons(canAttach, canUseMic, micActive, onAttach, onMic)
+                    MediaButtons(canAttach, canUseMic, micActive, handsFreeOn, canHandsFree, onAttach, onMic, onHandsFree)
                     ComposerField(
                         input = input,
                         onInputChange = onInputChange,
@@ -265,7 +271,7 @@ fun ChatComposer(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     PermissionEntry()
-                    MediaButtons(canAttach, canUseMic, micActive, onAttach, onMic)
+                    MediaButtons(canAttach, canUseMic, micActive, handsFreeOn, canHandsFree, onAttach, onMic, onHandsFree)
 
                     // One slot, two states, same geometry. The button never moves
                     // when a run starts or stops, so there is nothing to re-find
@@ -329,8 +335,11 @@ private fun MediaButtons(
     canAttach: Boolean,
     canUseMic: Boolean,
     micActive: Boolean,
+    handsFreeOn: Boolean,
+    canHandsFree: Boolean,
     onAttach: () -> Unit,
     onMic: () -> Unit,
+    onHandsFree: () -> Unit,
 ) {
     IconButton(onClick = onAttach, enabled = canAttach, modifier = Modifier.size(48.dp)) {
         Icon(Icons.Filled.AttachFile, contentDescription = "Attach a photo")
@@ -351,6 +360,24 @@ private fun MediaButtons(
         Icon(
             Icons.Filled.Mic,
             contentDescription = if (micActive) "Stop recording" else "Record voice",
+        )
+    }
+    IconButton(
+        onClick = onHandsFree,
+        enabled = canHandsFree,
+        modifier = Modifier.size(48.dp),
+        colors = if (handsFreeOn) {
+            IconButtonDefaults.iconButtonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            )
+        } else {
+            IconButtonDefaults.iconButtonColors()
+        },
+    ) {
+        Icon(
+            Icons.Filled.Headset,
+            contentDescription = if (handsFreeOn) "Stop hands-free mode" else "Start hands-free mode",
         )
     }
 }
