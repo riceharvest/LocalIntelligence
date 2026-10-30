@@ -31,7 +31,7 @@ class DocumentsPlugin(private val store: DocumentStore) : AgentPlugin {
     override val summary: String =
         "Answers from the PDF and text files you added on the Documents screen. Nothing happens until you add one."
 
-    override val settings: List<SettingDef<*>> = listOf(DOCUMENT_RESULTS)
+    override val settings: List<SettingDef<*>> = listOf(DOCUMENT_RESULTS, DOCUMENT_SEARCH_MODE, DOCUMENT_EMBEDDING_MODEL)
 
     override fun tools(): List<AgentTool> = if (store.isEmpty()) emptyList() else shippedTools()
 
@@ -72,4 +72,40 @@ val DOCUMENT_RESULTS: SettingDef.IntValue = SettingDef.IntValue(
     default = 4,
     min = 1,
     max = 10,
+)
+
+/** Where the embedding model comes from: the EmbeddingGemma 2 Q8_0 build the hub suggests. */
+const val DEFAULT_EMBEDDING_REPO: String = "ggml-org/embeddinggemma-2-GGUF"
+const val DEFAULT_EMBEDDING_FILE: String = "embeddinggemma-2-Q8_0.gguf"
+
+const val SEARCH_MODE_HYBRID: String = "hybrid"
+const val SEARCH_MODE_KEYWORD: String = "keyword"
+
+/**
+ * How a search ranks passages. Hybrid adds meaning to the keywords when the embedding
+ * model is on the phone; without the model it is keyword search either way.
+ */
+val DOCUMENT_SEARCH_MODE: SettingDef.Choice = SettingDef.Choice(
+    key = "documents.search_mode",
+    title = "Search mode",
+    help = "Hybrid also finds passages by meaning when the document search model is on this phone, " +
+        "so a question worded differently from the document can still find it. Keyword matches exact words only.",
+    section = SettingSection.PLUGINS,
+    default = SEARCH_MODE_HYBRID,
+    options = listOf(
+        SettingDef.Choice.Option(SEARCH_MODE_HYBRID, "Hybrid"),
+        SettingDef.Choice.Option(SEARCH_MODE_KEYWORD, "Keyword only"),
+    ),
+)
+
+/** The GGUF file name, in the models folder, used for meaning search. Empty reads as the default. */
+val DOCUMENT_EMBEDDING_MODEL: SettingDef.Text = SettingDef.Text(
+    key = "documents.embedding_model",
+    title = "Document search model",
+    help = "File name of the embedding model in the models folder. The Documents screen fetches the default. " +
+        "Documents are searched by meaning only while this file is on the phone.",
+    section = SettingSection.PLUGINS,
+    default = DEFAULT_EMBEDDING_FILE,
+    maxLength = 120,
+    blankMeansDefault = true,
 )

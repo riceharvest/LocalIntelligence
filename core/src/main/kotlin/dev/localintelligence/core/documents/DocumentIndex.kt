@@ -58,10 +58,55 @@ class DocumentIndex private constructor(
      */
     fun search(query: String, limit: Int): List<Passage> {
         if (limit <= 0 || passages.isEmpty()) return emptyList()
-        val terms = lexicalTokens(query).distinct()
-        if (terms.isEmpty()) return emptyList()
+        val scores = bm25Scores(query)
+        return (scores.indices)
+            .filter { scores[it] > 0.0 }
+            .sortedWith(compareByDescending<Int> { scores[it] }.thenBy { it })
+            .take(limit)
+            .map { passage(it, scores[it]) }
+    }
 
-        val scores = HashMap<Int, Double>()
+    /**
+     * The best [limit] passages for [query] by hybrid score: half the BM25 score,
+     * scaled so the best keyword match is 1.0, plus half the cosine similarity
+     * between [queryVector] and the passage's vector.
+     *
+     * [vectors] holds one row of `queryVector.size` floats per passage, in index
+     * order, each unit length, so the dot product is the cosine. A passage with
+     * no keyword hit can still rank: that is what the vector half is for.
+     * Falls back to [search] when the vectors do not line up with the passages.
+     */
+    fun searchHybrid(query: String, queryVector: FloatArray, vectors: FloatArray, limit: Int): List<Passage> {
+        if (limit <= 0 || passages.isEmpty()) return emptyList()
+        val dim = queryVector.size
+        if (dim == 0 || vectors.size != passages.size * dim) return search(query, limit)
+
+        val keyword = bm25Scores(query)
+        val best = keyword.maxOrNull()?.takeIf { it > 0.0 } ?: 1.0
+        val fused = DoubleArray(passages.size)
+        for (i in passages.indices) {
+            var dot = 0.0
+            val base = i * dim
+            for (d in 0 until dim) dot += queryVector[d].toDouble() * vectors[base + d]
+            fused[i] = KEYWORD_WEIGHT * (keyword[i] / best) + (1.0 - KEYWORD_WEIGHT) * dot
+        }
+        return fused.indices
+            .sortedWith(compareByDescending<Int> { fused[it] }.thenBy { it })
+            .take(limit)
+            .map { passage(it, fused[it]) }
+    }
+
+    private fun passage(index: Int, score: Double): Passage {
+        val p = passages[index]
+        return Passage(p.docId, p.title, p.number, p.text, score)
+    }
+
+    /** BM25 score of every passage for [query], in index order. Zero where no term matches. */
+    private fun bm25Scores(query: String): DoubleArray {
+        val scores = DoubleArray(passages.size)
+        val terms = lexicalTokens(query).distinct()
+        if (terms.isEmpty()) return scores
+
         val n = passages.size.toDouble()
         for (term in terms) {
             val list = postings[term] ?: continue
@@ -71,21 +116,18 @@ class DocumentIndex private constructor(
                 val len = passages[doc].length.toDouble()
                 val norm = K1 * (1.0 - B + B * len / avgLength)
                 val w = tf * (K1 + 1.0) / (tf + norm)
-                scores[doc] = (scores[doc] ?: 0.0) + idf * w
+                scores[doc] += idf * w
             }
         }
-        return scores.entries
-            .sortedWith(compareByDescending<Map.Entry<Int, Double>> { it.value }.thenBy { it.key })
-            .take(limit)
-            .map { (doc, score) ->
-                val p = passages[doc]
-                Passage(p.docId, p.title, p.number, p.text, score)
-            }
+        return scores
     }
 
     companion object {
         const val K1: Double = 1.2
         const val B: Double = 0.75
+
+        /** Weight of the keyword half of a hybrid score. The vector half gets the rest. */
+        const val KEYWORD_WEIGHT: Double = 0.5
 
         /** Builds the index over every passage of [documents], in the order given. */
         fun build(documents: List<IndexedDocument>): DocumentIndex {

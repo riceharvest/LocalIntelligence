@@ -8,8 +8,12 @@ import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.cloud.OpenRouterPlugin
+import dev.localintelligence.android.documents.DocumentEmbedder
 import dev.localintelligence.android.documents.DocumentStore
 import dev.localintelligence.android.documents.DocumentsPlugin
+import dev.localintelligence.android.documents.DOCUMENT_EMBEDDING_MODEL
+import dev.localintelligence.android.documents.DOCUMENT_SEARCH_MODE
+import dev.localintelligence.android.documents.SEARCH_MODE_HYBRID
 import dev.localintelligence.android.mcp.McpPlugin
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.android.skills.SkillsPlugin
@@ -174,8 +178,28 @@ class AppContainer(private val context: Context) {
         families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + remote
     }
 
-    /** Documents the user added on the Documents screen, as text under filesDir/documents. */
-    val documents: DocumentStore by lazy { DocumentStore(File(context.filesDir, "documents")) }
+    /**
+     * Documents the user added on the Documents screen, as text under filesDir/documents.
+     *
+     * WHY the embedder and the mode are lambdas: the store asks for the model only when a
+     * document is added or a hybrid search runs, and reads the mode at search time, so a
+     * settings change applies to the next search without rebuilding anything.
+     */
+    val documents: DocumentStore by lazy {
+        DocumentStore(
+            root = File(context.filesDir, "documents"),
+            embedder = { documentEmbedder.get() },
+            hybridSearch = { settings[DOCUMENT_SEARCH_MODE] == SEARCH_MODE_HYBRID },
+        )
+    }
+
+    /** The meaning-search model for documents, loaded on first use. See [DocumentEmbedder]. */
+    val documentEmbedder: DocumentEmbedder by lazy {
+        DocumentEmbedder(modelsDir) { settings[DOCUMENT_EMBEDDING_MODEL] }
+    }
+
+    /** Where the document search model is expected: the models folder, under the name the setting gives. */
+    fun documentModelFile(): File = File(modelsDir, File(settings[DOCUMENT_EMBEDDING_MODEL].trim()).name)
 
     /** Skills on disk under filesDir/skills. Shared by the plugin, the skills screen and "Save as skill". */
     val skills: SkillRepository by lazy { SkillRepository(File(context.filesDir, "skills")) }
@@ -1140,6 +1164,9 @@ class AppContainer(private val context: Context) {
      * that claims success and cannot be loaded.
      */
     suspend fun adoptDownloaded(file: java.io.File): String? = withContext(Dispatchers.IO) {
+        // The embedding model is not a chat model. Loading it as one would replace the chat
+        // model with a model that cannot write replies, so it is only kept for document search.
+        if (file.name == documentModelFile().name) return@withContext "Saved as the document search model."
         val uri = android.net.Uri.fromFile(file)
         val model = runCatching { importer.inspect(uri) }.getOrNull() ?: return@withContext null
         val availability = loadModel(model)
