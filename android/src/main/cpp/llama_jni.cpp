@@ -12,6 +12,18 @@
 #include "mtmd.h"
 #include "mtmd-helper.h"
 
+// llama.cpp's common library: the chat templates and the tool-call parser the
+// model's own format is rendered and read with (see NativeChat below).
+// WHY THE PRAGMA: common/jinja defines static helpers in its headers that this
+// translation unit does not call, and clang warns on each one. They are not ours
+// to change, so the warning is silenced for these two includes only.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-function"
+#include "chat.h"
+#include "common.h"
+#pragma clang diagnostic pop
+
+#include <set>
 #include <string>
 
 // WHY THIS EXISTS: llama.cpp explains a failed decode on stderr. Android
@@ -127,7 +139,39 @@ jstring to_jstring(JNIEnv * env, const std::string & s) {
     return env->NewString(u.data(), static_cast<jsize>(u.size()));
 }
 
+// llama.cpp's chat engine for one loaded model, the same pieces llama-server uses
+// for its OpenAI-compatible chat endpoint.
+//
+// WHY THE MODEL'S OWN FORMAT: small models are trained on their own tool-call
+// format. Showing them the app's invented wire format made them skip or mangle
+// calls that the model's own format gets right, so the prompt is rendered with the
+// model's chat template and the tools are passed to it, and the reply is read back
+// with the template's own parser.
+struct NativeChat {
+    common_chat_templates_ptr tmpls;
+    // Set by nativeChatPrepare, cleared when the reply it prepared is finished.
+    bool prepared = false;
+    // The prompt as rendered: its parts, each marked when it is user text (see
+    // tokenize_parts). Its text is what nativeGenerate checks the prompt against.
+    std::vector<common_chat_prompt_part> parts;
+    // The tool session for the callable tools: owns the reply's parser and its
+    // state for one generation, and is replaced by each nativeChatPrepare.
+    std::unique_ptr<common_chat_session> session;
+    // The grammar that constrains the reply, and when it starts (lazy: only once a
+    // trigger such as a tool-call opener appears). Built into a sampler per generate.
+    std::string grammar;
+    bool grammar_lazy = false;
+    std::vector<common_grammar_trigger> grammar_triggers;
+    std::set<llama_token> preserved;
+    // Strings that end the reply when the model writes them.
+    std::vector<std::string> stops;
+    std::string format;
+};
+
 void free_model_locked(LlamaHandle * h) {
+    // The chat engine holds the model's vocabulary, so it goes before the model.
+    delete static_cast<NativeChat *>(h->chat);
+    h->chat = nullptr;
     // The projector is bound to the model, so it goes first.
     if (h->mtmd != nullptr) {
         mtmd_free(reinterpret_cast<mtmd_context *>(h->mtmd));
@@ -314,12 +358,15 @@ struct TokenSinkRef {
 // as "<|im_start|>" as ordinary characters, so user text cannot become a control
 // token. True turns it into the special token; only a rendered chat template
 // may use that, and its contents must have been neutralised first.
+//
+// `add_special` adds the vocabulary's BOS (and EOS) where it is configured; a
+// prompt built from parts adds it to the first part only (see tokenize_parts).
 bool tokenize(const llama_vocab * vocab, const std::string & text,
               std::vector<llama_token> & out, std::string & err,
-              bool parse_special = false) {
+              bool parse_special = false, bool add_special = true) {
     const int32_t len = static_cast<int32_t>(text.size());
     int32_t needed = llama_tokenize(vocab, text.data(), len, nullptr, 0,
-                                    /*add_special=*/true, parse_special);
+                                    add_special, parse_special);
     if (needed < 0) {
         needed = -needed;  // negative is "buffer too small, this is the size"
     }
@@ -329,7 +376,7 @@ bool tokenize(const llama_vocab * vocab, const std::string & text,
     }
     out.resize(static_cast<size_t>(needed));
     const int32_t got = llama_tokenize(vocab, text.data(), len, out.data(), needed,
-                                       /*add_special=*/true, parse_special);
+                                       add_special, parse_special);
     if (got < 0) {
         err = "llama_tokenize failed on a " + std::to_string(needed) + " token prompt";
         return false;
@@ -421,6 +468,132 @@ std::string neutralise_control_text(std::string s, const std::vector<std::string
         }
     }
     return s;
+}
+
+// Tokenises a rendered chat prompt one part at a time. Parts that came from the
+// messages (is_input) are tokenised with parse_special off, the template's own
+// parts with it on, so text in a web page or a file can never become a control
+// token even though the template's markers must. The prompt is one sequence:
+// only the first non-empty part gets the BOS, as a whole-string tokenize would.
+//
+// WHY NOT ONE CALL: parse_special is a per-call switch, and the messages and the
+// template are in one string only after rendering. Keeping the parts apart is what
+// lets the template's markers and the user's text be tokenised differently.
+bool tokenize_parts(const llama_vocab * vocab, const std::vector<common_chat_prompt_part> & parts,
+                    std::vector<llama_token> & out, std::string & err) {
+    out.clear();
+    bool first = true;
+    for (const common_chat_prompt_part & part : parts) {
+        if (part.text.empty()) continue;
+        std::vector<llama_token> piece;
+        if (!tokenize(vocab, part.text, piece, err, /*parse_special=*/!part.is_input, /*add_special=*/first)) {
+            return false;
+        }
+        first = false;
+        out.insert(out.end(), piece.begin(), piece.end());
+    }
+    return true;
+}
+
+// The prompt text the parts make up, for checking that nativeGenerate is given
+// the prompt nativeChatPrepare rendered.
+std::string joined_parts(const std::vector<common_chat_prompt_part> & parts) {
+    std::string out;
+    for (const common_chat_prompt_part & part : parts) out += part.text;
+    return out;
+}
+
+// A JSON string literal. Bytes that are not valid UTF-8 pass through unchanged:
+// the Java side decodes the whole JSON text with to_jstring, which replaces them.
+std::string json_quote(const std::string & s) {
+    std::string out = "\"";
+    for (const unsigned char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    char esc[8];
+                    snprintf(esc, sizeof(esc), "\\u%04x", c);
+                    out += esc;
+                } else {
+                    out += static_cast<char>(c);
+                }
+        }
+    }
+    out += '"';
+    return out;
+}
+
+// The reply with a stop string and everything after its first occurrence removed.
+// A stop string ends the reply, so whatever the parser read after it is not the
+// reply: it is the model going on past the point it was told to stop.
+std::string cut_at_stop(const std::string & text, const std::vector<std::string> & stops) {
+    size_t cut = std::string::npos;
+    for (const std::string & stop : stops) {
+        if (stop.empty()) continue;
+        const size_t at = text.find(stop);
+        if (at != std::string::npos && at < cut) cut = at;
+    }
+    return cut == std::string::npos ? text : text.substr(0, cut);
+}
+
+// Whether the reply so far ends with a stop string. Checked after every token,
+// so a stop is seen the moment its last character is produced.
+bool ends_with_stop(const std::string & text, const std::vector<std::string> & stops) {
+    for (const std::string & stop : stops) {
+        if (!stop.empty() && text.size() >= stop.size() &&
+            text.compare(text.size() - stop.size(), stop.size(), stop) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The grammar of a prepared reply, as a sampler. Built as sampling.cpp builds it
+// (common_sampler_init): the trigger kinds become patterns or token ids, and a lazy
+// grammar only constrains once a trigger has been produced. Null when there is no
+// grammar, or it does not compile (the caller reports that).
+llama_sampler * build_native_grammar(const llama_vocab * vocab, const NativeChat & nc) {
+    if (nc.grammar.empty()) return nullptr;
+    std::vector<std::string> patterns;
+    std::vector<llama_token> tokens;
+    for (const common_grammar_trigger & trigger : nc.grammar_triggers) {
+        switch (trigger.type) {
+            case COMMON_GRAMMAR_TRIGGER_TYPE_WORD:
+                patterns.push_back(regex_escape(trigger.value));
+                break;
+            case COMMON_GRAMMAR_TRIGGER_TYPE_PATTERN:
+                patterns.push_back(trigger.value);
+                break;
+            case COMMON_GRAMMAR_TRIGGER_TYPE_PATTERN_FULL: {
+                // The pattern has to match the whole output: anchor it at both ends.
+                const std::string & pattern = trigger.value;
+                std::string anchored = "^$";
+                if (!pattern.empty()) {
+                    anchored = (pattern.front() != '^' ? "^" : "") + pattern +
+                        (pattern.back() != '$' ? "$" : "");
+                }
+                patterns.push_back(anchored);
+                break;
+            }
+            case COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN:
+                tokens.push_back(trigger.token);
+                break;
+        }
+    }
+    std::vector<const char *> pattern_ptrs;
+    pattern_ptrs.reserve(patterns.size());
+    for (const std::string & p : patterns) pattern_ptrs.push_back(p.c_str());
+    if (!nc.grammar_lazy) {
+        return llama_sampler_init_grammar(vocab, nc.grammar.c_str(), "root");
+    }
+    return llama_sampler_init_grammar_lazy_patterns(vocab, nc.grammar.c_str(), "root",
+                                                    pattern_ptrs.data(), pattern_ptrs.size(),
+                                                    tokens.data(), tokens.size());
 }
 
 // Builds the sampling chain. Returns null only if llama.cpp cannot allocate one.
@@ -928,6 +1101,21 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     h->model = model;
     h->context = ctx;
     h->vocab = const_cast<void *>(static_cast<const void *>(vocab));
+    // Only a model whose GGUF ships a chat template gets the native tool format:
+    // without one, llama.cpp would fall back to ChatML, which is not this model's.
+    // A template that fails to initialise is the same as having none.
+    if (llama_model_chat_template(model, nullptr) != nullptr) {
+        try {
+            common_chat_templates_ptr tmpls = common_chat_templates_init(model, "");
+            if (tmpls) {
+                NativeChat * chat = new NativeChat();
+                chat->tmpls = std::move(tmpls);
+                h->chat = chat;
+            }
+        } catch (const std::exception & e) {
+            __android_log_print(ANDROID_LOG_WARN, "LocalLlama", "chat engine not available: %s", e.what());
+        }
+    }
     h->n_ctx = static_cast<int32_t>(llama_n_ctx(ctx));
     h->n_batch = static_cast<int32_t>(cparams.n_batch);
     h->n_vocab = llama_vocab_n_tokens(vocab);
@@ -1084,11 +1272,129 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeTakeResult(JNIEnv
 }
 
 JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
+        JNIEnv * env, jclass, jlong handle, jstring messages_json, jstring prompt_tools_json,
+        jstring callable_tools_json) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr || messages_json == nullptr || prompt_tools_json == nullptr ||
+        callable_tools_json == nullptr) {
+        return nullptr;
+    }
+    std::string messages;
+    std::string prompt_tools;
+    std::string callable_tools;
+    if (!jstring_utf8(env, messages_json, messages) || !jstring_utf8(env, prompt_tools_json, prompt_tools) ||
+        !jstring_utf8(env, callable_tools_json, callable_tools)) {
+        return nullptr;
+    }
+
+    std::lock_guard<std::mutex> lock(h->state);
+    auto * nc = static_cast<NativeChat *>(h->chat);
+    if (!h->loaded || nc == nullptr || h->vocab == nullptr) {
+        return nullptr;
+    }
+    nc->prepared = false;
+    nc->session.reset();
+    const llama_vocab * vocab = as_vocab(h->vocab);
+    try {
+        // Control-token text in the messages and the tool descriptions is broken
+        // before rendering, as the templatePrompt path does, so the template's own
+        // markers are the only control tokens the prompt can carry.
+        const std::vector<std::string> specials = control_token_texts(vocab);
+        std::vector<common_chat_msg> msgs = common_chat_msgs_parse_oaicompat(common_json::parse(messages));
+        for (common_chat_msg & msg : msgs) {
+            msg.content = neutralise_control_text(msg.content, specials);
+            for (common_chat_msg_content_part & part : msg.content_parts) {
+                part.text = neutralise_control_text(part.text, specials);
+            }
+            for (common_chat_tool_call & call : msg.tool_calls) {
+                call.arguments = neutralise_control_text(call.arguments, specials);
+            }
+        }
+        std::vector<common_chat_tool> prompt_list = common_chat_tools_parse_oaicompat(common_json::parse(prompt_tools));
+        std::vector<common_chat_tool> callable_list = common_chat_tools_parse_oaicompat(common_json::parse(callable_tools));
+        for (common_chat_tool & tool : prompt_list) {
+            tool.description = neutralise_control_text(tool.description, specials);
+        }
+        for (common_chat_tool & tool : callable_list) {
+            tool.description = neutralise_control_text(tool.description, specials);
+        }
+
+        common_chat_templates_inputs inputs;
+        inputs.messages = msgs;
+        inputs.use_jinja = true;
+        inputs.add_generation_prompt = true;
+        inputs.parallel_tool_calls = false;
+        inputs.tool_choice = COMMON_CHAT_TOOL_CHOICE_AUTO;
+        // Thinking off: decoding is 7 tokens/s on the slowest phones, and the
+        // models this app runs answer well without it.
+        inputs.enable_thinking = false;
+
+        // The prompt lists the conversation's fixed tools, so its start does not
+        // change when a tool is described in one turn (see planTurnTools).
+        inputs.tools = prompt_list;
+        const common_chat_params rendered = common_chat_templates_apply(nc->tmpls.get(), inputs);
+
+        // The reply may call any callable tool, so the grammar and the parser are
+        // built from that list. The prompt above is not rendered from it.
+        inputs.tools = callable_list;
+        auto session = std::make_unique<common_chat_session>(nc->tmpls.get(), vocab, inputs);
+        if (!callable_list.empty() &&
+            (rendered.format == COMMON_CHAT_FORMAT_CONTENT_ONLY ||
+             session->format() == COMMON_CHAT_FORMAT_CONTENT_ONLY)) {
+            __android_log_print(ANDROID_LOG_INFO, "LocalLlama",
+                                "native tools: the chat template has no tool-call format");
+            return nullptr;
+        }
+
+        common_params_sampling sampling;
+        session->apply_sampling(sampling);
+        nc->grammar = session->grammar();
+        nc->grammar_lazy = sampling.grammar_lazy;
+        nc->grammar_triggers = sampling.grammar_triggers;
+        nc->preserved = sampling.preserved_tokens;
+        nc->stops = session->additional_stops();
+        nc->parts = rendered.prompt.parts;
+        nc->format = common_chat_format_name(rendered.format);
+        nc->session = std::move(session);
+        nc->prepared = true;
+
+        return to_jstring(env, "{\"prompt\":" + json_quote(joined_parts(nc->parts)) +
+                               ",\"format\":" + json_quote(nc->format) + "}");
+    } catch (const std::exception & e) {
+        __android_log_print(ANDROID_LOG_WARN, "LocalLlama", "native tools: prepare failed: %s", e.what());
+        return nullptr;
+    }
+}
+
+JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatResult(JNIEnv * env, jclass, jlong handle) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr) {
+        return nullptr;
+    }
+    std::lock_guard<std::mutex> lock(h->state);
+    auto * nc = static_cast<NativeChat *>(h->chat);
+    if (nc == nullptr || !nc->session) {
+        return nullptr;
+    }
+    const common_chat_msg & msg = nc->session->msg();
+    std::string out = "{\"content\":" + json_quote(cut_at_stop(msg.content, nc->stops)) + ",\"tool_calls\":[";
+    for (size_t i = 0; i < msg.tool_calls.size(); ++i) {
+        if (i > 0) out += ",";
+        out += "{\"name\":" + json_quote(msg.tool_calls[i].name) +
+               ",\"arguments\":" + json_quote(msg.tool_calls[i].arguments) + "}";
+    }
+    out += "]}";
+    return to_jstring(env, out);
+}
+
+JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         JNIEnv * env, jclass, jlong handle, jstring prompt, jstring grammar, jfloat temperature,
         jfloat top_p, jint top_k, jfloat min_p, jfloat repeat_penalty, jint penalty_last_n,
         jfloat frequency_penalty, jfloat presence_penalty, jint seed, jint max_tokens,
-        jobject onToken, jboolean parse_special, jint stable_bytes) {
+        jobject onToken, jboolean parse_special, jint stable_bytes, jboolean native_chat) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
         return to_jstring(env, "null handle");
@@ -1107,10 +1413,14 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     mtmd_context * mctx = nullptr;
     int32_t n_threads = 0;
     std::vector<std::vector<uint8_t>> media;
+    NativeChat * native_nc = nullptr;
     {
         std::lock_guard<std::mutex> lock(h->state);
         if (!h->loaded || h->context == nullptr || h->vocab == nullptr) {
             return to_jstring(env, "no model is loaded");
+        }
+        if (native_chat == JNI_TRUE) {
+            native_nc = static_cast<NativeChat *>(h->chat);
         }
         ctx = as_context(h->context);
         vocab = as_vocab(h->vocab);
@@ -1131,6 +1441,15 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
 
     std::string grammar_str;
     if (grammar != nullptr && !jstring_utf8(env, grammar, grammar_str)) {
+        grammar_str.clear();
+    }
+    // Native mode: the prompt, grammar and parser are the ones nativeChatPrepare
+    // made, and the grammar argument (the app's own format) is not used.
+    if (native_chat == JNI_TRUE) {
+        if (native_nc == nullptr || !native_nc->prepared || !native_nc->session ||
+            joined_parts(native_nc->parts) != prompt_str) {
+            return to_jstring(env, "the native tool format was not prepared for this prompt");
+        }
         grammar_str.clear();
     }
 
@@ -1212,7 +1531,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     // ---- tokenise -------------------------------------------------------------
     std::vector<llama_token> tokens;
     std::string tok_err;
-    if (!mm_chunks && !tokenize(vocab, prompt_str, tokens, tok_err, parse_special == JNI_TRUE)) {
+    const bool tokenized = mm_chunks ? true
+        : native_nc != nullptr ? tokenize_parts(vocab, native_nc->parts, tokens, tok_err)
+        : tokenize(vocab, prompt_str, tokens, tok_err, parse_special == JNI_TRUE);
+    if (!mm_chunks && !tokenized) {
         outcome.stop = static_cast<int32_t>(StopCode::ERROR);
         outcome.error = tok_err;
         publish();
@@ -1273,7 +1595,15 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         return to_jstring(env, outcome.error);
     }
     llama_sampler_reset(chain);
-    llama_sampler * grammar_smpl = build_grammar(vocab, grammar_str);
+    llama_sampler * grammar_smpl = native_nc != nullptr ? build_native_grammar(vocab, *native_nc)
+                                                        : build_grammar(vocab, grammar_str);
+    if (native_nc != nullptr && !native_nc->grammar.empty() && grammar_smpl == nullptr) {
+        llama_sampler_free(chain);
+        outcome.stop = static_cast<int32_t>(StopCode::ERROR);
+        outcome.error = "the tool-call grammar of this model's chat template did not compile";
+        publish();
+        return to_jstring(env, outcome.error);
+    }
 
     constexpr llama_seq_id kPromptSeq = 0;
     // How far before a prompt's end a hybrid model's state is copied: past the
@@ -1285,6 +1615,32 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     bool failed = false;
     // Trailing bytes of a UTF-8 character split across two tokens.
     std::string partial_utf8;
+
+    // Native mode. Stop strings end the reply, and one may still be completing at
+    // the end of what has been streamed, so the last `native_hold` bytes of the
+    // content are held back until the next token settles them.
+    size_t native_hold = 0;
+    if (native_nc != nullptr) {
+        for (const std::string & stop : native_nc->stops) native_hold = std::max(native_hold, stop.size());
+        native_hold = native_hold > 0 ? native_hold - 1 : 0;
+    }
+    // The content already streamed to the sink, as text.
+    std::string native_sent;
+    // Streams the reply's content up to `visible` bytes. The parser may rewrite
+    // text it has already shown (a tool-call opener turns out to be a call), so
+    // only a prefix that keeps growing is streamed; anything else waits for the
+    // final parse. Returns false when the sink has gone, and the caller stops.
+    auto stream_content = [&](const std::string & content, size_t visible) -> bool {
+        if (visible <= native_sent.size() || visible > content.size() ||
+            content.compare(0, native_sent.size(), native_sent) != 0) {
+            return true;
+        }
+        const std::string delta = content.substr(native_sent.size(), visible - native_sent.size());
+        native_sent += delta;
+        std::string whole;
+        split_utf8(delta, whole, partial_utf8);
+        return whole.empty() || sink.emit(env, whole);
+    };
 
     // The candidate array for sampling, hoisted out of the decode loop.
     //
@@ -1583,21 +1939,68 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             // two tokens, so bytes are only handed to Java once they form whole
             // characters.
             char buf[256];
-            const int32_t n_piece = llama_token_to_piece(vocab, id, buf, sizeof(buf), 0, false);
+            // Native mode: the parser reads the control tokens the template
+            // preserves (a tool-call opener, say) as their text, as llama-server
+            // does. Everything else stays out of the text.
+            const bool render_special = native_nc != nullptr && native_nc->preserved.count(id) > 0;
+            const int32_t n_piece = llama_token_to_piece(vocab, id, buf, sizeof(buf), 0, render_special);
             if (n_piece > 0) {
                 const std::string raw_piece(buf, static_cast<size_t>(n_piece));
                 // The full text keeps every byte, partial tail included: the
                 // final result must be exactly what the model produced.
                 outcome.text += raw_piece;
-                std::string whole;
-                split_utf8(raw_piece, whole, partial_utf8);
-                if (!whole.empty() && !sink.emit(env, whole)) {
-                    // The sink threw or went away: stop rather than spin.
-                    outcome.stop = static_cast<int32_t>(StopCode::CANCELLED);
-                    break;
+                if (native_nc != nullptr) {
+                    // The sink gets the reply's content, never the tool-call markup.
+                    common_chat_input chunk;
+                    chunk.append(raw_piece, id);
+                    try {
+                        const common_chat_msg & msg = native_nc->session->feed(chunk);
+                        const size_t visible = msg.content.size() > native_hold
+                            ? msg.content.size() - native_hold : 0;
+                        if (!stream_content(msg.content, visible)) {
+                            outcome.stop = static_cast<int32_t>(StopCode::CANCELLED);
+                            break;
+                        }
+                    } catch (const std::exception & e) {
+                        outcome.stop = static_cast<int32_t>(StopCode::ERROR);
+                        outcome.error = std::string("the reply could not be parsed: ") + e.what();
+                        failed = true;
+                        break;
+                    }
+                    if (ends_with_stop(outcome.text, native_nc->stops)) {
+                        outcome.stop = static_cast<int32_t>(StopCode::COMPLETED);
+                        break;
+                    }
+                } else {
+                    std::string whole;
+                    split_utf8(raw_piece, whole, partial_utf8);
+                    if (!whole.empty() && !sink.emit(env, whole)) {
+                        // The sink threw or went away: stop rather than spin.
+                        outcome.stop = static_cast<int32_t>(StopCode::CANCELLED);
+                        break;
+                    }
                 }
             }
         }
+    }
+
+    // Native mode: the final parse of the whole reply, then the content that is
+    // not streamed yet. A cancelled reply is not streamed any further.
+    if (native_nc != nullptr) {
+        try {
+            const common_chat_msg & msg = native_nc->session->finish(common_chat_input());
+            const std::string final_content = cut_at_stop(msg.content, native_nc->stops);
+            if (!failed && outcome.stop != static_cast<int32_t>(StopCode::CANCELLED)) {
+                stream_content(final_content, final_content.size());
+            }
+        } catch (const std::exception & e) {
+            if (!failed) {
+                outcome.stop = static_cast<int32_t>(StopCode::ERROR);
+                outcome.error = std::string("the reply could not be parsed: ") + e.what();
+                failed = true;
+            }
+        }
+        native_nc->prepared = false;
     }
 
     outcome.decode_ms = now_ms() - after_prefill;

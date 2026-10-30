@@ -231,6 +231,8 @@ class AgentController(
     private val constrainOutput: Boolean = true,
     /** Whether a backend with a chat template renders prompts with it. From the user's settings. */
     private val useModelTemplate: Boolean = true,
+    /** Whether a backend with its own tool format uses it. From the user's settings. */
+    private val useNativeToolFormat: Boolean = false,
     /**
      * Invoked right before a tool runs, with the tool's name and its arguments
      * in the same compact form the trace uses.
@@ -1225,7 +1227,7 @@ class AgentController(
         // given rather than a reconstruction of it. See [lastPrompt].
         lastPrompt = prompt
         lastVisible = visible
-        return request(prompt, callable)
+        return request(prompt, visible, callable)
     }
 
     /** [visible] plus the tools found with tools.find this conversation, if they still exist. */
@@ -1259,7 +1261,11 @@ class AgentController(
         return built
     }
 
-    private fun request(prompt: List<ChatMessage>, visible: List<AgentTool>): GenerationRequest {
+    private fun request(
+        prompt: List<ChatMessage>,
+        listed: List<AgentTool>,
+        callable: List<AgentTool> = listed,
+    ): GenerationRequest {
         return GenerationRequest(
             messages = prompt,
             params = sampling,
@@ -1280,12 +1286,15 @@ class AgentController(
             // WHY IT IS NULL OTHERWISE: LiteRT-LM refuses any request that carries a
             // grammar, so a backend that cannot enforce one gets none.
             grammar = if (constrainOutput && model.capabilities.supportsGrammar) {
-                GrammarBuilder.forActions(visible.map { it.definition })
+                GrammarBuilder.forActions(callable.map { it.definition })
             } else {
                 null
             },
-            allowedToolNames = visible.map { it.definition.name },
+            allowedToolNames = callable.map { it.definition.name },
             useModelTemplate = useModelTemplate,
+            tools = callable.map { it.definition },
+            listedToolCount = listed.size,
+            useNativeToolFormat = useNativeToolFormat,
         )
     }
 

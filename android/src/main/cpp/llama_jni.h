@@ -59,6 +59,10 @@ struct LlamaHandle {
     bool loaded = false;
     // libmtmd context for the loaded model's projector (mtmd_context *), or null.
     void * mtmd = nullptr;
+    // llama.cpp's own chat engine for the loaded model (NativeChat *, defined in
+    // llama_jni.cpp): the model's chat template and tool-call parser. Null when the
+    // model ships no template, which leaves the native tool format unavailable.
+    void * chat = nullptr;
     int32_t n_threads = 0;
     // Output width of an embedding model loaded by nativeLoadEmbeddingModel; 0 otherwise.
     int32_t n_embd = 0;
@@ -167,12 +171,34 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeCountTokens(
 // `parse_special` true tokenises control-token text in the prompt as the special
 // token it names (a chat template's own markers); false keeps it as characters
 // (the flat transcript, where user text must not be able to forge a marker).
+//
+// `native_chat` true generates the reply that nativeChatPrepare prepared: the
+// prompt must be the text it returned, the grammar and the reply parser come from
+// the prepared tool session (`grammar` is ignored), and the streamed text is the
+// reply's content, not the tool-call markup. Read the result with nativeChatResult.
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         JNIEnv * env, jclass, jlong handle, jstring prompt, jstring grammar, jfloat temperature,
         jfloat top_p, jint top_k, jfloat min_p, jfloat repeat_penalty, jint penalty_last_n,
         jfloat frequency_penalty, jfloat presence_penalty, jint seed, jint max_tokens,
-        jobject onToken, jboolean parse_special, jint stable_bytes);
+        jobject onToken, jboolean parse_special, jint stable_bytes, jboolean native_chat);
+
+// Renders the conversation with the loaded model's own chat template and prepares
+// a reply parser for the tools the model may call. `messages_json` is the OpenAI
+// chat messages array, `prompt_tools_json` the tools the prompt lists, and
+// `callable_tools_json` every tool the reply may call (a superset, in the same
+// order). Returns {"prompt": "...", "format": "<format name>"} as JSON, or null when
+// the model has no chat engine or its template cannot render tools; the caller
+// then uses the flat or template path.
+JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
+        JNIEnv * env, jclass, jlong handle, jstring messages_json, jstring prompt_tools_json,
+        jstring callable_tools_json);
+
+// The prepared reply as JSON: {"content": "...", "tool_calls": [{"name": "...",
+// "arguments": "..."}]}. Null if there is no finished native generation.
+JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatResult(JNIEnv * env, jclass, jlong handle);
 
 // Where the system prompt's state is saved between runs, and the key that
 // names this model load. Call after a successful load; empty disables it.

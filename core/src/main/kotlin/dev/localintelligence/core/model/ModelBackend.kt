@@ -1,5 +1,6 @@
 package dev.localintelligence.core.model
 
+import dev.localintelligence.core.tool.ToolDefinition
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonElement
 
@@ -148,6 +149,20 @@ data class GenerationRequest(
      * transcript. Read by backends that have a template; others ignore it.
      */
     val useModelTemplate: Boolean = true,
+    /**
+     * The tools the model may call in this step, in order. The first
+     * [listedToolCount] of them are the ones the prompt lists; the rest were
+     * described in this turn. Read by a backend that renders tools in the model's
+     * own format; others use [grammar] and [allowedToolNames].
+     */
+    val tools: List<ToolDefinition> = emptyList(),
+    val listedToolCount: Int = 0,
+    /**
+     * Show the tools and read the calls in the model's own tool-call format, through
+     * its chat template (llama.cpp only). Off, or a model whose template cannot do
+     * tools, uses the app's own format.
+     */
+    val useNativeToolFormat: Boolean = false,
     /**
      * Whether the backend may start from a saved state of the prompt's start.
      * Off for the speed test, which measures a full prefill.

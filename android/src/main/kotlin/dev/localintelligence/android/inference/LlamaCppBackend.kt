@@ -1,6 +1,7 @@
 package dev.localintelligence.android.inference
 
 import dev.localintelligence.core.context.SystemPrompts
+import dev.localintelligence.core.tool.ToolDefinition
 import java.io.File
 
 import dev.localintelligence.core.model.ChatMessage
@@ -16,6 +17,15 @@ import dev.localintelligence.core.model.StreamingModelBackend
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -262,7 +272,11 @@ class LlamaCppBackend(
                 )
             }
 
-            val rendered = buildPrompt(request, h)
+            // The model's own tool format when the request carries tools and the
+            // model can do them (see nativeTurn); otherwise the prompt as always.
+            val native = nativeTurn(request, h)
+            val rendered = native?.let { RenderedPrompt(it.prompt, fromTemplate = true, stableBytes = it.stableBytes) }
+                ?: buildPrompt(request, h)
             // Attachments travel next to the prompt; buildPrompt put one marker
             // per attachment where they belong.
             LlamaBridge.setMedia(h, request.media.map { it.bytes })
@@ -275,7 +289,7 @@ class LlamaCppBackend(
                 LlamaBridge.generate(
                     handle = h,
                     prompt = rendered.text,
-                    grammar = request.grammar,
+                    grammar = if (native != null) null else request.grammar,
                     temperature = params.temperature,
                     topP = params.topP,
                     topK = params.topK,
@@ -289,6 +303,7 @@ class LlamaCppBackend(
                     onToken = sink,
                     parseSpecial = rendered.fromTemplate,
                     stablePrefixBytes = if (request.reusePrefix) rendered.stableBytes else 0,
+                    nativeChat = native != null,
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Structured concurrency: a cancelled coroutine must keep
@@ -303,11 +318,19 @@ class LlamaCppBackend(
             }
 
             val outcome = LlamaBridge.takeResult(h)
+            // A native reply is read back from llama.cpp's parser and written as the
+            // app's own markup, so the agent parses it exactly as before.
+            val nativeText = if (native != null && error == null && outcome?.error == null) {
+                LlamaBridge.chatResult(h)?.let { nativeMarkup(it, native.tools) }
+            } else {
+                null
+            }
             val stop = when {
                 // An error from the native call wins: the outcome may be the
                 // default ERROR with no text, and the reason matters more.
                 error != null -> StopReason.ERROR
                 outcome == null -> StopReason.ERROR
+                native != null && nativeText == null && outcome.error == null -> StopReason.ERROR
                 cancelRequested.get() -> StopReason.CANCELLED
                 outcome.stopCode == GenerationOutcome.STOP_CANCELLED -> StopReason.CANCELLED
                 outcome.stopCode == GenerationOutcome.STOP_MAX_TOKENS -> StopReason.MAX_TOKENS
@@ -328,7 +351,7 @@ class LlamaCppBackend(
                 // there was nothing to grep for. Read both.
                 text = error
                     ?: outcome?.error
-                    ?: outcome?.text.orEmpty(),
+                    ?: if (native != null) nativeText.orEmpty() else outcome?.text.orEmpty(),
                 promptTokens = outcome?.promptTokens ?: 0,
                 completionTokens = outcome?.completionTokens ?: 0,
                 stopReason = stop,
@@ -475,6 +498,201 @@ class LlamaCppBackend(
             supportsVision = false,
             supportsKvCache = true,
         )
+
+    /**
+     * A prompt rendered with llama.cpp's own chat engine, and the request's tools.
+     * [tools] are the callable ones, in the order the request gave them; the wire
+     * names the model calls map back to them (see [nativeMarkup]).
+     */
+    internal class NativeTurn(
+        val prompt: String,
+        val stableBytes: Int,
+        val tools: List<ToolDefinition>,
+    )
+
+    /**
+     * Prepares this request with the model's own tool format, or returns null to
+     * keep the app's own format.
+     *
+     * WHY: the model's format is the one it was trained on. Showing it the app's
+     * `<tool>` wire format made small models mangle or skip calls that the model's own
+     * format gets right. llama.cpp renders the messages with the model's template,
+     * with the tools passed to it, and parses the reply with the template's parser.
+     *
+     * The prompt lists the conversation's fixed tools ([GenerationRequest.listedToolCount]),
+     * so its start does not change when a tool is described in one turn. The reply
+     * may call any of [GenerationRequest.tools].
+     *
+     * Logs one line for each request that carries tools: the format used, or why not.
+     */
+    private fun nativeTurn(request: GenerationRequest, handle: LlamaBridge.Handle): NativeTurn? {
+        if (request.tools.isEmpty()) return null
+        if (!request.useNativeToolFormat) {
+            android.util.Log.i(TAG, "native tools off: the setting is off")
+            return null
+        }
+        val listed = request.tools.take(request.listedToolCount)
+        val reply = LlamaBridge.chatPrepare(
+            handle = handle,
+            messagesJson = nativeMessages(request),
+            promptToolsJson = toolsJson(listed),
+            callableToolsJson = toolsJson(request.tools),
+        )
+        val fields = reply?.let { runCatching { Json.parseToJsonElement(it).jsonObject }.getOrNull() }
+        val prompt = fields?.string("prompt")
+        if (fields == null || prompt == null) {
+            android.util.Log.i(TAG, "native tools off: the model has no chat template that renders tools")
+            return null
+        }
+        android.util.Log.i(
+            TAG,
+            "native tools: ${fields.string("format").orEmpty()}, prompt ${listed.size} tools, callable ${request.tools.size}",
+        )
+        return NativeTurn(prompt, nativeStableBytes(request, prompt), request.tools)
+    }
+
+    /**
+     * The conversation as OpenAI chat messages, for llama.cpp's template renderer.
+     *
+     * The system text is cut where the app's own format starts ([SystemPrompts.TOOLS_START]):
+     * the template writes the tools now, so the app's format line and its tool list
+     * are left out. An assistant turn that called a tool becomes a `tool_calls`
+     * message, and its observation a `tool` message with the same call id.
+     * A user's attachments go at the start of the last user turn, as in [templatePrompt].
+     */
+    internal fun nativeMessages(request: GenerationRequest): String {
+        val lastUser = request.messages.lastOrNull { it is ChatMessage.User && !it.note }
+        val out = ArrayList<JsonElement>(request.messages.size)
+        var calls = 0
+        var lastCallId = "call_0"
+        for (m in request.messages) {
+            when (m) {
+                is ChatMessage.System -> out += nativeMessage("system", systemPartOf(m.text))
+                is ChatMessage.User -> out += nativeMessage(
+                    "user",
+                    buildString {
+                        if (m === lastUser) {
+                            repeat(request.media.size) { append(LlamaBridge.mediaMarker).append('\n') }
+                        }
+                        append(m.text)
+                    },
+                )
+                is ChatMessage.Assistant -> {
+                    val rendered = m.rendered ?: m.text
+                    val call = NATIVE_CALL.matchEntire(rendered.trim())
+                    if (call != null) {
+                        calls += 1
+                        lastCallId = "call_$calls"
+                        out += buildJsonObject {
+                            put("role", "assistant")
+                            put("content", "")
+                            put(
+                                "tool_calls",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("id", lastCallId)
+                                            put("type", "function")
+                                            put(
+                                                "function",
+                                                buildJsonObject {
+                                                    put("name", wireName(call.groupValues[1]))
+                                                    put("arguments", call.groupValues[2].trim())
+                                                },
+                                            )
+                                        },
+                                    )
+                                },
+                            )
+                        }
+                    } else {
+                        val respond = NATIVE_RESPOND.matchEntire(rendered.trim())?.groupValues?.get(1) ?: rendered
+                        out += nativeMessage("assistant", respond)
+                    }
+                }
+                is ChatMessage.ToolObservation -> out += buildJsonObject {
+                    put("role", "tool")
+                    put("tool_call_id", lastCallId)
+                    put("content", m.modelFacing())
+                }
+            }
+        }
+        return JsonArray(out).toString()
+    }
+
+    private fun nativeMessage(role: String, content: String): JsonElement =
+        buildJsonObject {
+            put("role", role)
+            put("content", content)
+        }
+
+    /**
+     * The system text without the app's own format and tool list, which the template
+     * writes itself when it is given the tools. The whole text when there is no tool part.
+     */
+    private fun systemPartOf(text: String): String {
+        val cut = text.indexOf(SystemPrompts.TOOLS_START)
+        return if (cut >= 0) text.substring(0, cut) else text
+    }
+
+    /**
+     * How many UTF-8 bytes of [rendered] are the system text up to its tool part (see
+     * [systemPartOf]): the part the state is kept for, the same as [systemPrefixBytes].
+     * 0 when it is not found.
+     */
+    private fun nativeStableBytes(request: GenerationRequest, rendered: String): Int {
+        val system = request.messages.firstOrNull() as? ChatMessage.System ?: return 0
+        val cut = systemPartOf(system.text)
+        if (cut.isEmpty()) return 0
+        val at = rendered.indexOf(cut)
+        if (at < 0) return 0
+        return rendered.substring(0, at + cut.length).toByteArray(Charsets.UTF_8).size
+    }
+
+    /**
+     * The tools as OpenAI function definitions. Dots in the names become underscores,
+     * because the model writes its calls as code and a dot breaks them (see [wireName]).
+     */
+    private fun toolsJson(tools: List<ToolDefinition>): String =
+        JsonArray(
+            tools.map { def ->
+                buildJsonObject {
+                    put("type", "function")
+                    put(
+                        "function",
+                        buildJsonObject {
+                            put("name", wireName(def.name))
+                            put("description", def.description)
+                            put("parameters", def.schema)
+                        },
+                    )
+                }
+            },
+        ).toString()
+
+    /**
+     * The reply llama.cpp parsed (`{"content", "tool_calls"}`) as the app's own markup:
+     * the first tool call as `<tool name="NAME">ARGS</tool>`, otherwise the content as
+     * `<respond>`. Null when the JSON does not read.
+     */
+    private fun nativeMarkup(raw: String, tools: List<ToolDefinition>): String? {
+        val reply = runCatching { Json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return null
+        val call = (reply["tool_calls"] as? JsonArray)?.firstOrNull() as? JsonObject
+        if (call != null) {
+            val wire = call.string("name") ?: return null
+            val args = call.string("arguments")?.takeIf { it.isNotBlank() } ?: "{}"
+            val name = tools.firstOrNull { wireName(it.name) == wire }?.name ?: wire
+            return "<tool name=\"$name\">$args</tool>"
+        }
+        return "<respond>${reply.string("content").orEmpty()}</respond>"
+    }
+
+    private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.content
+
+    /** A string field of a JSON object under construction. */
+    private fun JsonObjectBuilder.put(key: String, value: String) {
+        put(key, JsonPrimitive(value))
+    }
 
     /**
      * Speaks [text] in the model's own voice when its projector has an audio
@@ -681,6 +899,18 @@ class LlamaCppBackend(
         private const val WARM_UP_PROMPT =
             "The quick brown fox jumps over the lazy dog while the five boxing wizards jump quickly " +
                 "and a wizard's job is to vex chumps quickly in fog."
+
+        /** A tool call in the app's own markup, as the agent reads it. */
+        private val NATIVE_CALL = Regex("""<tool name="([^"]+)">([\s\S]*)</tool>""")
+
+        /** A reply in the app's own markup. */
+        private val NATIVE_RESPOND = Regex("""<respond>([\s\S]*)</respond>""")
+
+        /**
+         * A tool's name on the wire to the model. Dots become underscores: the model
+         * writes its calls as code, where `device.battery` does not parse.
+         */
+        internal fun wireName(name: String): String = name.replace('.', '_')
 
         /** `-Q4_K_M`, `-QAD-Q4_0`, `-IQ3_XS`, `-F16`, `-BF16`, `-MXFP4_MOE`... at the end of a file stem. */
         private val QUANT_SUFFIX = Regex("""(?i)[-_.](QAD-)?(IQ\d\w*|Q\d\w*|BF16|F16|F32|MXFP4\w*|NVFP4)$""")
