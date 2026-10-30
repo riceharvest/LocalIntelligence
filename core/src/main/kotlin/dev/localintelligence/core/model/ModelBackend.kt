@@ -1,5 +1,6 @@
 package dev.localintelligence.core.model
 
+import dev.localintelligence.core.tool.CancellationSignal
 import dev.localintelligence.core.tool.ToolDefinition
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonElement
@@ -168,6 +169,12 @@ data class GenerationRequest(
      * Off for the speed test, which measures a full prefill.
      */
     val reusePrefix: Boolean = true,
+    /**
+     * Whether the caller has already asked this generation to stop. Read by the backend
+     * after it takes its own lock, so a stop made while the prompt was still being built
+     * is honoured rather than cleared by a backend that resets its cancel flag per run.
+     */
+    val cancellation: CancellationSignal = CancellationSignal.None,
 )
 
 /**

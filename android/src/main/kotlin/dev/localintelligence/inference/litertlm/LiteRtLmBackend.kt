@@ -491,7 +491,14 @@ class LiteRtLmBackend(
                 return@withContext GenerationResult(text = "", stopReason = StopReason.ERROR)
             }
 
+            // Cleared here, but a stop the caller made before this point is not lost
+            // with it: the request carries the caller's own signal, read after the
+            // clear, so a cancel that landed while the prompt was being built still stops
+            // this generation instead of decoding the whole reply.
             cancelRequested.set(false)
+            if (request.cancellation.isCancelled()) {
+                return@withContext GenerationResult(text = "", stopReason = StopReason.CANCELLED)
+            }
 
             // A refused request sends nothing, so the kept conversation stays
             // exactly as it was and the next valid request can still reuse it.

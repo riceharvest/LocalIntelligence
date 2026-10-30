@@ -1353,6 +1353,9 @@ class AgentController(
             messages = prompt,
             params = sampling,
             media = media,
+            // Reads this run's own flag, so a Stop made any time after the step began
+            // reaches the backend even if it arrives before the backend takes its lock.
+            cancellation = CancellationSignal { cancelled },
             // Constrained generation, and this is the line that was the P0.
             //
             // WHY IT IS NOT NULL ON A GRAMMAR BACKEND: a 1.1B base model asked to "reply
