@@ -105,11 +105,13 @@ internal class NativeLiteRtLmEngine(
          *
          * This is a silence limit, not a limit on the whole reply. A long answer on a
          * slow phone streams for many minutes and is correct; a runtime that has said
-         * nothing for two minutes (prefill included) is not making progress. Every
+         * nothing for five minutes (prefill included) is not making progress. Every
          * callback resets the clock. A cap on total time would discard a reply that
-         * was still arriving and on track to finish.
+         * was still arriving and on track to finish. Five minutes, not less: the
+         * runtime reports nothing during prefill, and a 4K-token prompt at 15 tok/s
+         * on a slow phone's CPU takes about 4.5 minutes before the first event.
          */
-        const val SILENCE_TIMEOUT_MINUTES = 2L
+        const val SILENCE_TIMEOUT_MINUTES = 5L
 
         /**
          * How often [NativeLiteRtLmConversation.send] re-checks the latch.
