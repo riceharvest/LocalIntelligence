@@ -642,7 +642,23 @@ class AgentController(
             // A Stop that landed before the generation began is not reported as CANCELLED.
             if (cancelled) return AgentResult.Cancelled
 
-            when (val parsed = parse(generation.text, callable)) {
+            // A tool call the output limit cut before its closing tag is not run:
+            // its arguments are whatever fragment the limit left. The model is told
+            // to make the call shorter, like any other malformed reply.
+            val parsedAction = parse(generation.text, callable)
+            val cutToolCall = generation.stopReason == StopReason.MAX_TOKENS &&
+                parsedAction is ActionParseResult.Parsed &&
+                parsedAction.action is AgentAction.CallTool &&
+                !generation.text.contains("</tool>")
+            val parsed = if (cutToolCall) {
+                ActionParseResult.Malformed(
+                    "the output limit cut the tool call short. Reply with a shorter <tool> call.",
+                    generation.text,
+                )
+            } else {
+                parsedAction
+            }
+            when (parsed) {
                 is ActionParseResult.Malformed -> {
                     malformedStreak += 1
                     trace += StepTrace(step, StepTrace.Kind.MALFORMED, parsed.reason, success = false)
