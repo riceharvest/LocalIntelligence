@@ -78,9 +78,11 @@ object ActionParserImpl : ActionParser {
         val body = if (closeAt >= 0) {
             raw.substring(bodyStart, closeAt)
         } else {
-            // Tolerate a dropped closing tag: take the rest of the line, nothing more.
-            val nl = raw.indexOf('\n', bodyStart)
-            if (nl >= 0) raw.substring(bodyStart, nl) else raw.substring(bodyStart)
+            // Tolerate a dropped closing tag: the answer is the rest of the generation.
+            // Cutting at the first newline kept one line of a multi-line answer, and
+            // the run then stored that line as the whole reply. A trailing partial
+            // closing tag (the output limit landing inside `</respond>`) is not text.
+            dropPartialClose(raw.substring(bodyStart))
         }
 
         val text = body.trim()
@@ -89,6 +91,15 @@ object ActionParserImpl : ActionParser {
             return malformed("Empty <respond>. Put the answer inside <respond>...</respond>.", raw)
         }
         return ActionParseResult.Parsed(AgentAction.Respond(text))
+    }
+
+    /** Removes a trailing prefix of `</respond>` that the generation was cut inside. */
+    private fun dropPartialClose(text: String): String {
+        val max = minOf(RESPOND_CLOSE.length - 1, text.length)
+        for (len in max downTo 1) {
+            if (text.endsWith(RESPOND_CLOSE.substring(0, len))) return text.substring(0, text.length - len)
+        }
+        return text
     }
 
     // ---------------------------------------------------------------- tool call

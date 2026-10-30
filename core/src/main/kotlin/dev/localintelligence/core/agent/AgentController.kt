@@ -452,8 +452,26 @@ class AgentController(
             }
             RetainedHistory.bound(sessions.messages)
         }
-        if (outcome is AgentResult.Success) afterAnswer?.invoke(this)
+        if (outcome is AgentResult.Success) {
+            settleWorkingState()
+            afterAnswer?.invoke(this)
+        }
         outcome
+    }
+
+    /**
+     * Clears the open-work lines of the working state once a run has answered.
+     *
+     * WHY: the state was written mid-run, when the task was still open, so its
+     * `Task` and `Remaining work` describe a question that is now answered. Left
+     * alone they are prepended to every later prompt, and the model is told twice
+     * that a finished question is still open. The progress, facts and failures
+     * stay: they are still true, and the next compaction rebuilds remaining work
+     * from the newest turn anyway.
+     */
+    private fun settleWorkingState() {
+        val state = sessions.workingSummary ?: return
+        sessions.workingSummary = state.copy(task = "", remainingWork = emptyList())
     }
 
     /**
@@ -550,7 +568,10 @@ class AgentController(
             }
             RetainedHistory.bound(sessions.messages)
         }
-        if (outcome is AgentResult.Success) afterAnswer?.invoke(this)
+        if (outcome is AgentResult.Success) {
+            settleWorkingState()
+            afterAnswer?.invoke(this)
+        }
         outcome
     }
 
@@ -621,7 +642,23 @@ class AgentController(
             // A Stop that landed before the generation began is not reported as CANCELLED.
             if (cancelled) return AgentResult.Cancelled
 
-            when (val parsed = parse(generation.text, callable)) {
+            // A tool call the output limit cut before its closing tag is not run:
+            // its arguments are whatever fragment the limit left. The model is told
+            // to make the call shorter, like any other malformed reply.
+            val parsedAction = parse(generation.text, callable)
+            val cutToolCall = generation.stopReason == StopReason.MAX_TOKENS &&
+                parsedAction is ActionParseResult.Parsed &&
+                parsedAction.action is AgentAction.CallTool &&
+                !generation.text.contains("</tool>")
+            val parsed = if (cutToolCall) {
+                ActionParseResult.Malformed(
+                    "the output limit cut the tool call short. Reply with a shorter <tool> call.",
+                    generation.text,
+                )
+            } else {
+                parsedAction
+            }
+            when (parsed) {
                 is ActionParseResult.Malformed -> {
                     malformedStreak += 1
                     trace += StepTrace(step, StepTrace.Kind.MALFORMED, parsed.reason, success = false)
@@ -724,13 +761,27 @@ class AgentController(
         )
         return when (loopDetector.check(action.name, action.arguments)) {
             LoopDetector.Verdict.BLOCK -> Stop(
-                if (loopDetector.isUnavailable(action.name)) {
-                    "${action.name} is unavailable after repeated failures"
-                } else {
-                    "loop detected: ${action.name} repeated with identical arguments"
-                },
+                "loop detected: ${action.name} repeated with identical arguments",
                 trace.toList(),
             )
+
+            // A tool that failed twice is not run again in this run, but the run
+            // goes on: the failure is the tool's, not the whole task's, and the
+            // model can still answer or use another tool. Same shape as a policy
+            // refusal, so the model reads it the same way.
+            LoopDetector.Verdict.REFUSE -> {
+                trace += StepTrace(
+                    step, StepTrace.Kind.TOOL_CALL,
+                    "refused ${action.name}: failed twice in this run",
+                    success = false,
+                    toolName = action.name,
+                )
+                sessions.observe(
+                    "${action.name} failed twice in this run, so it will not run again. " +
+                        "Do something else, or answer without it.",
+                )
+                null
+            }
 
             LoopDetector.Verdict.WARN -> {
                 sessions.observe(
@@ -974,24 +1025,25 @@ class AgentController(
      * Prices the step about to run, applies the plan, and stops the run if it
      * still does not fit.
      *
-     * This is [StepEnforcer.cheapestReduction]'s stop condition, taken
-     * literally: a step that cannot be made to fit is not retried, and it is
-     * not run. The run ends with the arithmetic in the reason, because "the
-     * agent gave up" is not a thing the user can act on and "this call needed
-     * 4180 tokens and the window holds 3644" is.
+     * A step that cannot be made to fit is not retried, and it is not run. The
+     * run ends with the arithmetic in the reason, because "the agent gave up" is
+     * not a thing the user can act on and "this call needed 4180 tokens and the
+     * window holds 3644" is. Only a step still over the limit AFTER [priceStep]
+     * has applied every fold the window allows gets here, so a step the planned
+     * drops would have fitted is not stopped.
      *
-     * WHY THIS IS RARE RATHER THAN IMPOSSIBLE: the observation estimate alone
-     * is [config.observationBudgetChars] (512 tokens by default), so the step
-     * has to overflow the window on the reply and the arguments alone — a
-     * runaway generation, or a 12KB argument blob. Those are the cases where
-     * a stop is the right answer: the model is not out of ideas, it is out of
-     * room, and no amount of further thinking changes that.
+     * WHY THIS IS RARE: the observation estimate alone is
+     * [config.observationBudgetChars] (512 tokens by default), and [priceStep]
+     * has already folded everything the planner offered. What is left over is
+     * the step's own reply and arguments overflowing the window, a runaway
+     * generation or a 12KB argument blob. Those are the cases where a stop is
+     * the right answer: the model is not out of ideas, it is out of room.
      */
     private suspend fun refuseUnaffordableStep(call: PendingCall, reply: String): AgentResult? {
         val verdict = priceStep(call, reply, observationSample) ?: return null
         val trim = verdict.plan as? StepPlan.Trim ?: return null
         val detail = "${call.name} needs ${trim.projectedTokens} tokens and the window holds " +
-            "${trim.limit}, even after folding the conversation into the working state"
+            "${trim.limit}, even after folding the conversation into the working state as far as it goes"
         trace += StepTrace(
             call.step, StepTrace.Kind.TOOL_CALL, "refused ${call.name}: step does not fit — $detail",
             success = false,
@@ -1023,9 +1075,15 @@ class AgentController(
 
     /**
      * Prices the step against the mid-answer limit; over it, compacts once and
-     * prices again against the prompt the compaction actually produced. A step
-     * that still does not fit is one whose own reply and arguments overflow the
-     * window, and [refuseUnaffordableStep] stops the run with the arithmetic.
+     * prices again against the prompt the compaction actually produced. If the
+     * plan still asks for drops, it applies them by folding further: each fold
+     * keeps one recent message fewer, and the step is re-priced after each one.
+     * A step that still does not fit once nothing more can be folded is left for
+     * [refuseUnaffordableStep] to stop the run with the arithmetic.
+     *
+     * WHY FOLDING AND NOT DROPPING ONE ITEM: a drop from the middle of the prompt
+     * shifts every later token, so the next prefill pays for the whole prompt
+     * again. The same reduction as one fold rewrites the prompt once.
      */
     private suspend fun priceStep(call: PendingCall, reply: String, observation: String): StepVerdict? {
         var state = contextOf(lastPrompt)
@@ -1052,6 +1110,20 @@ class AgentController(
         // rewrite, after which the prompt grows at its end again.
         if (plan is StepPlan.Trim && compactNow("step ${call.name} needs ${plan.projectedTokens} of ${plan.limit} tokens")) {
             folded = 1
+            lastPrompt = buildPrompt(lastVisible)
+            state = contextOf(lastPrompt)
+            plan = enforcer.evaluate(state, proposed)
+        }
+        // Still over, and the plan names something it can give up (an empty
+        // adjustment list is the planner saying the step alone overflows). Fold
+        // further, one recent message fewer each time, and re-price, until the
+        // step fits or there is nothing left to fold. Without this the planned
+        // drops were never taken, and an over-budget step ended the run.
+        var keep = sessions.keepRecent.coerceAtLeast(1)
+        while (plan is StepPlan.Trim && !plan.unfixable && keep > 1) {
+            keep -= 1
+            if (!compactNow("step ${call.name} still needs ${plan.projectedTokens} of ${plan.limit} tokens", keep)) break
+            folded += 1
             lastPrompt = buildPrompt(lastVisible)
             state = contextOf(lastPrompt)
             plan = enforcer.evaluate(state, proposed)
@@ -1361,10 +1433,11 @@ class AgentController(
             // tool no matter how many were wired up. GBNF makes the only
             // token-continuations valid be ones that parse as an action.
             //
-            // WHY IT IS SAFE: an empty tool list yields an empty grammar, and the
-            // JNI sampler chain treats an empty grammar string as "no constraint"
-            // rather than a sampler that accepts nothing. A plain question with
-            // nothing selected therefore still answers in prose.
+            // WHY IT IS SAFE: with no tools the grammar is the reply rule alone
+            // (`root ::= action`, `action ::= resp`), so the model still has to
+            // answer inside <respond>, and that is the only shape this turn
+            // accepts. A plain question with nothing selected therefore answers in
+            // prose, and the answer keeps its line breaks.
             //
             // WHY IT IS NULL OTHERWISE: LiteRT-LM refuses any request that carries a
             // grammar, so a backend that cannot enforce one gets none.
