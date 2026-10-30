@@ -244,6 +244,13 @@ object CoreSettings {
         SettingSection.SAMPLING, default = true,
     )
 
+    val NATIVE_TOOL_FORMAT = Toggle(
+        "model.native_tool_format", "Model's own tool format",
+        "llama.cpp only: the model is shown its tools and calls them in the format it was trained on, " +
+            "instead of the app's own format.",
+        SettingSection.MODEL, default = true,
+    )
+
     // ---- agent loop --------------------------------------------------------
 
     val MAX_STEPS = IntValue(
@@ -286,7 +293,7 @@ object CoreSettings {
         READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
         COMPUTE, GPU_LAYERS, CONTEXT_LENGTH,
-        SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE,
+        SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE, NATIVE_TOOL_FORMAT,
         MAX_STEPS, MAX_VISIBLE_TOOLS, TOOL_LOOKUP, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
     )
 }

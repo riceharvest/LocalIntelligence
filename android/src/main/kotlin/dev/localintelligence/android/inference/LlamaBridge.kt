@@ -207,15 +207,55 @@ object LlamaBridge {
          * llama_jni.cpp, "system prompt anchor"). 0: none.
          */
         stablePrefixBytes: Int = 0,
+        /**
+         * The reply prepared by [chatPrepare]: its prompt, grammar and parser. [prompt]
+         * must be the text [chatPrepare] returned, and [grammar] is then not used.
+         * The reply itself is read with [chatResult]; [takeResult] still gives the stop
+         * reason and the raw text.
+         */
+        nativeChat: Boolean = false,
     ): String? = if (isAvailable) {
         nativeGenerate(
             handle.ptr, prompt, grammar, temperature, topP, topK, minP, repeatPenalty,
             penaltyLastN, frequencyPenalty, presencePenalty, seed, maxTokens, onToken, parseSpecial,
-            stablePrefixBytes,
+            stablePrefixBytes, nativeChat,
         )
     } else {
         "the llama.cpp native library is not available on this device"
     }
+
+    /**
+     * Renders [messagesJson] (OpenAI chat messages) with the loaded model's own chat
+     * template, and prepares its tool-call parser for [callableToolsJson]. The prompt
+     * lists [promptToolsJson] (the same tools every turn of a conversation). Returns
+     * `{"prompt": "...", "format": "..."}` as JSON, or null when the model has no
+     * chat engine or its template cannot render tools.
+     */
+    fun chatPrepare(
+        handle: Handle,
+        messagesJson: String,
+        promptToolsJson: String,
+        callableToolsJson: String,
+    ): String? = if (isAvailable) {
+        nativeChatPrepare(handle.ptr, messagesJson, promptToolsJson, callableToolsJson)
+    } else {
+        null
+    }
+
+    /**
+     * The reply of the last native generation as `{"content": "...", "tool_calls":
+     * [{"name": "...", "arguments": "..."}]}` JSON, or null if there is none.
+     */
+    fun chatResult(handle: Handle): String? =
+        if (isAvailable && !handle.isClosed) nativeChatResult(handle.ptr) else null
+
+    /**
+     * The token count of the prompt [chatPrepare] would render for these messages and
+     * tools, or -1 when native does not apply. Prepares nothing, so it is safe while the
+     * handle's prepared reply is still in use.
+     */
+    fun chatCount(handle: Handle, messagesJson: String, promptToolsJson: String): Int =
+        if (isAvailable && !handle.isClosed) nativeChatCount(handle.ptr, messagesJson, promptToolsJson) else -1
 
     /** Takes the last outcome, or null if the handle is gone. */
     fun takeResult(handle: Handle): GenerationOutcome? {
@@ -312,8 +352,13 @@ object LlamaBridge {
         ptr: Long, prompt: String, grammar: String?, temperature: Float, topP: Float,
         topK: Int, minP: Float, repeatPenalty: Float, penaltyLastN: Int,
         frequencyPenalty: Float, presencePenalty: Float, seed: Int, maxTokens: Int,
-        sink: TokenSink?, parseSpecial: Boolean, stablePrefixBytes: Int,
+        sink: TokenSink?, parseSpecial: Boolean, stablePrefixBytes: Int, nativeChat: Boolean,
     ): String?
+    @JvmStatic private external fun nativeChatPrepare(
+        ptr: Long, messagesJson: String, promptToolsJson: String, callableToolsJson: String,
+    ): String?
+    @JvmStatic private external fun nativeChatResult(ptr: Long): String?
+    @JvmStatic private external fun nativeChatCount(ptr: Long, messagesJson: String, promptToolsJson: String): Int
     @JvmStatic private external fun nativeSetPrefixCache(ptr: Long, dir: String, key: String)
 
     /**

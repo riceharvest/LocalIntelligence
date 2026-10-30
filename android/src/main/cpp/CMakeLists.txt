@@ -69,7 +69,12 @@ set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TOOLS    OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_APP      OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_COMMON   OFF CACHE BOOL "" FORCE)
+# llama-common: the chat templates and tool-call parsers that let a model's own
+# tool format be rendered and read (llama_jni.cpp, NativeChat). Shared, like
+# llama and ggml, because BUILD_SHARED_LIBS is ON here, so it adds one .so to the
+# APK; its size is not measured yet. It links cpp-httplib, built with
+# LLAMA_OPENSSL OFF; the JNI itself calls only the chat entry points.
+set(LLAMA_BUILD_COMMON   ON  CACHE BOOL "" FORCE)
 set(LLAMA_OPENSSL        OFF CACHE BOOL "" FORCE)
 # libmtmd: image and audio input, and speech output, for multimodal models.
 # Built on its own (tools stay off); video needs an ffmpeg binary, so it is off.
@@ -355,6 +360,7 @@ target_include_directories(LocalIntelligence_llama_jni PRIVATE
 target_link_libraries(LocalIntelligence_llama_jni PRIVATE
     mtmd
     llama
+    llama-common
     ggml
     android
     log

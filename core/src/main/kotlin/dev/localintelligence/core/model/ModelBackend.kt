@@ -1,5 +1,6 @@
 package dev.localintelligence.core.model
 
+import dev.localintelligence.core.tool.ToolDefinition
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonElement
 
@@ -149,6 +150,20 @@ data class GenerationRequest(
      */
     val useModelTemplate: Boolean = true,
     /**
+     * The tools the model may call in this step, in order. The first
+     * [listedToolCount] of them are the ones the prompt lists; the rest were
+     * described in this turn. Read by a backend that renders tools in the model's
+     * own format; others use [grammar] and [allowedToolNames].
+     */
+    val tools: List<ToolDefinition> = emptyList(),
+    val listedToolCount: Int = 0,
+    /**
+     * Show the tools and read the calls in the model's own tool-call format, through
+     * its chat template (llama.cpp only). Off, or a model whose template cannot do
+     * tools, uses the app's own format.
+     */
+    val useNativeToolFormat: Boolean = false,
+    /**
      * Whether the backend may start from a saved state of the prompt's start.
      * Off for the speed test, which measures a full prefill.
      */
@@ -199,6 +214,16 @@ interface ModelBackend {
 
     /** Best-effort token count. Used for context budgeting. */
     fun countTokens(text: String): Int
+
+    /**
+     * The exact token count of the whole prompt [request] would prefill, when the backend
+     * renders it in a form it can count (native tool format: the tool schemas are part of
+     * the prompt). Null when it cannot, and the caller keeps [countTokens] of the text.
+     *
+     * WHY: the app's text prompt leaves out what the model's own template adds (about a
+     * thousand tokens of tool schemas), so a gate on the text alone compacts too late.
+     */
+    fun countRequestTokens(request: GenerationRequest): Int? = null
 
     /** Cooperative cancellation. Must be safe to call when idle. */
     fun cancel()
