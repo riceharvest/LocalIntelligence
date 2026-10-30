@@ -7,6 +7,7 @@ import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.settings.SettingDef.Choice
 import dev.localintelligence.core.settings.SettingDef.FloatValue
 import dev.localintelligence.core.settings.SettingDef.IntValue
+import dev.localintelligence.core.settings.SettingDef.Secret
 import dev.localintelligence.core.settings.SettingDef.Toggle
 
 /**
