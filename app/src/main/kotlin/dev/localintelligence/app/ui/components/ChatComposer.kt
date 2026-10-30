@@ -5,9 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -21,6 +20,8 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -43,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -142,6 +144,11 @@ fun ChatComposer(
     onRemoveAttachment: (Int) -> Unit = {},
     /** Opens Settings. The chat has no app bar, so this is the way to every other screen. */
     onOpenSettings: () -> Unit = {},
+    /**
+     * Whether [blockedReason] is written above the field. The caller turns it off
+     * while the empty chat already shows the same sentence in the middle.
+     */
+    showBlockedReason: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     // A message can be only attachments, but never while a clip is still recording.
@@ -165,7 +172,7 @@ fun ChatComposer(
                     .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
             ),
         ) {
-            if (blockedReason != null) {
+            if (blockedReason != null && showBlockedReason) {
                 // Announced as it appears: without this, a TalkBack user
                 // encounters a disabled button with no explanation of why.
                 Text(
@@ -196,7 +203,7 @@ fun ChatComposer(
                 Text(
                     text = liveStatus,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -308,12 +315,12 @@ private fun ComposerField(
     OutlinedTextField(
         value = input,
         onValueChange = onInputChange,
-        modifier = modifier,
-        // A label, not just a placeholder: a placeholder disappears the moment
-        // the user types, which leaves a screen-reader user with an unlabelled
-        // edit field.
-        label = { Text("Message") },
-        placeholder = { Text("Ask for something…") },
+        // No floating label, which made the field look like a form. The name a
+        // screen reader announces is set here instead, so the field is never
+        // unlabelled once the placeholder is gone.
+        modifier = modifier.semantics { contentDescription = "Message" },
+        placeholder = { Text("Ask anything") },
+        shape = RoundedCornerShape(24.dp),
         // Multi-line on purpose. `maxLines > 1` makes the platform coerce the
         // IME action away from Send, so on a phone keyboard the return key
         // inserts a newline and does NOT send. That is the right trade here: a
@@ -409,10 +416,11 @@ private fun SendOrStopButton(
         // travels with the state: `blockedReason` is rendered above the field.
         enabled = busy || canSend,
         modifier = modifier.heightIn(min = 56.dp),
+        // Stop is tonal, not red: stopping is a normal thing to do, not an error.
         colors = if (busy) {
             ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.error,
-                contentColor = MaterialTheme.colorScheme.onError,
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             )
         } else {
             ButtonDefaults.buttonColors()

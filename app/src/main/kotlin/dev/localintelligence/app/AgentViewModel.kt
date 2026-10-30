@@ -465,7 +465,7 @@ sealed interface RunState {
     val progressLabel: String?
         get() = when (this) {
             Idle, is Finished -> null
-            LoadingModel -> "Loading the model into memory. This can take a minute."
+            LoadingModel -> "Getting the model ready…"
             Running -> null
             is AwaitingApproval -> "Waiting for your approval."
         }

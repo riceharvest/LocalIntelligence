@@ -2,12 +2,14 @@ package dev.localintelligence.app.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,11 +23,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,11 +53,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -68,6 +78,7 @@ import dev.localintelligence.app.media.ShownAttachment
 import dev.localintelligence.app.media.encodePickedPicture
 import dev.localintelligence.app.ui.components.ApprovalRow
 import dev.localintelligence.app.ui.components.ChatComposer
+import dev.localintelligence.app.ui.components.MarkdownText
 import dev.localintelligence.app.ui.components.PendingToolRow
 import dev.localintelligence.app.ui.components.RunningToolRow
 import dev.localintelligence.app.ui.components.SentAttachments
@@ -137,7 +148,7 @@ fun ChatScreen(
                     when (val saved = store.save(text)) {
                         is SkillRepository.SaveResult.Saved -> {
                             editingSkill = null
-                            Toast.makeText(dialogContext, "Saved skill ${saved.slug}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(dialogContext, "Skill saved", Toast.LENGTH_SHORT).show()
                             null
                         }
                         is SkillRepository.SaveResult.Refused -> saved.reason
@@ -241,8 +252,8 @@ fun ChatScreen(
             }
         }
     }
-    val liveStatus = voiceSeconds?.let { "Recording ${clipLength(it)} (tap the mic to stop)" }
-        ?: if (dictating) "Listening (tap the mic to stop)" else null
+    val liveStatus = voiceSeconds?.let { "Recording ${clipLength(it)}" }
+        ?: if (dictating) "Listening…" else null
         ?: when (handsFree.phase) {
             HandsFreePhase.Off -> null
             HandsFreePhase.Listening -> "Listening…"
@@ -353,6 +364,7 @@ fun ChatScreen(
                 onHandsFree = onHandsFree,
                 onRemoveAttachment = viewModel::removeAttachment,
                 onOpenSettings = onOpenSettings,
+                showBlockedReason = messages.isNotEmpty(),
             )
         },
     ) { padding ->
@@ -367,6 +379,7 @@ fun ChatScreen(
             if (messages.isEmpty() && streaming.isEmpty() && running == null && progress == null) {
                 item("empty") {
                     EmptyState(
+                        modifier = Modifier.fillParentMaxHeight(0.9f),
                         blockedReason = blocked,
                         // Structural, not string-matched, and both cases get a
                         // route: "nothing imported" is fixed by going to the
@@ -464,22 +477,39 @@ private suspend fun LazyListState.scrollToEnd() {
     if (overhang > 0) scrollBy(overhang.toFloat())
 }
 
+/** The user's message: a compact bubble on the right that fits its text, up to 80% of the width. */
 @Composable
 private fun UserBubble(text: String, attached: List<ShownAttachment>) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth(0.85f),
-        ) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (attached.isNotEmpty()) SentAttachments(attached)
-                if (text.isNotEmpty()) Text(text, style = MaterialTheme.typography.bodyMedium)
+        Box(Modifier.fillMaxWidth(0.8f), contentAlignment = Alignment.CenterEnd) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(20.dp),
+            ) {
+                Column(
+                    Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (attached.isNotEmpty()) SentAttachments(attached)
+                    if (text.isNotEmpty()) {
+                        SelectionContainer {
+                            Text(
+                                text,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
+/**
+ * The answer: text on the page, not in a box, with copy, read aloud and a menu
+ * under it. Selectable, so part of an answer can be copied too.
+ */
 @Composable
 private fun AssistantBubble(
     text: String,
@@ -487,22 +517,42 @@ private fun AssistantBubble(
     onSpeak: () -> Unit,
     onSaveAsSkill: (() -> Unit)? = null,
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth(0.95f),
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Text(text, style = MaterialTheme.typography.bodyMedium)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                if (onSaveAsSkill != null) {
-                    TextButton(onClick = onSaveAsSkill) { Text("Save as skill") }
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    var menuOpen by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+        SelectionContainer { MarkdownText(text) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = {
+                clipboard.setText(AnnotatedString(text))
+                // Android 13+ shows its own clipboard confirmation.
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
                 }
-                IconButton(onClick = onSpeak) {
-                    Icon(
-                        imageVector = if (speaking) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
-                        contentDescription = if (speaking) "Stop reading" else "Read aloud",
-                    )
+            }) {
+                Icon(Icons.Filled.ContentCopy, contentDescription = "Copy", modifier = Modifier.size(18.dp))
+            }
+            IconButton(onClick = onSpeak) {
+                Icon(
+                    imageVector = if (speaking) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                    contentDescription = if (speaking) "Stop reading" else "Read aloud",
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            if (onSaveAsSkill != null) {
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Filled.MoreHoriz, contentDescription = "More", modifier = Modifier.size(20.dp))
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Save as skill") },
+                            onClick = {
+                                menuOpen = false
+                                onSaveAsSkill()
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -573,34 +623,17 @@ private fun String.withoutPartialTagAtEnd(): String {
  * size and the text under the user's eye shifts at the moment they are reading
  * it.
  *
- * So the surface, the width and the padding here are literally the same values
- * as [AssistantBubble], and the live text is laid out by the same [Row] with the
- * spinner hanging off the end. Committing then removes the spinner and nothing
- * else: the words do not move, and the text does not re-wrap.
+ * So the column, the padding and the renderer here are the same as
+ * [AssistantBubble], and the spinner sits in a 48dp row under the text where the
+ * actions will be. Committing swaps that row and nothing else: the words do not
+ * move, and the text does not re-wrap.
  */
 @Composable
 private fun StreamingBubble(text: String) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth(0.95f),
-    ) {
-        // `Arrangement.spacedBy`, not padding on the spinner. A 14dp indicator
-        // with 8dp of padding on it is a 6dp spinner, which is not a spinner.
-        Row(
-            Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = text,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            CircularProgressIndicator(
-                modifier = Modifier.size(14.dp),
-                strokeWidth = 2.dp,
-            )
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+        MarkdownText(text)
+        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
         }
     }
 }
@@ -611,7 +644,7 @@ private fun NoticeLine(text: String) {
         text = text,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontFamily = FontFamily.Monospace,
+        textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
     )
 }
@@ -637,7 +670,7 @@ private fun NoticeLine(text: String) {
 private fun progressLine(state: RunState): String? = when (state) {
     RunState.Idle, is RunState.Finished -> null
     RunState.LoadingModel -> state.progressLabel
-    RunState.Running -> "Working. The model is running on this phone."
+    RunState.Running -> "Working on it…"
     is RunState.AwaitingApproval -> state.progressLabel
 }
 
@@ -660,13 +693,14 @@ private fun EmptyState(
     isMissingModel: Boolean,
     onOpenModels: () -> Unit,
     assistantName: String,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 48.dp),
+            .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
     ) {
         Text(
             text = blockedReason
@@ -682,7 +716,7 @@ private fun EmptyState(
                 onClick = onOpenModels,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text(if (isMissingModel) "Import a model" else "Choose a different model")
+                Text(if (isMissingModel) "Get a model" else "Choose another model")
             }
         }
     }
@@ -732,11 +766,11 @@ private fun ProgressLine(label: String) {
         )
         // `weight` on the label and the clock last, so a long label wraps
         // instead of pushing the count off the edge where nobody can see it.
-        if (elapsed > 0) {
+        // The clock appears only once a wait is long enough to wonder about.
+        if (elapsed >= SHOW_CLOCK_AFTER_S) {
             Text(
                 text = formatElapsed(elapsed),
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 // A reserved width. Without it the clock grows from "4s" to
                 // "2m 05s" as it runs, and the row re-measures every second.
@@ -746,6 +780,8 @@ private fun ProgressLine(label: String) {
         }
     }
 }
+
+private const val SHOW_CLOCK_AFTER_S = 20
 
 /** Seconds since this composable entered composition; 0 before the first tick. */
 @Composable

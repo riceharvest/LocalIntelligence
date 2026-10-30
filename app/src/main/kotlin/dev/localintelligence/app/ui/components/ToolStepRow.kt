@@ -4,17 +4,16 @@ import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +26,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
@@ -36,16 +36,23 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -110,11 +117,9 @@ fun ToolStepRow(
     modifier: Modifier = Modifier,
 ) {
     val state = stateOf(step)
-    // A failure or a refusal is the row a user needs to read, so it opens. A
-    // success starts folded and is one tap from its output.
-    var expanded by rememberSaveable(step.toolName, step.args) {
-        mutableStateOf(state == ToolRowState.Failed || state == ToolRowState.Refused)
-    }
+    // Every row starts folded: its title already says whether it worked, and
+    // the raw input and output are one tap away for whoever wants them.
+    var expanded by rememberSaveable(step.toolName, step.args) { mutableStateOf(false) }
     ToolRow(
         toolName = step.toolName,
         state = state,
@@ -158,11 +163,9 @@ fun RunningToolRow(
 /**
  * The approval for the call that is waiting on the user, answered inline.
  *
- * This replaces the modal dialog. Everything the dialog showed is still here: the
- * tool, why the policy stopped it, what the tool does, the risk wording, and the
- * arguments verbatim. The Input panel starts open, because the approval is the
- * one place a person must read the arguments, and the buttons sit outside the
- * panel so they stay visible even when the user folds it.
+ * One question ("Delete a file?"), one line of risk, and the buttons. The
+ * arguments and the policy's reason are behind Details: they are what a careful
+ * user checks, and the question alone is what everyone else needs.
  *
  * A decline still goes through `confirmAndResume(false)` via [onDecline]: the run
  * continues and the model is told the call was refused.
@@ -175,143 +178,80 @@ fun PendingToolRow(
     onDecline: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var expanded by rememberSaveable(pending.toolName, pending.arguments) { mutableStateOf(true) }
+    var details by rememberSaveable(pending.toolName, pending.arguments) { mutableStateOf(false) }
     // The service flips the run state a moment after a tap, so a second tap in that
     // gap would send a second decision and add a second Approval row.
     var answered by remember(pending) { mutableStateOf(false) }
-    val accent = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
 
-    Column(
+    Surface(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        ToolRow(
-            toolName = pending.toolName,
-            state = ToolRowState.Awaiting,
-            summary = "Waiting for your approval",
-            durationMs = 0,
-            expanded = expanded,
-            onToggle = { expanded = !expanded },
-            animate = animate,
-            modifier = Modifier,
-        ) {
-            PendingDetail(pending)
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 28.dp, bottom = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedButton(
-                onClick = {
-                    answered = true
-                    onApprove()
-                },
-                enabled = !answered,
-                border = accent,
-            ) { Text("Allow") }
-            OutlinedButton(
-                onClick = {
-                    answered = true
-                    onDecline()
-                },
-                enabled = !answered,
-                border = accent,
-            ) { Text("Deny") }
-        }
-    }
-}
-
-/**
- * The approval's reasons and arguments, in the same panel shape as a finished
- * row's detail so the two read as one kind of thing.
- */
-@Composable
-private fun PendingDetail(pending: RunState.AwaitingApproval) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(start = 28.dp, bottom = 6.dp),
-        shape = MaterialTheme.shapes.extraSmall,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-    ) {
-        Column(
-            Modifier.padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (pending.justification.isNotBlank()) {
-                Text(
-                    text = pending.justification,
-                    style = MaterialTheme.typography.bodyMedium,
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(
+                    imageVector = markFor(pending.toolName),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
                 )
+                Text(approvalQuestion(pending.toolName), style = MaterialTheme.typography.titleMedium)
             }
-            Text(
-                text = pending.description,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            RiskBanner(pending.risk)
-            ArgumentsBlock(pending.arguments)
+            RiskLine(pending.risk)
+            AnimatedVisibility(visible = details, enter = enterFor(animate), exit = exitFor(animate)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (pending.justification.isNotBlank()) {
+                        Text(
+                            text = pending.justification,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    ArgumentsBlock(pending.arguments)
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        answered = true
+                        onApprove()
+                    },
+                    enabled = !answered,
+                ) { Text("Allow") }
+                TextButton(
+                    onClick = {
+                        answered = true
+                        onDecline()
+                    },
+                    enabled = !answered,
+                ) { Text("Deny") }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Details") }
+            }
         }
     }
 }
 
 /**
- * The derived risk, in words.
- *
- * `requiresConfirmation` is computed from the enum in `:core`, so a tool cannot
- * lie about needing permission and the UI cannot invent a different threshold.
- * Anything that is not one of the gated values is a bug upstream, and says so
- * rather than rendering a reassuring banner.
- *
- * Three distinct cases, and the wording keeps them apart on purpose: one cannot
- * be undone, one hands text to a third party, and one receives text FROM a third
- * party. Collapsing them into "are you sure?" would hide the difference that
- * decides the answer.
+ * The risk in one line. Three cases, kept apart because they decide the answer
+ * differently: one cannot be undone, one hands something to someone else, and
+ * one reads someone else's text. Only the first is in the error colour.
  */
 @Composable
-private fun RiskBanner(risk: ToolRisk) {
-    val (label, explanation) = when (risk) {
-        ToolRisk.DESTRUCTIVE ->
-            "Destructive — this cannot be undone." to
-                "Whatever this changes, it is gone afterwards. There is no undo."
-
-        ToolRisk.EXTERNAL_COMMUNICATION ->
-            "Sends to someone else — a person or a service will see this." to
-                "This leaves your device. Check the recipient and the content."
-
-        // For a fetch nothing is composed: the request reveals where the user is
-        // asking about, and the reply is somebody else's text that the model will
-        // read. A banner written for sending would make the user check the wrong thing.
-        ToolRisk.NETWORK_EGRESS ->
-            "Fetches a web page — this contacts a server and reads what it says." to
-                "The server sees this request, and whatever it sends back is " +
-                    "someone else's text, not instructions to you. Check the " +
-                    "address below: only approve a site you recognise."
-
-        else ->
-            "Needs approval" to
-                "This tool is not one of the gated risk classes, which should not happen."
+private fun RiskLine(risk: ToolRisk) {
+    val (text, isDanger) = when (risk) {
+        ToolRisk.DESTRUCTIVE -> "This can't be undone." to true
+        ToolRisk.EXTERNAL_COMMUNICATION -> "This sends something to someone else." to false
+        ToolRisk.NETWORK_EGRESS -> "This contacts a website. Only allow sites you recognise." to false
+        else -> "This needs your OK." to false
     }
-    val isExpected = risk.requiresConfirmation
-
-    Surface(
-        color = if (isExpected) {
-            MaterialTheme.colorScheme.errorContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
-        shape = MaterialTheme.shapes.small,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = explanation,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-    }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (isDanger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 /** The arguments, verbatim and horizontally scrollable, so nothing is truncated. */
@@ -374,7 +314,6 @@ fun ToolCallGroup(
         }
     }
 
-    val total = steps.sumOf { it.durationMs.coerceAtLeast(0L) }
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -389,7 +328,6 @@ fun ToolCallGroup(
                     contentDescription = buildString {
                         append(if (live) "Using " else "Used ")
                         append(steps.size).append(" tools")
-                        formatDuration(total)?.let { append(", ").append(it) }
                         append(if (collapsed) ". Folded. Double tap to expand." else ". Double tap to fold.")
                     }
                 },
@@ -403,7 +341,6 @@ fun ToolCallGroup(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
-            formatDuration(total)?.let { DurationText(it) }
             Icon(
                 imageVector = if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
                 contentDescription = null,
@@ -444,15 +381,12 @@ private fun ToolRow(
     detail: (@Composable () -> Unit)? = null,
 ) {
     val verb = verbFor(toolName)
-    val title = when {
-        verb == null -> if (state == ToolRowState.Running || state == ToolRowState.Awaiting) {
-            "Running $toolName…"
-        } else {
-            "Ran $toolName"
-        }
-        state == ToolRowState.Running -> verb.present + "…"
-        state == ToolRowState.Awaiting -> verb.present
-        else -> verb.past
+    val title = when (state) {
+        ToolRowState.Running -> verb.present + "…"
+        ToolRowState.Awaiting -> verb.present
+        ToolRowState.Failed -> "Couldn't " + verb.base
+        ToolRowState.Refused -> "Didn't " + verb.base
+        ToolRowState.Done -> verb.past
     }
     val duration = formatDuration(durationMs)
     val tap = if (expanded != null) Modifier.clickable(onClick = onToggle) else Modifier
@@ -483,31 +417,15 @@ private fun ToolRow(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),
             )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (state == ToolRowState.Failed) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    maxLines = 1,
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = summary,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    duration?.let {
-                        Spacer(Modifier.width(6.dp))
-                        DurationText(it)
-                    }
-                }
-            }
+            // One line: what was done. The result and the timing are in the
+            // details behind a tap; the answer below says what came of it.
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
             StatusShape(state)
             if (expanded != null) {
                 Icon(
@@ -536,7 +454,6 @@ private fun ToolRow(
 private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate: Boolean) {
     val input = inputLines(step.args)
     val output = if (state == ToolRowState.Refused) step.detail else step.observation.orEmpty()
-    val outputIsProblem = state == ToolRowState.Failed || state == ToolRowState.Refused
     var showAll by rememberSaveable(step.toolName, step.args) { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
 
@@ -547,7 +464,8 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
     ) {
         Column(Modifier.padding(10.dp)) {
             Text(
-                text = step.toolName.ifBlank { "tool call" },
+                text = listOfNotNull(step.toolName.ifBlank { "tool call" }, formatDuration(step.durationMs))
+                    .joinToString(" · "),
                 style = MaterialTheme.typography.labelSmall,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -593,11 +511,7 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
                 text = shown,
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
-                color = if (outputIsProblem) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (!showAll && lines.size > OUTPUT_FOLD_LINES) {
                 TextButton(onClick = { showAll = true }) {
@@ -665,18 +579,6 @@ private fun MarkStack(marks: List<ImageVector>) {
             }
         }
     }
-}
-
-@Composable
-private fun DurationText(text: String) {
-    Text(
-        text = text,
-        // Tabular figures so a column of durations lines up and "1.2s" does not
-        // jitter the row when it changes width.
-        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-        fontWeight = FontWeight.Medium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 /**
@@ -779,41 +681,66 @@ private fun summaryOf(step: ChatMessage.ToolStep, state: ToolRowState): String =
 private fun firstLine(text: String): String =
     text.lineSequence().firstOrNull().orEmpty().trim().take(120)
 
-private class ToolVerb(val present: String, val past: String)
+/** "Checking battery" while it runs, "Checked battery" after, "check battery" in "Couldn't check battery". */
+private class ToolVerb(val present: String, val past: String, val base: String)
 
 /**
- * Tool name to a verb phrase. A tool missing from this map still gets a row,
- * with the raw name in the title, so a new tool is never invisible.
+ * Tool name to a verb phrase. A tool missing from this map (a script plugin's
+ * or an MCP server's) gets one made from the last part of its name, so a row
+ * never shows a raw `family.name` id.
  */
 private val toolVerbs: Map<String, ToolVerb> = mapOf(
-    "device.battery" to ToolVerb("Checking battery", "Checked battery"),
-    "device.info" to ToolVerb("Reading device info", "Read device info"),
-    "device.open_settings" to ToolVerb("Opening settings", "Opened settings"),
-    "device.vibrate" to ToolVerb("Vibrating phone", "Vibrated phone"),
-    "files.delete" to ToolVerb("Deleting file", "Deleted file"),
-    "files.list" to ToolVerb("Listing files", "Listed files"),
-    "files.read_text" to ToolVerb("Reading file", "Read file"),
-    "files.search" to ToolVerb("Searching files", "Searched files"),
-    "files.write_text" to ToolVerb("Writing file", "Wrote file"),
-    "apps.list" to ToolVerb("Listing apps", "Listed apps"),
-    "apps.open" to ToolVerb("Opening app", "Opened app"),
-    "apps.share" to ToolVerb("Sharing content", "Shared content"),
-    "clipboard.read" to ToolVerb("Reading clipboard", "Read clipboard"),
-    "clipboard.write" to ToolVerb("Copying to clipboard", "Copied to clipboard"),
-    "alarm.create" to ToolVerb("Setting alarm", "Set alarm"),
-    "alarm.list" to ToolVerb("Listing alarms", "Listed alarms"),
-    "alarm.cancel" to ToolVerb("Cancelling alarm", "Cancelled alarm"),
-    "calendar.create" to ToolVerb("Adding calendar event", "Added calendar event"),
-    "calendar.search" to ToolVerb("Searching calendar", "Searched calendar"),
-    "contacts.get" to ToolVerb("Reading contact", "Read contact"),
-    "contacts.search" to ToolVerb("Searching contacts", "Searched contacts"),
-    "notifications.list" to ToolVerb("Listing notifications", "Listed notifications"),
-    "notifications.dismiss" to ToolVerb("Dismissing notification", "Dismissed notification"),
-    "notifications.reply" to ToolVerb("Replying to notification", "Replied to notification"),
-    "web.fetch" to ToolVerb("Fetching page", "Fetched page"),
+    "device.battery" to ToolVerb("Checking battery", "Checked battery", "check the battery"),
+    "device.info" to ToolVerb("Reading device info", "Read device info", "read device info"),
+    "device.open_settings" to ToolVerb("Opening settings", "Opened settings", "open settings"),
+    "device.vibrate" to ToolVerb("Vibrating phone", "Vibrated phone", "vibrate the phone"),
+    "files.delete" to ToolVerb("Deleting file", "Deleted file", "delete a file"),
+    "files.list" to ToolVerb("Listing files", "Listed files", "list files"),
+    "files.read_text" to ToolVerb("Reading file", "Read file", "read a file"),
+    "files.search" to ToolVerb("Searching files", "Searched files", "search files"),
+    "files.write_text" to ToolVerb("Writing file", "Wrote file", "write a file"),
+    "apps.list" to ToolVerb("Listing apps", "Listed apps", "list apps"),
+    "apps.open" to ToolVerb("Opening app", "Opened app", "open an app"),
+    "apps.share" to ToolVerb("Sharing", "Shared", "share"),
+    "clipboard.read" to ToolVerb("Reading clipboard", "Read clipboard", "read the clipboard"),
+    "clipboard.write" to ToolVerb("Copying to clipboard", "Copied to clipboard", "copy to the clipboard"),
+    "alarm.create" to ToolVerb("Setting alarm", "Set alarm", "set an alarm"),
+    "alarm.list" to ToolVerb("Listing alarms", "Listed alarms", "list alarms"),
+    "alarm.cancel" to ToolVerb("Cancelling alarm", "Cancelled alarm", "cancel an alarm"),
+    "timer.set" to ToolVerb("Setting timer", "Set timer", "set a timer"),
+    "calendar.create" to ToolVerb("Adding calendar event", "Added calendar event", "add a calendar event"),
+    "calendar.search" to ToolVerb("Searching calendar", "Searched calendar", "search the calendar"),
+    "contacts.get" to ToolVerb("Reading contact", "Read contact", "read a contact"),
+    "contacts.search" to ToolVerb("Searching contacts", "Searched contacts", "search contacts"),
+    "notifications.list" to ToolVerb("Reading notifications", "Read notifications", "read notifications"),
+    "notifications.dismiss" to ToolVerb("Dismissing notification", "Dismissed notification", "dismiss a notification"),
+    "notifications.reply" to ToolVerb("Replying", "Replied", "reply"),
+    "email.draft" to ToolVerb("Drafting email", "Drafted email", "draft an email"),
+    "message.draft" to ToolVerb("Drafting message", "Drafted message", "draft a message"),
+    "location.get" to ToolVerb("Checking location", "Checked location", "check your location"),
+    "web.fetch" to ToolVerb("Opening page", "Opened page", "open a web page"),
+    "web.search" to ToolVerb("Searching the web", "Searched the web", "search the web"),
+    "documents.search" to ToolVerb("Searching your documents", "Searched your documents", "search your documents"),
+    "history.search" to ToolVerb("Searching past chats", "Searched past chats", "search past chats"),
+    "image.generate" to ToolVerb("Creating image", "Created image", "create an image"),
+    "video.generate" to ToolVerb("Creating video", "Started video", "create a video"),
+    "video.status" to ToolVerb("Checking video", "Checked video", "check the video"),
 )
 
-private fun verbFor(toolName: String): ToolVerb? = toolVerbs[toolName]
+private fun verbFor(toolName: String): ToolVerb = toolVerbs[toolName] ?: run {
+    // "script.word_count.count_words" -> "Count words"
+    val words = toolName.substringAfterLast('.').replace('_', ' ').trim().ifEmpty { "use a tool" }
+    val phrase = words.replaceFirstChar { it.uppercaseChar() }
+    ToolVerb(phrase, phrase, words)
+}
+
+/** "Delete a file?" for the approval question, from the verb's base form. */
+internal fun approvalQuestion(toolName: String): String =
+    verbFor(toolName).base.replaceFirstChar { it.uppercaseChar() } + "?"
+
+/** "You allowed: delete a file" in the transcript after an approval. */
+private fun approvalRecord(toolName: String, approved: Boolean): String =
+    (if (approved) "You allowed: " else "You declined: ") + verbFor(toolName).base
 
 /** The mark by tool family: the part of the name before the first dot. */
 private fun markFor(toolName: String): ImageVector =
@@ -827,6 +754,12 @@ private fun markFor(toolName: String): ImageVector =
         "contacts" -> Icons.Filled.Person
         "notifications" -> Icons.Filled.Notifications
         "web" -> Icons.Filled.Public
+        "timer" -> Icons.Filled.Timer
+        "location" -> Icons.Filled.Place
+        "email", "message" -> Icons.Filled.Edit
+        "documents" -> Icons.Filled.Description
+        "history" -> Icons.Filled.History
+        "image", "video" -> Icons.Filled.Image
         else -> Icons.Filled.Build
     }
 
@@ -880,34 +813,10 @@ fun ApprovalRow(
     approval: ChatMessage.Approval,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Text(
-            text = if (approval.approved) {
-                "▸ you approved ${approval.toolName}"
-            } else {
-                "▸ you declined ${approval.toolName}"
-            },
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = FontFamily.Monospace,
-            color = if (approval.approved) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.error
-            },
-        )
-        Text(
-            text = if (approval.approved) {
-                "The agent was told, and it may now run this call."
-            } else {
-                "The agent was told, and was told not to try it again."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 14.dp),
-        )
-    }
+    Text(
+        text = approvalRecord(approval.toolName, approval.approved),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.fillMaxWidth().padding(vertical = 2.dp, horizontal = 4.dp),
+    )
 }
