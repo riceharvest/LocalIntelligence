@@ -25,6 +25,7 @@ import dev.localintelligence.android.scripts.ScriptPluginRepository
 import dev.localintelligence.android.scripts.ScriptRunner
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.settings.SettingsStore
+import dev.localintelligence.app.settings.ComputeChoice
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.speech.Speaker
 import dev.localintelligence.core.plugin.AgentPlugin
@@ -47,6 +48,7 @@ import dev.localintelligence.core.memory.LexicalMemoryStore
 import dev.localintelligence.core.memory.ProfilePlugin
 import dev.localintelligence.android.inference.RamEstimate
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
+import dev.localintelligence.app.speedtest.ComputeComparison
 import dev.localintelligence.app.speedtest.SpeedTestRunner
 import dev.localintelligence.app.speedtest.SpeedTestTarget
 import dev.localintelligence.app.ui.displayNameOf
@@ -625,7 +627,12 @@ class AppContainer(private val context: Context) {
      * this file exists: `LlamaCppBackend` is what pulls llama.cpp into the
      * process.
      */
-    val modelBackend: ModelBackend by lazy { LlamaCppBackend(importer) }
+    val modelBackend: ModelBackend by lazy { LlamaCppBackend(importer, computeSource = computeChoice) }
+
+    /** Where llama.cpp runs each load: the Compute setting and the speed test's winner. */
+    val computeChoice: ComputeChoice by lazy {
+        ComputeChoice(settings, File(context.filesDir, "gpu-load-in-progress"))
+    }
 
     /**
      * The OpenRouter plugin, one instance for the plugin list and the remote chat model.
@@ -737,10 +744,14 @@ class AppContainer(private val context: Context) {
         if (remoteChatActive) return null
         val model = selectedModel ?: return null
         val file = model.uri.path?.takeIf { model.uri.scheme == "file" }?.let { File(it).name }
+        val backend = residentBackend()
         return SpeedTestTarget(
-            backend = residentBackend(),
+            backend = backend,
             modelUri = model.uri.toString(),
             modelFile = file ?: displayNameOf(context, model.uri) ?: model.displayName,
+            comparison = (backend as? LlamaCppBackend)
+                ?.takeIf { computeChoice.isAuto }
+                ?.let { ComputeComparison(it, computeChoice) },
         )
     }
 
@@ -766,6 +777,7 @@ class AppContainer(private val context: Context) {
             modelsDir = modelsDir,
             nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
             cacheDir = context.cacheDir.absolutePath,
+            llamaCompute = computeChoice,
         )
     }
 

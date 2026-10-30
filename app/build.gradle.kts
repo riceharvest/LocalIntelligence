@@ -60,6 +60,10 @@ android {
         // the on-device compiler plugin is dead weight.
         jniLibs.excludes += "**/libLiteRtCompilerPlugin_google_tensor.so"
         jniLibs.pickFirsts += "**/libLiteRtDispatch_GoogleTensor.so"
+        // The Khronos OpenCL loader is only a link-time stand-in for the OpenCL
+        // backend. Shipping it would shadow the phone vendor's libOpenCL.so
+        // (declared in the manifest), so it stays out of the APK.
+        jniLibs.excludes += "**/libOpenCL.so"
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }

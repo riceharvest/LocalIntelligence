@@ -43,9 +43,12 @@ object SimpleSetup {
     fun suggestedModel(facts: DeviceFacts): SuggestedModel = when {
         facts.totalRamBytes >= 4 * GIB -> SuggestedModel(
             repo = "LiquidAI/LFM3-1.7B-GGUF",
-            file = "LFM3-1.7B-Q4_K_M.gguf",
-            sizeBytes = 1_099_627_808,
-            reason = "A 1.7B model at 4-bit, about 1.1 GB: the largest that leaves room on this phone.",
+            // QAD Q4_0 over Q4_K_M: Q4_0 gets the ARM repack/KleidiAI kernels.
+            // MEASURED Pixel 10 Pro, llama-bench 6 threads: pp256 254.6 vs 211.0
+            // t/s, tg64 25.3 vs 23.7 t/s; and it is quantisation-aware trained.
+            file = "LFM3-1.7B-QAD-Q4_0.gguf",
+            sizeBytes = 1_049_615_680,
+            reason = "A 1.7B model at 4-bit, about 1 GB, in the format this phone's CPU runs fastest.",
         )
         else -> SuggestedModel(
             repo = "LiquidAI/LFM2.5-230M-GGUF",

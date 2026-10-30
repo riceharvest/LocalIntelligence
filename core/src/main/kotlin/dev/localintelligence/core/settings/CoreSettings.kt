@@ -17,6 +17,11 @@ import dev.localintelligence.core.settings.SettingDef.Toggle
  * fresh install behaves exactly as it did.
  */
 object CoreSettings {
+    const val COMPUTE_AUTO = "auto"
+    const val COMPUTE_CPU = "cpu"
+    const val COMPUTE_VULKAN = "vulkan"
+    const val COMPUTE_OPENCL = "opencl"
+
     val MODE = Choice(
         "mode", "Settings mode",
         "Simple picks the model and settings for this phone and hides the technical ones. " +
@@ -93,6 +98,27 @@ object CoreSettings {
         "voice.hands_free_silence", "Silence before sending",
         "Hands-free mode: how long a pause ends your turn, in seconds.",
         SettingSection.VOICE, default = 1.2f, min = 0.6f, max = 3f, step = 0.1f, applies = SettingApplies.NOW,
+    )
+
+    // ---- model -------------------------------------------------------------
+
+    val COMPUTE = Choice(
+        "model.compute", "Compute",
+        "Where llama.cpp runs the model. Auto uses whichever the speed test measured faster on " +
+            "this phone, and the CPU until it has run. A GPU that cannot load a model falls back to the CPU.",
+        SettingSection.MODEL, COMPUTE_AUTO,
+        listOf(
+            Choice.Option(COMPUTE_AUTO, "Auto"),
+            Choice.Option(COMPUTE_CPU, "CPU"),
+            Choice.Option(COMPUTE_VULKAN, "GPU (Vulkan)"),
+            Choice.Option(COMPUTE_OPENCL, "GPU (OpenCL)"),
+        ),
+        applies = SettingApplies.NEXT_MODEL_LOAD,
+    )
+    val GPU_LAYERS = IntValue(
+        "model.gpu_layers", "GPU layers",
+        "Layers placed on the GPU when the model runs there; the rest stay on the CPU. 99 is all of them.",
+        SettingSection.MODEL, default = 99, min = 1, max = 99, applies = SettingApplies.NEXT_MODEL_LOAD,
     )
 
     // ---- sampling ----------------------------------------------------------
@@ -188,6 +214,7 @@ object CoreSettings {
         TOOL_CALLS_AUTO_COLLAPSE,
         READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
+        COMPUTE, GPU_LAYERS,
         SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE,
         MAX_STEPS, MAX_VISIBLE_TOOLS, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
     )

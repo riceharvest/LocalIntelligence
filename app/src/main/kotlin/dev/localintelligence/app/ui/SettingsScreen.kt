@@ -118,9 +118,8 @@ fun SettingsScreen(
                     .filter { it !== CoreSettings.MODE && (technical || it.simple) }
                 for (section in SettingSection.entries) {
                     val inSection = rows.filter { it.section == section }
-                    // The Model section has no SettingDef rows, so the loop would skip
-                    // it and the speed test row would never render. It gets its header
-                    // here when the speed test is present, Technical mode only.
+                    // The speed test sits under the Model section's rows (Compute, GPU
+                    // layers), Technical mode only.
                     val speedTestHere = technical && speedTest != null && section == SettingSection.MODEL
                     if (inSection.isEmpty() && !speedTestHere) continue
                     SectionHeader(section.title)

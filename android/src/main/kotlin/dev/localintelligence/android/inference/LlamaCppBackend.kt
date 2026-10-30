@@ -41,10 +41,18 @@ import java.util.concurrent.atomic.AtomicBoolean
  * in-flight decode stops within one token's latency (single-digit milliseconds
  * on a phone for a 3B) and returns `StopReason.CANCELLED` with the partial text
  * preserved. It is safe to call when idle, and safe to call from any thread.
+ *
+ * ## CPU or GPU
+ *
+ * [computeSource] says where each load runs ([LlamaCompute]). A GPU load that
+ * fails (an old driver, no memory for the GPU buffers) falls back to the CPU
+ * rather than failing: the user asked for a model, not for a GPU.
+ * [activeCompute] says where the resident model actually is.
  */
 class LlamaCppBackend(
     private val importer: ModelImporter? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val computeSource: LlamaComputeSource = LlamaComputeSource.CPU_ONLY,
 ) : StreamingModelBackend, SpeechOutput {
 
     override val id: String = ModelImporter.BACKEND_LLAMA_CPP
@@ -71,7 +79,39 @@ class LlamaCppBackend(
     @Volatile
     private var loaded: LoadedModel? = null
 
-    override suspend fun load(model: ModelSpec) {
+    /** Where the resident model runs, or null when none is loaded. */
+    @Volatile
+    var activeCompute: LlamaCompute? = null
+        private set
+
+    /** The spec of the resident model, so [reloadOn] can load it again elsewhere. */
+    @Volatile
+    private var residentSpec: ModelSpec? = null
+
+    override suspend fun load(model: ModelSpec) =
+        loadOn(model, computeSource.forNextLoad(), cpuFallback = true)
+
+    /**
+     * Loads the resident model again on [compute], for the speed test's comparison.
+     * Returns null on success, else why it failed; the model is then back where it
+     * was. The old copy is freed first, so two copies never share the phone's RAM.
+     */
+    suspend fun reloadOn(compute: LlamaCompute): String? {
+        val spec = residentSpec ?: return "no model is loaded"
+        val previous = activeCompute ?: LlamaCompute.CPU
+        unload()
+        return try {
+            loadOn(spec, compute, cpuFallback = false)
+            null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            loadOn(spec, previous, cpuFallback = true)
+            t.message ?: t::class.java.simpleName
+        }
+    }
+
+    private suspend fun loadOn(model: ModelSpec, wanted: LlamaCompute, cpuFallback: Boolean) {
         val bridgeHandle = LlamaBridge.create()
             ?: error("the llama.cpp native library is not available on this device")
 
@@ -107,13 +147,44 @@ class LlamaCppBackend(
         val contextLength = (meta.contextLength ?: DEFAULT_CONTEXT_LENGTH)
             .coerceIn(MIN_CONTEXT_LENGTH, MAX_CONTEXT_LENGTH)
 
-        val loadError = LlamaBridge.loadModel(
-            handle = bridgeHandle,
-            path = opened.nativePath(),
-            contextLength = contextLength,
-            threads = 0,
-            useMmap = opened.isMmapCapable,
-        )
+        fun loadNative(compute: LlamaCompute): String? {
+            computeSource.loadStarting(compute)
+            var error = LlamaBridge.loadModel(
+                handle = bridgeHandle,
+                path = opened.nativePath(),
+                contextLength = contextLength,
+                threads = 0,
+                useMmap = opened.isMmapCapable,
+                compute = compute,
+            )
+            // A GPU builds its compute pipelines on the first prefill and decode,
+            // which is where a driver bug most likely crashes or fails. Running
+            // both here keeps that inside the crash guard, turns a GPU that loads
+            // but cannot compute into a load error (so the CPU takes over), and
+            // takes the delay off the user's first message.
+            if (error == null && compute.isGpu) {
+                val warmUpError = LlamaBridge.generate(
+                    handle = bridgeHandle, prompt = WARM_UP_PROMPT, grammar = null, temperature = 0f,
+                    topP = 1f, topK = 0, minP = 0f, repeatPenalty = 1f, penaltyLastN = 0,
+                    frequencyPenalty = 0f, presencePenalty = 0f, seed = 0, maxTokens = 2, onToken = null,
+                )
+                val outcome = LlamaBridge.takeResult(bridgeHandle)
+                error = warmUpError ?: outcome?.error ?: when {
+                    outcome == null -> "the GPU warm-up returned no result"
+                    outcome.stopCode == GenerationOutcome.STOP_ERROR -> "the GPU warm-up failed"
+                    else -> null
+                }
+            }
+            computeSource.loadReturned(compute, error)
+            return error
+        }
+        var compute = wanted
+        var loadError = loadNative(compute)
+        if (loadError != null && compute.isGpu && cpuFallback) {
+            android.util.Log.w(TAG, "${compute.label} could not load the model, using the CPU: $loadError")
+            compute = LlamaCompute.CPU
+            loadError = loadNative(compute)
+        }
         if (loadError != null) {
             opened.close()
             LlamaBridge.unload(bridgeHandle)
@@ -137,6 +208,8 @@ class LlamaCppBackend(
             releaseLocked()
             handle = bridgeHandle
             loaded = opened
+            activeCompute = compute
+            residentSpec = model
             currentCapabilities = deriveCapabilities(meta, contextLength).copy(
                 supportsVision = projectorCaps and LlamaBridge.CAP_IMAGE != 0,
                 supportsAudioInput = projectorCaps and LlamaBridge.CAP_AUDIO != 0,
@@ -148,6 +221,7 @@ class LlamaCppBackend(
 
     override suspend fun unload() {
         synchronized(lock) {
+            residentSpec = null
             releaseLocked()
             currentCapabilities = ModelCapabilities.UNKNOWN
         }
@@ -292,6 +366,7 @@ class LlamaCppBackend(
         val m = loaded
         handle = null
         loaded = null
+        activeCompute = null
         if (h != null) {
             LlamaBridge.unload(h)
             h.close()
@@ -511,6 +586,13 @@ class LlamaCppBackend(
 
     companion object {
         const val DEFAULT_CONTEXT_LENGTH = 4096
+
+        private const val TAG = "LlamaCppBackend"
+
+        /** Long enough that the warm-up prefill takes the batched path, not the single-token one. */
+        private const val WARM_UP_PROMPT =
+            "The quick brown fox jumps over the lazy dog while the five boxing wizards jump quickly " +
+                "and a wizard's job is to vex chumps quickly in fog."
 
         /** `-Q4_K_M`, `-QAD-Q4_0`, `-IQ3_XS`, `-F16`, `-BF16`, `-MXFP4_MOE`... at the end of a file stem. */
         private val QUANT_SUFFIX = Regex("""(?i)[-_.](QAD-)?(IQ\d\w*|Q\d\w*|BF16|F16|F32|MXFP4\w*|NVFP4)$""")
