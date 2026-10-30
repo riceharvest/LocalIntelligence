@@ -598,7 +598,12 @@ class AppContainer(private val context: Context) {
         // idempotent and nothing is inferred from positions.
         // A tool call's own turn (blank text, see Session.recordCall) is prompt
         // plumbing, not conversation: it is not stored or shown after a restart.
-        return session.messages.filter { session.writtenIds.add(session.idOf(it)) }
+        // Under the session lock: the idle compaction folds the window on another thread,
+        // and reading the list while it is cleared would throw or see a half-refilled window.
+        val pending = session.locked {
+            session.messages.filter { session.writtenIds.add(session.idOf(it)) }
+        }
+        return pending
             .filterNot { (it is ChatMessage.Assistant && it.text.isBlank()) || (it is ChatMessage.User && it.text.isBlank()) }
     }
 
@@ -612,7 +617,7 @@ class AppContainer(private val context: Context) {
         } catch (t: Throwable) {
             android.util.Log.w(TAG, "Could not open a durable session; skipping write.", t)
             // Nothing was written, so nothing may stay marked as written.
-            pending.forEach { session.writtenIds.remove(session.idOf(it)) }
+            session.locked { pending.forEach { session.writtenIds.remove(session.idOf(it)) } }
             return
         }
         try {
@@ -626,7 +631,7 @@ class AppContainer(private val context: Context) {
             // answer has already been produced and shown. Un-mark these rows so
             // the next run genuinely retries them, rather than leaving them
             // marked as written and silently dropping them.
-            pending.forEach { session.writtenIds.remove(session.idOf(it)) }
+            session.locked { pending.forEach { session.writtenIds.remove(session.idOf(it)) } }
             android.util.Log.w(TAG, "Could not persist the conversation; will retry next run.", t)
         }
     }

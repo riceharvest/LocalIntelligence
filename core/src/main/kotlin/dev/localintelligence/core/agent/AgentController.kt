@@ -1655,10 +1655,14 @@ class AgentController(
         // messages permanently unwritten, because they were already gone from the
         // window by the time anything looked. Firing first stores all 18 with no
         // duplicates. See onWindowChanged.
-        onWindowChanged?.invoke()
-        messages.clear()
-        messages += head
-        messages += tail
+        // Under the session lock: a snapshot on another thread (the run-end persist) must
+        // see the window either before the fold or after it, never while it is cleared.
+        sessions.locked {
+            onWindowChanged?.invoke()
+            messages.clear()
+            messages += head
+            messages += tail
+        }
     }
 
     /**

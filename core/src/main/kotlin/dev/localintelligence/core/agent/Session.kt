@@ -29,6 +29,24 @@ class Session(
     val messages: MutableList<ChatMessage> = mutableListOf()
 
     /**
+     * Guards [messages] and the identity bookkeeping against a reader on another thread.
+     *
+     * WHY: between-messages compaction runs on the IO dispatcher while the run-end
+     * persist snapshots the same window on the default dispatcher. Without one lock a
+     * snapshot can iterate [messages] while a fold is clearing it (a
+     * ConcurrentModificationException out of the persist) or read ids for a window that
+     * is half-refilled. Callers take the lock only around memory work, never around I/O
+     * or a suspend point, so nothing can wait on it while holding another lock. It is a
+     * monitor, not a Mutex, because the trims that need it (`AgentController.foldWindow`)
+     * are not suspend functions, and it is reentrant, so a snapshot taken from inside a
+     * fold's callback does not deadlock with it.
+     */
+    private val lock = Any()
+
+    /** Runs [block] holding the session lock. Keep [block] to memory work: no I/O, no suspend. */
+    fun <T> locked(block: () -> T): T = synchronized(lock) { block() }
+
+    /**
      * Identity of every message already handed to the durable store.
      *
      * WHY THIS EXISTS, AND WHY A BUFFER WAS NOT ENOUGH: the store is written at
@@ -68,7 +86,8 @@ class Session(
      * A stable id for [message], assigned on first ask and never reused.
      *
      * Public because the durable writer in `:app` is the other half of this
-     * mechanism and cannot be `internal` to this module.
+     * mechanism and cannot be `internal` to this module. Callers that also read
+     * [messages] or [writtenIds] take [locked] around the whole pass.
      */
     fun idOf(message: ChatMessage): Long = ids.getOrPut(message) { nextIdentity++ }
 
@@ -79,7 +98,7 @@ class Session(
      * written back. Marking the live objects is exact: a message not in the
      * window is not marked, so nothing is silently skipped.
      */
-    fun markAllWritten() {
+    fun markAllWritten() = locked {
         messages.forEach { writtenIds.add(idOf(it)) }
     }
 
@@ -296,7 +315,7 @@ class Session(
         return true
     }
 
-    fun clear() {
+    fun clear() = locked {
         messages.clear()
         workingSummary = null
         epochTools.clear()
@@ -349,16 +368,16 @@ class Session(
      * the trade is deliberate and the summary is the side we spend. Callers
      * that need the old context should say so in their first message.
      */
-    fun restore(history: List<ChatMessage>): Int {
-        if (history.isEmpty()) return 0
+    fun restore(history: List<ChatMessage>): Int = locked {
+        if (history.isEmpty()) return@locked 0
         val bounded = boundHistory(history)
         val firstQuestion = bounded.indexOfFirst { it is ChatMessage.User }
-        if (firstQuestion < 0) return 0
+        if (firstQuestion < 0) return@locked 0
         val adopted = bounded.subList(firstQuestion, bounded.size)
         messages.clear()
         messages += adopted
         appendedCount = adopted.size
-        return adopted.size
+        adopted.size
     }
 
     /**
