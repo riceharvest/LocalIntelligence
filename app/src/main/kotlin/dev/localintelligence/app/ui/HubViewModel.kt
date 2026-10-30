@@ -52,11 +52,17 @@ import java.io.File
  */
 fun interface DownloadedModelRegistrar {
     /**
-     * Adopts [file] and returns a short line for the UI, or null when the file
-     * could not be adopted (which the caller must surface — a downloaded model
-     * that is not loadable is a failure, not a success).
+     * Adopts [file] and returns what happened, or null when the file could not
+     * be adopted (which the caller must surface — a downloaded model that is not
+     * loadable is a failure, not a success).
      */
-    suspend fun register(file: File): String?
+    suspend fun register(file: File): Registered?
+
+    /**
+     * A short line for the UI, and whether the chat can now use the file. A
+     * document search model is adopted but is not a chat model.
+     */
+    data class Registered(val note: String, val chatReady: Boolean)
 
     companion object {
         /**
@@ -137,6 +143,8 @@ data class HubUiState(
     val alreadyOnDevice: Boolean = false,
     /** Set once a finished download has been adopted by the rest of the app. */
     val registeredNote: String? = null,
+    /** Whether that adoption left a model the chat can use ("Start chatting"). */
+    val registeredReady: Boolean = false,
     /**
      * Bytes still sitting in the `.part` file from a download that stopped.
      *
@@ -169,14 +177,11 @@ data class HubUiState(
         get() = partialBytesKept > 0 && progress is DownloadProgress.Stopped
 
     /**
-     * True when the finished download is loaded and the chat can use it. A failure note
-     * ("Saved, but…", "Downloaded, but…") and the document-search model are saved but not
-     * chat-ready, so they keep their text and get no "Start chatting" button.
+     * True when the finished download is loaded and the chat can use it. A failure, or
+     * the document search model, keeps its note and gets no "Start chatting" button.
      */
     val ready: Boolean
-        get() = registeredNote?.let {
-            !it.startsWith("Saved") && !it.startsWith("Downloaded, but")
-        } == true
+        get() = registeredNote != null && registeredReady
 
     /** The download stopped for a reason the user may be able to do something about. */
     val stopped: DownloadProgress.Stopped? get() = progress as? DownloadProgress.Stopped
@@ -379,6 +384,7 @@ class HubViewModel(
                         progress = null,
                         partialBytesKept = 0,
                         registeredNote = null,
+                        registeredReady = false,
                         downloading = false,
                         downloadJob = null,
                     )
@@ -488,6 +494,7 @@ class HubViewModel(
                     progress = null,
                     partialBytesKept = 0,
                     registeredNote = null,
+                    registeredReady = false,
                     error = null,
                 )
             }
@@ -663,6 +670,7 @@ class HubViewModel(
                 progress = null,
                 error = null,
                 registeredNote = null,
+                registeredReady = false,
                 // Cleared because a fresh attempt decides for itself: the
                 // `.part` file is still on disk and the downloader will resume
                 // it, so the first progress event repopulates this from what is
@@ -704,6 +712,7 @@ class HubViewModel(
                 progress = null,
                 error = null,
                 registeredNote = null,
+                registeredReady = false,
                 partialBytesKept = 0,
             )
         }
@@ -737,7 +746,8 @@ class HubViewModel(
                             hubFile,
                             downloader.localFileFor(hubFile).absolutePath,
                         ),
-                        registeredNote = note,
+                        registeredNote = note.note,
+                        registeredReady = note.chatReady,
                         alreadyOnDevice = true,
                         partialBytesKept = 0,
                     )
@@ -771,7 +781,8 @@ class HubViewModel(
                             downloading = false,
                             progress = event,
                             error = null,
-                            registeredNote = note,
+                            registeredNote = note.note,
+                            registeredReady = note.chatReady,
                             alreadyOnDevice = true,
                             partialBytesKept = 0,
                         )
@@ -810,23 +821,22 @@ class HubViewModel(
      * model list. Telling the user "downloaded!" in that state is a lie with a
      * 668 MB price tag, so the failure is surfaced and the path is named.
      */
-    private suspend fun adopt(file: HubGgufFile): String? {
+    private suspend fun adopt(file: HubGgufFile): DownloadedModelRegistrar.Registered {
         // Same path for both formats: the registrar is the one place that decides
         // whether a file can be registered, so this does not try to pre-judge it.
         val local = downloader.localFileFor(file)
         if (!local.isFile) {
-            return "Downloaded, but the file is not where the app looks for models."
+            return DownloadedModelRegistrar.Registered(
+                "Downloaded, but the file is not where the app looks for models.",
+                chatReady = false,
+            )
         }
-        val note = runCatching { registrar.register(local) }.getOrNull()
-        if (note != null) return note
+        runCatching { registrar.register(local) }.getOrNull()?.let { return it }
         // WHY a LiteRT-LM file gets its own line: a null from the registrar means
         // the file was saved but did not load, so "Open Models to load it" would
         // point the user at a file that is not usable there.
-        return if (file.isLiteRtLm) {
-            "Saved, but it did not load."
-        } else {
-            "Saved. Open Models to load it."
-        }
+        val note = if (file.isLiteRtLm) "Saved, but it did not load." else "Saved. Open Models to load it."
+        return DownloadedModelRegistrar.Registered(note, chatReady = false)
     }
 
     /**

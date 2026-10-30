@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.Assistant
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
@@ -127,6 +128,8 @@ fun SettingsScreen(
     onOpenSchedule: () -> Unit = {},
     onOpenTrace: () -> Unit = {},
     onOpenRedaction: () -> Unit = {},
+    /** Clears the chat and starts a new conversation. Null hides the row (empty chat, or a run going). */
+    onNewChat: (() -> Unit)? = null,
     /** Exports the current chat in a format. Null hides the row: an empty chat has nothing to export. */
     onExportChat: ((ChatExporter.Format) -> Unit)? = null,
     onBack: () -> Unit,
@@ -167,6 +170,7 @@ fun SettingsScreen(
 
                 val context = LocalContext.current
                 Card(modifier = Modifier.fillMaxWidth()) {
+                    onNewChat?.let { NavRow(Icons.Filled.AddComment, "New chat", it) }
                     NavRow(Icons.Filled.Memory, "Models", onOpenModels)
                     NavRow(Icons.Filled.AutoAwesome, "Skills", onOpenSkills)
                     NavRow(Icons.Filled.Description, "Documents", onOpenDocuments)

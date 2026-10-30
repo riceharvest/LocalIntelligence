@@ -501,6 +501,23 @@ class AppContainer(private val context: Context) {
     }
 
     /**
+     * Starts a new conversation. The model forgets this one, and the next
+     * message is stored under a new id; the old conversation stays on disk,
+     * where Past chats (`history.search`) can still find it.
+     *
+     * Only between runs: [session] is not guarded (see its KDoc), so the caller
+     * checks that nothing is running first.
+     */
+    fun startNewConversation() {
+        session.clear()
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_SESSION_ID)
+            .apply()
+        restoredTurns = emptyList()
+    }
+
+    /**
      * The pinned conversation id, or null if none has been created yet.
      *
      * Read-only, and deliberately so: the only writer is [durableSessionId],
@@ -1289,14 +1306,20 @@ class AppContainer(private val context: Context) {
      * but the header will not parse" reaches the user instead of a download
      * that claims success and cannot be loaded.
      */
-    suspend fun adoptDownloaded(file: java.io.File): String? = withContext(Dispatchers.IO) {
+    suspend fun adoptDownloaded(file: java.io.File): DownloadedModelRegistrar.Registered? = withContext(Dispatchers.IO) {
         // The embedding model is not a chat model. Loading it as one would replace the chat
         // model with a model that cannot write replies, so it is only kept for document search.
-        if (isDocumentModelName(file.name)) return@withContext "Saved as the document search model."
+        if (isDocumentModelName(file.name)) {
+            return@withContext DownloadedModelRegistrar.Registered("Saved as the document search model.", chatReady = false)
+        }
         val uri = android.net.Uri.fromFile(file)
         val model = runCatching { importer.inspect(uri) }.getOrNull() ?: return@withContext null
         val availability = loadModel(model)
-        if (availability is ModelAvailability.Ready) availability.displayName else null
+        if (availability is ModelAvailability.Ready) {
+            DownloadedModelRegistrar.Registered(availability.displayName, chatReady = true)
+        } else {
+            null
+        }
     }
 }
 
