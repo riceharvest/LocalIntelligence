@@ -19,6 +19,9 @@ import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.catalogue.CatalogueAgreement
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -28,14 +31,16 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 // ===========================================================================
 // Tools from up to five remote MCP servers. Off by default.
 //
 // Off, or no address set: [McpPlugin.tools] returns nothing and makes no
 // network call. On, with addresses: the run's tool list is built from each
-// server's own tools/list, once per run. A server that cannot be reached is
-// skipped; the others still answer.
+// server's own tools/list. The listings run in parallel and are cached for a few
+// minutes, so a message does not wait for every server again. A server that
+// cannot be reached is skipped; the others still answer.
 //
 // Every remote tool is NETWORK_EGRESS, so each call confirms unless the user
 // chose "Open websites without asking", and its output is NETWORK-origin, so it
@@ -102,11 +107,18 @@ class McpPlugin(
     override val enabledByDefault: Boolean = false
     override val settings: List<SettingDef<*>> = McpSettings.all
 
+    /** A server's tools as it listed them, and until when that listing may be reused. */
+    private class Listing(val tools: List<JsonObject>, val validUntil: Long)
+
+    /** Keyed by address and token, so a changed setting is listed again at once. */
+    private val listings = ConcurrentHashMap<Pair<String, String?>, Listing>()
+
     /**
      * Called once per run, from the thread that builds the run's controller: the
      * service's background scope, never the main thread (see ExecutionService.startRun,
-     * which launches prepareThenStart on serviceScope). Each listing blocks that
-     * thread for up to the request timeout, and it is the only network call here.
+     * which launches prepareThenStart on serviceScope). The listings that are not
+     * cached yet are fetched in parallel, so the wait is the slowest server's, not
+     * the sum of all of them.
      *
      * An unreachable or misbehaving server yields no tools and no failure: the run
      * goes ahead without it, and without its tools only.
@@ -126,28 +138,48 @@ class McpPlugin(
                 token = reader[McpSettings.tokens[index]].takeIf { it.isNotBlank() },
             )
         }
+        // A server that was removed or changed must not keep its old token in memory.
+        listings.keys.retainAll(servers.map { it.url to it.token }.toSet())
+        val listed = runBlocking {
+            servers.map { server -> async(Dispatchers.IO) { listingOf(server) } }.awaitAll()
+        }
         // One server keeps the plain mcp.<name>. More than one need the slot number so
         // their names cannot collide, and the slot keeps a name stable when another
         // server is changed or fails.
         val numbered = servers.size > 1
-        return servers.flatMap { server -> toolsFrom(server, numbered) }
+        return servers.indices.flatMap { i -> toolsFrom(servers[i], numbered, listed[i]) }
     }
 
     /** One configured server: its slot number (1 to 5), checked address and optional token. */
     private class Server(val slot: Int, val url: String, val token: String?)
 
-    private fun toolsFrom(server: Server, numbered: Boolean): List<AgentTool> {
-        val prefix = if (numbered) "${CatalogueAgreement.DYNAMIC_TOOL_PREFIX}${server.slot}."
-        else CatalogueAgreement.DYNAMIC_TOOL_PREFIX
-        return try {
-            val session = McpSession.open(server.url, server.token)
-            remoteTools(session, session.listTools(), prefix)
+    /**
+     * The server's tools, from the cache while it is fresh. A listing that works is kept
+     * for [LISTING_TTL_MS]. One that fails is kept for [FAILED_LISTING_TTL_MS], so a dead
+     * server does not add its timeout to every message; a server that comes back shows
+     * within that minute.
+     */
+    private fun listingOf(server: Server): List<JsonObject> {
+        val key = server.url to server.token
+        val now = System.currentTimeMillis()
+        listings[key]?.takeIf { it.validUntil > now }?.let { return it.tools }
+        val listed = try {
+            McpSession.open(server.url, server.token, LISTING_TIMEOUT_MS).listTools()
         } catch (e: IOException) {
-            emptyList()
+            null
         } catch (e: RuntimeException) {
             // A malformed reply from the server must not end the run either.
-            emptyList()
+            null
         }
+        val tools = listed.orEmpty()
+        listings[key] = Listing(tools, now + if (listed != null) LISTING_TTL_MS else FAILED_LISTING_TTL_MS)
+        return tools
+    }
+
+    private fun toolsFrom(server: Server, numbered: Boolean, listed: List<JsonObject>): List<AgentTool> {
+        val prefix = if (numbered) "${CatalogueAgreement.DYNAMIC_TOOL_PREFIX}${server.slot}."
+        else CatalogueAgreement.DYNAMIC_TOOL_PREFIX
+        return remoteTools(server.url, server.token, listed, prefix)
     }
 
     /**
@@ -169,7 +201,8 @@ class McpPlugin(
  * fail over a server's naming.
  */
 internal fun remoteTools(
-    session: McpSession,
+    url: String,
+    token: String?,
     listed: List<JsonObject>,
     prefix: String = CatalogueAgreement.DYNAMIC_TOOL_PREFIX,
 ): List<AgentTool> {
@@ -179,7 +212,7 @@ internal fun remoteTools(
             ?: return@mapNotNull null
         val name = toolName(remoteName, prefix) ?: return@mapNotNull null
         if (!taken.add(name)) return@mapNotNull null
-        McpRemoteTool(session, remoteName, definition(name, remoteName, tool))
+        McpRemoteTool(url, token, remoteName, definition(name, remoteName, tool))
     }
 }
 
@@ -198,6 +231,10 @@ internal fun toolName(remoteName: String, prefix: String = CatalogueAgreement.DY
 }
 
 private const val MAX_NAME_CHARS = 48
+
+/** How long a working listing is reused, and how long a failed one is not asked again. */
+private const val LISTING_TTL_MS = 5 * 60_000L
+private const val FAILED_LISTING_TTL_MS = 60_000L
 private const val MAX_DESCRIPTION_CHARS = 300
 
 private fun definition(name: String, remoteName: String, tool: JsonObject): ToolDefinition {
@@ -224,14 +261,16 @@ private fun definition(name: String, remoteName: String, tool: JsonObject): Tool
 }
 
 /**
- * One remote tool. Calls go through the run's [McpSession].
+ * One remote tool. Each call opens its own [McpSession]: the listing is cached, and
+ * a session id kept from an earlier call may have expired by now.
  *
  * The full text goes out, up to the store's limit, and the loop decides what the
  * model sees: a long result is saved and previewed with a handle (see
  * [ObservationStore]). Cutting it here would leave the store nothing to keep.
  */
 private class McpRemoteTool(
-    private val session: McpSession,
+    private val url: String,
+    private val token: String?,
     private val remoteName: String,
     override val definition: ToolDefinition,
 ) : AgentTool {
@@ -246,7 +285,7 @@ private class McpRemoteTool(
                 )
             }
             try {
-                val result = session.callTool(remoteName, args)
+                val result = McpSession.open(url, token).callTool(remoteName, args)
                 val text = contentText(result)
                 val observation = text.ifEmpty { "(the server returned no text)" }
                     .take(ObservationStore.MAX_STORED_CHARS)
