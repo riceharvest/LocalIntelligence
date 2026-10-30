@@ -963,10 +963,12 @@ private val MODEL_EXTENSIONS = listOf(".gguf", ".litertlm")
  * at the last dot turned "LFM3 1.7B" into "LFM3 1".
  */
 internal fun friendlyModelName(fileName: String): String {
+    // A downloaded file is saved as `owner__repo__file` (GgufQuant.localFileName); the file part names the model.
+    val leaf = fileName.substringAfterLast("__").ifEmpty { fileName }
     val base = MODEL_EXTENSIONS
-        .firstOrNull { fileName.endsWith(it, ignoreCase = true) }
-        ?.let { fileName.dropLast(it.length) }
-        ?: fileName
+        .firstOrNull { leaf.endsWith(it, ignoreCase = true) }
+        ?.let { leaf.dropLast(it.length) }
+        ?: leaf
     val stem = base.ifEmpty { fileName }
     // Everything from the first quant token on is dropped ("-Q4_K_M", "-QAD-Q4_0", "-IQ3_XS").
     val cut = Regex("[-_.](i?q\\d|qad|bf16|f16|f32)", RegexOption.IGNORE_CASE).find(stem)?.range?.first

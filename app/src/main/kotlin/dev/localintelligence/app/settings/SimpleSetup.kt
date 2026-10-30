@@ -64,8 +64,7 @@ data class SuggestedModel(
      * suggestion kept offering a download for a model that was already there.
      */
     fun isFile(fileName: String): Boolean {
-        val (owner, name) = repo.split('/')
-        val localName = listOf(owner, name, file).joinToString("__")
+        val localName = (repo.split('/') + file.split('/')).joinToString("__")
         return fileName == file || fileName == localName
     }
 }
