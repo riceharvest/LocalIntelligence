@@ -112,6 +112,8 @@ class MainActivity : ComponentActivity() {
                         ChatViewModel.Factory(
                             gateway = gateway,
                             modelAvailability = container.modelAvailability,
+                            attachmentQueue = container.pendingAttachments,
+                            capabilities = { container.residentBackend().capabilities },
                             speaker = container.speaker,
                             readRepliesAloud = { container.settings[CoreSettings.READ_REPLIES_ALOUD] },
                         )

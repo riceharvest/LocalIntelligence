@@ -28,10 +28,19 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
+    <!-- Voice input: a clip for a model that reads audio, or live dictation into the
+         composer for one that does not. Requested at first use from the mic button,
+         never at launch. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!-- Without this, SpeechRecognizer.isRecognitionAvailable reports false on API 30+. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
         </intent>
         <intent>
             <action android:name="android.intent.action.SEND" />
