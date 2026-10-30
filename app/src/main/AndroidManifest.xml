@@ -6,6 +6,10 @@
 
     <!-- Tool permissions. Each is requested lazily, only when a tool that needs
          it is actually invoked. See docs/tool-contract.md. -->
+    <!-- Documents on Android 10 to 12. Android shows no dialog for a permission the manifest does not
+         declare, so without this line the Permissions screen's Grant button does nothing there. From
+         13 on the document grant comes through the file picker and this line is not used. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- location.get: coarse only, so the GPS provider stays refused and network/fused answer. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -21,12 +25,6 @@
          and the type-specific one, or startForegroundService throws. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-
-    <!-- Needed to read files the user picked via the Storage Access Framework
-         and to search shared media. Scoped, not broad. -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
     <!-- Voice input: a clip for a model that reads audio, or live dictation into the
          composer for one that does not. Requested at first use from the mic button,

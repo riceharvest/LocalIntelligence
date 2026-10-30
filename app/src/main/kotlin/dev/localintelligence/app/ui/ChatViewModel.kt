@@ -1,8 +1,11 @@
 package dev.localintelligence.app.ui
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.CreationExtras
 import dev.localintelligence.app.AgentGateway
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.ModelAvailabilityHolder
@@ -101,6 +104,11 @@ class ChatViewModel(
     private val dictation: LiveDictation? = null,
     /** Hands-free pause before a turn is sent, in seconds. Read at each listen. */
     private val handsFreeSilence: () -> Float = { CoreSettings.HANDS_FREE_SILENCE.default },
+    /**
+     * Survives process death, which the system does often on a 3.6 GB phone while a model is
+     * resident. Only the typed draft is kept here; queued pictures and voice clips are not.
+     */
+    private val savedState: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
 
     private val scope: CoroutineScope = scopeOverride ?: viewModelScope
@@ -149,8 +157,13 @@ class ChatViewModel(
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
-    private val _input = MutableStateFlow("")
+    private val _input = MutableStateFlow(savedState.get<String>(DRAFT_KEY).orEmpty())
     val input: StateFlow<String> = _input.asStateFlow()
+
+    init {
+        // Mirror every draft change (typing, send clearing it) so a restored process shows the same text.
+        scope.launch { _input.collect { savedState[DRAFT_KEY] = it } }
+    }
 
     /**
      * Guards every transcript mutation.
@@ -1068,8 +1081,15 @@ class ChatViewModel(
         private val dictation: LiveDictation? = null,
         private val handsFreeSilence: () -> Float = { CoreSettings.HANDS_FREE_SILENCE.default },
     ) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = build(modelClass, SavedStateHandle())
+
+        // The host's ViewModel store passes a saved-state handle through the extras, so the draft
+        // survives process death. The one-argument path above is for callers with no saved state.
+        override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T =
+            build(modelClass, extras.createSavedStateHandle())
+
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        private fun <T : ViewModel> build(modelClass: Class<T>, savedState: SavedStateHandle): T {
             require(modelClass.isAssignableFrom(ChatViewModel::class.java)) {
                 "unknown ViewModel ${modelClass.name}"
             }
@@ -1082,6 +1102,7 @@ class ChatViewModel(
                 readRepliesAloud = readRepliesAloud,
                 dictation = dictation,
                 handsFreeSilence = handsFreeSilence,
+                savedState = savedState,
             ) as T
         }
     }
@@ -1152,6 +1173,9 @@ private const val MAX_TRANSCRIPT_ROWS = 200
 
 /** The most photos one message carries. A vision encoder's cost grows with each one. */
 internal const val MAX_PICTURES_PER_MESSAGE = 3
+
+/** Key of the typed draft in [SavedStateHandle]. */
+private const val DRAFT_KEY = "draft"
 
 /** What a run is told when the user sent only attachments and no words. */
 private const val DEFAULT_MEDIA_TASK = "Respond to what is attached."

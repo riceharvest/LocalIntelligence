@@ -68,6 +68,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -491,7 +492,9 @@ private const val SHORT_TEXT = 80
 @Composable
 private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: String, note: String?) {
     val stored = store.stored(def)
-    var draft by remember(stored) { mutableStateOf(stored) }
+    // Saved, not remembered: an unsaved draft must survive a rotation. Keyed on [stored] so
+    // a Save or Clear still resets the field to the new stored value.
+    var draft by rememberSaveable(stored) { mutableStateOf(stored) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         RowTitle(def.title, help, note = note)
         // A name-sized value gets one line; a note gets room to write.

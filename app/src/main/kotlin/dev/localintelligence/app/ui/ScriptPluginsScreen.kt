@@ -29,6 +29,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -100,12 +102,15 @@ fun ScriptPluginsScreen(
     }
     val supported = runner.isSupported()
 
-    var showChoice by remember { mutableStateOf(false) }
-    var showUrl by remember { mutableStateOf(false) }
-    var url by remember { mutableStateOf("https://") }
-    var urlError by remember { mutableStateOf<String?>(null) }
+    // Saved, not remembered: a rotation recreates the activity and must not close the
+    // dialogs or drop the text typed into them. [fetching] stays remembered because a
+    // recreation cancels the fetch, so restoring "true" would leave the spinner stuck.
+    var showChoice by rememberSaveable { mutableStateOf(false) }
+    var showUrl by rememberSaveable { mutableStateOf(false) }
+    var url by rememberSaveable { mutableStateOf("https://") }
+    var urlError by rememberSaveable { mutableStateOf<String?>(null) }
     var fetching by remember { mutableStateOf(false) }
-    var editor by remember { mutableStateOf<ScriptPackage?>(null) }
+    var editor by rememberSaveable(stateSaver = ScriptPackageSaver) { mutableStateOf<ScriptPackage?>(null) }
     var deleting by remember { mutableStateOf<Pair<ScriptPlugin, ScriptPluginRepository.Installed>?>(null) }
 
     Scaffold(
@@ -323,6 +328,15 @@ fun ScriptPluginsScreen(
 }
 
 /**
+ * Saves the review dialog's package across recreation. The two texts are stored as a
+ * plain list because that is what a saved-state bundle can hold. Null means "closed".
+ */
+private val ScriptPackageSaver = Saver<ScriptPackage?, ArrayList<String>>(
+    save = { pkg -> pkg?.let { arrayListOf(it.manifestText, it.mainJs) } },
+    restore = { saved -> ScriptPackage(saved[0], saved[1]) },
+)
+
+/**
  * Shows both files for reading and editing before they are saved. [onConfirm]
  * returns null when accepted, which closes this dialog, or the reason it was
  * refused, shown here so the user can fix it.
@@ -333,8 +347,8 @@ fun ScriptEditorDialog(
     onDismiss: () -> Unit,
     onConfirm: (ScriptPackage) -> String?,
 ) {
-    var manifest by remember { mutableStateOf(initial.manifestText) }
-    var mainJs by remember { mutableStateOf(initial.mainJs) }
+    var manifest by rememberSaveable { mutableStateOf(initial.manifestText) }
+    var mainJs by rememberSaveable { mutableStateOf(initial.mainJs) }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,

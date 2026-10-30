@@ -84,13 +84,19 @@ class DocumentIndex private constructor(
         val keyword = bm25Scores(query)
         val best = keyword.maxOrNull()?.takeIf { it > 0.0 } ?: 1.0
         val fused = DoubleArray(passages.size)
+        val cosine = DoubleArray(passages.size)
         for (i in passages.indices) {
             var dot = 0.0
             val base = i * dim
             for (d in 0 until dim) dot += queryVector[d].toDouble() * vectors[base + d]
+            cosine[i] = dot
             fused[i] = KEYWORD_WEIGHT * (keyword[i] / best) + (1.0 - KEYWORD_WEIGHT) * dot
         }
+        // Without this floor every passage has a positive vector score, so a question the
+        // documents do not answer still returned the top passages as "best match". A passage
+        // is kept only with a keyword hit or a meaningful similarity, so "no match" can be said.
         return fused.indices
+            .filter { keyword[it] > 0.0 || cosine[it] >= MIN_SEMANTIC_COSINE }
             .sortedWith(compareByDescending<Int> { fused[it] }.thenBy { it })
             .take(limit)
             .map { passage(it, fused[it]) }
@@ -128,6 +134,12 @@ class DocumentIndex private constructor(
 
         /** Weight of the keyword half of a hybrid score. The vector half gets the rest. */
         const val KEYWORD_WEIGHT: Double = 0.5
+
+        /**
+         * Lowest cosine that counts as a match when no keyword matches. Chosen by reasoning, not
+         * measured on a phone: re-check it against real questions and documents before relying on it.
+         */
+        const val MIN_SEMANTIC_COSINE: Double = 0.5
 
         /** Builds the index over every passage of [documents], in the order given. */
         fun build(documents: List<IndexedDocument>): DocumentIndex {
