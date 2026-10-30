@@ -957,7 +957,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadProjector(
     return nullptr;
 }
 
-// Bit 1: image input. Bit 2: audio input. 0 when no projector is loaded.
+// Bit 1: image input. Bit 2: audio input. Bit 4: speech output. 0 without a projector.
 JNIEXPORT jint JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeProjectorCaps(JNIEnv *, jclass, jlong handle) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
@@ -968,6 +968,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeProjectorCaps(JNI
     jint caps = 0;
     if (mtmd_support_vision(mctx)) caps |= 1;
     if (mtmd_support_audio(mctx)) caps |= 2;
+    if (mtmd_gen_audio_get_info(mctx).type != MTMD_GEN_AUDIO_TYPE_NONE) caps |= 4;
     return caps;
 }
 
@@ -994,4 +995,139 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSetMedia(
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeMediaMarker(JNIEnv * env, jclass) {
     return env->NewStringUTF(mtmd_default_marker());
+}
+
+namespace {
+
+// The prompt a speech-capable projector speaks. LFM3 ships a "tts" chat
+// template in the GGUF; it is Jinja, and this build has no Jinja engine, so
+// its one known shape is rendered here. Any other model gets the bare text,
+// which is what a TTS-only model (PocketTTS, Soprano) expects.
+std::string tts_prompt(const llama_model * model, const llama_vocab * vocab, const std::string & text,
+                       const std::string & lang, const std::string & voice) {
+    const char * tmpl = llama_model_chat_template(model, "tts");
+    if (tmpl == nullptr || std::strstr(tmpl, "Perform TTS in") == nullptr) {
+        return text;
+    }
+    static const char * kNames[][2] = {
+        {"ar", "Arabic"}, {"da", "Danish"}, {"de", "German"}, {"el", "Greek"}, {"en", "American English"},
+        {"en-us", "American English"}, {"en-gb", "British English"}, {"fi", "Finnish"}, {"fr", "French"},
+        {"he", "Hebrew"}, {"it", "Italian"}, {"ja", "Japanese"}, {"ko", "Korean"}, {"nl", "Dutch"},
+        {"pl", "Polish"}, {"pt", "Portuguese"}, {"es", "Spanish"}, {"sv", "Swedish"}, {"tr", "Turkish"},
+        {"zh", "Chinese"},
+    };
+    std::string code = lang.empty() ? "en" : lang;
+    std::transform(code.begin(), code.end(), code.begin(), ::tolower);
+    std::string language = lang;
+    for (const auto & n : kNames) {
+        if (code == n[0]) { language = n[1]; break; }
+    }
+    const std::string v = (voice == "male") ? "male" : "female";
+    std::string bos;
+    const llama_token bos_id = llama_vocab_bos(vocab);
+    if (bos_id != LLAMA_TOKEN_NULL) {
+        char buf[64];
+        const int n = llama_token_to_piece(vocab, bos_id, buf, sizeof(buf), 0, true);
+        if (n > 0) bos.assign(buf, static_cast<size_t>(n));
+    }
+    return bos + "<|im_start|>system\nPerform TTS in " + language + " using a " + v + " voice.<|im_end|>\n" +
+        "<|im_start|>user\n" + text + "<|im_end|>\n" +
+        "<|im_start|>assistant\n<think></think><|audio_start|>";
+}
+
+std::string read_jstring(JNIEnv * env, jstring s) {
+    if (s == nullptr) return "";
+    const char * c = env->GetStringUTFChars(s, nullptr);
+    if (c == nullptr) return "";
+    std::string out(c);
+    env->ReleaseStringUTFChars(s, c);
+    return out;
+}
+
+}  // namespace
+
+// Speaks [text] with the loaded model's speech projector. Returns a WAV file
+// (16-bit PCM, mono) or null on failure / no speech support. Blocking; the
+// Kotlin side holds the generation lock, so this never overlaps a generate.
+JNIEXPORT jbyteArray JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeSpeak(
+        JNIEnv * env, jclass, jlong handle, jstring text, jstring lang, jstring voice, jint max_frames) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr) return nullptr;
+    llama_model * model = nullptr;
+    llama_context * ctx = nullptr;
+    const llama_vocab * vocab = nullptr;
+    mtmd_context * mctx = nullptr;
+    int32_t n_batch = kDefaultBatch;
+    {
+        std::lock_guard<std::mutex> lock(h->state);
+        if (!h->loaded || h->mtmd == nullptr) return nullptr;
+        model = as_model(h->model);
+        ctx = as_context(h->context);
+        vocab = as_vocab(h->vocab);
+        mctx = reinterpret_cast<mtmd_context *>(h->mtmd);
+        n_batch = std::max(1, std::min(h->n_ctx, kDefaultBatch));
+    }
+    if (mtmd_gen_audio_get_info(mctx).type == MTMD_GEN_AUDIO_TYPE_NONE) return nullptr;
+
+    const std::string prompt = tts_prompt(model, vocab, read_jstring(env, text), read_jstring(env, lang),
+                                          read_jstring(env, voice));
+    h->cancelled.store(false);
+    h->generating.store(true);
+
+    // Hidden states feed the audio head, so embeddings are on for this call only.
+    llama_memory_clear(llama_get_memory(ctx), true);
+    llama_set_embeddings(ctx, true);
+    mtmd_helper_gen_audio * gen = mtmd_helper_gen_audio_init(ctx, mctx);
+    llama_sampler * smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
+
+    jbyteArray result = nullptr;
+    bool ok = gen != nullptr;
+    if (ok) {
+        mtmd_helper_gen_audio_inp inp = mtmd_helper_gen_audio_inp_default();
+        inp.seq_id = 0;
+        inp.prompt = prompt.c_str();
+        inp.prompt_len = prompt.size();
+        inp.out_type = MTMD_HELPER_GEN_AUDIO_OUTTYPE_WAV;
+        ok = mtmd_helper_gen_audio_set_input(gen, &inp) == 0;
+    }
+    while (ok) {
+        const int32_t left = mtmd_helper_gen_audio_step_prompt(gen, n_batch);
+        if (left < 0) ok = false;
+        if (left <= 0) break;
+        if (h->cancelled.load()) ok = false;
+    }
+    if (ok) {
+        llama_token sampled = llama_sampler_sample(smpl, ctx, -1);
+        const float * h_state = llama_get_embeddings_ith(ctx, -1);
+        const int32_t limit = max_frames > 0 ? max_frames : 2048;
+        bool stop = false;
+        for (int32_t frame = 0; ok && !stop && frame < limit; ++frame) {
+            if (h->cancelled.load()) { ok = false; break; }
+            const float * h_next = nullptr;
+            if (mtmd_helper_gen_audio_step_gen(gen, sampled, h_state, &h_next, &stop) != 0) { ok = false; break; }
+            if (h_next == nullptr) break;
+            h_state = h_next;
+            sampled = llama_sampler_sample(smpl, ctx, -1);
+        }
+    }
+    if (ok) {
+        int32_t sample_rate = 0;
+        const char * data = nullptr;
+        size_t len = 0;
+        int64_t n_samples = 0;
+        if (mtmd_helper_gen_audio_get_output(gen, &sample_rate, &data, &len, &n_samples) == 0 && data != nullptr && len > 0) {
+            result = env->NewByteArray(static_cast<jsize>(len));
+            if (result != nullptr) {
+                env->SetByteArrayRegion(result, 0, static_cast<jsize>(len), reinterpret_cast<const jbyte *>(data));
+            }
+        }
+    }
+    llama_sampler_free(smpl);
+    if (gen != nullptr) mtmd_helper_gen_audio_free(gen);
+    llama_set_embeddings(ctx, false);
+    llama_memory_clear(llama_get_memory(ctx), true);
+    h->generating.store(false);
+    return result;
 }
