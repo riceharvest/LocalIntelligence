@@ -2154,7 +2154,12 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
                 const int32_t n_again = llama_tokenize(
                     vocab, outcome.text.data(), static_cast<int32_t>(outcome.text.size()), again.data(),
                     static_cast<int32_t>(again.size()), /*add_special=*/false, parse_special == JNI_TRUE);
-                if (n_again == static_cast<int32_t>(gen_tokens.size()) &&
+                // Not in native mode: there the next prompt is the template's
+                // rendering of the parsed reply, not the reply's own text, and it
+                // can differ in the last token (measured on LFM3: 1,638 of 1,639
+                // agree, the grammar let a trailing newline through), so the copy
+                // from before the reply is the one that gets restored.
+                if (native_nc == nullptr && n_again == static_cast<int32_t>(gen_tokens.size()) &&
                     std::equal(gen_tokens.begin(), gen_tokens.end(), again.begin())) {
                     std::vector<uint8_t>().swap(h->snap_state);
                     h->snap_at = 0;
