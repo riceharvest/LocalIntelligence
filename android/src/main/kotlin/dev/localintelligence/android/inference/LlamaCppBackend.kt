@@ -330,7 +330,11 @@ class LlamaCppBackend(
             // A native reply is read back from llama.cpp's parser and written as the
             // app's own markup, so the agent parses it exactly as before.
             val nativeText = if (native != null && error == null && outcome?.error == null) {
-                LlamaBridge.chatResult(h)?.let { nativeMarkup(it, native.tools) }
+                LlamaBridge.chatResult(h)?.let { nativeMarkup(it, native.tools) }?.also { markup ->
+                    // What the model chose this step: a tool (by name) or a reply. Names only, no content.
+                    val chose = TOOL_NAME.find(markup)?.groupValues?.get(1)?.let { "tool $it" } ?: "reply"
+                    android.util.Log.i(TAG, "native reply: model chose $chose")
+                }
             } else {
                 null
             }
@@ -593,7 +597,10 @@ class LlamaCppBackend(
         }
         android.util.Log.i(
             TAG,
-            "native tools: ${fields.string("format").orEmpty()}, prompt ${listed.size} tools, callable ${request.tools.size}",
+            // `lazy`: the tool-call grammar engages only once the model starts a call, so
+            // every call in the log below is the model's own choice, never forced.
+            "native tools: ${fields.string("format").orEmpty()}, prompt ${listed.size} tools, callable ${request.tools.size}, " +
+                "lazy=${fields.string("lazy") ?: "?"}",
         )
         // llama.cpp's own boundary first: the system message rendered alone with the prompt's
         // tools (see nativeChatPrepare). The text-based one is the fallback when it is 0.
@@ -773,7 +780,19 @@ class LlamaCppBackend(
             val name = tools.firstOrNull { wireName(it.name) == wire }?.name ?: wire
             return "<tool name=\"$name\">$args</tool>"
         }
-        return "<respond>${reply.string("content").orEmpty()}</respond>"
+        return "<respond>${withoutThinking(reply.string("content").orEmpty())}</respond>"
+    }
+
+    /**
+     * [content] without a thought the parser did not extract. With thinking off, LFM3
+     * still sometimes reasons first and closes it with a bare `</think>` that has no
+     * opening tag, so the parser leaves the whole thought in the content and the user
+     * reads it as the answer. Everything up to the last `</think>` is that thought.
+     */
+    private fun withoutThinking(content: String): String {
+        val end = content.lastIndexOf(THINK_END)
+        if (end < 0) return content
+        return content.substring(end + THINK_END.length).trimStart().ifEmpty { content.substringBefore(THINK_END).trim() }
     }
 
     private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.content
@@ -993,6 +1012,12 @@ class LlamaCppBackend(
         private val NATIVE_CALL = Regex("""<tool name="([^"]+)">([\s\S]*)</tool>""")
 
         /** A reply in the app's own markup. */
+        /** The tool name in the app's markup, for the step log. */
+        private val TOOL_NAME = Regex("""^<tool name="([^"]+)">""")
+
+        /** The end of a model's thought; see [withoutThinking]. */
+        private const val THINK_END = "</think>"
+
         private val NATIVE_RESPOND = Regex("""<respond>([\s\S]*)</respond>""")
 
         /** Schema keywords [trimSchema] drops: limits the grammar does not need for these tools. */

@@ -1430,6 +1430,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
         const int32_t stable = system_prefix_bytes(nc->tmpls.get(), req, full);
         return to_jstring(env, "{\"prompt\":" + json_quote(full) +
                                ",\"format\":" + json_quote(nc->format) +
+                               ",\"lazy\":" + (nc->grammar_lazy ? "true" : "false") +
                                ",\"stable_bytes\":" + std::to_string(stable) + "}");
     } catch (const std::exception & e) {
         __android_log_print(ANDROID_LOG_WARN, "LocalLlama", "native tools: prepare failed: %s", e.what());
