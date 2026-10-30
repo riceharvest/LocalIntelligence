@@ -66,11 +66,47 @@ int64_t now_ms() {
         .count();
 }
 
+// A Java string from UTF-8, through UTF-16.
+//
+// WHY NOT NewStringUTF: it expects *modified* UTF-8, so a 4-byte sequence (any
+// emoji a model writes) is invalid input, and with CheckJNI on (every debuggable
+// build) that aborts the process. Decoding here also turns malformed bytes into
+// U+FFFD instead of passing them to the VM.
 jstring to_jstring(JNIEnv * env, const std::string & s) {
     if (s.empty()) {
         return nullptr;
     }
-    return env->NewStringUTF(s.c_str());
+    std::vector<jchar> u;
+    u.reserve(s.size());
+    const auto * b = reinterpret_cast<const unsigned char *>(s.data());
+    const size_t n = s.size();
+    for (size_t i = 0; i < n;) {
+        uint32_t cp = 0xFFFD;
+        size_t len = 1;
+        const unsigned char c = b[i];
+        if (c < 0x80) {
+            cp = c;
+        } else if ((c >> 5) == 0x6 && i + 1 < n && (b[i + 1] & 0xC0) == 0x80) {
+            cp = ((c & 0x1F) << 6) | (b[i + 1] & 0x3F);
+            len = 2;
+        } else if ((c >> 4) == 0xE && i + 2 < n && (b[i + 1] & 0xC0) == 0x80 && (b[i + 2] & 0xC0) == 0x80) {
+            cp = ((c & 0x0F) << 12) | ((b[i + 1] & 0x3F) << 6) | (b[i + 2] & 0x3F);
+            len = 3;
+        } else if ((c >> 3) == 0x1E && i + 3 < n && (b[i + 1] & 0xC0) == 0x80 && (b[i + 2] & 0xC0) == 0x80 &&
+                   (b[i + 3] & 0xC0) == 0x80) {
+            cp = ((c & 0x07) << 18) | ((b[i + 1] & 0x3F) << 12) | ((b[i + 2] & 0x3F) << 6) | (b[i + 3] & 0x3F);
+            len = 4;
+        }
+        if (cp >= 0x10000 && cp <= 0x10FFFF) {
+            cp -= 0x10000;
+            u.push_back(static_cast<jchar>(0xD800 + (cp >> 10)));
+            u.push_back(static_cast<jchar>(0xDC00 + (cp & 0x3FF)));
+        } else {
+            u.push_back(static_cast<jchar>(cp > 0xFFFF ? 0xFFFD : cp));
+        }
+        i += len;
+    }
+    return env->NewString(u.data(), static_cast<jsize>(u.size()));
 }
 
 void free_model_locked(LlamaHandle * h) {
@@ -246,18 +282,51 @@ bool tokenize(const llama_vocab * vocab, const std::string & text,
 
 // Copies a Java string into `out`. A null reference becomes "". False only if
 // the JVM could not hand over the characters.
-bool copy_jstring(JNIEnv * env, jstring js, std::string & out) {
-    if (js == nullptr) {
-        out.clear();
-        return true;
+// Real UTF-8 from a Java string.
+//
+// WHY NOT GetStringUTFChars: it returns *modified* UTF-8, which encodes every
+// character outside the BMP (emoji, many CJK extensions) as two 3-byte
+// surrogates instead of one 4-byte sequence. The tokenizer then sees bytes no
+// model was trained on. Reading UTF-16 and encoding it here is the fix.
+bool jstring_utf8(JNIEnv * env, jstring js, std::string & out) {
+    out.clear();
+    if (js == nullptr) return true;
+    const jsize n = env->GetStringLength(js);
+    std::vector<jchar> u(static_cast<size_t>(n));
+    if (n > 0) env->GetStringRegion(js, 0, n, u.data());
+    if (env->ExceptionCheck()) return false;
+    out.reserve(static_cast<size_t>(n) * 3);
+    for (jsize i = 0; i < n; ++i) {
+        uint32_t cp = u[static_cast<size_t>(i)];
+        if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < n) {
+            const uint32_t lo = u[static_cast<size_t>(i + 1)];
+            if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                ++i;
+            }
+        }
+        if (cp >= 0xD800 && cp <= 0xDFFF) cp = 0xFFFD;  // a lone surrogate
+        if (cp < 0x80) {
+            out.push_back(static_cast<char>(cp));
+        } else if (cp < 0x800) {
+            out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        } else if (cp < 0x10000) {
+            out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+            out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        } else {
+            out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+            out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        }
     }
-    const char * chars = env->GetStringUTFChars(js, nullptr);
-    if (chars == nullptr) {
-        return false;
-    }
-    out.assign(chars);
-    env->ReleaseStringUTFChars(js, chars);
     return true;
+}
+
+bool copy_jstring(JNIEnv * env, jstring js, std::string & out) {
+    return jstring_utf8(env, js, out);
 }
 
 // The text of every control token in the vocabulary, longest first. With
@@ -399,12 +468,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     if (path == nullptr) {
         return to_jstring(env, "null model path");
     }
-    const char * cpath = env->GetStringUTFChars(path, nullptr);
-    if (cpath == nullptr) {
+    std::string model_path;
+    if (!jstring_utf8(env, path, model_path)) {
         return to_jstring(env, "could not read the model path");
     }
-    const std::string model_path(cpath);
-    env->ReleaseStringUTFChars(path, cpath);
 
     std::lock_guard<std::mutex> lock(h->state);
 
@@ -534,12 +601,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeCountTokens(
     if (!h->loaded || h->vocab == nullptr) {
         return -1;
     }
-    const char * chars = env->GetStringUTFChars(text, nullptr);
-    if (chars == nullptr) {
+    std::string s;
+    if (!jstring_utf8(env, text, s)) {
         return -1;
     }
-    const std::string s(chars);
-    env->ReleaseStringUTFChars(text, chars);
 
     std::vector<llama_token> tokens;
     std::string err;
@@ -639,20 +704,14 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     }
     (void) n_threads;
 
-    const char * cprompt = env->GetStringUTFChars(prompt, nullptr);
-    if (cprompt == nullptr) {
+    std::string prompt_str;
+    if (!jstring_utf8(env, prompt, prompt_str)) {
         return to_jstring(env, "could not read the prompt");
     }
-    const std::string prompt_str(cprompt);
-    env->ReleaseStringUTFChars(prompt, cprompt);
 
     std::string grammar_str;
-    if (grammar != nullptr) {
-        const char * cg = env->GetStringUTFChars(grammar, nullptr);
-        if (cg != nullptr) {
-            grammar_str.assign(cg);
-            env->ReleaseStringUTFChars(grammar, cg);
-        }
+    if (grammar != nullptr && !jstring_utf8(env, grammar, grammar_str)) {
+        grammar_str.clear();
     }
 
     h->cancelled.store(false);
@@ -991,10 +1050,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadProjector(
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) return to_jstring(env, "null handle");
     if (path == nullptr) return to_jstring(env, "null projector path");
-    const char * cpath = env->GetStringUTFChars(path, nullptr);
-    if (cpath == nullptr) return to_jstring(env, "could not read the projector path");
-    const std::string projector_path(cpath);
-    env->ReleaseStringUTFChars(path, cpath);
+    std::string projector_path;
+    if (!jstring_utf8(env, path, projector_path)) return to_jstring(env, "could not read the projector path");
 
     std::lock_guard<std::mutex> lock(h->state);
     if (!h->loaded || h->model == nullptr) return to_jstring(env, "no model is loaded");
@@ -1127,7 +1184,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeApplyTemplate(
         }
     }
     const std::string rendered(buf.data(), static_cast<size_t>(len));
-    return env->NewStringUTF(rendered.c_str());
+    return to_jstring(env, rendered);
 }
 
 namespace {
@@ -1169,11 +1226,8 @@ std::string tts_prompt(const llama_model * model, const llama_vocab * vocab, con
 }
 
 std::string read_jstring(JNIEnv * env, jstring s) {
-    if (s == nullptr) return "";
-    const char * c = env->GetStringUTFChars(s, nullptr);
-    if (c == nullptr) return "";
-    std::string out(c);
-    env->ReleaseStringUTFChars(s, c);
+    std::string out;
+    jstring_utf8(env, s, out);
     return out;
 }
 
