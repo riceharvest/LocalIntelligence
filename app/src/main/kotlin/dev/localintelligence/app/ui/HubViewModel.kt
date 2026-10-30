@@ -14,6 +14,7 @@ import dev.localintelligence.core.hub.HubTokenSource
 import dev.localintelligence.core.hub.HubTransport
 import dev.localintelligence.core.hub.HuggingFaceClient
 import dev.localintelligence.core.hub.formatBytes
+import dev.localintelligence.core.model.gguf.GgufHeader
 import dev.localintelligence.android.hub.ModelDownloader
 import dev.localintelligence.android.hub.UrlConnectionTransport
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Registers a finished download with the rest of the app so it can be selected
@@ -314,6 +316,14 @@ class HubViewModel(
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HubUiState())
+
+    /**
+     * Header probes already read for the listing on screen, by file. A probe is up
+     * to 16 MiB over the network, so re-tapping a quant must not pay for it again.
+     * Cleared when a new repository is listed. Only successful reads are kept, so a
+     * failed probe is tried again on the next tap.
+     */
+    private val headerCache = ConcurrentHashMap<HubGgufFile, GgufHeader>()
     val state: StateFlow<HubUiState> = _state.asStateFlow()
 
     /** Search hits. Best-effort: an empty list is a valid, non-error state. */
@@ -452,6 +462,7 @@ class HubViewModel(
                 return
             }
             is HubRepoId.Result.Valid -> {
+                headerCache.clear()
                 // Taken here, once, so a prefill applies to the listing it asked
                 // for and never to a later resolve the user types by hand.
                 val wantedFile = pendingPrefill
@@ -714,8 +725,8 @@ class HubViewModel(
      * network call, and this is the one place in the screen's lifecycle where a
      * network call belongs — it is already off the main thread inside
      * `viewModelScope`, it happens once per selection rather than once per
-     * recomposition, and its result is cached in [HubUiState] so tapping a
-     * different quant does not re-probe the one already probed.
+     * recomposition, and its result is kept in [headerCache] so tapping a
+     * different quant, or the same one again, does not re-probe it.
      *
      * @return plan, whether the verdict is exact (from the tensor table rather
      *   than the file name), and whether the file is already on disk.
@@ -725,7 +736,7 @@ class HubViewModel(
         // thread Android refuses it with NetworkOnMainThreadException. Picking any
         // repository crashed the app this way (seen on the Samsung A05s).
         withContext(Dispatchers.IO) {
-            val header = client.probeHeader(file, tokenSource.token())
+            val header = headerCache[file] ?: client.probeHeader(file, tokenSource.token())?.also { headerCache[file] = it }
             val alreadyOnDisk = downloader.partialFileFor(file).localBytes()
             val onDevice = downloader.isDownloaded(file)
             val plan = client.plan(
