@@ -615,18 +615,24 @@ class AppContainer(private val context: Context) {
             pending.forEach { session.writtenIds.remove(session.idOf(it)) }
             return
         }
+        // Counts the rows the store accepted. A failure part-way through a batch must
+        // keep those marked as written: appending them again would store them twice.
+        var stored = 0
         try {
             withContext(Dispatchers.IO) {
-                for (message in pending) store.appendMessage(id, message)
+                for (message in pending) {
+                    store.appendMessage(id, message)
+                    stored++
+                }
             }
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
             // Losing a write is survivable in a way failing the run is not: the
-            // answer has already been produced and shown. Un-mark these rows so
-            // the next run genuinely retries them, rather than leaving them
-            // marked as written and silently dropping them.
-            pending.forEach { session.writtenIds.remove(session.idOf(it)) }
+            // answer has already been produced and shown. Un-mark the rows that were
+            // not stored so the next run genuinely retries them, rather than leaving
+            // them marked as written and silently dropping them.
+            pending.drop(stored).forEach { session.writtenIds.remove(session.idOf(it)) }
             android.util.Log.w(TAG, "Could not persist the conversation; will retry next run.", t)
         }
     }
