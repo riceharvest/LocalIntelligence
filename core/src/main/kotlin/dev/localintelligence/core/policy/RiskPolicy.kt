@@ -216,6 +216,19 @@ class RiskPolicy(
         //     contact and the same share to a stranger are different risks.
         if (definition.risk == ToolRisk.EXTERNAL_COMMUNICATION) {
             val target = analysis.target
+            // The bare-link check comes before the target checks. A link-only body
+            // must always ask, and "Send without asking" only auto-accepts the
+            // unknown-target rule, so the target branches must not decide first
+            // (#153). MESSAGE_IS_BARE_LINK is not in AUTO_ACCEPTABLE_RULES.
+            if (analysis.bodyIsBareLink) {
+                val recipient = target?.let { " to $it" }.orEmpty()
+                return decide(
+                    definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.MESSAGE_IS_BARE_LINK,
+                    "The message ${definition.name} would send$recipient is a bare link with no other text. " +
+                        "Links are the easiest way to send someone somewhere harmful, so read the address " +
+                        "before allowing it.",
+                )
+            }
             if (target == null) {
                 return decide(
                     definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.EXTERNAL_TO_UNKNOWN_TARGET,
@@ -228,14 +241,6 @@ class RiskPolicy(
                     definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.EXTERNAL_TO_UNKNOWN_TARGET,
                     "${definition.name} sends to $target, which is not one of the contacts you marked as " +
                         "trusted. Check that this is who you mean before sending.",
-                )
-            }
-            if (analysis.bodyIsBareLink) {
-                return decide(
-                    definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.MESSAGE_IS_BARE_LINK,
-                    "The message ${definition.name} would send to $target is a bare link with no other text. " +
-                        "Links are the easiest way to send someone somewhere harmful, so read the address " +
-                        "before allowing it.",
                 )
             }
             return decide(
