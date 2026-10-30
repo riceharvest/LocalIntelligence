@@ -495,6 +495,21 @@ bool tokenize_parts(const llama_vocab * vocab, const std::vector<common_chat_pro
     return true;
 }
 
+// The first `n_bytes` of the prompt the parts make up, still as parts (the last one
+// cut), so it tokenises the way the whole prompt does.
+std::vector<common_chat_prompt_part> parts_prefix(const std::vector<common_chat_prompt_part> & parts, size_t n_bytes) {
+    std::vector<common_chat_prompt_part> out;
+    size_t left = n_bytes;
+    for (const common_chat_prompt_part & part : parts) {
+        if (left == 0) break;
+        common_chat_prompt_part p = part;
+        if (p.text.size() > left) p.text.resize(left);
+        left -= p.text.size();
+        out.push_back(std::move(p));
+    }
+    return out;
+}
+
 // The prompt text the parts make up, for checking that nativeGenerate is given
 // the prompt nativeChatPrepare rendered.
 std::string joined_parts(const std::vector<common_chat_prompt_part> & parts) {
@@ -1674,8 +1689,15 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     if (!mm_chunks && stable_bytes > 0 && static_cast<size_t>(stable_bytes) < prompt_str.size()) {
         std::vector<llama_token> head;
         std::string head_err;
-        if (tokenize(vocab, prompt_str.substr(0, static_cast<size_t>(stable_bytes)), head, head_err,
-                     parse_special == JNI_TRUE)) {
+        // A native prompt is tokenised part by part (tokenize_parts), so its head must
+        // be too: tokenised as one string, the head merges differently at the first
+        // part boundary (the end of the system text) and the anchor stopped there,
+        // leaving the tool block out of it.
+        const bool head_ok = native_nc != nullptr
+            ? tokenize_parts(vocab, parts_prefix(native_nc->parts, static_cast<size_t>(stable_bytes)), head, head_err)
+            : tokenize(vocab, prompt_str.substr(0, static_cast<size_t>(stable_bytes)), head, head_err,
+                       parse_special == JNI_TRUE);
+        if (head_ok) {
             const size_t n = std::min(head.size(), tokens.size());
             size_t k = 0;
             while (k < n && head[k] == tokens[k]) ++k;
