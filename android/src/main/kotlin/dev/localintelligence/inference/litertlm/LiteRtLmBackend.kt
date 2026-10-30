@@ -699,19 +699,14 @@ class LiteRtLmBackend(
      *
      * ## The reply the model produced
      *
-     * After a send, the conversation holds the model's reply, which the request
-     * does not necessarily carry back:
-     * - After an answer the agent stores `Assistant(text)`, where `text` is the
-     *   `<respond>` body, not the raw generation. That MODEL turn is skipped as
-     *   already held when it is the same reply ([isSameReply]); any other MODEL
-     *   turn (a runtime correction, a changed answer) is a mismatch.
-     * - After a tool call the agent stores no assistant turn at all; the next
-     *   request is the previous one plus the tool's observation. The observation
-     *   is appended and the model's own `<tool>` line stays in the conversation
-     *   ahead of it. That is a deliberate difference from a rebuilt
-     *   conversation, which does not show the call: the model sees which call
-     *   produced the result, and the call is a few dozen tokens the core does
-     *   not count. The token check at the end covers that gap.
+     * After a send, the conversation holds the model's reply. The agent replays
+     * what the model produced (ChatMessage.Assistant.rendered): its `<respond>`
+     * answer and its `<tool>` call, each as the next request's MODEL turn. That
+     * turn is skipped as already held when it is the same reply ([isSameReply],
+     * which also accepts the bare `<respond>` body an older session stored); any
+     * other MODEL turn (a runtime correction, a changed answer) is a mismatch.
+     * After a tool call the request is then the previous one, the call, and the
+     * observation: one new turn.
      *
      * ## One new turn, or none of this
      *
