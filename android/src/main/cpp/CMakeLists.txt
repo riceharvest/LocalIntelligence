@@ -38,6 +38,35 @@ project(LocalIntelligence_llama CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# llama.cpp build options. Set BEFORE the tree is added, by either route:
+# FetchContent_MakeAvailable() below adds the subdirectory immediately, so an
+# option set after it would not apply on a fresh configure. That is how the
+# fetch route used to build tests/tools and, with libmtmd, failed to find
+# mtmd.h. The reasons for each value are in the "Build llama.cpp" section.
+set(LLAMA_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_TOOLS    OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_APP      OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_COMMON   OFF CACHE BOOL "" FORCE)
+set(LLAMA_OPENSSL        OFF CACHE BOOL "" FORCE)
+# libmtmd: image and audio input, and speech output, for multimodal models.
+# Built on its own (tools stay off); video needs an ffmpeg binary, so it is off.
+set(LLAMA_BUILD_MTMD     ON  CACHE BOOL "" FORCE)
+set(MTMD_VIDEO           OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)
+
+set(GGML_NATIVE          OFF CACHE BOOL "" FORCE)
+set(GGML_LTO             OFF CACHE BOOL "" FORCE)
+set(GGML_OPENMP          OFF CACHE BOOL "" FORCE)
+set(GGML_CCACHE          OFF CACHE BOOL "" FORCE)
+set(GGML_INSTALL         OFF CACHE BOOL "" FORCE)
+
+option(PIDROID_GGML_CPU_ALL_VARIANTS "Build every CPU kernel variant" OFF)
+set(GGML_CPU_ALL_VARIANTS ${PIDROID_GGML_CPU_ALL_VARIANTS} CACHE BOOL "" FORCE)
+option(PIDROID_GGML_CPU_REPACK "Build the repack kernels" OFF)
+set(GGML_CPU_REPACK ${PIDROID_GGML_CPU_REPACK} CACHE BOOL "" FORCE)
+
 # -----------------------------------------------------------------------
 # Locate llama.cpp
 # -----------------------------------------------------------------------
@@ -158,29 +187,7 @@ endif()
 #   LLAMA_OPENSSL       OFF  - no network in the inference path.
 #   tests/examples/server/tools/app OFF - none of them ship inside an APK.
 
-set(LLAMA_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_TOOLS    OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_APP      OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_COMMON   OFF CACHE BOOL "" FORCE)
-set(LLAMA_OPENSSL        OFF CACHE BOOL "" FORCE)
-# libmtmd: image and audio input, and speech output, for multimodal models.
-# Built on its own (tools stay off); video needs an ffmpeg binary, so it is off.
-set(LLAMA_BUILD_MTMD     ON  CACHE BOOL "" FORCE)
-set(MTMD_VIDEO           OFF CACHE BOOL "" FORCE)
-set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)
-
-set(GGML_NATIVE          OFF CACHE BOOL "" FORCE)
-set(GGML_LTO             OFF CACHE BOOL "" FORCE)
-set(GGML_OPENMP          OFF CACHE BOOL "" FORCE)
-set(GGML_CCACHE          OFF CACHE BOOL "" FORCE)
-set(GGML_INSTALL         OFF CACHE BOOL "" FORCE)
-
-option(PIDROID_GGML_CPU_ALL_VARIANTS "Build every CPU kernel variant" OFF)
-set(GGML_CPU_ALL_VARIANTS ${PIDROID_GGML_CPU_ALL_VARIANTS} CACHE BOOL "" FORCE)
-option(PIDROID_GGML_CPU_REPACK "Build the repack kernels" OFF)
-set(GGML_CPU_REPACK ${PIDROID_GGML_CPU_REPACK} CACHE BOOL "" FORCE)
+# (The llama.cpp options are set above, before the tree is added: see there.)
 
 # ---------------------------------------------------------------------------
 # Add the llama.cpp tree exactly once.
