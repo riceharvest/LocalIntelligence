@@ -215,8 +215,11 @@ class AppContainer(private val context: Context) {
         // catalogue would fail whenever any plugin is off, which is the default for
         // the cloud plugin.
         val docs = DocumentsPlugin(documents)
+        // tools.find ships too, offered only with "Let the model look up tools";
+        // an instance here stands for it (the check reads definitions only).
+        val finder = ToolFinder(SimpleToolRegistry(emptyList(), catalogue = emptyList()), LexicalToolSelector(), session)
         CatalogueAgreement.require(
-            families.flatMap { it.tools() } + cloud.shippedTools() + docs.shippedTools(),
+            families.flatMap { it.tools() } + cloud.shippedTools() + docs.shippedTools() + finder,
             V0ToolCatalogue.definitions,
         )
         val remote = McpPlugin(settings)
