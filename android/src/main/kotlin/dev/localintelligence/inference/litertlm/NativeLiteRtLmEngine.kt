@@ -17,7 +17,7 @@ import dev.localintelligence.core.model.AcceleratorKind
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * The one file in this package that touches Google's LiteRT-LM runtime.
@@ -100,15 +100,18 @@ internal class NativeLiteRtLmEngine(
         private const val TAG = "LiteRtLmEngine"
 
         /**
-         * How long [NativeLiteRtLmConversation.send] waits for a terminal event.
+         * How long [NativeLiteRtLmConversation.send] waits without any runtime event
+         * before it treats the runtime as wedged.
          *
-         * Bounded because a phone thread that never returns is worse than a wrong
-         * result: it is an ANR. Ten minutes is far beyond any legitimate
-         * generation on a 1-4B — a 4096-token answer at 10 tok/s is under seven
-         * minutes — so tripping this means the runtime is wedged, and reporting
-         * ERROR is the correct answer.
+         * This is a silence limit, not a limit on the whole reply. A long answer on a
+         * slow phone streams for many minutes and is correct; a runtime that has said
+         * nothing for five minutes (prefill included) is not making progress. Every
+         * callback resets the clock. A cap on total time would discard a reply that
+         * was still arriving and on track to finish. Five minutes, not less: the
+         * runtime reports nothing during prefill, and a 4K-token prompt at 15 tok/s
+         * on a slow phone's CPU takes about 4.5 minutes before the first event.
          */
-        const val TERMINAL_TIMEOUT_MINUTES = 10L
+        const val SILENCE_TIMEOUT_MINUTES = 5L
 
         /**
          * How often [NativeLiteRtLmConversation.send] re-checks the latch.
@@ -265,6 +268,17 @@ internal class NativeLiteRtLmConversation(
     private val cancelled = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
 
+    /**
+     * True from the start of a send until the runtime's own terminal event. It can be
+     * true after [send] has returned: the runtime may still be decoding after a
+     * cancel grace or the silence cap. While it is, [close] is deferred.
+     */
+    private val sending = AtomicBoolean(false)
+    private val closeRequested = AtomicBoolean(false)
+
+    /** Nanotime of the last runtime event, or of the send's start. The silence cap reads it. */
+    private val lastActivityNanos = AtomicLong(0L)
+
     override val isAlive: Boolean
         get() = try {
             conversation.isAlive
@@ -283,10 +297,11 @@ internal class NativeLiteRtLmConversation(
 
     override fun send(turn: LiteRtLmTurn, listener: LiteRtLmListener) {
         val done = CountDownLatch(1)
-        val failed = AtomicReference<Throwable?>(null)
+        val gate = SendGate(listener)
 
         val callback = object : com.google.ai.edge.litertlm.MessageCallback {
             override fun onMessage(message: Message) {
+                lastActivityNanos.set(System.nanoTime())
                 // LiteRT-LM's callback carries the message as it stands. The
                 // tracker in the backend decides whether that is a delta or a
                 // cumulative snapshot, so the whole text is forwarded here rather
@@ -294,27 +309,31 @@ internal class NativeLiteRtLmConversation(
                 val text = message.contents.contents
                     .filterIsInstance<Content.Text>()
                     .joinToString("") { it.text }
-                if (text.isNotEmpty()) listener.onDelta(text)
+                if (text.isNotEmpty()) gate.delta(text)
             }
 
             override fun onDone() {
-                listener.onDone()
+                gate.done()
+                terminalReached()
                 done.countDown()
             }
 
             override fun onError(throwable: Throwable) {
-                failed.set(throwable)
-                listener.onError(throwable)
+                gate.error(throwable)
+                terminalReached()
                 done.countDown()
             }
         }
 
+        lastActivityNanos.set(System.nanoTime())
+        sending.set(true)
         try {
             conversation.sendMessageAsync(turn.toNativeMessage(), callback)
         } catch (e: Throwable) {
-            // Thrown synchronously for a closed conversation or empty content.
-            failed.set(e)
-            listener.onError(e)
+            // Thrown synchronously for a closed conversation or empty content. No
+            // runtime event follows, so there is nothing left to wait for.
+            gate.error(e)
+            terminalReached()
             done.countDown()
         }
 
@@ -327,8 +346,7 @@ internal class NativeLiteRtLmConversation(
         //
         // The constants are on NativeLiteRtLmEngine's companion, qualified
         // because this class is a separate top-level declaration.
-        val deadline = System.nanoTime() +
-            NativeLiteRtLmEngine.TERMINAL_TIMEOUT_MINUTES * 60L * 1_000_000_000L
+        val silenceNanos = NativeLiteRtLmEngine.SILENCE_TIMEOUT_MINUTES * 60L * 1_000_000_000L
         var cancelObservedAt = 0L
         while (true) {
             if (done.await(
@@ -339,16 +357,16 @@ internal class NativeLiteRtLmConversation(
                 break
             }
 
-            if (System.nanoTime() >= deadline) {
-                // The runtime never reported a terminal event. Cancel so the
-                // native decode stops, and report the failure rather than
-                // returning whatever partial text happened to arrive as a
-                // completed answer.
+            if (System.nanoTime() - lastActivityNanos.get() >= silenceNanos) {
+                // The runtime has gone silent. Cancel so the native decode stops,
+                // and report the failure rather than returning whatever partial
+                // text happened to arrive as a completed answer.
                 cancel()
+                gate.close()
                 listener.onError(
                     LiteRtLmEngineException(
-                        "the LiteRT-LM runtime produced no terminal event within " +
-                            "${NativeLiteRtLmEngine.TERMINAL_TIMEOUT_MINUTES} minutes",
+                        "the LiteRT-LM runtime sent nothing for " +
+                            "${NativeLiteRtLmEngine.SILENCE_TIMEOUT_MINUTES} minutes",
                     ),
                 )
                 break
@@ -366,6 +384,7 @@ internal class NativeLiteRtLmConversation(
                     System.nanoTime() - cancelObservedAt >
                     NativeLiteRtLmEngine.CANCEL_GRACE_MS * 1_000_000L
                 ) {
+                    gate.close()
                     listener.onError(
                         LiteRtLmEngineException(
                             "cancelled, but the LiteRT-LM runtime did not acknowledge " +
@@ -377,7 +396,17 @@ internal class NativeLiteRtLmConversation(
                 }
             }
         }
+        // Nothing reaches the caller after this point. A late runtime event is
+        // dropped by the gate, and the conversation stays open until the runtime's
+        // terminal event (see [close]).
+        gate.close()
         if (cancelled.get()) cancel()
+    }
+
+    /** The runtime's terminal event has arrived: a deferred [close] can now run. */
+    private fun terminalReached() {
+        sending.set(false)
+        if (closeRequested.get()) closeNow()
     }
 
     override fun cancel() {
@@ -389,7 +418,19 @@ internal class NativeLiteRtLmConversation(
         }
     }
 
+    /**
+     * Closes the native conversation. While the runtime may still be decoding on it
+     * (a send that returned after a cancel grace or the silence cap, with no
+     * terminal event yet), the close is deferred to that event: closing under a live
+     * decode is a use-after-free in the runtime.
+     */
     override fun close() {
+        closeRequested.set(true)
+        if (sending.get()) return
+        closeNow()
+    }
+
+    private fun closeNow() {
         if (!closed.compareAndSet(false, true)) return
         try {
             conversation.close()
@@ -400,6 +441,38 @@ internal class NativeLiteRtLmConversation(
 
     private companion object {
         const val TAG = "LiteRtLmConv"
+    }
+}
+
+/**
+ * Forwards one send's events to its listener until the send returns.
+ *
+ * The runtime calls back on its own thread, and can do so after [send] has already
+ * reported its result. [close] takes the same lock as every forward, so once it
+ * returns no event can reach the listener, and the caller can read what it
+ * collected without a race.
+ */
+private class SendGate(private val listener: LiteRtLmListener) {
+    private var open = true
+
+    @Synchronized
+    fun delta(text: String) {
+        if (open) listener.onDelta(text)
+    }
+
+    @Synchronized
+    fun done() {
+        if (open) listener.onDone()
+    }
+
+    @Synchronized
+    fun error(throwable: Throwable) {
+        if (open) listener.onError(throwable)
+    }
+
+    @Synchronized
+    fun close() {
+        open = false
     }
 }
 
