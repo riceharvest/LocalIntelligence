@@ -39,6 +39,9 @@ import dev.localintelligence.android.documents.DocumentEntry
 import dev.localintelligence.android.documents.DocumentImport
 import dev.localintelligence.android.documents.DocumentImportException
 import dev.localintelligence.android.documents.DocumentStore
+import dev.localintelligence.app.LocalIntelligenceApp
+import dev.localintelligence.core.settings.SettingsMode
+import dev.localintelligence.core.settings.mode
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.CancellationException
@@ -64,6 +67,7 @@ fun DocumentsScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val technical = (context.applicationContext as LocalIntelligenceApp).container.settings.mode == SettingsMode.TECHNICAL
     val scope = rememberCoroutineScope()
     // Adding or removing bumps this, which re-reads the list.
     var reload by remember { mutableIntStateOf(0) }
@@ -83,8 +87,7 @@ fun DocumentsScreen(
                     val got = DocumentImport.extract(context, uri)
                     repository.add(got.title, got.text)
                     if (got.truncated) {
-                        "Added ${got.title}. It is longer than ${DocumentStore.MAX_STORED_CHARS} characters, " +
-                            "so only the start can be searched."
+                        "Added ${got.title}. It is long, so only the first part can be searched."
                     } else {
                         "Added ${got.title}."
                     }
@@ -123,29 +126,10 @@ fun DocumentsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Add a PDF, text, Markdown or CSV file. When you ask about it, the assistant " +
-                    "searches the document and answers from the passages it finds. Documents stay " +
-                    "on this phone.",
+                "Ask about a PDF or text file. It stays on this phone.",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            // Without the model, search is keyword only. The hub download is the one place the
-            // model arrives, and it is kept for search rather than loaded as the chat model.
-            if (embeddingModelReady) {
-                Text(
-                    "The document search model is on this phone. Hybrid search uses it to find " +
-                        "passages by meaning as well as by words. Search mode is in Settings.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            } else {
-                Text(
-                    "Search uses keywords only. Get the document search model to also find passages " +
-                        "by meaning, when the question uses different words from the document.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                FilledTonalButton(onClick = { onOpenHub(DEFAULT_EMBEDDING_REPO, DEFAULT_EMBEDDING_FILE) }) {
-                    Text("Get the document search model")
-                }
-            }
             FilledTonalButton(
                 onClick = { picker.launch(DocumentImport.PICKER_TYPES) },
                 enabled = !busy,
@@ -162,11 +146,28 @@ fun DocumentsScreen(
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(doc.title, style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "${doc.sizeChars} characters, added ${dateFormat.format(Date(doc.addedAt))}",
+                            "Added ${dateFormat.format(Date(doc.addedAt))}" +
+                                if (technical) ", ${doc.sizeChars} characters" else "",
                             style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Row {
                             TextButton(onClick = { deleting = doc }) { Text("Remove") }
+                        }
+                    }
+                }
+            }
+            // Without the model, search matches words only. The hub download is the one place the
+            // model arrives, and it is kept for search rather than loaded as the chat model.
+            if (!embeddingModelReady) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Find answers even when your words differ from the document.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        FilledTonalButton(onClick = { onOpenHub(DEFAULT_EMBEDDING_REPO, DEFAULT_EMBEDDING_FILE) }) {
+                            Text("Get the search model")
                         }
                     }
                 }

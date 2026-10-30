@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -89,6 +90,7 @@ import dev.localintelligence.app.ui.components.openPermissionScreen
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.core.settings.SettingDef
+import dev.localintelligence.core.settings.SettingApplies
 import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.settings.SettingsMode
 import dev.localintelligence.core.settings.mode
@@ -300,14 +302,20 @@ private fun SpeedTestRow(runner: SpeedTestRunner) {
 
 @Composable
 private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Boolean) {
-    val help = if (technical) "${def.help} Applies ${def.applies.label}." else def.help
+    val help = def.help
+    // "Applies now" is the common case and says nothing; only a delay is worth a line.
+    val note = if (technical) when (def.applies) {
+        SettingApplies.NEXT_RUN -> "Applies from the next message"
+        SettingApplies.NEXT_MODEL_LOAD -> "Applies from the next model load"
+        else -> null
+    } else null
     when (def) {
-        is SettingDef.Toggle -> SwitchRow(def.title, help, store.stored(def)) { store.set(def, it) }
+        is SettingDef.Toggle -> SwitchRow(def.title, help, store.stored(def), note = note) { store.set(def, it) }
         is SettingDef.Choice -> if (def === CoreSettings.THEME_COLOR) {
-            ColorRow(store, def, help)
+            ColorRow(store, def, help, note)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                RowTitle(def.title, help)
+                RowTitle(def.title, help, note = note)
                 if (def.options.size <= 3) {
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                         def.options.forEachIndexed { index, option ->
@@ -327,7 +335,7 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
         is SettingDef.FloatValue -> {
             val value = store.stored(def)
             Column {
-                RowTitle(def.title, help, valueText = String.format(Locale.ROOT, "%.2f", value)) {
+                RowTitle(def.title, help, valueText = String.format(Locale.ROOT, "%.2f", value), note = note) {
                     store.reset(def)
                 }
                 Slider(
@@ -337,13 +345,13 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
                 )
             }
         }
-        is SettingDef.Text -> TextSettingRow(store, def, help)
-        is SettingDef.Secret -> SecretRow(store, def, help)
+        is SettingDef.Text -> TextSettingRow(store, def, help, note)
+        is SettingDef.Secret -> SecretRow(store, def, help, note)
         is SettingDef.IntValue -> {
             val value = store.stored(def)
             val span = def.max.toLong() - def.min.toLong()
             Column {
-                RowTitle(def.title, help, valueText = value.toString()) { store.reset(def) }
+                RowTitle(def.title, help, valueText = value.toString(), note = note) { store.reset(def) }
                 if (span in 1..500) {
                     Slider(
                         value = value.toFloat(),
@@ -353,7 +361,7 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
                         valueRange = def.min.toFloat()..def.max.toFloat(),
                     )
                 } else {
-                    NumberField(value) { store.set(def, it) }
+                    NumberField(value, def.min, def.max) { store.set(def, it) }
                 }
             }
         }
@@ -377,11 +385,11 @@ private fun ChipChoices(store: SettingsStore, def: SettingDef.Choice) {
 /** Theme colour as swatches: a colour is chosen by looking at it, not by its name. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ColorRow(store: SettingsStore, def: SettingDef.Choice, help: String) {
+private fun ColorRow(store: SettingsStore, def: SettingDef.Choice, help: String, note: String?) {
     val context = LocalContext.current
     val chosen = store.stored(def)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        RowTitle(def.title, help)
+        RowTitle(def.title, help, note = note)
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -431,11 +439,11 @@ private const val SHORT_TEXT = 80
  * and drop the cursor. The draft lives here until Save, which is the one write.
  */
 @Composable
-private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: String) {
+private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: String, note: String?) {
     val stored = store.stored(def)
     var draft by remember(stored) { mutableStateOf(stored) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        RowTitle(def.title, help)
+        RowTitle(def.title, help, note = note)
         // A name-sized value gets one line; a note gets room to write.
         val short = def.maxLength <= SHORT_TEXT
         OutlinedTextField(
@@ -463,12 +471,13 @@ private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: Str
  * a new value, never for reading the old one. Clearing removes it.
  */
 @Composable
-private fun SecretRow(store: SettingsStore, def: SettingDef.Secret, help: String) {
+private fun SecretRow(store: SettingsStore, def: SettingDef.Secret, help: String, note: String?) {
     val isSet = store.isSecretSet(def)
     var draft by remember { mutableStateOf("") }
     var refused by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        RowTitle(def.title, help, valueText = if (isSet) "set" else "not set")
+        RowTitle(def.title, help, valueText = if (isSet) "Saved" else "Not set", note = note)
         OutlinedTextField(
             value = draft,
             onValueChange = {
@@ -489,11 +498,22 @@ private fun SecretRow(store: SettingsStore, def: SettingDef.Secret, help: String
                 enabled = draft.isNotBlank(),
             ) { Text("Save") }
             if (isSet) {
-                TextButton(onClick = {
-                    store.clearSecret(def)
-                    draft = ""
-                }) { Text("Clear") }
+                TextButton(onClick = { confirmClear = true }) { Text("Clear") }
             }
+        }
+        if (confirmClear) {
+            AlertDialog(
+                onDismissRequest = { confirmClear = false },
+                title = { Text("Remove the saved key?") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        store.clearSecret(def)
+                        draft = ""
+                        confirmClear = false
+                    }) { Text("Remove") }
+                },
+                dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+            )
         }
         if (refused) {
             Text(
@@ -505,11 +525,17 @@ private fun SecretRow(store: SettingsStore, def: SettingDef.Secret, help: String
 }
 
 @Composable
-private fun RowTitle(title: String, help: String, valueText: String? = null, onReset: (() -> Unit)? = null) {
+private fun RowTitle(
+    title: String,
+    help: String,
+    valueText: String? = null,
+    note: String? = null,
+    onReset: (() -> Unit)? = null,
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(help, style = MaterialTheme.typography.bodySmall)
+            HelpText(help, note)
         }
         if (valueText != null) {
             Spacer(Modifier.width(8.dp))
@@ -519,29 +545,54 @@ private fun RowTitle(title: String, help: String, valueText: String? = null, onR
     }
 }
 
+/** Help in the quiet colour so the title stands out, with the optional timing line under it. */
 @Composable
-private fun SwitchRow(title: String, help: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun HelpText(help: String, note: String?) {
+    Text(help, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    note?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+}
+
+@Composable
+private fun SwitchRow(title: String, help: String, checked: Boolean, note: String? = null, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(help, style = MaterialTheme.typography.bodySmall)
+            HelpText(help, note)
         }
         Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 
+/**
+ * A number typed by hand. The draft stays here while typing and is committed on Done or
+ * when focus leaves: committing per keystroke made the first digit of a value below the
+ * minimum snap the field to the minimum before the rest could be typed.
+ */
 @Composable
-private fun NumberField(value: Int, onCommit: (Int) -> Unit) {
+private fun NumberField(value: Int, min: Int, max: Int, onCommit: (Int) -> Unit) {
     var text by remember(value) { mutableStateOf(value.toString()) }
+    var hadFocus by remember { mutableStateOf(false) }
+    fun commit() {
+        val parsed = text.toIntOrNull()?.coerceIn(min, max)
+        if (parsed == null) {
+            text = value.toString()
+        } else {
+            text = parsed.toString()
+            if (parsed != value) onCommit(parsed)
+        }
+    }
     OutlinedTextField(
         value = text,
-        onValueChange = { input ->
-            text = input
-            input.toIntOrNull()?.let(onCommit)
-        },
+        onValueChange = { text = it.filter(Char::isDigit).take(10) },
         singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = Modifier.fillMaxWidth(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { commit() }),
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged {
+                if (hadFocus && !it.isFocused) commit()
+                hadFocus = it.isFocused
+            },
     )
 }
 
