@@ -6,16 +6,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.DisposableEffect
-import androidx.core.content.ContextCompat
-import dev.localintelligence.app.media.LiveDictation
-import dev.localintelligence.app.media.ShownAttachment
-import dev.localintelligence.app.media.encodePickedPicture
-import dev.localintelligence.app.ui.components.SentAttachments
-import dev.localintelligence.app.ui.components.clipLength
-import dev.localintelligence.android.skills.SkillRepository
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -26,19 +18,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -46,17 +32,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -67,30 +53,34 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.blockingReason
 import dev.localintelligence.app.isActive
-import dev.localintelligence.app.export.ChatExporter
-import dev.localintelligence.app.ui.components.ChatComposer
-import dev.localintelligence.app.ui.components.ChatModelIdentity
-import dev.localintelligence.app.ui.components.ModelIdentityLine
+import dev.localintelligence.app.media.LiveDictation
+import dev.localintelligence.app.media.ShownAttachment
+import dev.localintelligence.app.media.encodePickedPicture
 import dev.localintelligence.app.ui.components.ApprovalRow
+import dev.localintelligence.app.ui.components.ChatComposer
 import dev.localintelligence.app.ui.components.PendingToolRow
 import dev.localintelligence.app.ui.components.RunningToolRow
-import dev.localintelligence.app.ui.components.TranscriptEntry
+import dev.localintelligence.app.ui.components.SentAttachments
 import dev.localintelligence.app.ui.components.ToolCallGroup
 import dev.localintelligence.app.ui.components.ToolStepRow
+import dev.localintelligence.app.ui.components.TranscriptEntry
+import dev.localintelligence.app.ui.components.clipLength
 import dev.localintelligence.app.ui.components.groupToolCalls
 import dev.localintelligence.app.ui.components.rememberMotionEnabled
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * The chat. A message list, a text field, a send button, and a STOP button while
@@ -112,32 +102,9 @@ import kotlinx.coroutines.withContext
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel,
-    onOpenTrace: () -> Unit,
     onOpenModels: () -> Unit,
-    /**
-     * Opens the "what is filtered" screen.
-     *
-     * Defaulted to a no-op rather than required, so adding a callback to this
-     * screen cannot break a caller that has not been updated yet.
-     */
-    onOpenRedaction: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
-    /**
-     * Which model is answering, when the host knows.
-     *
-     * Nullable and defaulted on purpose, but no longer because the state
-     * lacks a name — [ModelAvailability.Ready] carries one now. The screen
-     * treats this as a *claim that a model is resident*, not as a name to
-     * print unconditionally, and drops it in any state where that is not
-     * true.
-     *
-     * Pass the [ModelAvailability.Ready] the loader published, or null. Do
-     * not pass `AppContainer.selectedModel`: the model manager sets that the
-     * moment a row is tapped and *before* the load is attempted, so a load
-     * that then fails leaves it naming a file the backend never opened.
-     */
-    activeModel: ChatModelIdentity? = null,
     /**
      * Whether a finished run of tool calls folds itself to one header line.
      *
@@ -148,6 +115,8 @@ fun ChatScreen(
     toolCallsAutoCollapse: Boolean = true,
     /** The skills store. Null hides "Save as skill", for hosts that have no store. */
     skills: SkillRepository? = null,
+    /** The name from Settings, used in the empty chat's first line. Blank: no name. */
+    assistantName: String = "",
 ) {
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
@@ -194,32 +163,9 @@ fun ChatScreen(
     val busy = runState.isActive
     val blocked = modelState.blockingReason()
 
-    // The name is rendered as "this is the model answering you", so it is only
-    // ever shown in the state where that is literally true.
-    //
-    // WHY IT IS FILTERED RATHER THAN PASSED STRAIGHT THROUGH: a caller that
-    // hands this screen a name while the load has *failed* gets a name in the
-    // app bar and a failure reason nowhere. `ModelIdentityLine` gives a
-    // non-null identity precedence over every other state, so the two cannot
-    // both be shown. Dropping the name is what keeps "the model I picked would
-    // not load" and "a model is loaded and answering" from looking the same.
-    //
-    // The fallback to the state itself is what makes that guarantee local: if
-    // a host forgets to pass the name at all, the screen still names the
-    // resident model rather than falling back to the placeholder.
-    val activeIdentity: ChatModelIdentity? = if (modelState.canRun) {
-        activeModel ?: residentIdentity(modelState)
-    } else {
-        null
-    }
-
     val listState = rememberLazyListState()
 
-    // The overflow menu's state and the export work. Export is file IO, so it
-    // runs on IO and only the share sheet is started from here.
-    var exportMenuOpen by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     // Media input. What the loaded model reads decides what the mic does: a model
     // that reads audio gets the clip itself; any other model gets the spoken words
@@ -303,19 +249,6 @@ fun ChatScreen(
             HandsFreePhase.Thinking -> "Thinking…"
             HandsFreePhase.Speaking -> "Speaking…"
         }
-    val export: (ChatExporter.Format) -> Unit = { format ->
-        exportMenuOpen = false
-        scope.launch {
-            try {
-                val file = withContext(Dispatchers.IO) {
-                    ChatExporter.write(context, messages, format)
-                }
-                ChatExporter.share(context, file, format)
-            } catch (e: Exception) {
-                Toast.makeText(context, "Export failed", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
     // The progress line participates in the count because it is a real row: the
     // auto-scroll has to reach it, or a run that is waiting on a model load
     // scrolls the user's own question off the top of the screen.
@@ -331,41 +264,40 @@ fun ChatScreen(
         (if (progress != null) 1 else 0) +
         (if (awaiting != null) 1 else 0)
 
-    // Whether the transcript is parked at the newest row.
+    // Whether the transcript follows the newest row.
     //
-    // WHY THIS IS GATED AT ALL: the previous version scrolled on every change
-    // to the row count, unconditionally. A user who had scrolled up to re-read
-    // an answer was yanked back to the bottom the moment the next tool row
-    // arrived — which, in a run that adds a row every few seconds, means the
-    // transcript could not actually be read. This is the transcript fighting
-    // the reader, and it is worse than the layout problems it sits next to.
-    //
-    // It is read INSIDE the effect, deliberately: at the instant a row is
-    // appended the layout is still the previous one, so this answers "was the
-    // user at the bottom before this arrived?", which is the question worth
-    // asking. A user who has not moved stays followed; a user who has scrolled
-    // is left alone until they come back.
-    val parkedAtNewest by remember {
-        derivedStateOf {
-            val info = listState.layoutInfo
-            val last = info.visibleItemsInfo.lastOrNull()
-            last == null || last.index >= info.totalItemsCount - 1
-        }
+    // It changes only when a scroll comes to rest: at the bottom it follows,
+    // anywhere above it it does not. A row or a streamed token arriving below the
+    // fold makes the list scrollable without anyone scrolling, so it cannot turn
+    // following off; only the reader moving away can, and moving back turns it
+    // on. The first value is dropped so the list's initial position at the top
+    // of a long history does not count as the reader leaving.
+    var follow by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .drop(1)
+            .filter { !it }
+            .collect { follow = !listState.canScrollForward }
     }
+    val viewportHeight by remember { derivedStateOf { listState.layoutInfo.viewportSize.height } }
+    val sentByUser = messages.lastOrNull() is ChatMessage.User
 
-    // Follow the conversation as it grows. The `animate` matters: the phone
-    // keyboard animating open is the difference between the composer staying put
-    // and the whole list jumping under the user's thumb.
-    LaunchedEffect(rowCount) {
-        if (rowCount > 0 && parkedAtNewest) listState.animateScrollToItem(rowCount - 1)
+    // Follow new rows, every streamed token (a long answer grows inside one row,
+    // so the row count alone never moves) and the keyboard opening (the viewport
+    // shrinks). The user's own message always comes into view, even when they
+    // had scrolled up to re-read something before sending. Nothing moves while
+    // the reader's own drag or fling is still running; where it comes to rest
+    // decides whether following continues.
+    LaunchedEffect(rowCount, streaming.length, viewportHeight, sentByUser) {
+        if (sentByUser) follow = true
+        if (follow && !listState.isScrollInProgress) listState.scrollToEnd()
     }
 
     // Whether the window is too short for a stacked composer.
     //
     // WHY A HEIGHT TEST RATHER THAN A FOLD DETECTOR: the failure being prevented
     // is arithmetic, not posture. A landscape phone with the keyboard up leaves
-    // on the order of 200dp of window, and a two-row composer plus the app bar
-    // is most of that, so the transcript is reduced to a sliver. That happens on
+    // on the order of 200dp of window, and a two-row composer is most of that, so the transcript is reduced to a sliver. That happens on
     // an unfolded foldable in landscape for the same reason and with the same
     // number, so one height test covers both without a hinge API this screen
     // would otherwise have to learn about.
@@ -397,59 +329,6 @@ fun ChatScreen(
         // window is already resized for the keyboard the same inset gets counted
         // twice.
         modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = {
-                    ModelIdentityLine(
-                        availability = modelState,
-                        identity = activeIdentity,
-                        onOpenModels = onOpenModels,
-                    )
-                },
-                actions = {
-                    IconButton(onClick = onOpenModels) {
-                        Icon(Icons.Filled.Memory, contentDescription = "Models")
-                    }
-                    IconButton(onClick = onOpenTrace) {
-                        Icon(Icons.Filled.Timeline, contentDescription = "Trace")
-                    }
-                    // The shield is the whole point of the icon: this is where
-                    // a user goes to find out what the app is doing with their
-                    // secrets, and it has to be one tap from the chat rather
-                    // than two menus deep. A text label would not fit three
-                    // actions into a phone's app bar, and an unlabelled glyph
-                    // with no contentDescription is invisible to a screen
-                    // reader — hence the description, which is what actually
-                    // names it.
-                    IconButton(onClick = onOpenRedaction) {
-                        Icon(Icons.Filled.Shield, contentDescription = "What is filtered")
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
-                    }
-                    // Appended last, so the four icons above keep their places.
-                    // The menu holds the export formats; an empty transcript has
-                    // nothing to export, so the items are disabled.
-                    Box {
-                        IconButton(onClick = { exportMenuOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
-                        }
-                        DropdownMenu(
-                            expanded = exportMenuOpen,
-                            onDismissRequest = { exportMenuOpen = false },
-                        ) {
-                            ChatExporter.Format.entries.forEach { format ->
-                                DropdownMenuItem(
-                                    text = { Text(format.label) },
-                                    enabled = messages.isNotEmpty(),
-                                    onClick = { export(format) },
-                                )
-                            }
-                        }
-                    }
-                },
-            )
-        },
         bottomBar = {
             ChatComposer(
                 input = input,
@@ -473,6 +352,7 @@ fun ChatScreen(
                 onMic = onMic,
                 onHandsFree = onHandsFree,
                 onRemoveAttachment = viewModel::removeAttachment,
+                onOpenSettings = onOpenSettings,
             )
         },
     ) { padding ->
@@ -497,6 +377,7 @@ fun ChatScreen(
                         // reach the one screen that lists the alternatives.
                         isMissingModel = modelState is ModelAvailability.None,
                         onOpenModels = onOpenModels,
+                        assistantName = assistantName,
                     )
                 }
             }
@@ -569,25 +450,19 @@ fun ChatScreen(
 private const val COMPACT_HEIGHT_DP = 560
 
 /**
- * The identity [ModelAvailability.Ready] itself carries, or null when nothing
- * is loaded.
- *
- * This exists so the name shown on a working chat cannot depend on a caller
- * remembering to pass one. Before [ModelAvailability.Ready] carried a name
- * there was nothing here to read and the host was the only possible source;
- * now that the truth is in the state, the state is the default and a host
- * argument is the thing that has to justify itself.
- *
- * The mapping is a copy, not a conversion of the same object, because the two
- * types answer different questions: this one is what the app bar shows, and
- * the state carries the provenance in its KDoc. `quantType` is carried across
- * because a line that says "qwen 1.7b" without saying Q4_K_M is only half the
- * answer to "which model".
+ * Brings the bottom of the last row into view. Not animated: it runs on every
+ * streamed token, and a fresh animation per token would never settle. A scroll
+ * the user is already making wins, because a programmatic scroll has the lower
+ * priority and is the one cancelled.
  */
-private fun residentIdentity(availability: ModelAvailability): ChatModelIdentity? =
-    (availability as? ModelAvailability.Ready)?.let { ready ->
-        ChatModelIdentity(displayName = ready.displayName, quantType = ready.quantType)
-    }
+private suspend fun LazyListState.scrollToEnd() {
+    val last = layoutInfo.totalItemsCount - 1
+    if (last < 0) return
+    if (layoutInfo.visibleItemsInfo.none { it.index == last }) scrollToItem(last)
+    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == last } ?: return
+    val overhang = item.offset + item.size + layoutInfo.afterContentPadding - layoutInfo.viewportEndOffset
+    if (overhang > 0) scrollBy(overhang.toFloat())
+}
 
 @Composable
 private fun UserBubble(text: String, attached: List<ShownAttachment>) {
@@ -784,6 +659,7 @@ private fun EmptyState(
     blockedReason: String?,
     isMissingModel: Boolean,
     onOpenModels: () -> Unit,
+    assistantName: String,
 ) {
     Column(
         modifier = Modifier
@@ -793,7 +669,8 @@ private fun EmptyState(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = blockedReason ?: "Ask the agent to do something on this phone.",
+            text = blockedReason
+                ?: "Ask ${assistantName.trim().ifEmpty { "the assistant" }} to do something on this phone.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

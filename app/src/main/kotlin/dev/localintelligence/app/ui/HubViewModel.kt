@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -282,9 +283,47 @@ class HubViewModel(
     /** Search hits. Best-effort: an empty list is a valid, non-error state. */
     private val _searchResults = MutableStateFlow<List<HuggingFaceClient.HubSearchHitPublic>>(emptyList())
     val searchResults: StateFlow<List<HuggingFaceClient.HubSearchHitPublic>> = _searchResults.asStateFlow()
+    private var searchJob: Job? = null
 
+    /**
+     * Typing searches Hugging Face as you go, so a partial name ("qwen3 0.6")
+     * lists the GGUF repos that match. The wait before asking keeps a fast typist
+     * from sending a request per key, and each new key cancels the last request.
+     */
     fun onRepoInputChanged(value: String) {
         _state.update { it.copy(repoInput = value) }
+        searchJob?.cancel()
+        val query = value.trim()
+        if (query.length < MIN_SEARCH_CHARS) {
+            _searchResults.value = emptyList()
+            return
+        }
+        searchJob = viewModelScope.launch {
+            delay(SEARCH_DELAY_MS)
+            _searchResults.value = withContext(Dispatchers.IO) {
+                client.search(query, limit = SEARCH_LIMIT, token = tokenSource.token())
+            }
+        }
+    }
+
+    /**
+     * The search key or List files: a full owner/name is listed as typed, and a
+     * partial name ("qwen3 0.6") takes the top match instead of failing as an
+     * invalid repository id.
+     */
+    fun submit() {
+        val top = _searchResults.value.firstOrNull()
+        if (top != null && HubRepoId.parse(_state.value.repoInput) !is HubRepoId.Result.Valid) {
+            pickSearchHit(top)
+        } else {
+            resolve()
+        }
+    }
+
+    /** A suggestion was tapped: it becomes the input and its files are listed. */
+    fun pickSearchHit(hit: HuggingFaceClient.HubSearchHitPublic) {
+        _state.update { it.copy(repoInput = hit.repoId.id) }
+        resolve()
     }
 
     /**
@@ -297,6 +336,9 @@ class HubViewModel(
      * [HubRepoId.parse]'s job.
      */
     fun resolve() {
+        // The suggestions are for finding a repo; once one is being listed they go.
+        searchJob?.cancel()
+        _searchResults.value = emptyList()
         val raw = _state.value.repoInput
         when (val parsed = HubRepoId.parse(raw)) {
             is HubRepoId.Result.Invalid -> {
@@ -330,7 +372,11 @@ class HubViewModel(
                     )
                 }
                 viewModelScope.launch {
-                    val result = runCatching { client.listGgufFiles(parsed.repoId, tokenSource.token()) }
+                    // On IO: the transport is a blocking HttpURLConnection, and Android
+                    // refuses network calls on the main thread.
+                    val result = runCatching {
+                        withContext(Dispatchers.IO) { client.listGgufFiles(parsed.repoId, tokenSource.token()) }
+                    }
                     result.onSuccess { files ->
                         val loadable = client.loadableFiles(files)
                         val best = client.chooseBestFitting(
@@ -345,7 +391,7 @@ class HubViewModel(
                         // one the user cannot get anywhere else. Probing only on
                         // an empty result would hide it behind a full list of
                         // quant rows. It is one extra request on a screen where
-                        // the user has already pressed Find models, and it is
+                        // the user has already pressed List files, and it is
                         // best-effort: a null result changes nothing.
                         val nonGguf = listNonGgufSiblings(parsed.repoId)
                         _state.update {
@@ -398,7 +444,7 @@ class HubViewModel(
     private var pendingPrefill: String? = null
 
     /**
-     * Opens [repo] as if the user had typed it and pressed Find models, then
+     * Opens [repo] as if the user had typed it and pressed List files, then
      * selects [fileName] from the listing instead of the largest fitting quant.
      *
      * WHY a one-shot field and not a parameter on [resolve]: resolve is also
@@ -407,7 +453,7 @@ class HubViewModel(
      */
     fun prefill(repo: String, fileName: String) {
         pendingPrefill = fileName
-        onRepoInputChanged(repo)
+        _state.update { it.copy(repoInput = repo) }
         resolve()
     }
 
@@ -800,13 +846,6 @@ class HubViewModel(
         }
     }
 
-    /** Best-effort search. A failure leaves the list empty, never throws. */
-    fun search(query: String) {
-        viewModelScope.launch {
-            _searchResults.value = client.search(query, token = tokenSource.token())
-        }
-    }
-
     /** Clears a completed download so the user can pick another quant. */
     fun reset() {
         _state.update {
@@ -827,6 +866,11 @@ class HubViewModel(
          * and the one at load time agree.
          */
         const val DEFAULT_CONTEXT_LENGTH = 4_096
+
+        /** Two letters before the first search: one letter matches most of the hub. */
+        const val MIN_SEARCH_CHARS = 2
+        const val SEARCH_DELAY_MS = 300L
+        const val SEARCH_LIMIT = 8
 
         /**
          * Mirrors `HubSibling.MAX_PLAIN_GIT_BLOB_BYTES` in `:core`: below this,
