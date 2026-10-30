@@ -10,6 +10,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -579,7 +581,7 @@ object AlarmDescriptions {
             else -> "${spec.timeLabel()} on ${plan.dateLabel}"
         }
         return "Alarm set for $whenText, labelled \"${spec.label}\" (id ${spec.id}). " +
-            "It will ring even if the phone is idle. It is an alarm created by the " +
+            "It will sound at that time on the alarm volume. It is an alarm created by the " +
             "assistant and will not appear in the system Clock app."
     }
 
@@ -1312,6 +1314,16 @@ class AlarmFireReceiver : BroadcastReceiver() {
             ).apply {
                 setShowBadge(true)
                 enableVibration(true)
+                // USAGE_ALARM plays on the alarm stream, which ringer mode (silent,
+                // vibrate) does not silence. A notification sound on the default
+                // stream would be silent on a phone that is on vibrate.
+                setSound(
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build(),
+                )
             },
         )
     }
@@ -1332,7 +1344,9 @@ class AlarmFireReceiver : BroadcastReceiver() {
         const val EXTRA_ALARM_HOUR = "dev.localintelligence.extra.ALARM_HOUR"
         const val EXTRA_ALARM_MINUTE = "dev.localintelligence.extra.ALARM_MINUTE"
 
-        private const val CHANNEL_ID = "alarms"
+        // A new id, not "alarms": a channel that already exists keeps its old sound, since
+        // ensureChannel never rewrites it.
+        private const val CHANNEL_ID = "alarms-alarm-sound"
         private const val CHANNEL_NAME = "Alarms"
 
         /**
