@@ -56,7 +56,18 @@ data class SuggestedModel(
     val reason: String,
     /** An opt-in on phones with room: bigger, slower, and not the default. Shown as a second, smaller card. */
     val alternative: SuggestedModel? = null,
-)
+) {
+    /**
+     * True when [fileName] is this model's file: the Hub's own name, or the local name the
+     * downloader saves it under. A downloaded model sits on the phone as `owner__name__file`
+     * (GgufQuant.localFileName), so a comparison with [file] alone never finds it, and the
+     * suggestion kept offering a download for a model that was already there.
+     */
+    fun isFile(fileName: String): Boolean {
+        val localName = (repo.split('/') + file.split('/')).joinToString("__")
+        return fileName == file || fileName == localName
+    }
+}
 
 /** The Simple-mode values that depend on RAM class and CPU speed (research-context-defaults.md 3.3). */
 data class SimpleDefaults(
