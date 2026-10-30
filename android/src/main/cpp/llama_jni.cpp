@@ -8,6 +8,7 @@
 #include <android/log.h>
 
 #include "llama.h"
+#include "ggml-backend.h"
 #include "mtmd.h"
 #include "mtmd-helper.h"
 
@@ -41,6 +42,8 @@ static void log_to_logcat(enum ggml_log_level level, const char * text, void * /
 }
 
 #include <algorithm>
+#include <dlfcn.h>
+#include <mutex>
 #include <cmath>
 #include <chrono>
 #include <cstring>
@@ -433,6 +436,32 @@ extern "C" {
 
 JNIEXPORT jlong JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeCreate(JNIEnv *, jclass) {
+    // The CPU kernels (one library per ARM/x86 feature level) and any GPU
+    // backend are dynamic libraries next to this one. ggml scores the CPU
+    // variants against the running phone and keeps the best; a GPU backend
+    // whose driver is missing simply fails to load. Once per process.
+    static std::once_flag backends_loaded;
+    std::call_once(backends_loaded, [] {
+        ggml_log_set(log_to_logcat, nullptr);
+        Dl_info info;
+        std::string dir;
+        if (dladdr(reinterpret_cast<void *>(&Java_dev_localintelligence_android_inference_LlamaBridge_nativeCreate),
+                   &info) != 0 && info.dli_fname != nullptr) {
+            dir = info.dli_fname;
+            const size_t slash = dir.find_last_of('/');
+            dir = slash == std::string::npos ? std::string() : dir.substr(0, slash);
+        }
+        if (dir.empty()) {
+            ggml_backend_load_all();
+        } else {
+            ggml_backend_load_all_from_path(dir.c_str());
+        }
+        for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+            ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+            __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "backend device %zu: %s (%s)", i,
+                                ggml_backend_dev_name(dev), ggml_backend_dev_description(dev));
+        }
+    });
     auto * h = new (std::nothrow) LlamaHandle();
     return reinterpret_cast<jlong>(h);
 }

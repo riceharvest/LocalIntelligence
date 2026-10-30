@@ -33,7 +33,28 @@
 # -----------------------------------------------------------------------
 
 cmake_minimum_required(VERSION 3.22.1)
-project(LocalIntelligence_llama CXX)
+project(LocalIntelligence_llama C CXX)
+
+# Optimised even in the debug APK. AGP builds the debug variant's native code
+# with CMAKE_BUILD_TYPE=Debug, i.e. -O0, and inference at -O0 is unusable:
+# MEASURED 2026-10-30 on a Pixel 10 Pro, LFM3-1.7B Q4_K_M, in-app speed test:
+# prefill 0.9 tok/s, decode 0.6 tok/s. Debugging the C++ is rare; running it
+# is every message.
+# Set as a normal variable as well as in the cache: the NDK toolchain defines
+# CMAKE_<LANG>_FLAGS_DEBUG as a normal variable, which shadows a cache entry.
+# (A cache-only override left every ggml file at -O0: MEASURED prefill 4.6,
+# decode 1.5 tok/s with the armv9 kernels and no -O flag on the command line.)
+foreach(_lang C CXX)
+    set(CMAKE_${_lang}_FLAGS_DEBUG "-O3 -DNDEBUG -g0" CACHE STRING "" FORCE)
+    set(CMAKE_${_lang}_FLAGS_DEBUG "-O3 -DNDEBUG -g0")
+endforeach()
+
+# 16 KB page alignment for every shared library this project links. Required
+# on 16 KB-page devices and by Google Play for apps targeting Android 15+;
+# without it Android warns at launch (seen on the Pixel 10 Pro).
+foreach(_kind SHARED MODULE)
+    set(CMAKE_${_kind}_LINKER_FLAGS "${CMAKE_${_kind}_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+endforeach()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -54,7 +75,8 @@ set(LLAMA_OPENSSL        OFF CACHE BOOL "" FORCE)
 # Built on its own (tools stay off); video needs an ffmpeg binary, so it is off.
 set(LLAMA_BUILD_MTMD     ON  CACHE BOOL "" FORCE)
 set(MTMD_VIDEO           OFF CACHE BOOL "" FORCE)
-set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)
+# Shared libraries, so the CPU kernels can be dynamic backends (below).
+set(BUILD_SHARED_LIBS    ON  CACHE BOOL "" FORCE)
 
 set(GGML_NATIVE          OFF CACHE BOOL "" FORCE)
 set(GGML_LTO             OFF CACHE BOOL "" FORCE)
@@ -62,10 +84,21 @@ set(GGML_OPENMP          OFF CACHE BOOL "" FORCE)
 set(GGML_CCACHE          OFF CACHE BOOL "" FORCE)
 set(GGML_INSTALL         OFF CACHE BOOL "" FORCE)
 
-option(PIDROID_GGML_CPU_ALL_VARIANTS "Build every CPU kernel variant" OFF)
-set(GGML_CPU_ALL_VARIANTS ${PIDROID_GGML_CPU_ALL_VARIANTS} CACHE BOOL "" FORCE)
-option(PIDROID_GGML_CPU_REPACK "Build the repack kernels" OFF)
-set(GGML_CPU_REPACK ${PIDROID_GGML_CPU_REPACK} CACHE BOOL "" FORCE)
+# Every CPU kernel variant, picked at runtime. ggml builds one CPU backend per
+# feature level (Android: armv8.0, armv8.2+dotprod, +fp16, armv8.6+i8mm,
+# armv9.0+SVE2, armv9.2+SME; x86_64: SSE4.2 up to AVX-512) and loads the best
+# one the phone supports, so old phones still run and new ones get their
+# fast instructions. Requires dynamic backends.
+set(GGML_BACKEND_DL       ON CACHE BOOL "" FORCE)
+set(GGML_CPU_ALL_VARIANTS ON CACHE BOOL "" FORCE)
+# Repacked Q4_0/IQ4_NL weights for the ARM matmul kernels, and Arm's KleidiAI
+# micro-kernels where they apply. Both only change speed, never results.
+set(GGML_CPU_REPACK       ON CACHE BOOL "" FORCE)
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    set(GGML_CPU_KLEIDIAI ON CACHE BOOL "" FORCE)
+else()
+    set(GGML_CPU_KLEIDIAI OFF CACHE BOOL "" FORCE)
+endif()
 
 # -----------------------------------------------------------------------
 # Locate llama.cpp
@@ -167,9 +200,8 @@ endif()
 # Build llama.cpp
 # -----------------------------------------------------------------------
 #
-# ggml/llama are built as static libraries: shipping them as .so files would
-# mean three native libraries to keep in step, and llama.cpp does not offer a
-# stable C ABI for third-party consumers. Static keeps one .so to ship.
+# ggml/llama/mtmd are shared libraries (one pinned tag, so they are always in
+# step), because the CPU backends are dynamic: see GGML_BACKEND_DL above.
 #
 # Options chosen for a phone, not for a workstation:
 #   GGML_NATIVE         OFF  - the build machine is not the phone. -march=native
@@ -179,11 +211,9 @@ endif()
 #                               win on a library dwarfed by the model file.
 #   GGML_OPENMP         OFF  - bionic ships no OpenMP runtime to link against;
 #                               llama.cpp uses its own thread pool.
-#   GGML_CPU_ALL_VARIANTS OFF - that flag builds every micro-arch variant (NEON
-#                               + dotprod + fp16 arithmetic). For a 1-4B model
-#                               the win is a few percent of tokens/sec for 3x
-#                               the build time and 3x the binary size. Turn it
-#                               on if you want the last 10%.
+#   GGML_CPU_ALL_VARIANTS ON - every micro-arch variant, chosen at runtime.
+#                               It used to be OFF, which built plain armv8-a:
+#                               no dotprod, no fp16, no i8mm on any phone.
 #   LLAMA_OPENSSL       OFF  - no network in the inference path.
 #   tests/examples/server/tools/app OFF - none of them ship inside an APK.
 
