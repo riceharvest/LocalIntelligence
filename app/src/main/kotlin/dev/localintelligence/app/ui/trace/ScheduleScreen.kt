@@ -98,7 +98,8 @@ fun ScheduleScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val technical = remember {
+    val settingsVersion by (context.applicationContext as LocalIntelligenceApp).container.settings.changes.collectAsStateWithLifecycle()
+    val technical = remember(settingsVersion) {
         (context.applicationContext as LocalIntelligenceApp).container.settings.mode ==
             SettingsMode.TECHNICAL
     }
