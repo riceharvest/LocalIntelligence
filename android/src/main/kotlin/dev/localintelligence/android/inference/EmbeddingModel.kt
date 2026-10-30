@@ -21,22 +21,24 @@ class EmbeddingModel private constructor(
     val dimension: Int,
 ) : AutoCloseable {
 
-    private val prefixes: Pair<String, String> =
-        if (fileName.contains("embeddinggemma", ignoreCase = true)) {
-            "task: search result | query: " to "title: none | text: "
-        } else {
-            "" to ""
-        }
+    /** The prompt format from the google/embeddinggemma-2 model card (Web / document search). */
+    private val gemma: Boolean = fileName.contains("embeddinggemma", ignoreCase = true)
 
-    /** Vectors for document passages, in input order. Null when embedding fails. */
+    /**
+     * Vectors for document passages, in input order. Null when embedding fails.
+     * [title] is the document's name: the card asks for `title: {title} | text: ...`
+     * and `title: none` only when there is no title.
+     */
     @Synchronized
-    fun embedPassages(passages: List<String>): List<FloatArray>? =
-        embed(passages.map { prefixes.second + it })
+    fun embedPassages(passages: List<String>, title: String? = null): List<FloatArray>? {
+        val head = if (gemma) "title: ${title?.takeIf { it.isNotBlank() } ?: "none"} | text: " else ""
+        return embed(passages.map { head + it })
+    }
 
     /** The vector for a search query. Null when embedding fails. */
     @Synchronized
     fun embedQuery(query: String): FloatArray? =
-        embed(listOf(prefixes.first + query))?.firstOrNull()
+        embed(listOf((if (gemma) "task: search result | query: " else "") + query))?.firstOrNull()
 
     private fun embed(texts: List<String>): List<FloatArray>? {
         if (texts.isEmpty()) return emptyList()

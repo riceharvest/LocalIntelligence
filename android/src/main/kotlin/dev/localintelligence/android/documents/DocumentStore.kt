@@ -98,7 +98,7 @@ class DocumentStore(
         // first, then the vectors, then the index entry that names them, so a crash
         // leaves at worst an orphan file that no entry points at.
         val model = embedder()
-        val vectors = model?.let { embedAll(it, DocumentChunker.chunk(text)) }
+        val vectors = model?.let { embedAll(it, DocumentChunker.chunk(text), title.trim()) }
         val stored = if (model != null && vectors != null) model.fileName else null
         val entry = DocumentEntry(
             id = id,
@@ -187,7 +187,7 @@ class DocumentStore(
                 // Clear the entry before the file is replaced: a crash in between must not
                 // leave vectors from one model under the name of another.
                 setEmbeddingModel(doc.id, null)
-                val fresh = embedAll(model, passages) ?: return null
+                val fresh = embedAll(model, passages, doc.title) ?: return null
                 writeVectors(doc.id, fresh)
                 setEmbeddingModel(doc.id, model.fileName)
                 fresh
@@ -212,12 +212,12 @@ class DocumentStore(
      * Vectors for [passages], flat: one row of `model.dimension` floats each. Null when
      * any batch fails, so a partly embedded document never gets stored.
      */
-    private fun embedAll(model: EmbeddingModel, passages: List<String>): FloatArray? {
+    private fun embedAll(model: EmbeddingModel, passages: List<String>, title: String?): FloatArray? {
         val dim = model.dimension
         val out = FloatArray(passages.size * dim)
         var at = 0
         for (batch in passages.chunked(EMBED_BATCH)) {
-            val vectors = model.embedPassages(batch) ?: return null
+            val vectors = model.embedPassages(batch, title) ?: return null
             for (v in vectors) {
                 v.copyInto(out, at)
                 at += dim
