@@ -94,7 +94,7 @@ class ToolFinder(
         fun namedIn(observation: String): Set<String> =
             observation.lineSequence()
                 .filter { it.startsWith("- ") }
-                .map { it.removePrefix("- ").substringBefore(":").trim() }
+                .map { it.removePrefix("- ").substringBefore(": ").trim() }
                 .toSet()
 
         val DEFINITION: ToolDefinition = ToolDefinition(
