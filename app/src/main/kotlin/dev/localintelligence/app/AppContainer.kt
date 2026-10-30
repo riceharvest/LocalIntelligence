@@ -972,6 +972,11 @@ class AppContainer(private val context: Context) {
 
     /** [loadModel] without the lock, for callers that already hold it. */
     private suspend fun loadModelLocked(model: ImportedModel): ModelAvailability {
+        // The chat's state and model before this switch. A switch that fails must leave the
+        // chat on a model that works, so both are kept until the switch has succeeded.
+        val before = modelAvailability.current
+        val previous = loadedBackend
+        val previousModel = selectedModel
         return try {
         // Refuse before the native load, not after. A model that needs more RAM
         // than this device has is an OOM kill: on Android the process dies and
@@ -990,13 +995,13 @@ class AppContainer(private val context: Context) {
             } else {
                 "Too big for this phone's memory. Try a smaller model."
             }
-            return ModelAvailability.Failed(reason).also { modelAvailability.set(it) }
+            return switchFailed(reason, before, previous, previousModel)
         }
-        modelAvailability.set(ModelAvailability.Loading)
         // Route per model, not once for the app: a .litertlm needs LiteRT-LM and
         // a GGUF needs llama.cpp, and loadModel is the only place that knows
         // which file it was handed.
         val backend = backendFor(model)
+        modelAvailability.set(ModelAvailability.Loading)
         // A prefix build for the model being replaced must not run on it, or on the
         // next load's backend, while this one is released.
         stopPrefixWork()
@@ -1004,23 +1009,28 @@ class AppContainer(private val context: Context) {
         // content:// model on the shared llama.cpp backend: a backend only releases the
         // model it holds, and the RAM gate above priced only the new one. Without this
         // the old model stays resident while the new one is read in.
-        val previous = loadedBackend
         if (previous != null) {
             loadedBackend = null
             previous.unload()
         }
-        backend.load(
-            ModelSpec(
-                // The backend opens this as a URI; see LlamaCppBackend.load.
-                id = model.uri.toString(),
-                displayName = model.displayName,
-                sizeBytes = model.fileSizeBytes,
-                parameterCount = model.parameterCount,
-                quantType = model.quantType,
-                supportedBackends = model.supportedBackends,
-                contextLength = loadContext,
-            ),
-        )
+        try {
+            backend.load(
+                ModelSpec(
+                    // The backend opens this as a URI; see LlamaCppBackend.load.
+                    id = model.uri.toString(),
+                    displayName = model.displayName,
+                    sizeBytes = model.fileSizeBytes,
+                    parameterCount = model.parameterCount,
+                    quantType = model.quantType,
+                    supportedBackends = model.supportedBackends,
+                    contextLength = loadContext,
+                ),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            return switchFailed(describeLoadFailure(t), before, previous, previousModel)
+        }
         // Recorded HERE, at the only place the decision is made, and read by
         // newController. Previously the decision lived and died in this
         // function, so generation silently fell back to llama.cpp. Set only after
@@ -1044,9 +1054,45 @@ class AppContainer(private val context: Context) {
     } catch (e: CancellationException) {
         throw e
         } catch (t: Throwable) {
-            ModelAvailability.Failed(describeLoadFailure(t))
-                .also { modelAvailability.set(it) }
+            switchFailed(describeLoadFailure(t), before, previous, previousModel)
         }
+    }
+
+    /**
+     * A switch that did not take, and the state the chat is left in.
+     *
+     * - Nothing was resident before: the chat has no model, so the state is Failed.
+     * - The previous model is still resident (the switch failed before anything was
+     *   unloaded): the state goes back to what it was, and the chat keeps working.
+     * - This switch unloaded the previous model: it is loaded again, because it loaded
+     *   before and so fits again. The chat keeps working on it. A remote chat model has
+     *   nothing to reload, so it is made resident again.
+     *
+     * [reason] is returned in every case, so the Models screen can say why the switch
+     * did not happen. Only when no model can answer is the state set to Failed.
+     */
+    private suspend fun switchFailed(
+        reason: String,
+        before: ModelAvailability,
+        previous: ModelBackend?,
+        previousModel: ImportedModel?,
+    ): ModelAvailability {
+        val failed = ModelAvailability.Failed(reason)
+        when {
+            previous == null -> modelAvailability.set(failed)
+            loadedBackend === previous -> modelAvailability.set(before)
+            previous === remoteChatBackend -> {
+                loadedBackend = previous
+                modelAvailability.set(before)
+            }
+            previousModel != null -> {
+                // The reload sets the state itself: Ready when it works, Failed with its own
+                // reason when it does not.
+                loadModelLocked(previousModel)
+            }
+            else -> modelAvailability.set(failed)
+        }
+        return failed
     }
 
     /**
