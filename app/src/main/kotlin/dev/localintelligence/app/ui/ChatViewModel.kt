@@ -290,7 +290,7 @@ class ChatViewModel(
                 // A tool needs a human. Hands-free mode cannot answer by voice, so it stops.
                 // The run itself waits, untouched, for the Allow or Deny on screen.
                 if (state is RunState.AwaitingApproval && _handsFree.value.phase != HandsFreePhase.Off) {
-                    stopHandsFree("Hands-free stopped: a tool needs your approval. Tap Allow or Deny on screen.")
+                    stopHandsFree("Hands-free paused: tap Allow or Deny.")
                 }
 
                 if (state !is RunState.Finished) return@collect
@@ -327,7 +327,7 @@ class ChatViewModel(
     fun startHandsFree() {
         if (_handsFree.value.phase != HandsFreePhase.Off) return
         if (speaker == null) {
-            _handsFree.value = HandsFreeState(notice = "Hands-free needs speech output, which this app does not have.")
+            _handsFree.value = HandsFreeState(notice = "Hands-free isn't available on this phone.")
             return
         }
         blockedReason?.let { reason ->
@@ -395,7 +395,7 @@ class ChatViewModel(
         if (_handsFree.value.phase != HandsFreePhase.Listening) return
         when {
             error != null && error !in SILENT_LISTEN_ERRORS ->
-                stopHandsFree("Hands-free stopped: speech recognition failed.")
+                stopHandsFree("Hands-free stopped.")
             spoken == null -> emptyListen()
             else -> sendHandsFree(typed = _input.value.trim(), clip = null)
         }
@@ -407,7 +407,7 @@ class ChatViewModel(
         if (clip != null) _attachments.update { it + clip }
         if (!canSubmit(hasText = typed.isNotEmpty())) {
             clip?.let { heard -> _attachments.update { current -> current.filterNot { it === heard } } }
-            stopHandsFree("Hands-free stopped: the message could not be sent.")
+            stopHandsFree("Hands-free stopped.")
             return
         }
         _handsFree.value = HandsFreeState(HandsFreePhase.Thinking)
@@ -421,7 +421,7 @@ class ChatViewModel(
      */
     private fun emptyListen() {
         emptyListens++
-        if (emptyListens >= 2) stopHandsFree("Hands-free stopped: nothing was heard twice in a row.")
+        if (emptyListens >= 2) stopHandsFree("Hands-free stopped: nothing heard.")
         else relistenSoon()
     }
 
@@ -442,11 +442,11 @@ class ChatViewModel(
                 false
             }
             RunOutcome.StepLimitReached -> {
-                stopHandsFree("Hands-free stopped: the step limit was reached.")
+                stopHandsFree("Hands-free stopped.")
                 false
             }
             is RunOutcome.Failed -> {
-                stopHandsFree("Hands-free stopped: the run failed.")
+                stopHandsFree("Hands-free stopped.")
                 false
             }
         }
@@ -460,7 +460,7 @@ class ChatViewModel(
     private fun speakForHandsFree(text: String) {
         val tts = speaker
         if (tts == null) {
-            stopHandsFree("Hands-free stopped: speech output is not available.")
+            stopHandsFree("Hands-free isn't available on this phone.")
             return
         }
         _handsFree.value = HandsFreeState(HandsFreePhase.Speaking)
@@ -948,8 +948,16 @@ class ChatViewModel(
         super.onCleared()
     }
 
+    private var noticeJob: Job? = null
+
+    /** A one-line complaint under the field. It goes away by itself after a few seconds. */
     fun showNotice(text: String) {
         _notice.value = text
+        noticeJob?.cancel()
+        noticeJob = scope.launch {
+            delay(NOTICE_SHOWN_MS)
+            if (_notice.value == text) _notice.value = null
+        }
     }
 
     private fun pictureCount(): Int = _attachments.value.count { it.shown is ShownAttachment.Picture }
@@ -1143,8 +1151,9 @@ data class HandsFreeState(val phase: HandsFreePhase = HandsFreePhase.Off, val no
  * its ending. Without this line the user has no way to tell that from a
  * complete thought.
  */
-private const val TRUNCATED_AT_LIMIT =
-    "This answer was cut off at the model's output limit, so it is incomplete."
+private const val TRUNCATED_AT_LIMIT = "Answer cut short."
+
+private const val NOTICE_SHOWN_MS = 4_000L
 
 /**
  * Said under the partial text of a run the user stopped.
@@ -1152,8 +1161,7 @@ private const val TRUNCATED_AT_LIMIT =
  * The words above are the model's, kept rather than discarded, and this is what
  * stops them reading as a finished answer.
  */
-private const val CANCELLED_MID_ANSWER =
-    "Stopped at your request. The text above is what the model had produced so far, and it is incomplete."
+private const val CANCELLED_MID_ANSWER = "Stopped."
 
 /**
  * One row of the transcript. A flat list, not a tree: the runtime is a loop.
@@ -1240,14 +1248,19 @@ sealed interface ChatMessage {
  * same text, and the trace screen renders it verbatim. So the chat states what
  * happened and where the detail is, and the developer still gets the original.
  */
-internal fun RunOutcome.transcriptLine(): String {
-    val line = notice
-    if (this !is RunOutcome.Failed) return line
-    // Delegates to the one sanitiser. This used to be a second copy of the same
-    // rule, and the two already disagreed on the last sentence: the transcript
-    // pointed at the Trace screen for the raw error, while the Trace screen
-    // said it never shows raw error text. A user who followed the pointer was
-    // sent somewhere the promised text did not exist.
-    return safeFailureReason(line)
+internal fun RunOutcome.transcriptLine(): String = when (this) {
+    // The runtime's reason ("no valid action in 3 attempts", an exception name)
+    // is for the Trace screen, which keeps it. The chat says what the user can do.
+    is RunOutcome.Failed -> if (reason.contains(CONTEXT_TOO_SMALL, ignoreCase = true)) {
+        "That is too long for this model. Try a shorter message."
+    } else {
+        "Something went wrong. Try again."
+    }
+    RunOutcome.StepLimitReached -> "I couldn't finish that. Try asking for one thing at a time."
+    RunOutcome.Cancelled -> "Stopped."
+    is RunOutcome.Answer -> notice
 }
+
+/** The start of the runtime's reason when the prompt no longer fits the context window. */
+private const val CONTEXT_TOO_SMALL = "context window too small"
 

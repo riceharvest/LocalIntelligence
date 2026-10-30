@@ -3,7 +3,6 @@ package dev.localintelligence.app
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import dev.localintelligence.android.inference.LlamaCppBackend
 
 /**
  * What the UI is allowed to claim about the model, derived from what actually
@@ -130,16 +129,13 @@ class ModelAvailabilityHolder(
  * developer-facing detail belongs in the trace view.
  */
 internal fun describeLoadFailure(cause: Throwable?): String = when (cause) {
-    null -> "The model could not be loaded."
+    null -> "The model couldn't be loaded. Try again, or pick another model."
 
     is java.io.FileNotFoundException ->
-        "That file is no longer readable. Import it again from your files app."
+        "That model file is gone. Add it again from Models."
 
     is OutOfMemoryError ->
-        "There is not enough memory to load that model. Pick a smaller one. " +
-            "Context length is fixed at ${LlamaCppBackend.DEFAULT_CONTEXT_LENGTH} " +
-            "tokens and there is no control for it yet, so a smaller model is " +
-            "the only lever."
+        "Not enough memory for this model. Try a smaller one."
 
     else -> {
         // The raw message is NOT shown. It is a native or JNI string and can be
@@ -151,8 +147,7 @@ internal fun describeLoadFailure(cause: Throwable?): String = when (cause) {
         //
         // The cause is not swallowed: it is logged, so a bug report has it.
         android.util.Log.w("ModelAvailability", "model load failed", cause)
-        "That model could not be loaded. It may be a format this app cannot " +
-            "read, or it may be damaged - try importing it again."
+        "That model couldn't be loaded. It may be damaged or in a format this app can't read."
     }
 }
 
@@ -171,8 +166,7 @@ internal fun ModelAvailability.blockingReason(): String? = when (this) {
     // day it was written.
     is ModelAvailability.Ready -> null
     ModelAvailability.None ->
-        "Import a model before sending a message. Nothing is sent anywhere — " +
-            "the agent runs entirely on this phone."
+        "Add a model to start chatting. Everything stays on your phone."
 
     is ModelAvailability.Failed -> reason
 }
