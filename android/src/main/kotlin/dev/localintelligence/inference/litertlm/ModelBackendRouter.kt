@@ -83,6 +83,8 @@ class ModelBackendRouter(
     private val numThreads: Int = 0,
     /** Where llama.cpp runs a GGUF; see [LlamaComputeSource]. */
     private val llamaCompute: LlamaComputeSource = LlamaComputeSource.CPU_ONLY,
+    /** Where llama.cpp keeps the system prompt's state between runs; see [LlamaCppBackend]. */
+    private val llamaPrefixCache: java.io.File? = null,
 ) {
 
     /**
@@ -119,7 +121,8 @@ class ModelBackendRouter(
             }
         }
 
-    private fun llamaBackend(): ModelBackend = LlamaCppBackend(importer, computeSource = llamaCompute)
+    private fun llamaBackend(): ModelBackend =
+        LlamaCppBackend(importer, computeSource = llamaCompute, prefixCacheDir = llamaPrefixCache)
 
     /**
      * A LiteRT-LM backend wired to a **real device probe**.

@@ -45,6 +45,8 @@ static void log_to_logcat(enum ggml_log_level level, const char * text, void * /
 
 #include <algorithm>
 #include <dirent.h>
+#include <sys/stat.h>
+#include <cstdio>
 #include <dlfcn.h>
 #include <strings.h>
 #include <sys/prctl.h>
@@ -134,6 +136,9 @@ void free_model_locked(LlamaHandle * h) {
     h->pending_media.clear();
     h->snap_tokens.clear();
     h->snap_state.clear();
+    h->anchor_tokens.clear();
+    h->anchor_state.clear();
+    h->prefix_key.clear();
     if (h->context != nullptr) {
         llama_free(as_context(h->context));
         h->context = nullptr;
@@ -595,6 +600,136 @@ ggml_backend_dev_t find_gpu(const std::string & backend) {
 // every op on the CPU, even when a GPU backend is registered.
 ggml_backend_dev_t kNoDevices[] = {nullptr};
 
+
+// ---- system prompt anchor ----------------------------------------------------
+
+// Bumped when llama.cpp's state format may have changed (a llama.cpp update),
+// so an old file is never fed to a new build.
+constexpr char kAnchorFormat[] = "b11988-1";
+// Below this the system prompt is cheap to prefill and not worth a file.
+constexpr int32_t kMinAnchorTokens = 64;
+// Anchor files kept on disk; the oldest go first.
+constexpr size_t kKeptAnchorFiles = 3;
+
+uint64_t fnv1a(const void * data, size_t n, uint64_t hash = 1469598103934665603ULL) {
+    const auto * p = static_cast<const uint8_t *>(data);
+    for (size_t i = 0; i < n; ++i) {
+        hash ^= p[i];
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+// The file for the first `n` tokens of `tokens` under this model load, or ""
+// when disk anchors are off.
+std::string anchor_path(const LlamaHandle * h, const std::vector<llama_token> & tokens, int32_t n) {
+    if (h->prefix_dir.empty() || h->prefix_key.empty()) return "";
+    uint64_t x = fnv1a(h->prefix_key.data(), h->prefix_key.size());
+    x = fnv1a(kAnchorFormat, sizeof(kAnchorFormat), x);
+    x = fnv1a(tokens.data(), static_cast<size_t>(n) * sizeof(llama_token), x);
+    char name[48];
+    snprintf(name, sizeof(name), "prefix-%016llx.state", static_cast<unsigned long long>(x));
+    return h->prefix_dir + "/" + name;
+}
+
+bool read_whole_file(const std::string & path, std::vector<uint8_t> & out) {
+    FILE * f = fopen(path.c_str(), "rb");
+    if (f == nullptr) return false;
+    bool ok = fseek(f, 0, SEEK_END) == 0;
+    const long size = ok ? ftell(f) : -1;
+    ok = ok && size > 0 && fseek(f, 0, SEEK_SET) == 0;
+    if (ok) {
+        out.resize(static_cast<size_t>(size));
+        ok = fread(out.data(), 1, out.size(), f) == out.size();
+    }
+    fclose(f);
+    if (!ok) out.clear();
+    return ok;
+}
+
+// Written beside the target and renamed over it, so a crash mid-write leaves
+// no half file under the real name.
+bool write_file_atomic(const std::string & path, const std::vector<uint8_t> & data) {
+    const std::string tmp = path + ".tmp";
+    FILE * f = fopen(tmp.c_str(), "wb");
+    if (f == nullptr) return false;
+    const bool ok = fwrite(data.data(), 1, data.size(), f) == data.size();
+    if (fclose(f) != 0 || !ok) {
+        remove(tmp.c_str());
+        return false;
+    }
+    return rename(tmp.c_str(), path.c_str()) == 0;
+}
+
+// Keeps the newest kKeptAnchorFiles anchor files in `dir`.
+void prune_anchor_files(const std::string & dir) {
+    DIR * d = opendir(dir.c_str());
+    if (d == nullptr) return;
+    std::vector<std::pair<time_t, std::string>> files;
+    while (dirent * e = readdir(d)) {
+        const std::string name = e->d_name;
+        if (name.rfind("prefix-", 0) != 0) continue;
+        const std::string full = dir + "/" + name;
+        struct stat st{};
+        if (stat(full.c_str(), &st) == 0) files.emplace_back(st.st_mtime, full);
+    }
+    closedir(d);
+    if (files.size() <= kKeptAnchorFiles) return;
+    std::sort(files.begin(), files.end());
+    for (size_t i = 0; i + kKeptAnchorFiles < files.size(); ++i) remove(files[i].second.c_str());
+}
+
+// Restores the system prompt's state for `tokens[0, at)` from memory or disk
+// into the cleared sequence. Returns the reused token count, 0 on a miss.
+int32_t restore_anchor(LlamaHandle * h, llama_context * ctx, const std::vector<llama_token> & tokens,
+                       int32_t at, int32_t seq) {
+    const bool in_memory = !h->anchor_state.empty() &&
+        static_cast<int32_t>(h->anchor_tokens.size()) == at &&
+        std::equal(h->anchor_tokens.begin(), h->anchor_tokens.end(), tokens.begin());
+    std::string from = "memory";
+    if (!in_memory) {
+        const std::string path = anchor_path(h, tokens, at);
+        std::vector<uint8_t> data;
+        if (path.empty() || !read_whole_file(path, data)) return 0;
+        h->anchor_state.swap(data);
+        h->anchor_tokens.assign(tokens.begin(), tokens.begin() + at);
+        from = "disk";
+    }
+    llama_memory_t mem = llama_get_memory(ctx);
+    llama_memory_clear(mem, true);
+    if (llama_state_seq_set_data(ctx, h->anchor_state.data(), h->anchor_state.size(), seq) == 0) {
+        llama_memory_clear(mem, true);
+        __android_log_print(ANDROID_LOG_WARN, "LocalLlama", "prefix anchor: %s copy did not restore, dropped",
+                            from.c_str());
+        if (from == "disk") remove(anchor_path(h, tokens, at).c_str());
+        h->anchor_state.clear();
+        h->anchor_tokens.clear();
+        return 0;
+    }
+    __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "prefix anchor: restored %d system-prompt tokens from %s",
+                        at, from.c_str());
+    return at;
+}
+
+// Copies the state at `at` (the end of the system prompt) and saves it.
+void save_anchor(LlamaHandle * h, llama_context * ctx, const std::vector<llama_token> & tokens,
+                 int32_t at, int32_t seq) {
+    const size_t size = llama_state_seq_get_size(ctx, seq);
+    if (size == 0) return;
+    h->anchor_state.resize(size);
+    if (llama_state_seq_get_data(ctx, h->anchor_state.data(), size, seq) != size) {
+        h->anchor_state.clear();
+        h->anchor_tokens.clear();
+        return;
+    }
+    h->anchor_tokens.assign(tokens.begin(), tokens.begin() + at);
+    const std::string path = anchor_path(h, tokens, at);
+    const bool saved = !path.empty() && write_file_atomic(path, h->anchor_state);
+    if (saved) prune_anchor_files(h->prefix_dir);
+    __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "prefix anchor: kept %d system-prompt tokens (%.1f MiB)%s",
+                        at, static_cast<double>(size) / (1024.0 * 1024.0), saved ? ", saved to disk" : "");
+}
+
 }  // namespace
 
 extern "C" {
@@ -788,6 +923,19 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
 }
 
 JNIEXPORT void JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeSetPrefixCache(
+        JNIEnv * env, jclass, jlong handle, jstring dir, jstring key) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr) return;
+    std::lock_guard<std::mutex> lock(h->state);
+    if (!jstring_utf8(env, dir, h->prefix_dir) || !jstring_utf8(env, key, h->prefix_key)) {
+        h->prefix_dir.clear();
+        h->prefix_key.clear();
+    }
+    if (!h->prefix_dir.empty()) mkdir(h->prefix_dir.c_str(), 0700);
+}
+
+JNIEXPORT void JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeUnload(JNIEnv *, jclass, jlong handle) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
@@ -920,7 +1068,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         JNIEnv * env, jclass, jlong handle, jstring prompt, jstring grammar, jfloat temperature,
         jfloat top_p, jint top_k, jfloat min_p, jfloat repeat_penalty, jint penalty_last_n,
         jfloat frequency_penalty, jfloat presence_penalty, jint seed, jint max_tokens,
-        jobject onToken, jboolean parse_special) {
+        jobject onToken, jboolean parse_special, jint stable_bytes) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
         return to_jstring(env, "null handle");
@@ -1077,6 +1225,24 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     }
     const int32_t prompt_tokens = mm_chunks ? mm_prompt_tokens : static_cast<int32_t>(tokens.size());
 
+    // Where the system prompt ends, in this prompt's tokens: the first
+    // `stable_bytes` of the text, tokenised alone, compared with the whole.
+    // Only the tokens both agree on count, so a merge at the boundary moves the
+    // anchor back rather than restoring a state for text that is not there.
+    int32_t anchor_at = 0;
+    if (!mm_chunks && stable_bytes > 0 && static_cast<size_t>(stable_bytes) < prompt_str.size()) {
+        std::vector<llama_token> head;
+        std::string head_err;
+        if (tokenize(vocab, prompt_str.substr(0, static_cast<size_t>(stable_bytes)), head, head_err,
+                     parse_special == JNI_TRUE)) {
+            const size_t n = std::min(head.size(), tokens.size());
+            size_t k = 0;
+            while (k < n && head[k] == tokens[k]) ++k;
+            anchor_at = static_cast<int32_t>(k);
+        }
+        if (anchor_at < kMinAnchorTokens || anchor_at >= prompt_tokens) anchor_at = 0;
+    }
+
     llama_sampler * chain = build_chain(
         vocab, grammar_str, temperature, top_k, top_p, min_p, repeat_penalty,
         penalty_last_n, frequency_penalty, presence_penalty, static_cast<uint32_t>(seed));
@@ -1174,6 +1340,17 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             }
         }
     }
+    // Nothing later was reusable (the prompt changed after the system prompt,
+    // or this is the first message since the model loaded): start from the
+    // system prompt's saved state instead of from token 0.
+    if (reused == 0 && anchor_at > 0) {
+        reused = restore_anchor(h, ctx, tokens, anchor_at, kPromptSeq);
+    }
+    // The anchor is taken while prefilling through it, unless it is already the
+    // one held for exactly these tokens.
+    const bool anchor_take = anchor_at > reused && !(
+        static_cast<int32_t>(h->anchor_tokens.size()) == anchor_at && !h->anchor_state.empty() &&
+        std::equal(h->anchor_tokens.begin(), h->anchor_tokens.end(), tokens.begin()));
     // Where this prompt's state is copied for the next step (hybrid models
     // only). When that point is already covered by the restored copy, the copy
     // is that state and is kept as it is.
@@ -1209,8 +1386,9 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             break;
         }
         n = std::min(batch_limit, prompt_tokens - off);
-        // A batch ends exactly where the state is to be copied.
+        // A batch ends exactly where a state is to be copied.
         if (snap_at > off && snap_at < off + n) n = snap_at - off;
+        if (anchor_take && anchor_at > off && anchor_at < off + n) n = anchor_at - off;
         llama_batch batch = llama_batch_init(n, 0, 1);
         for (int32_t i = 0; i < n; ++i) {
             batch.token[i] = tokens[static_cast<size_t>(off + i)];
@@ -1237,6 +1415,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             break;
         }
         pos += n;
+        if (anchor_take && off + n == anchor_at) save_anchor(h, ctx, tokens, anchor_at, kPromptSeq);
         if (!snapped && snap_at > 0 && off + n == snap_at) {
             const size_t size = llama_state_seq_get_size(ctx, kPromptSeq);
             h->snap_state.resize(size);
