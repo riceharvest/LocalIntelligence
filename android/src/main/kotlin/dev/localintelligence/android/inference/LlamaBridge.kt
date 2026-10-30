@@ -132,8 +132,31 @@ object LlamaBridge {
     const val CAP_AUDIO = 2
 
     /**
+     * Renders [roles]/[contents] with the loaded model's own chat template, and
+     * returns the prompt text, or null when there is no template or llama.cpp
+     * does not recognise it. Roles are "system", "user" or "assistant".
+     *
+     * Null is the signal to fall back to the flat transcript. It is also what a
+     * model with no template returns, which is the common case for a base model.
+     */
+    fun applyTemplate(
+        handle: Handle,
+        roles: List<String>,
+        contents: List<String>,
+        addAssistant: Boolean,
+    ): String? = if (isAvailable) {
+        nativeApplyTemplate(handle.ptr, roles.toTypedArray(), contents.toTypedArray(), addAssistant)
+    } else {
+        null
+    }
+
+    /**
      * Generates, streaming to [onToken]. Returns null on success, or the error.
      * The [GenerationOutcome] is then taken with [takeResult].
+     *
+     * [parseSpecial] is true for a prompt rendered by [applyTemplate], so the
+     * template's control tokens become single special tokens. It is false for the
+     * flat transcript, whose text must not be able to produce one.
      */
     fun generate(
         handle: Handle,
@@ -150,10 +173,11 @@ object LlamaBridge {
         seed: Int,
         maxTokens: Int,
         onToken: TokenSink?,
+        parseSpecial: Boolean = false,
     ): String? = if (isAvailable) {
         nativeGenerate(
             handle.ptr, prompt, grammar, temperature, topP, topK, minP, repeatPenalty,
-            penaltyLastN, frequencyPenalty, presencePenalty, seed, maxTokens, onToken,
+            penaltyLastN, frequencyPenalty, presencePenalty, seed, maxTokens, onToken, parseSpecial,
         )
     } else {
         "the llama.cpp native library is not available on this device"
@@ -231,7 +255,10 @@ object LlamaBridge {
         ptr: Long, prompt: String, grammar: String?, temperature: Float, topP: Float,
         topK: Int, minP: Float, repeatPenalty: Float, penaltyLastN: Int,
         frequencyPenalty: Float, presencePenalty: Float, seed: Int, maxTokens: Int,
-        sink: TokenSink?,
+        sink: TokenSink?, parseSpecial: Boolean,
+    ): String?
+    @JvmStatic private external fun nativeApplyTemplate(
+        ptr: Long, roles: Array<String>, contents: Array<String>, addAssistant: Boolean,
     ): String?
     @JvmStatic private external fun nativeTakeResult(ptr: Long): String?
     @JvmStatic private external fun nativeLoadProjector(ptr: Long, path: String): String?
