@@ -40,6 +40,7 @@ import android.net.Uri
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
 import dev.localintelligence.core.settings.CoreSettings
+import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.ui.ChatScreen
 import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
@@ -116,6 +117,8 @@ class MainActivity : ComponentActivity() {
                             capabilities = { container.residentBackend().capabilities },
                             speaker = container.speaker,
                             readRepliesAloud = { container.settings[CoreSettings.READ_REPLIES_ALOUD] },
+                            dictation = LiveDictation(applicationContext),
+                            handsFreeSilence = { container.settings[CoreSettings.HANDS_FREE_SILENCE] },
                         )
                     },
                 )

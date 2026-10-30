@@ -89,6 +89,11 @@ object CoreSettings {
         "voice.pitch", "Speech pitch", "1 is the voice's normal pitch.",
         SettingSection.VOICE, default = 1f, min = 0.5f, max = 2f, step = 0.05f, applies = SettingApplies.NOW,
     )
+    val HANDS_FREE_SILENCE = FloatValue(
+        "voice.hands_free_silence", "Silence before sending",
+        "Hands-free mode: how long a pause ends your turn, in seconds.",
+        SettingSection.VOICE, default = 1.2f, min = 0.6f, max = 3f, step = 0.1f, applies = SettingApplies.NOW,
+    )
 
     // ---- sampling ----------------------------------------------------------
 
@@ -181,7 +186,7 @@ object CoreSettings {
         MODE,
         AUTO_ACCEPT_DESTRUCTIVE, AUTO_ACCEPT_EXTERNAL, AUTO_ACCEPT_NETWORK, AUTO_ACCEPT_IN_BACKGROUND,
         TOOL_CALLS_AUTO_COLLAPSE,
-        READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH,
+        READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
         SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE,
         MAX_STEPS, MAX_VISIBLE_TOOLS, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,

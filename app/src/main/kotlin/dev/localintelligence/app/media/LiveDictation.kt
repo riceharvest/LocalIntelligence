@@ -32,12 +32,34 @@ class LiveDictation(private val context: Context) {
 
     private var recognizer: SpeechRecognizer? = null
     private var onText: (String) -> Unit = {}
+    private var onEnd: (spoken: String?, error: Int?) -> Unit = { _, _ -> }
 
     /** What the field held when this dictation began, before any spoken words. */
     private var base = ""
 
     /** False when the device has no recognition service at all. */
-    fun start(current: String, onText: (String) -> Unit): Boolean {
+    fun start(current: String, onText: (String) -> Unit): Boolean =
+        begin(current, onText, silenceMillis = null, onEnd = { _, _ -> })
+
+    /**
+     * One hands-free listen. The recognizer decides when the speech is over, and
+     * [onEnd] runs once with what it heard: the spoken words, or null with no
+     * words, and the error code when it failed. [silenceMillis] asks the recognizer
+     * for the same pause length the user set; recognizers may ignore it.
+     */
+    fun startHandsFree(
+        current: String,
+        silenceMillis: Long,
+        onText: (String) -> Unit,
+        onEnd: (spoken: String?, error: Int?) -> Unit,
+    ): Boolean = begin(current, onText, silenceMillis, onEnd)
+
+    private fun begin(
+        current: String,
+        onText: (String) -> Unit,
+        silenceMillis: Long?,
+        onEnd: (spoken: String?, error: Int?) -> Unit,
+    ): Boolean {
         if (_listening.value) return true
         if (!SpeechRecognizer.isRecognitionAvailable(context)) return false
         val rec = recognizer ?: createRecognizer().also {
@@ -46,11 +68,17 @@ class LiveDictation(private val context: Context) {
         }
         base = current
         this.onText = onText
+        this.onEnd = onEnd
         rec.startListening(
             Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true),
+                .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                .apply {
+                    if (silenceMillis != null) {
+                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, silenceMillis)
+                    }
+                },
         )
         _listening.value = true
         return true
@@ -90,15 +118,18 @@ class LiveDictation(private val context: Context) {
         }
 
         override fun onResults(results: Bundle?) {
-            firstResult(results)?.let {
-                base = joined(it)
+            val spoken = firstResult(results)
+            if (!spoken.isNullOrEmpty()) {
+                base = joined(spoken)
                 onText(base)
             }
             _listening.value = false
+            onEnd(spoken?.takeIf { it.isNotEmpty() }, null)
         }
 
         override fun onError(error: Int) {
             _listening.value = false
+            onEnd(null, error)
         }
 
         override fun onReadyForSpeech(params: Bundle?) = Unit

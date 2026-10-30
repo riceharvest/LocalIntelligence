@@ -12,6 +12,8 @@ import dev.localintelligence.app.RunningTool
 import dev.localintelligence.app.blockingReason
 import dev.localintelligence.app.isActive
 import dev.localintelligence.app.isTerminal
+import android.speech.SpeechRecognizer
+import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.PendingAttachment
 import dev.localintelligence.app.media.PendingAttachments
 import dev.localintelligence.app.media.ShownAttachment
@@ -23,10 +25,14 @@ import dev.localintelligence.core.context.GenerationProse
 import dev.localintelligence.core.model.ChatMessage as CoreChatMessage
 import dev.localintelligence.core.model.MediaInput
 import dev.localintelligence.core.model.ModelCapabilities
+import dev.localintelligence.core.settings.CoreSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -88,6 +94,13 @@ class ChatViewModel(
     private val speaker: Speaker? = null,
     /** Read at the end of each run, so a settings change applies from the next answer. */
     private val readRepliesAloud: () -> Boolean = { false },
+    /**
+     * Speech recognition for hands-free mode with a model that cannot read audio. Built by the
+     * host, because it needs a Context. Null means hands-free can only use the audio path.
+     */
+    private val dictation: LiveDictation? = null,
+    /** Hands-free pause before a turn is sent, in seconds. Read at each listen. */
+    private val handsFreeSilence: () -> Float = { CoreSettings.HANDS_FREE_SILENCE.default },
 ) : ViewModel() {
 
     private val scope: CoroutineScope = scopeOverride ?: viewModelScope
@@ -106,6 +119,21 @@ class ChatViewModel(
     /** A one-line complaint from the composer, such as a refused photo. Null when there is none. */
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
+
+    /**
+     * Hands-free mode. Declared before the `init` block below, which reads it: the collectors
+     * there can run before the constructor returns.
+     */
+    private val _handsFree = MutableStateFlow(HandsFreeState())
+
+    /** Hands-free mode: where it is now, and why it last stopped when the user did not stop it. */
+    val handsFree: StateFlow<HandsFreeState> = _handsFree.asStateFlow()
+
+    /** The one thing hands-free mode is waiting on: a relisten, or the end of speech. Cancelled on stop. */
+    private var handsFreeJob: Job? = null
+
+    /** Listens in a row that heard nothing. Two stop the mode. */
+    private var emptyListens = 0
 
     /**
      * Records voice clips. A finished clip becomes a composer attachment. Built
@@ -259,6 +287,12 @@ class ChatViewModel(
                 }
                 wasTerminal = state.isTerminal
 
+                // A tool needs a human. Hands-free mode cannot answer by voice, so it stops.
+                // The run itself waits, untouched, for the Allow or Deny on screen.
+                if (state is RunState.AwaitingApproval && _handsFree.value.phase != HandsFreePhase.Off) {
+                    stopHandsFree("Hands-free stopped: a tool needs your approval. Tap Allow or Deny on screen.")
+                }
+
                 if (state !is RunState.Finished) return@collect
                 if (state === lastTerminal) return@collect
                 lastTerminal = state
@@ -275,10 +309,176 @@ class ChatViewModel(
 
                 // Read aloud: the final answer, once, when the run completes. Only the
                 // answer is spoken, never streamed text or tool rows; a cancelled or
-                // failed run has no answer and is silent.
+                // failed run has no answer and is silent. Hands-free mode speaks its own
+                // answers, so a reply is never read twice.
                 val answer = state.outcome as? RunOutcome.Answer
-                if (answer != null && readRepliesAloud()) speaker?.speak(answer.text)
+                val spokenByHandsFree = handsFreeRunEnded(state.outcome)
+                if (answer != null && !spokenByHandsFree && readRepliesAloud()) speaker?.speak(answer.text)
             }
+        }
+    }
+
+    // ------------------------------------------------------------ hands-free
+
+    /**
+     * Turns hands-free mode on: listen, send what was said, wait for the answer, speak it,
+     * listen again. Starts only from an idle chat; the screen asks for the microphone first.
+     */
+    fun startHandsFree() {
+        if (_handsFree.value.phase != HandsFreePhase.Off) return
+        if (speaker == null) {
+            _handsFree.value = HandsFreeState(notice = "Hands-free needs speech output, which this app does not have.")
+            return
+        }
+        blockedReason?.let { reason ->
+            _handsFree.value = HandsFreeState(notice = reason)
+            return
+        }
+        if (!gateway.runState.value.isTerminal) {
+            _handsFree.value = HandsFreeState(notice = "Wait for the current answer, then start hands-free.")
+            return
+        }
+        emptyListens = 0
+        startListening()
+    }
+
+    /**
+     * Turns hands-free mode off. Sets the phase first, so a recording or a recognizer result
+     * that arrives afterwards is ignored. [notice] says why, when the user did not stop it.
+     * The run in progress, if any, is left alone.
+     */
+    fun stopHandsFree(notice: String? = null) {
+        val was = _handsFree.value.phase
+        if (was == HandsFreePhase.Off && notice == null) return
+        handsFreeJob?.cancel()
+        handsFreeJob = null
+        _handsFree.value = HandsFreeState(HandsFreePhase.Off, notice)
+        voice.stop()
+        dictation?.stop()
+        if (was != HandsFreePhase.Off) speaker?.stop()
+    }
+
+    private fun startListening() {
+        _handsFree.value = HandsFreeState(HandsFreePhase.Listening)
+        if (modelCapabilities().supportsAudioInput) listenForClip() else listenForWords()
+    }
+
+    /** Audio-capable model: record until the user pauses. The clip is sent as it is, like a voice note. */
+    private fun listenForClip() {
+        val started = voice.startUntilPause(handsFreeSilence()) { wav, seconds ->
+            scope.launch { handsFreeClip(wav, seconds) }
+        }
+        if (!started) stopHandsFree("The microphone is not available. Check that the app may record audio.")
+    }
+
+    /** Text-only model: the recognizer decides when speech ends, and its words are sent. */
+    private fun listenForWords() {
+        val started = dictation?.startHandsFree(
+            current = _input.value,
+            silenceMillis = (handsFreeSilence() * 1000).toLong(),
+            onText = { _input.value = it },
+            onEnd = { spoken, error -> handsFreeWords(spoken, error) },
+        ) ?: false
+        if (!started) stopHandsFree("Speech recognition is not available on this phone.")
+    }
+
+    private fun handsFreeClip(wav: ByteArray?, seconds: Int) {
+        if (_handsFree.value.phase != HandsFreePhase.Listening) return
+        if (wav == null) {
+            emptyListen()
+            return
+        }
+        sendHandsFree(typed = "", clip = PendingAttachment(MediaInput(wav, "audio/wav"), ShownAttachment.Voice(seconds)))
+    }
+
+    private fun handsFreeWords(spoken: String?, error: Int?) {
+        if (_handsFree.value.phase != HandsFreePhase.Listening) return
+        when {
+            error != null && error !in SILENT_LISTEN_ERRORS ->
+                stopHandsFree("Hands-free stopped: speech recognition failed.")
+            spoken == null -> emptyListen()
+            else -> sendHandsFree(typed = _input.value.trim(), clip = null)
+        }
+    }
+
+    /** Sends one heard turn. [clip] is the recorded speech, when the model takes audio. */
+    private fun sendHandsFree(typed: String, clip: PendingAttachment?) {
+        emptyListens = 0
+        if (clip != null) _attachments.update { it + clip }
+        if (!canSubmit(hasText = typed.isNotEmpty())) {
+            clip?.let { heard -> _attachments.update { current -> current.filterNot { it === heard } } }
+            stopHandsFree("Hands-free stopped: the message could not be sent.")
+            return
+        }
+        _handsFree.value = HandsFreeState(HandsFreePhase.Thinking)
+        _input.value = ""
+        dispatch(typed)
+    }
+
+    /**
+     * Counts a listen that heard nothing. Two in a row stop the mode, so a quiet room
+     * does not keep the microphone open for good.
+     */
+    private fun emptyListen() {
+        emptyListens++
+        if (emptyListens >= 2) stopHandsFree("Hands-free stopped: nothing was heard twice in a row.")
+        else relistenSoon()
+    }
+
+    /**
+     * Called when a run has finished. In Thinking, an answer is spoken here and the mode
+     * listens again afterwards. Any other end stops the mode, with a reason unless it was
+     * the user's Stop. Returns true when the answer is being spoken by hands-free mode.
+     */
+    private fun handsFreeRunEnded(outcome: RunOutcome): Boolean {
+        if (_handsFree.value.phase != HandsFreePhase.Thinking) return false
+        return when (outcome) {
+            is RunOutcome.Answer -> {
+                speakForHandsFree(outcome.text)
+                true
+            }
+            RunOutcome.Cancelled -> {
+                stopHandsFree()
+                false
+            }
+            RunOutcome.StepLimitReached -> {
+                stopHandsFree("Hands-free stopped: the step limit was reached.")
+                false
+            }
+            is RunOutcome.Failed -> {
+                stopHandsFree("Hands-free stopped: the run failed.")
+                false
+            }
+        }
+    }
+
+    /**
+     * Reads the answer, then listens again once speech has ended. [Speaker.speak] sets
+     * `speakingText` synchronously, so the wait starts from the text being spoken. When there
+     * is nothing to say, `speakingText` is never set and the wait returns at once.
+     */
+    private fun speakForHandsFree(text: String) {
+        val tts = speaker
+        if (tts == null) {
+            stopHandsFree("Hands-free stopped: speech output is not available.")
+            return
+        }
+        _handsFree.value = HandsFreeState(HandsFreePhase.Speaking)
+        tts.speak(text)
+        handsFreeJob = scope.launch {
+            tts.speakingText.first { it == null }
+            relistenSoon()
+        }
+    }
+
+    /**
+     * Listens again after a short pause. The pause lets the recognizer release the
+     * microphone and lets the tail of the spoken answer die away before the mic opens.
+     */
+    private fun relistenSoon() {
+        handsFreeJob = scope.launch {
+            delay(RELISTEN_DELAY_MS)
+            startListening()
         }
     }
 
@@ -678,6 +878,7 @@ class ChatViewModel(
         attachmentQueue.add(_attachments.value)
         _attachments.value = emptyList()
         _notice.value = null
+        _handsFree.update { if (it.notice == null) it else it.copy(notice = null) }
         val shown = attachmentQueue.snapshot().map { it.shown }
         _messages.update { it + ChatMessage.User(typed, shown) }
         // ExecutionService refuses a blank task, so media alone still needs words to run on.
@@ -741,6 +942,8 @@ class ChatViewModel(
 
     /** The screen is gone, so the microphone must not keep recording for its remaining seconds. */
     override fun onCleared() {
+        stopHandsFree()
+        dictation?.release()
         voice.stop()
         super.onCleared()
     }
@@ -753,6 +956,7 @@ class ChatViewModel(
 
     /** The STOP button. Cooperative: the loop returns `Cancelled` when it can. */
     fun stop() {
+        stopHandsFree()
         speaker?.stop()
         gateway.cancel()
     }
@@ -828,6 +1032,8 @@ class ChatViewModel(
         private val capabilities: () -> ModelCapabilities = { ModelCapabilities.UNKNOWN },
         private val speaker: Speaker? = null,
         private val readRepliesAloud: () -> Boolean = { false },
+        private val dictation: LiveDictation? = null,
+        private val handsFreeSilence: () -> Float = { CoreSettings.HANDS_FREE_SILENCE.default },
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -841,6 +1047,8 @@ class ChatViewModel(
                 capabilities = capabilities,
                 speaker = speaker,
                 readRepliesAloud = readRepliesAloud,
+                dictation = dictation,
+                handsFreeSilence = handsFreeSilence,
             ) as T
         }
     }
@@ -914,6 +1122,18 @@ internal const val MAX_PICTURES_PER_MESSAGE = 3
 
 /** What a run is told when the user sent only attachments and no words. */
 private const val DEFAULT_MEDIA_TASK = "Respond to what is attached."
+
+/** Recognizer errors that mean "nothing was said", so the listen counts as empty rather than failed. */
+private val SILENT_LISTEN_ERRORS = setOf(SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
+
+/** Pause between a finished answer, or an empty listen, and the next microphone open. */
+private const val RELISTEN_DELAY_MS = 300L
+
+/** Where hands-free mode is. Listening, Thinking and Speaking are the three states the screen shows. */
+enum class HandsFreePhase { Off, Listening, Thinking, Speaking }
+
+/** Hands-free mode as the chat screen shows it. [notice] is set when the mode stopped without the user's Stop. */
+data class HandsFreeState(val phase: HandsFreePhase = HandsFreePhase.Off, val notice: String? = null)
 
 /**
  * Said under an answer the model never finished producing.
