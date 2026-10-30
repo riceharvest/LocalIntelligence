@@ -1324,11 +1324,86 @@ class AppContainer(private val context: Context) {
         }
         val uri = android.net.Uri.fromFile(file)
         val model = runCatching { importer.inspect(uri) }.getOrNull() ?: return@withContext null
+        // Listed BEFORE the load: a model that downloaded but would not start is still on
+        // disk, and the Models screen has to show it instead of "No models yet".
+        withContext(Dispatchers.Main) {
+            models.removeAll { it.uri == model.uri }
+            models.add(model)
+        }
         val availability = loadModel(model)
         if (availability is ModelAvailability.Ready) {
             DownloadedModelRegistrar.Registered(availability.displayName, chatReady = true)
         } else {
             null
+        }
+    }
+
+    /**
+     * Lists every model file in the app's own models directory, without loading any.
+     *
+     * The list lives in memory, so after a restart only the saved model was in it and
+     * a Simple user (who has no manual scan) lost their other downloads. This is a
+     * directory listing plus a header read per file, cheap enough to run each time the
+     * Models screen opens. A file whose header will not parse is skipped; the first such
+     * error is returned so the manual scan can still report it.
+     */
+    suspend fun scanOwnModels(): Throwable? {
+        val files = withContext(Dispatchers.IO) {
+            modelsDir.listFiles()?.filter { file ->
+                file.isFile && (
+                    file.name.endsWith(".gguf", ignoreCase = true) ||
+                        file.name.endsWith(".litertlm", ignoreCase = true)
+                    ) && !isDocumentModelName(file.name)
+            }
+        } ?: return null
+        var firstFailure: Throwable? = null
+        for (file in files) {
+            val uri = android.net.Uri.fromFile(file)
+            if (models.any { it.uri == uri }) continue
+            val model = try {
+                withContext(Dispatchers.IO) { importer.inspect(uri) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                if (firstFailure == null) firstFailure = t
+                continue
+            }
+            withContext(Dispatchers.Main) {
+                models.removeAll { it.uri == model.uri }
+                models.add(model)
+            }
+        }
+        return firstFailure
+    }
+
+    /** True when [model] is a file inside the app's own models directory. */
+    fun isOwnModelFile(model: ImportedModel): Boolean {
+        val path = model.uri.takeIf { it.scheme == "file" }?.path ?: return false
+        return File(path).parentFile?.canonicalPath == modelsDir.canonicalPath
+    }
+
+    /**
+     * Forgets [model]; deletes its file when the app owns it.
+     *
+     * A file outside the models directory belongs to the user and is never deleted. If
+     * the model is the one in use it is unloaded first, so the chat stops answering from
+     * a model that was just removed and availability goes back to None.
+     */
+    suspend fun removeModel(model: ImportedModel) {
+        readinessLock.withLock {
+            val uriText = model.uri.toString()
+            if (selectedModel?.uri == model.uri && loadedBackend !== remoteChatBackend) {
+                loadedBackend?.let { runCatching { it.unload() } }
+                loadedBackend = null
+                modelAvailability.set(ModelAvailability.None)
+            }
+            if (selectedModel?.uri == model.uri || savedModelUri == uriText) {
+                selectedModel = null
+            }
+        }
+        withContext(Dispatchers.Main) { models.removeAll { it.uri == model.uri } }
+        if (isOwnModelFile(model)) {
+            withContext(Dispatchers.IO) { runCatching { File(model.uri.path!!).delete() } }
         }
     }
 }

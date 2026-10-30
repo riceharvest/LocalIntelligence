@@ -80,7 +80,7 @@ sealed class HubError(override val message: String) : Exception(message) {
 
     /** The transfer dropped mid-stream. Retryable: the partial file is kept for resume. */
     data class ConnectionLost(val detail: String) : HubError(
-        "Connection dropped while downloading. Tap retry to resume where it stopped.",
+        "Connection dropped. Tap Resume download to continue.",
     )
 
     /** Not enough free space on the volume holding the models directory. */

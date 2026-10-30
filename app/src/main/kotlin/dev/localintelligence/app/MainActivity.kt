@@ -243,6 +243,7 @@ class MainActivity : ComponentActivity() {
                         // once a key is saved and disappears when the plugin is switched off.
                         val settingsVersion by container.settings.changes.collectAsStateWithLifecycle()
                         val remoteModel = remember(settingsVersion) { container.remoteChatModelOrNull() }
+                        val modelScope = rememberCoroutineScope()
                         ModelManagerScreen(
                             technical = remember(settingsVersion) { container.settings.mode == SettingsMode.TECHNICAL },
                             models = models,
@@ -377,15 +378,11 @@ class MainActivity : ComponentActivity() {
                                 }
                                 firstFailure?.let { throw it }
                             },
-                            onDelete = { model ->
-                                models.remove(model)
-                                // Drop the selection too, or the chat keeps
-                                // offering to send with a model the user has just
-                                // told us to forget.
-                                if (container.selectedModel?.uri == model.uri) {
-                                    container.selectedModel = null
-                                }
-                            },
+                            // Deletes the file when the app owns it, unloads the model if it is
+                            // the one in use, and drops the saved selection; see removeModel.
+                            onDelete = { model -> modelScope.launch { container.removeModel(model) } },
+                            isOwnFile = { model -> container.isOwnModelFile(model) },
+                            onAutoScan = { container.scanOwnModels() },
                             onOpenHub = { nav.navigate(ROUTE_HUB) },
                             onBack = { nav.popBackStack() },
                         )
@@ -430,14 +427,46 @@ class MainActivity : ComponentActivity() {
                         // through the RAM gate, and returns a note the Hub screen
                         // shows - or null, which the screen surfaces as a
                         // failure rather than a success.
-                        val vm = remember {
-                            container.newHubViewModel(
-                                DownloadedModelRegistrar { file ->
-                                    container.adoptDownloaded(file)
+                        // Scoped to this back stack entry (not `remember`), so a rotation
+                        // keeps the progress view of a transfer that is still running.
+                        val vm: HubViewModel = viewModel(
+                            viewModelStoreOwner = entry,
+                            factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                                @Suppress("UNCHECKED_CAST")
+                                override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T =
+                                    container.newHubViewModel(
+                                        DownloadedModelRegistrar { file ->
+                                            container.adoptDownloaded(file)
+                                        },
+                                    ) as T
+                            },
+                        )
+                        hub = vm
+                        val hubState by vm.state.collectAsStateWithLifecycle()
+                        var confirmStop by remember { mutableStateOf(false) }
+                        // Leaving mid-download would drop the progress view while the
+                        // transfer went on unseen, so Back asks first.
+                        val hubBack: () -> Unit = {
+                            if (hubState.downloading) confirmStop = true else nav.popBackStack()
+                        }
+                        androidx.activity.compose.BackHandler(enabled = hubState.downloading) { confirmStop = true }
+                        if (confirmStop) {
+                            androidx.compose.material3.AlertDialog(
+                                onDismissRequest = { confirmStop = false },
+                                title = { Text("Stop downloading?") },
+                                text = { Text("What's downloaded so far is kept.") },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        confirmStop = false
+                                        vm.cancelDownload()
+                                        nav.popBackStack()
+                                    }) { Text("Stop") }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { confirmStop = false }) { Text("Keep downloading") }
                                 },
                             )
                         }
-                        hub = vm
                         val repo = entry.arguments?.getString("repo")
                         val file = entry.arguments?.getString("file")
                         LaunchedEffect(repo, file) {
@@ -447,8 +476,11 @@ class MainActivity : ComponentActivity() {
                         val hubSettingsVersion by container.settings.changes.collectAsStateWithLifecycle()
                         HubScreen(
                             viewModel = vm,
-                            onBack = { nav.popBackStack() },
+                            onBack = hubBack,
                             onStartChat = { nav.popBackStack(ROUTE_CHAT, inclusive = false) },
+                            onOpenModels = {
+                                nav.navigate(ROUTE_MODELS) { popUpTo(ROUTE_HUB) { inclusive = true } }
+                            },
                             technical = remember(hubSettingsVersion) {
                                 container.settings.mode == SettingsMode.TECHNICAL
                             },

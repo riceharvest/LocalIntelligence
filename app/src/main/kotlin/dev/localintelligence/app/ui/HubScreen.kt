@@ -53,6 +53,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.core.hub.DownloadProgress
+import dev.localintelligence.core.hub.HubError
 import dev.localintelligence.core.hub.HubGgufFile
 import dev.localintelligence.core.hub.formatBytes
 import java.util.Locale
@@ -81,6 +82,8 @@ fun HubScreen(
     onBack: () -> Unit,
     /** Returns to the chat once a download is loaded. */
     onStartChat: () -> Unit = {},
+    /** Opens the Models screen, for a download that was saved but did not start. */
+    onOpenModels: () -> Unit = {},
     /** True in Technical mode; Simple shows the verdict and the recommended file only. */
     technical: Boolean = false,
 ) {
@@ -114,8 +117,8 @@ fun HubScreen(
             OutlinedTextField(
                 value = state.repoInput,
                 onValueChange = viewModel::onRepoInputChanged,
-                label = { Text("Search Hugging Face") },
-                placeholder = { Text("qwen3 0.6b, gemma, LiquidAI/LFM3…") },
+                label = { Text("Search models") },
+                placeholder = { Text(if (technical) "qwen3 0.6b, gemma, LiquidAI/LFM3…" else "Model name, e.g. Gemma") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { viewModel.submit() }),
@@ -375,8 +378,21 @@ fun HubScreen(
             } else {
                 state.files
             }
+            // Simple mode names versions by size order, not by quant code.
+            val bySize = shown.sortedBy { it.sizeBytes }
             items(shown, key = { it.fileName + it.sizeBytes }) { file ->
                 QuantRow(
+                    label = if (technical) {
+                        file.quant?.label ?: "unknown quant"
+                    } else if (file == recommended) {
+                        "Recommended"
+                    } else if (recommended != null && file.sizeBytes < recommended.sizeBytes) {
+                        "Smaller"
+                    } else if (recommended == null && bySize.size > 1 && file == bySize.first()) {
+                        "Smaller"
+                    } else {
+                        "Higher quality"
+                    },
                     technical = technical,
                     recommended = file == recommended,
                     file = file,
@@ -438,11 +454,16 @@ fun HubScreen(
                             Button(onClick = onStartChat) { Text("Start chatting") }
                         }
                     } else {
-                        Text(
-                            note ?: "Downloaded. Open Models to load it.",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                note ?: HubViewModel.COULD_NOT_START,
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            if (note == null || note == HubViewModel.COULD_NOT_START) {
+                                Button(onClick = onOpenModels) { Text("Go to Models") }
+                            }
+                        }
                     }
                 }
                 // WHY THE STOPPED STATE IS RENDERED RATHER THAN FALLING THROUGH
@@ -453,20 +474,24 @@ fun HubScreen(
                 // while quoting a size the next tap would not transfer.
                 state.stopped != null -> {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // A deliberate stop is not a failure: no error colour for it.
+                        val userCancelled = stopped!!.error is HubError.Cancelled
                         Text(
-                            text = stopped!!.error.message,
-                            color = MaterialTheme.colorScheme.error,
+                            text = stopped.error.message,
+                            color = if (userCancelled) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                         )
-                        Text(
-                            text = if (state.partialBytesKept > 0) {
-                                "${formatBytes(state.partialBytesKept)} saved. You can resume."
-                            } else {
-                                "Nothing was saved, so the button below starts again."
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        if (state.partialBytesKept <= 0) {
+                            Text(
+                                text = "Nothing was saved, so the button below starts again.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         // Same action as the idle button: startDownload resumes
                         // from the kept .part file, so this is the resume path.
                         Button(
@@ -542,7 +567,7 @@ fun HubScreen(
                         // "Add to models" is the action that will.
                         Text(
                             when {
-                                state.alreadyOnDevice -> "Add to models"
+                                state.alreadyOnDevice -> "Download"
                                 // A resume moves only the missing bytes, so the
                                 // full size next to it would be a second
                                 // overstatement on the same button.
@@ -576,6 +601,7 @@ fun HubScreen(
  */
 @Composable
 private fun QuantRow(
+    label: String,
     technical: Boolean,
     recommended: Boolean,
     file: HubGgufFile,
@@ -604,10 +630,10 @@ private fun QuantRow(
         Column(Modifier.padding(start = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    file.quant?.label ?: "unknown quant",
+                    label,
                     style = MaterialTheme.typography.bodyLarge,
                 )
-                if (recommended) {
+                if (recommended && technical) {
                     // A plain label, not a chip: the whole row is already the tap target.
                     Surface(
                         shape = RoundedCornerShape(8.dp),

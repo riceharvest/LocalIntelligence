@@ -835,8 +835,8 @@ class HubViewModel(
         // WHY a LiteRT-LM file gets its own line: a null from the registrar means
         // the file was saved but did not load, so "Open Models to load it" would
         // point the user at a file that is not usable there.
-        val note = if (file.isLiteRtLm) "Saved, but it did not load." else "Saved. Open Models to load it."
-        return DownloadedModelRegistrar.Registered(note, chatReady = false)
+        // The file is listed in Models even so (adoptDownloaded adds it before loading).
+        return DownloadedModelRegistrar.Registered(COULD_NOT_START, chatReady = false)
     }
 
     /**
@@ -883,6 +883,9 @@ class HubViewModel(
     }
 
     companion object {
+        /** What the Hub says when a download is on disk and listed but did not load. */
+        const val COULD_NOT_START = "Downloaded, but it couldn't start. Try a smaller version."
+
         /**
          * WHY 4096: the context the app's tool-using agent needs for a system
          * prompt, a tool result and a reply. It is also the value
