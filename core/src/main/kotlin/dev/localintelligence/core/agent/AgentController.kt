@@ -11,6 +11,7 @@ import dev.localintelligence.core.model.StreamingModelBackend
 import dev.localintelligence.core.agent.AgentResult.Stop
 import dev.localintelligence.core.model.GenerationRequest
 import dev.localintelligence.core.model.SamplingParams
+import dev.localintelligence.core.model.MediaInput
 import dev.localintelligence.core.plugin.PluginHooks
 import dev.localintelligence.core.plugin.ToolGate
 import dev.localintelligence.core.model.ModelBackend
@@ -263,6 +264,9 @@ class AgentController(
      */
     private val trace = mutableListOf<StepTrace>()
     private var task: String = ""
+
+    /** Attachments of the current run's message. Re-sent on every step: each prompt is rebuilt. */
+    private var media: List<MediaInput> = emptyList()
     private var step: Int = 0
     private var malformedStreak: Int = 0
     private var pending: PendingCall? = null
@@ -346,9 +350,13 @@ class AgentController(
         val permissionGranted: Boolean = true,
     )
 
-    suspend fun run(task: String): AgentResult = measured {
+    suspend fun run(task: String, media: List<MediaInput> = emptyList()): AgentResult = measured {
         this.task = task
+        this.media = media
         trace.clear()
+        // An attachment the model cannot read would be silently dropped and the
+        // answer would pretend it had seen it. Say so instead.
+        unreadableMedia()?.let { return@measured Stop(it, trace.toList()) }
         step = 0
         malformedStreak = 0
         pending = null
@@ -1248,6 +1256,7 @@ class AgentController(
         return GenerationRequest(
             messages = prompt,
             params = sampling,
+            media = media,
             // Constrained generation, and this is the line that was the P0.
             //
             // WHY IT IS NOT NULL ON A GRAMMAR BACKEND: a 1.1B base model asked to "reply
@@ -1270,6 +1279,20 @@ class AgentController(
             },
             allowedToolNames = visible.map { it.definition.name },
         )
+    }
+
+    /** Why the loaded model cannot read this run's attachments, or null. */
+    private fun unreadableMedia(): String? {
+        val caps = model.capabilities
+        return when {
+            media.any { it.isImage } && !caps.supportsVision ->
+                "The loaded model cannot see images. Load a vision model with its projector " +
+                    "(an mmproj file next to it in the models folder)."
+            media.any { it.isAudio } && !caps.supportsAudioInput ->
+                "The loaded model cannot hear audio. Load a model with an audio projector " +
+                    "(an mmproj file next to it in the models folder)."
+            else -> null
+        }
     }
 
     /**

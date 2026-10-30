@@ -8,6 +8,8 @@
 #include <android/log.h>
 
 #include "llama.h"
+#include "mtmd.h"
+#include "mtmd-helper.h"
 
 #include <string>
 
@@ -41,6 +43,7 @@ static void log_to_logcat(enum ggml_log_level level, const char * text, void * /
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <memory>
 #include <thread>
 #include <vector>
 
@@ -71,6 +74,12 @@ jstring to_jstring(JNIEnv * env, const std::string & s) {
 }
 
 void free_model_locked(LlamaHandle * h) {
+    // The projector is bound to the model, so it goes first.
+    if (h->mtmd != nullptr) {
+        mtmd_free(reinterpret_cast<mtmd_context *>(h->mtmd));
+        h->mtmd = nullptr;
+    }
+    h->pending_media.clear();
     if (h->context != nullptr) {
         llama_free(as_context(h->context));
         h->context = nullptr;
@@ -416,6 +425,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     h->n_vocab = llama_vocab_n_tokens(vocab);
     h->eog_token = static_cast<int32_t>(llama_vocab_eot(vocab));
     h->path = model_path;
+    h->n_threads = threads;
     h->loaded = true;
     // A fresh load starts uncancelled.
     h->cancelled.store(false);
@@ -551,6 +561,9 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     int32_t n_ctx = 0;
     int32_t n_vocab = 0;
     int32_t eog = -1;
+    mtmd_context * mctx = nullptr;
+    int32_t n_threads = 0;
+    std::vector<std::vector<uint8_t>> media;
     {
         std::lock_guard<std::mutex> lock(h->state);
         if (!h->loaded || h->context == nullptr || h->vocab == nullptr) {
@@ -561,7 +574,12 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         n_ctx = h->n_ctx;
         n_vocab = h->n_vocab;
         eog = h->eog_token;
+        mctx = reinterpret_cast<mtmd_context *>(h->mtmd);
+        n_threads = h->n_threads;
+        // Attachments belong to this generation only.
+        media.swap(h->pending_media);
     }
+    (void) n_threads;
 
     const char * cprompt = env->GetStringUTFChars(prompt, nullptr);
     if (cprompt == nullptr) {
@@ -604,16 +622,66 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         h->generating.store(false);
     };
 
+    // ---- multimodal input -----------------------------------------------------
+    // With attachments the prompt carries one media marker per attachment, and
+    // libmtmd turns text + media into chunks that are evaluated in place of the
+    // plain-text prefill below. Owned here so every exit path frees them.
+    std::unique_ptr<mtmd_input_chunks, decltype(&mtmd_input_chunks_free)> mm_chunks(
+        nullptr, &mtmd_input_chunks_free);
+    std::vector<std::unique_ptr<mtmd_bitmap, decltype(&mtmd_bitmap_free)>> mm_bitmaps;
+    int32_t mm_prompt_tokens = 0;
+    if (!media.empty()) {
+        std::string mm_err;
+        if (mctx == nullptr) {
+            mm_err = "this model has no vision or audio projector loaded, so attachments cannot be read";
+        }
+        for (size_t i = 0; mm_err.empty() && i < media.size(); ++i) {
+            mtmd_helper_bitmap_wrapper w = mtmd_helper_bitmap_init_from_buf(
+                mctx, media[i].data(), media[i].size(), false, mtmd_helper_init_opt_default());
+            if (w.bitmap == nullptr) {
+                mm_err = "attachment " + std::to_string(i + 1) +
+                    " is not an image or audio format this model can read";
+                break;
+            }
+            mm_bitmaps.emplace_back(w.bitmap, &mtmd_bitmap_free);
+        }
+        if (mm_err.empty()) {
+            std::vector<const mtmd_bitmap *> raw;
+            raw.reserve(mm_bitmaps.size());
+            for (auto & b : mm_bitmaps) raw.push_back(b.get());
+            mm_chunks.reset(mtmd_input_chunks_init());
+            mtmd_input_text text{prompt_str.c_str(), prompt_str.size(), true, true};
+            const int32_t rc = mtmd_tokenize(mctx, mm_chunks.get(), &text, raw.data(), raw.size());
+            if (rc == 1) {
+                mm_err = "the prompt and the attachments do not match (one marker per attachment)";
+            } else if (rc != 0) {
+                mm_err = "an attachment could not be preprocessed (" + std::to_string(rc) + ")";
+            } else {
+                mm_prompt_tokens = static_cast<int32_t>(mtmd_helper_get_n_tokens(mm_chunks.get()));
+                if (mm_prompt_tokens > n_ctx - kGenerationHeadroom) {
+                    mm_err = "the message with its attachments needs " + std::to_string(mm_prompt_tokens) +
+                        " tokens and the context holds " + std::to_string(n_ctx);
+                }
+            }
+        }
+        if (!mm_err.empty()) {
+            outcome.stop = static_cast<int32_t>(StopCode::ERROR);
+            outcome.error = mm_err;
+            publish();
+            return to_jstring(env, outcome.error);
+        }
+    }
+
     // ---- tokenise -------------------------------------------------------------
     std::vector<llama_token> tokens;
     std::string tok_err;
-    if (!tokenize(vocab, prompt_str, tokens, tok_err)) {
+    if (!mm_chunks && !tokenize(vocab, prompt_str, tokens, tok_err)) {
         outcome.stop = static_cast<int32_t>(StopCode::ERROR);
         outcome.error = tok_err;
         publish();
         return to_jstring(env, outcome.error);
     }
-    if (tokens.empty()) {
+    if (!mm_chunks && tokens.empty()) {
         outcome.stop = static_cast<int32_t>(StopCode::COMPLETED);
         publish();
         return nullptr;
@@ -629,7 +697,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         publish();
         return to_jstring(env, outcome.error);
     }
-    if (static_cast<int32_t>(tokens.size()) > max_prompt) {
+    if (!mm_chunks && static_cast<int32_t>(tokens.size()) > max_prompt) {
         std::vector<llama_token> truncated;
         truncated.reserve(static_cast<size_t>(max_prompt));
         if (!llama_vocab_is_eog(vocab, tokens.front())) {
@@ -642,7 +710,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         }
         tokens.swap(truncated);
     }
-    const int32_t prompt_tokens = static_cast<int32_t>(tokens.size());
+    const int32_t prompt_tokens = mm_chunks ? mm_prompt_tokens : static_cast<int32_t>(tokens.size());
 
     llama_sampler * chain = build_chain(
         vocab, grammar_str, temperature, top_k, top_p, min_p, repeat_penalty,
@@ -696,7 +764,21 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     // ---- prefill --------------------------------------------------------------
     llama_memory_clear(llama_get_memory(ctx), true);
     const int32_t batch_limit = std::max(1, std::min(n_ctx, kDefaultBatch));
-    for (int32_t off = 0; off < prompt_tokens; off += batch_limit) {
+    if (mm_chunks) {
+        // Text chunks are decoded, media chunks encoded by the projector and
+        // their embeddings decoded; logits only for the last position.
+        llama_pos new_n_past = 0;
+        const int32_t rc = mtmd_helper_eval_chunks(
+            mctx, ctx, mm_chunks.get(), 0, kPromptSeq, batch_limit, true, &new_n_past);
+        if (rc != 0) {
+            outcome.stop = static_cast<int32_t>(StopCode::ERROR);
+            outcome.error = "evaluating the message with its attachments failed with " + std::to_string(rc);
+            failed = true;
+        } else {
+            pos = static_cast<int32_t>(new_n_past);
+        }
+    }
+    for (int32_t off = 0; !mm_chunks && off < prompt_tokens; off += batch_limit) {
         if (h->cancelled.load()) {
             outcome.stop = static_cast<int32_t>(StopCode::CANCELLED);
             break;
@@ -844,3 +926,72 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
 }
 
 }  // extern "C"
+
+JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadProjector(
+        JNIEnv * env, jclass, jlong handle, jstring path) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr) return to_jstring(env, "null handle");
+    if (path == nullptr) return to_jstring(env, "null projector path");
+    const char * cpath = env->GetStringUTFChars(path, nullptr);
+    if (cpath == nullptr) return to_jstring(env, "could not read the projector path");
+    const std::string projector_path(cpath);
+    env->ReleaseStringUTFChars(path, cpath);
+
+    std::lock_guard<std::mutex> lock(h->state);
+    if (!h->loaded || h->model == nullptr) return to_jstring(env, "no model is loaded");
+    if (h->mtmd != nullptr) {
+        mtmd_free(reinterpret_cast<mtmd_context *>(h->mtmd));
+        h->mtmd = nullptr;
+    }
+    mtmd_context_params params = mtmd_context_params_default();
+    params.use_gpu = false;  // no GPU backend in this build
+    params.print_timings = false;
+    params.warmup = false;   // a warmup encode costs seconds of CPU on a phone
+    params.n_threads = pick_threads(h->n_threads);
+    mtmd_context * mctx = mtmd_init_from_file(projector_path.c_str(), as_model(h->model), params);
+    if (mctx == nullptr) {
+        return to_jstring(env, "could not load the projector " + projector_path);
+    }
+    h->mtmd = mctx;
+    return nullptr;
+}
+
+// Bit 1: image input. Bit 2: audio input. 0 when no projector is loaded.
+JNIEXPORT jint JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeProjectorCaps(JNIEnv *, jclass, jlong handle) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr) return 0;
+    std::lock_guard<std::mutex> lock(h->state);
+    const mtmd_context * mctx = reinterpret_cast<const mtmd_context *>(h->mtmd);
+    if (mctx == nullptr) return 0;
+    jint caps = 0;
+    if (mtmd_support_vision(mctx)) caps |= 1;
+    if (mtmd_support_audio(mctx)) caps |= 2;
+    return caps;
+}
+
+JNIEXPORT void JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeSetMedia(
+        JNIEnv * env, jclass, jlong handle, jobjectArray media) {
+    LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
+    if (h == nullptr) return;
+    std::vector<std::vector<uint8_t>> items;
+    const jsize n = media == nullptr ? 0 : env->GetArrayLength(media);
+    for (jsize i = 0; i < n; ++i) {
+        auto arr = reinterpret_cast<jbyteArray>(env->GetObjectArrayElement(media, i));
+        if (arr == nullptr) continue;
+        const jsize len = env->GetArrayLength(arr);
+        std::vector<uint8_t> bytes(static_cast<size_t>(len));
+        if (len > 0) env->GetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte *>(bytes.data()));
+        env->DeleteLocalRef(arr);
+        items.push_back(std::move(bytes));
+    }
+    std::lock_guard<std::mutex> lock(h->state);
+    h->pending_media.swap(items);
+}
+
+JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeMediaMarker(JNIEnv * env, jclass) {
+    return env->NewStringUTF(mtmd_default_marker());
+}

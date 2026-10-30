@@ -24,6 +24,8 @@ data class ModelCapabilities(
     val supportsGrammar: Boolean,
     val supportsVision: Boolean,
     val supportsKvCache: Boolean,
+    /** Speech or other audio can be attached to a message (a projector that reads audio). */
+    val supportsAudioInput: Boolean = false,
 ) {
     companion object {
         val UNKNOWN = ModelCapabilities(
@@ -112,7 +114,18 @@ data class GenerationRequest(
     val grammar: String? = null,
     /** Tool names the grammar may choose from. Empty for a plain completion. */
     val allowedToolNames: List<String> = emptyList(),
+    /** Images or audio attached to the user's message, in order. Empty for text only. */
+    val media: List<MediaInput> = emptyList(),
 )
+
+/**
+ * One attachment: the encoded file as it was picked or recorded (jpg, png,
+ * wav, mp3...), and its MIME type. The backend decodes it; nothing here does.
+ */
+class MediaInput(val bytes: ByteArray, val mimeType: String) {
+    val isImage: Boolean get() = mimeType.startsWith("image/")
+    val isAudio: Boolean get() = mimeType.startsWith("audio/")
+}
 
 data class GenerationResult(
     val text: String,

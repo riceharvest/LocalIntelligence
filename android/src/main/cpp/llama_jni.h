@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <vector>
 
 // Why a generation stopped. Mirrors dev.localintelligence.core.model.StopReason.
 enum class StopCode : int32_t {
@@ -54,6 +55,11 @@ struct LlamaHandle {
     int32_t n_vocab = 0;
     int32_t eog_token = -1;
     bool loaded = false;
+    // libmtmd context for the loaded model's projector (mtmd_context *), or null.
+    void * mtmd = nullptr;
+    int32_t n_threads = 0;
+    // Encoded images/audio (jpg, png, wav, mp3...) for the next generate only.
+    std::vector<std::vector<uint8_t>> pending_media;
     bool backend_initialised = false;
 
     // The SAF descriptor's /proc/self/fd path is valid only while the
@@ -137,5 +143,19 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeCancel(JNIEnv * e
 // True while a generation is in flight on another thread.
 JNIEXPORT jboolean JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeIsGenerating(JNIEnv * env, jclass, jlong handle);
+
+JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadProjector(
+        JNIEnv * env, jclass, jlong handle, jstring path);
+
+JNIEXPORT jint JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeProjectorCaps(JNIEnv * env, jclass, jlong handle);
+
+JNIEXPORT void JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeSetMedia(
+        JNIEnv * env, jclass, jlong handle, jobjectArray media);
+
+JNIEXPORT jstring JNICALL
+Java_dev_localintelligence_android_inference_LlamaBridge_nativeMediaMarker(JNIEnv * env, jclass);
 
 }  // extern "C"
