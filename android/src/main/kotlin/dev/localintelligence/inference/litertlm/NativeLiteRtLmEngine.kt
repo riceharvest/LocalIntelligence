@@ -17,6 +17,7 @@ import dev.localintelligence.core.model.AcceleratorKind
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * The one file in this package that touches Google's LiteRT-LM runtime.
@@ -99,15 +100,16 @@ internal class NativeLiteRtLmEngine(
         private const val TAG = "LiteRtLmEngine"
 
         /**
-         * How long [NativeLiteRtLmConversation.send] waits for a terminal event.
+         * How long [NativeLiteRtLmConversation.send] waits without any runtime event
+         * before it treats the runtime as wedged.
          *
-         * Bounded because a phone thread that never returns is worse than a wrong
-         * result: it is an ANR. Ten minutes is far beyond any legitimate
-         * generation on a 1-4B — a 4096-token answer at 10 tok/s is under seven
-         * minutes — so tripping this means the runtime is wedged, and reporting
-         * ERROR is the correct answer.
+         * This is a silence limit, not a limit on the whole reply. A long answer on a
+         * slow phone streams for many minutes and is correct; a runtime that has said
+         * nothing for two minutes (prefill included) is not making progress. Every
+         * callback resets the clock. A cap on total time would discard a reply that
+         * was still arriving and on track to finish.
          */
-        const val TERMINAL_TIMEOUT_MINUTES = 10L
+        const val SILENCE_TIMEOUT_MINUTES = 2L
 
         /**
          * How often [NativeLiteRtLmConversation.send] re-checks the latch.
@@ -272,6 +274,9 @@ internal class NativeLiteRtLmConversation(
     private val sending = AtomicBoolean(false)
     private val closeRequested = AtomicBoolean(false)
 
+    /** Nanotime of the last runtime event, or of the send's start. The silence cap reads it. */
+    private val lastActivityNanos = AtomicLong(0L)
+
     override val isAlive: Boolean
         get() = try {
             conversation.isAlive
@@ -294,6 +299,7 @@ internal class NativeLiteRtLmConversation(
 
         val callback = object : com.google.ai.edge.litertlm.MessageCallback {
             override fun onMessage(message: Message) {
+                lastActivityNanos.set(System.nanoTime())
                 // LiteRT-LM's callback carries the message as it stands. The
                 // tracker in the backend decides whether that is a delta or a
                 // cumulative snapshot, so the whole text is forwarded here rather
@@ -317,6 +323,7 @@ internal class NativeLiteRtLmConversation(
             }
         }
 
+        lastActivityNanos.set(System.nanoTime())
         sending.set(true)
         try {
             conversation.sendMessageAsync(turn.toNativeMessage(), callback)
@@ -337,8 +344,7 @@ internal class NativeLiteRtLmConversation(
         //
         // The constants are on NativeLiteRtLmEngine's companion, qualified
         // because this class is a separate top-level declaration.
-        val deadline = System.nanoTime() +
-            NativeLiteRtLmEngine.TERMINAL_TIMEOUT_MINUTES * 60L * 1_000_000_000L
+        val silenceNanos = NativeLiteRtLmEngine.SILENCE_TIMEOUT_MINUTES * 60L * 1_000_000_000L
         var cancelObservedAt = 0L
         while (true) {
             if (done.await(
@@ -349,17 +355,16 @@ internal class NativeLiteRtLmConversation(
                 break
             }
 
-            if (System.nanoTime() >= deadline) {
-                // The runtime never reported a terminal event. Cancel so the
-                // native decode stops, and report the failure rather than
-                // returning whatever partial text happened to arrive as a
-                // completed answer.
+            if (System.nanoTime() - lastActivityNanos.get() >= silenceNanos) {
+                // The runtime has gone silent. Cancel so the native decode stops,
+                // and report the failure rather than returning whatever partial
+                // text happened to arrive as a completed answer.
                 cancel()
                 gate.close()
                 listener.onError(
                     LiteRtLmEngineException(
-                        "the LiteRT-LM runtime produced no terminal event within " +
-                            "${NativeLiteRtLmEngine.TERMINAL_TIMEOUT_MINUTES} minutes",
+                        "the LiteRT-LM runtime sent nothing for " +
+                            "${NativeLiteRtLmEngine.SILENCE_TIMEOUT_MINUTES} minutes",
                     ),
                 )
                 break
