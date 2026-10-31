@@ -11,6 +11,8 @@ import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.cloud.OpenRouterChatBackend
+import dev.localintelligence.android.cloud.RemoteChatOffer
+import dev.localintelligence.android.cloud.RemoteProviders
 import dev.localintelligence.android.cloud.OpenRouterPlugin
 import dev.localintelligence.android.documents.DocumentEmbedder
 import dev.localintelligence.android.cloud.OpenRouterSettings
@@ -734,16 +736,30 @@ class AppContainer(private val context: Context) {
     val remoteChatActive: Boolean get() = loadedBackend === remoteChatBackend
 
     /**
-     * The chat model id to offer on the Models screen, or null when the option is off:
-     * the plugin is switched off, or no key is stored.
+     * What the Models screen offers for the remote chat provider, or null when the option is
+     * off: the plugin is switched off, or the chosen provider has no key (or no valid address).
      */
-    fun remoteChatModelOrNull(): String? {
-        val key = settings[OpenRouterSettings.API_KEY]
-        return if (settings.isPluginEnabled(openRouterPlugin) && key.isNotBlank()) {
-            settings[OpenRouterSettings.CHAT_MODEL]
-        } else {
-            null
-        }
+    fun remoteChatOfferOrNull(): RemoteChatOffer? {
+        if (!settings.isPluginEnabled(openRouterPlugin)) return null
+        val endpoint = RemoteProviders.endpoint(settings) ?: return null
+        return RemoteChatOffer(
+            providerLabel = endpoint.provider.label,
+            destination = endpoint.destination,
+            model = endpoint.model,
+            canListModels = endpoint.provider.listsModels,
+        )
+    }
+
+    /** The model ids the chosen provider lists. Opt-in: the plugin must be on, and it is a network call. */
+    suspend fun listRemoteModels(): List<String> = withContext(Dispatchers.IO) {
+        check(settings.isPluginEnabled(openRouterPlugin)) { "remote chat is off" }
+        val endpoint = RemoteProviders.endpoint(settings) ?: error("the chat provider is not set up")
+        OpenRouterChatBackend.fetchModelIds(endpoint)
+    }
+
+    /** Saves the chat model id for the chosen provider. Chosen from the list or typed. */
+    fun setRemoteChatModel(model: String) {
+        settings.set(OpenRouterSettings.CHAT_MODEL, model.trim())
     }
 
     /**
@@ -755,7 +771,8 @@ class AppContainer(private val context: Context) {
      * time, not one that survives a restart unnoticed.
      */
     suspend fun useRemoteChat(): Boolean = readinessLock.withLock {
-        val model = remoteChatModelOrNull() ?: return@withLock false
+        val offer = remoteChatOfferOrNull() ?: return@withLock false
+        if (offer.model.isBlank()) return@withLock false
         val previous = loadedBackend
         if (previous != null && previous !== remoteChatBackend) {
             stopPrefixWork()
@@ -763,7 +780,7 @@ class AppContainer(private val context: Context) {
             previous.unload()
         }
         loadedBackend = remoteChatBackend
-        modelAvailability.set(ModelAvailability.Ready(displayName = "OpenRouter: $model"))
+        modelAvailability.set(ModelAvailability.Ready(displayName = "${offer.providerLabel}: ${offer.model}"))
         true
     }
 
