@@ -72,10 +72,11 @@ import java.io.FileNotFoundException
 class ModelImporter(
     private val contentResolver: ContentResolver,
     /**
-     * The KV cache type the next load allocates (the KV-cache setting). Read on every estimate,
-     * not once, so a model listed before the setting changed is priced the way it will load.
+     * How the KV cache is priced for a model whose header has been read: the decision made by
+     * `ContextLength.decide`. Evaluated on every estimate so a model listed before a setting
+     * change is priced the way it will load.
      */
-    private val kvCacheType: () -> KvCacheType = { KvCacheType.DEFAULT },
+    private val kvCacheType: (GgufHeader) -> KvCacheType = { KvCacheType.DEFAULT },
 ) {
 
     /**
@@ -151,7 +152,7 @@ class ModelImporter(
         fileSizeBytes: Long,
         contextLength: Int = DEFAULT_CONTEXT_LENGTH,
     ): ImportedModel {
-        val estimate = RamEstimate.from(header, contextLength, kvCacheType)
+        val estimate = RamEstimate.from(header, contextLength) { kvCacheType(header) }
         return ImportedModel(
             uri = uri,
             displayName = header.metadata.name ?: displayNameFromUri(uri),

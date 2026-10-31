@@ -26,6 +26,9 @@ object CoreSettings {
     /** [CONTEXT_LENGTH] value meaning "the Simple table decides". */
     const val CONTEXT_AUTO = "0"
 
+    /** [KV_CACHE_TYPE] value meaning "Automatic: f16 unless memory limits the context, where q8_0 buys more". */
+    const val KV_AUTO = "auto"
+
     const val THEME_WALLPAPER = "wallpaper"
     const val THEME_GREEN = "green"
     const val THEME_BLUE = "blue"
@@ -188,17 +191,18 @@ object CoreSettings {
     )
 
     /**
-     * Technical only: Simple mode reads the default (q8_0). A quantised V cache needs flash
+     * Technical only: Simple mode reads the default (auto). A quantised V cache needs flash
      * attention; the native load retries with f16 when the context refuses the chosen type.
      */
     val KV_CACHE_TYPE = Choice(
         "model.kv_cache_type", "KV cache type",
-        "How the model's attention memory is stored: q8_0 halves the memory of f16 for a negligible " +
-            "quality cost, q4_0 quarters it.",
-        SettingSection.MODEL, "q8_0",
+        "How the model's attention memory is stored: Automatic uses f16 unless memory limits the " +
+            "window, where q8_0 buys more context. Technical mode can force f16, q8_0 or q4_0.",
+        SettingSection.MODEL, KV_AUTO,
         listOf(
-            Choice.Option("q8_0", "q8_0 (half the memory)"),
+            Choice.Option(KV_AUTO, "Automatic"),
             Choice.Option("f16", "f16"),
+            Choice.Option("q8_0", "q8_0 (half the memory)"),
             Choice.Option("q4_0", "q4_0 (smallest, lower quality)"),
         ),
         applies = SettingApplies.NEXT_MODEL_LOAD,

@@ -115,7 +115,7 @@ class StarterSetup(
     /** The n_ctx the load would allocate for a file whose header has been read; see [HubViewModel]. */
     private val contextLengthFor: (GgufHeader?) -> Int = { contextLength() },
     /** The KV cache type the load allocates, which the plan priced from the header must use too. */
-    private val kvCacheType: () -> KvCacheType = { KvCacheType.DEFAULT },
+    private val kvCacheType: (GgufHeader?) -> KvCacheType = { KvCacheType.DEFAULT },
     /** The app's model readiness, so a model loaded from Models completes the setup too. */
     private val availability: StateFlow<ModelAvailability>,
     /** [AppContainer.adoptDownloaded]: registers and loads the file. Null, or not chat-ready, is a failure. */
@@ -236,7 +236,7 @@ class StarterSetup(
                 budget = budget,
                 alreadyOnDiskBytes = downloader.partialFileFor(file).localBytes(),
                 header = header,
-                kvCacheType = kvCacheType(),
+                kvCacheType = kvCacheType(header),
             )
         }
         plan.reject?.let { reject ->
