@@ -13,44 +13,41 @@ install APK
   -> the agent calls Android APIs, remembers what matters, and answers
 ```
 
-**Runs fully on-device. No account, no server, no telemetry.** Inference is
-entirely local, and the app has no analytics or crash reporting. These features
-use the network; each is opt-in or asks first, and none is silent:
+**On-device by default. No telemetry, no analytics, no crash reporting.** Inference runs
+on the phone. The app has no account and no server of its own, except the optional Extras
+server (below). Every network feature is off until you set it up, or asks before each call.
+With no key, token or address set, that feature makes no network call. Nothing is silent.
 
-- **Model downloads** go to the Hugging Face Hub and only fetch files. Nothing
-  is ever uploaded. See [docs/hf-hub-download.md](docs/hf-hub-download.md).
-- **`web.fetch`** is a tool the model can call, and it can reach any public
-  HTTP(S) address — which means any text it puts in a URL is sent to that host.
-  It refuses loopback, private, and link-local addresses, but a model can still
-  fetch a hostile page, and that page's contents re-enter the conversation as
-  untrusted data. See [docs/threat-model.md](docs/threat-model.md) for what
-  that does and does not protect against.
-- **Cloud images and video** (plugin "OpenRouter", off by default) need your own
-  OpenRouter key. With the plugin on and a key set, the prompts for image and video
-  generation go to openrouter.ai, and the key is sent there with them. The key is
-  stored encrypted with the Android Keystore. With no key, nothing is sent.
-- **OpenRouter as the chat model** (same plugin, same key, off unless you pick
-  it on the Models page): with it selected, the whole conversation goes to
-  openrouter.ai, and any image or audio you attach goes with it. Picking a local
-  model stops this.
-- **ChatGPT as the chat model** (plugin "Chat with ChatGPT", off by default, opt-in
-  like OpenRouter): you sign in with your ChatGPT account and allow the app to use
-  your plan. With it selected, the whole conversation goes to OpenAI, and any image
-  you attach goes with it. Picking a local model stops this.
-- **`web.search`** sends the search words to `html.duckduckgo.com` (no key,
-  no account). Like `web.fetch`, it asks first and names the host.
-- **MCP** (plugin "MCP", off by default) talks to the one server you enter;
-  every remote tool call sends its arguments there and asks first.
-- **Skills from a URL**: adding a skill by URL downloads that one file, when you
-  tap Add.
+| Feature | Turned on by | Sends to | What leaves the phone |
+|---|---|---|---|
+| Model downloads | You pick a model | Hugging Face Hub | File requests only. Nothing is uploaded. See [docs/hf-hub-download.md](docs/hf-hub-download.md). |
+| `web.fetch` | The model calls it; asks first and names the host | Any public HTTP(S) address the model names | The URL, including anything the model put in it. Loopback and private addresses are refused. |
+| `web.search` | Asks first | DuckDuckGo by default (`html.duckduckgo.com`, no key). Technical: Brave, Tavily, Exa or your own SearXNG | The search words, to the provider you chose |
+| `weather.get`, `wiki.search`, `places.search` | Free, no key; asks first on each call | Open-Meteo, Wikipedia, OpenStreetMap Nominatim | The place or search words. Weather uses the phone's location only when no place is given. |
+| Remote chat model (Technical) | You pick it on the Models page and give its key | OpenRouter, Groq, Cerebras, DeepSeek, Together, Mistral, Google Gemini, or your own server (Custom) | The whole conversation, and any attached image or audio. Picking a local model stops it. |
+| ChatGPT as the chat model | You sign in with your ChatGPT account | OpenAI | The whole conversation, and any attached image |
+| Image and video generation | The OpenRouter plugin on, with your key | openrouter.ai | The prompt the model wrote |
+| MCP servers | The MCP plugin on, with up to five server addresses you enter | Those servers | Each tool call's arguments, and your token if you set one. https only. |
+| Home Assistant (Technical) | Your address and long-lived token | Your Home Assistant server | Service calls you approve. Entity states come back, fenced as untrusted. |
+| Email (Technical) | Your address and an app password | Gmail, iCloud, Fastmail, or your own IMAP/SMTP server | `email.search` and `email.read` fetch mail. `email.send` sends after you confirm. |
+| Cloud sandbox (Technical, remote chat model only) | Your Daytona or Vercel key, or your SSH server | Daytona, Vercel, or your SSH server. Termux runs on the phone itself. | Commands and files you approve |
+| Cloud browser (Technical) | Your Browser Use key | Browser Use | The task text and any start address. Each task asks first. |
+| Telegram (Technical) | Your bot token, then you link a private chat | `api.telegram.org` | Messages from linked private chats, and the replies. Groups are never offered. |
+| Extras (paid, Google Play; not live yet) | A Play subscription, once the Extras server is deployed | Our Extras server, then OpenRouter (chat) and Exa (search) | The Play purchase token and a random install id to our server; chat and searches to those providers |
 
-Nothing else in the app opens a socket. Apart from the OpenRouter and ChatGPT chat models
-above, which you select yourself, no conversation content, memory,
-file, contact, or calendar entry is transmitted by the app itself. Every
-network tool call asks you to confirm first, and the confirmation names the
-host; decline those confirmations if you do not want outbound requests. The
-one exception is your own choice: Settings → Approvals → "Open websites without
-asking" (off by default) skips that confirmation.
+Keys and tokens are stored encrypted with the Android Keystore. They go only over https, except
+to a server on your own network (a private IP address or a `.local` name), where plain
+http is allowed for the custom model endpoint and Home Assistant. See
+[docs/threat-model.md](docs/threat-model.md) (T7 to T9) for what each path does and does not protect.
+
+Every network tool call asks you to confirm first, and the confirmation names the host where the
+host is fixed or chosen by the model. Decline those confirmations if you do not want outbound
+requests. Two Settings → Approvals switches can skip them, both off by default:
+"Open websites without asking" skips the web and other network tools, and "Send messages without
+asking" skips sends. Texts and calls still ask under the second one.
+
+Nothing else in the app opens a socket. Apart from the integrations above, which you turn on
+yourself, no conversation content, memory, file, contact, or calendar entry is sent by the app.
 
 ---
 
@@ -70,7 +67,7 @@ everything for that assumption:
 - **Deterministic reliability.** Loop detection, argument validation, risk gating and
   context budgeting are plain Kotlin. The model is used only where language
   understanding is actually required.
-- **No cloud, no telemetry, no account.** The app is on-device end to end.
+- **On-device by default, no telemetry.** Cloud features are opt-in; the table at the top lists each one and where it sends data.
 
 > Complexity is considered a regression unless it measurably improves agent task
 > success, inference efficiency, Android capability, or reliability.

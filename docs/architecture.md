@@ -51,8 +51,21 @@ Target tasks:
 ### Explicitly NOT in v0
 
 Autonomous coding, browser computer-use, multi-agent, long-running autonomous agents,
-Linux environment, Python, Git, MCP, skills marketplace, voice assistant,
+Linux environment, Python, Git, skills marketplace, voice assistant,
 Accessibility automation, root/Shizuku, cloud sync.
+
+Screen control of other apps (Accessibility, Shizuku) stays out. Google Play forbids an AI
+that plans its own actions from using AccessibilityService, so this app does not build it.
+
+Two things from the earlier list now exist, each fenced:
+
+- **A browser running in the cloud** (`cloud.browser`, Browser Use, Technical mode). It runs
+  on the provider's machine, not the phone. Each task asks first and shows its full
+  instruction, its result is fenced as untrusted text, and the spend per task is capped at
+  $1.00 by default.
+- **A messaging gateway** (Telegram, Technical mode). Only private chats the owner links get a
+  run, and each run is unattended: any action that needs approval is declined and the reply
+  says to approve it on the phone.
 
 ---
 

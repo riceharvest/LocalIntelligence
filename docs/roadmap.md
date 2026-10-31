@@ -235,28 +235,67 @@ in brackets.
 [?] document chat on device (txt/md/csv/pdf, BM25)               [#89]
 [?] chat export: Markdown, JSON, PDF                             [#76]
 [?] OpenRouter (own key): image.generate, video.generate         [#84]
-[?] MCP client, one remote server, off by default                [#88]
+[?] MCP client, up to five remote servers, off by default       [#88, #247]
 [?] Simple-mode model suggestion + hub prefill, speed test       [#80, #91]
 [?] JNI UTF-8 both ways (emoji no longer abort CheckJNI)         [#92]
+[?] one-tap first run in the chat empty state (Simple mode)     [#237]
+[?] KV cache Automatic (f16 unless memory limits the window); context
+      length scales with RAM and CPU speed                      [#238, #241]
+[?] phone tools: flashlight, volume, media, dial, maps, add contact [#239]
+[?] Continue with ChatGPT as the remote chat model (Plus/Pro plan) [#240]
+[?] OpenAI-compatible chat providers: Groq, Cerebras, DeepSeek, Together,
+      Mistral, Google Gemini, own server                        [#242]
+[?] search providers (Brave, Tavily, Exa, SearXNG); free weather, Wikipedia,
+      places tools                                              [#243]
+[?] texts, call log, calls, Do Not Disturb, brightness, screen time [#244]
+[?] Home Assistant: devices, control, lock and cover with confirmation [#245]
+[?] cloud sandbox: Daytona [#246]; Vercel, SSH server, Termux [#251]
+[?] MCP: per-server token header name (Composio, Zapier presets) [#247]
+[?] cloud browser on the user's Browser Use key (browser.task/status) [#248]
+[?] email over IMAP/SMTP with an app password (email.search/read/send) [#249]
+[?] Telegram gateway: linked private chats only, unattended runs [#250]
 
 Open:
 [ ] the vertical slice and every feature above on the Pixel 10 Pro (final pass)
 [ ] llama.cpp CPU build targets plain armv8-a: no dotprod/fp16/i8mm, no repack.
       Likely the biggest speed win left. Options: GGML_CPU_ALL_VARIANTS with
       runtime-loaded backends, or one armv8.2+ build (drops armv8.0 phones).
-[ ] OpenRouter as an optional remote chat model (same key)
+[?] OpenRouter as an optional remote chat model (same key)
 [ ] external plugins as sandboxed scripts (DeepSeek Harness style); skills and
       MCP cover the declarative and remote cases today
 [ ] document search with embeddings (EmbeddingGemma 2) next to BM25
 [ ] wake word: not built; it needs an always-on keyword model. Hands-free starts with a tap
 [ ] LFM3 on the Tensor NPU: needs a Tensor-compiled build (Google's Tensor SDK, beta)
 [ ] .litertlm through the file picker (content:// is refused today)
-[ ] MCP: more than one server; video.status for long video jobs
+[ ] MCP: video.status for long video jobs
 ```
 
-Not chased, even though a competitor has it: a Linux terminal, Accessibility or
-Shizuku screen control, a browser agent, on-device image generation,
-multi-character group chat, a visual workflow builder, a messaging gateway.
+Extras: one Play subscription (`extras_monthly`) that unlocks the cloud features in Simple
+mode. BUILT, NOT DEPLOYED. The Extras row stays hidden until `EXTRAS_BACKEND_URL` is set
+(`-PextrasBackendUrl=https://...`).
+
+```
+[?] Extras Worker (backend/extras-worker): checks the Play subscription, gives each
+    customer one capped OpenRouter key and an optional Exa key                 [#252]
+[?] Extras in the app: Play Billing, one credential source, Extras screen      [#253]
+
+Owner's to-dos, before it goes live:
+[ ] accounts and secrets: Cloudflare account id, D1 database id (a placeholder
+    today), Worker secrets
+[ ] OpenRouter's written OK under its resale clause, and EU data terms for
+    OpenRouter and Exa
+[ ] Play product `extras_monthly` and its price
+[ ] privacy policy page (Play needs one; the Extras paragraph goes there)
+[ ] Pub/Sub push: add the OIDC check (the secret path is the only check today)
+[ ] default model id and monthly limits ($3.50 OpenRouter, $1.50 Exa) are placeholders
+[ ] Exa: the create-key response documents no secret field. Confirm with Exa, or
+    Exa stays off and search keeps the free provider
+```
+
+Not chased, even though a competitor has it: a Linux terminal on the phone, Accessibility or
+Shizuku screen control, a browser agent on the phone, on-device image generation,
+multi-character group chat, a visual workflow builder. Cloud sandboxes (shell commands in a
+remote machine) and a cloud browser are built; see the build list.
 
 ---
 
@@ -315,7 +354,7 @@ Gemma 4 E4B (8B total, too large).
 **v0.2+** — only after the baseline works:
 
 ```
-Shizuku             Accessibility automation    Home Assistant
+Shizuku             Accessibility automation
 ```
 
 Voice, vision, MCP, widgets, the share-sheet entry and LAN inference used to be
@@ -326,7 +365,7 @@ shipped (the share-sheet entry, model downloading, scheduled tasks).
 
 ```
 Linux shell         coding environment    subagents
-multi-agent         browser automation
+multi-agent         browser automation on the phone
 ```
 
 **Not part of this project, and not planned:**
