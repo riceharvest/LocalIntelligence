@@ -276,7 +276,7 @@ internal fun readBounded(input: InputStream, max: Int): ByteArray {
         if (out.size() + n > max) {
             throw SandboxFailure(
                 ToolError.Unavailable("reply too large"),
-                "Daytona sent more than ${max / 1024} KB, which is too large to use here.",
+                "The sandbox service sent more than ${max / 1024} KB, which is too large to use here.",
             )
         }
         out.write(buffer, 0, n)

@@ -206,7 +206,7 @@ internal class TermuxProvider(private val context: Context) : SandboxProvider {
     }
 
     private fun parse(bundle: Bundle): TermuxRun {
-        val err = bundle.getInt(RESULT_ERR, ERR_SUCCESS)
+        val err = bundle.intOf(RESULT_ERR) ?: ERR_SUCCESS
         if (err != ERR_SUCCESS) {
             val reason = bundle.getString(RESULT_ERRMSG).orEmpty().replace(Regex("\\s+"), " ").trim().take(ERROR_CHARS)
             throw SandboxFailure(
@@ -216,9 +216,9 @@ internal class TermuxProvider(private val context: Context) : SandboxProvider {
             )
         }
         val stdout = bundle.getString(RESULT_STDOUT).orEmpty()
-        val originalLength = bundle.getInt(RESULT_STDOUT_LENGTH, stdout.length)
+        val originalLength = bundle.intOf(RESULT_STDOUT_LENGTH) ?: stdout.length
         return TermuxRun(
-            exitCode = bundle.getInt(RESULT_EXIT_CODE, -1),
+            exitCode = bundle.intOf(RESULT_EXIT_CODE) ?: -1,
             stdout = stdout,
             stderr = bundle.getString(RESULT_STDERR).orEmpty(),
             stdoutCut = originalLength > stdout.length,
@@ -230,6 +230,15 @@ internal class TermuxProvider(private val context: Context) : SandboxProvider {
         const val WRITE_WAIT_SECONDS = 60
         const val ERROR_CHARS = 160
     }
+}
+
+/**
+ * A number from the result bundle, whether Termux stored it as an int or as text. Reading only
+ * getInt would quietly return the default for a text value, and that would hide a cut or an error.
+ */
+private fun Bundle.intOf(key: String): Int? {
+    val value = get(key) ?: return null
+    return (value as? Number)?.toInt() ?: value.toString().trim().toIntOrNull()
 }
 
 /** One command's exit code and output, as Termux reported it. */

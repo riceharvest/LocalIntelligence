@@ -148,10 +148,18 @@ internal class SshProvider(
         val repository = PinningRepository(pinnedFingerprint())
         val jsch = JSch()
         jsch.setHostKeyRepository(repository)
-        if (privateKey.isNotBlank()) {
-            jsch.addIdentity(IDENTITY_NAME, normalizePem(privateKey).toByteArray(Charsets.UTF_8), null, null)
+        val session = try {
+            if (privateKey.isNotBlank()) {
+                jsch.addIdentity(IDENTITY_NAME, normalizePem(privateKey).toByteArray(Charsets.UTF_8), null, null)
+            }
+            jsch.getSession(user, host, port)
+        } catch (e: JSchException) {
+            // A key JSch cannot parse, or one that needs a passphrase, lands here before any connection exists.
+            throw SandboxFailure(
+                ToolError.PermissionDenied("ssh key"),
+                "The SSH private key could not be read. Use an unencrypted RSA or ECDSA key in Settings, or the password.",
+            )
         }
-        val session = jsch.getSession(user, host, port)
         if (password.isNotBlank()) session.setPassword(password)
         session.setConfig("StrictHostKeyChecking", "yes")
         session.timeout = SOCKET_TIMEOUT_MS

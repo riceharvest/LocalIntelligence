@@ -61,8 +61,8 @@ object SandboxSettings {
     /** Not simple: only Technical mode shows it, and Simple mode reads it as blank, so no key means no tools. */
     val API_KEY = SettingDef.Secret(
         "cloud.sandbox.api_key", "Daytona API key",
-        "Your own key from the Daytona dashboard. Stored encrypted and never shown back. " +
-            "Without one, the sandbox tools are not offered and nothing is sent.",
+        "Your own key from the Daytona dashboard, used when Daytona is the provider. Stored encrypted and never " +
+            "shown back. Without one, the sandbox tools are not offered and nothing is sent.",
         SettingSection.PLUGINS,
     )
 
@@ -112,7 +112,8 @@ object SandboxSettings {
 
     val SSH_KEY = SettingDef.Secret(
         "cloud.sandbox.ssh_key", "SSH private key",
-        "Paste the private key (OpenSSH or PEM) with no passphrase. Stored encrypted. Leave blank to use the password.",
+        "Paste the private key (OpenSSH or PEM) with no passphrase. Stored encrypted. Leave blank to use the password. " +
+            "RSA and ECDSA keys work; Ed25519 keys are not tested on Android.",
         SettingSection.PLUGINS,
     )
 
