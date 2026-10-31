@@ -457,11 +457,12 @@ class ModelMemoryEstimator(
 
         /**
          * Tokens of the prompt whose state is kept: the system prompt (rules, about 234
-         * tokens), then in native tool format the core tool list (about 1,250, see
-         * AgentController.NATIVE_CORE_TOOLS), then an "About you" profile of up to about
-         * 340. Raised from 1,536 for the native core list, which is in the kept prefix.
+         * tokens), then in native tool format the core tool list (about 1,330, see
+         * AgentController.NATIVE_CORE_TOOLS) and tools.find's listing of the other tools
+         * (about 800 in Simple mode), then an "About you" profile of up to about 340.
+         * Raised from 2,048 for the listing: measured 2,371 kept tokens without a profile.
          */
-        const val ANCHOR_TOKENS: Long = 2_048L
+        const val ANCHOR_TOKENS: Long = 2_816L
 
         /** Vocabulary assumed when the file has no token list. */
         private const val DEFAULT_VOCAB: Long = 152_000L

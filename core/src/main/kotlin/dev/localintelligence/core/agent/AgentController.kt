@@ -99,9 +99,13 @@ private const val TERMINATE_MARKER = "You have made no progress"
  * WHY A FIXED SET: the listed tools sit in the prompt's cached prefix. Measured on
  * a Samsung A05s with LFM3-1.7B: a list that differed per conversation prefilled
  * 842 new tokens (81 s) on the first message, against 33-38 s before; with the same
- * list every time, a new chat prefills only its own user turn. These eight are the
- * everyday tools, about 1,250 tokens of schema together. The picker's other picks
+ * list every time, a new chat prefills only its own user turn. These nine are the
+ * everyday tools, about 1,330 tokens of schema together. The picker's other picks
  * are described in the turn and are callable (see [planNativeTurnTools]).
+ *
+ * WHY weather.get: from tools.find's listing alone, LFM3-1.7B answered "What's the
+ * weather in Utrecht tomorrow?" with web searches in 2 of 6 runs; listed, it called
+ * weather.get with the place and days in 5 of 5, and chat questions still called no tool.
  */
 val NATIVE_CORE_TOOLS: List<String> = listOf(
     "device.battery",
@@ -112,6 +116,7 @@ val NATIVE_CORE_TOOLS: List<String> = listOf(
     "web.fetch",
     "calendar.search",
     "location.get",
+    "weather.get",
 )
 
 class AgentController(
