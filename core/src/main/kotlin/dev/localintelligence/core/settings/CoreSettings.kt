@@ -92,7 +92,7 @@ object CoreSettings {
     val AUTO_ACCEPT_EXTERNAL = Toggle(
         "approvals.auto_external", "Send messages without asking",
         "Replies and shares to other people go out without a confirmation. A message that is " +
-            "only a link still asks.",
+            "only a link still asks. Texts and calls the phone places always ask.",
         SettingSection.APPROVALS, default = false,
     )
     val AUTO_ACCEPT_NETWORK = Toggle(

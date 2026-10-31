@@ -142,7 +142,7 @@ object V0ToolCatalogue {
     /** Categories, in the order a reader should expect to meet them. */
     val categories: List<String> = listOf(
         "files", "apps", "clipboard", "device", "alarm", "calendar",
-        "contacts", "notifications", "web", "history", "documents",
+        "contacts", "notifications", "web", "history", "documents", "messages",
     )
 
     /**
@@ -540,6 +540,24 @@ object V0ToolCatalogue {
             requiredPermission = "android.permission.VIBRATE",
         ),
 
+        ToolDefinition(
+            name = "device.screen_time",
+            description = "List the apps used most in a period, with minutes for each. Use when the " +
+                "user asks how long they used their phone or which apps they use most.",
+            category = "device",
+            schema = objSchema {
+                putJsonObject("period") {
+                    put("type", "string")
+                    putJsonArray("enum") { add("today"); add("yesterday"); add("week") }
+                    put("description", "today, yesterday or week (the last 7 days). Default today.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("screen time", "usage", "how long", "most used apps", "phone use", "digital wellbeing"),
+            requiredPermission = "android.permission.PACKAGE_USAGE_STATS",
+        ),
+
         // ----------------------------------------------------------------- phone
         ToolDefinition(
             name = "phone.flashlight",
@@ -619,6 +637,63 @@ object V0ToolCatalogue {
             requiredPermission = null,
         ),
 
+        ToolDefinition(
+            name = "phone.call",
+            description = "Place a phone call now to a number, after the user confirms. Use when the " +
+                "user asks to call someone now; phone.dial only opens the dialer.",
+            category = "phone",
+            schema = objSchema(required = listOf("number")) {
+                putJsonObject("number") {
+                    put("type", "string")
+                    put("maxLength", 30)
+                    put("description", "Phone number to call, e.g. +31612345678.")
+                }
+            },
+            risk = ToolRisk.EXTERNAL_COMMUNICATION,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("call", "phone call", "ring", "place a call", "bel nu"),
+            requiredPermission = "android.permission.CALL_PHONE",
+        ),
+        ToolDefinition(
+            name = "phone.dnd",
+            description = "Set Do Not Disturb to off, priority, alarms only, or none. Use when the user " +
+                "says do not disturb, silence notifications or turn DND off.",
+            category = "phone",
+            schema = objSchema(required = listOf("mode")) {
+                putJsonObject("mode") {
+                    put("type", "string")
+                    putJsonArray("enum") { add("off"); add("priority"); add("alarms"); add("none") }
+                    put("description", "off, priority, alarms or none.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("do not disturb", "dnd", "silence", "priority", "alarms only", "niet storen"),
+            requiredPermission = "android.permission.ACCESS_NOTIFICATION_POLICY",
+        ),
+        ToolDefinition(
+            name = "phone.brightness",
+            description = "Set the screen brightness to a percentage, or back to automatic. Use when the " +
+                "user asks for the screen brighter, dimmer or automatic.",
+            category = "phone",
+            schema = objSchema {
+                putJsonObject("level") {
+                    put("type", "integer")
+                    put("minimum", 0)
+                    put("maximum", 100)
+                    put("description", "Brightness as a percentage, 0 to 100.")
+                }
+                putJsonObject("auto") {
+                    put("type", "boolean")
+                    put("description", "true to set brightness back to automatic.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("brightness", "screen brightness", "dimmer", "brighter", "auto brightness", "helderheid"),
+            requiredPermission = "android.permission.WRITE_SETTINGS",
+        ),
+
         // ------------------------------------------------------------------ maps
         ToolDefinition(
             name = "maps.navigate",
@@ -657,6 +732,81 @@ object V0ToolCatalogue {
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf("map", "show on map", "where is", "nearby", "in de buurt"),
             requiredPermission = null,
+        ),
+
+        // ------------------------------------------------------------- messages
+        ToolDefinition(
+            name = "sms.search",
+            description = "Search the texts on this phone, newest first. Use when the user asks what a " +
+                "text said or whether someone texted.",
+            category = "messages",
+            schema = objSchema {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "Words to find in the text. Optional.")
+                }
+                putJsonObject("from") {
+                    put("type", "string")
+                    put("maxLength", 100)
+                    put("description", "Sender name or number. Optional.")
+                }
+                putJsonObject("max_results") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 20)
+                    put("description", "How many texts to return. Default 10.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("sms", "text", "texts", "messages", "text from", "did he text", "sms search"),
+            requiredPermission = "android.permission.READ_SMS",
+        ),
+        ToolDefinition(
+            name = "sms.send",
+            description = "Sends a text message directly to a phone number, after the user confirms. Use " +
+                "when the user asks to text someone now; message.draft opens a draft instead.",
+            category = "messages",
+            schema = objSchema(required = listOf("to", "text")) {
+                putJsonObject("to") {
+                    put("type", "string")
+                    put("maxLength", 30)
+                    put("description", "Phone number to text, e.g. +31612345678.")
+                }
+                putJsonObject("text") {
+                    put("type", "string")
+                    put("maxLength", 1000)
+                    put("description", "The full text message.")
+                }
+            },
+            risk = ToolRisk.EXTERNAL_COMMUNICATION,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("send a text", "send sms", "sms", "text someone", "stuur een sms"),
+            requiredPermission = "android.permission.SEND_SMS",
+        ),
+        ToolDefinition(
+            name = "calls.recent",
+            description = "List recent calls, newest first, with who they were with. Use when the user " +
+                "asks who called, missed calls or who they called.",
+            category = "messages",
+            schema = objSchema {
+                putJsonObject("max_results") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 20)
+                    put("description", "How many calls to return. Default 10.")
+                }
+                putJsonObject("type") {
+                    put("type", "string")
+                    putJsonArray("enum") { add("missed"); add("incoming"); add("outgoing") }
+                    put("description", "Only missed, incoming or outgoing calls. Optional.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("call log", "missed call", "missed calls", "who called", "recent calls", "call history"),
+            requiredPermission = "android.permission.READ_CALL_LOG",
         ),
 
         // ----------------------------------------------------------------- alarm
