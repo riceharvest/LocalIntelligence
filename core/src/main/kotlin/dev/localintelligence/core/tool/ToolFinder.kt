@@ -221,13 +221,20 @@ class ToolFinder(
          */
         internal fun describe(def: ToolDefinition): String {
             val head = "- ${def.name}: ${def.description}"
+            val lines = argumentLines(def)
+            if (lines.isEmpty()) return "$head\n  no arguments"
+            return (listOf(head, "  arguments:") + lines).joinToString("\n")
+        }
+
+        /** Every argument of [def], one indented line each (see [describe]); empty when it takes none. */
+        internal fun argumentLines(def: ToolDefinition): List<String> {
             val properties = def.schema["properties"] as? JsonObject
-            if (properties.isNullOrEmpty()) return "$head\n  no arguments"
+            if (properties.isNullOrEmpty()) return emptyList()
             val required = (def.schema["required"] as? JsonArray)
                 ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
                 .orEmpty()
                 .toSet()
-            val lines = properties.map { (name, value) ->
+            return properties.map { (name, value) ->
                 val spec = value as? JsonObject
                 val type = (spec?.get("type") as? JsonPrimitive)?.contentOrNull
                 val description = (spec?.get("description") as? JsonPrimitive)?.contentOrNull
@@ -235,7 +242,6 @@ class ToolFinder(
                 val label = "$name ($tags)"
                 "    " + if (description.isNullOrBlank()) label else "$label: $description"
             }
-            return (listOf(head, "  arguments:") + lines).joinToString("\n")
         }
 
         /**

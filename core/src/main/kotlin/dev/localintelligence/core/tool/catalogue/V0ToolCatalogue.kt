@@ -1330,13 +1330,13 @@ object V0ToolCatalogue {
         ToolDefinition(
             name = "web.search",
             description = "Searches the web and returns the top results as numbered titles, links and " +
-                "short snippets. Use web.fetch on a link to read the page.",
+                "short snippets. Use web.fetch on a link to read the page. For weather, use weather.get.",
             category = "web",
             schema = objSchema(required = listOf("query")) {
                 putJsonObject("query") {
                     put("type", "string")
                     put("maxLength", 200)
-                    put("description", "The search words, for example \"weather amsterdam\".")
+                    put("description", "The search words, for example \"rijksmuseum opening hours\".")
                 }
                 putJsonObject("max_results") {
                     put("type", "integer")

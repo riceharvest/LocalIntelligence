@@ -6,6 +6,7 @@ import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.ModelBackend
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
+import dev.localintelligence.core.tool.PhoneNumbers
 import java.util.IdentityHashMap
 
 /**
@@ -158,6 +159,28 @@ class Session(
     private fun record(message: ChatMessage) {
         messages += message
         appendedCount++
+        ground(message)
+    }
+
+    /**
+     * Phone numbers the user wrote or a tool returned in this conversation, as
+     * [PhoneNumbers] keys. A call or a text goes only to one of these (see
+     * AgentController's grounding check).
+     *
+     * WHY APART FROM [messages]: a compaction folds tool results away, and a number
+     * found with contacts.search before the fold is still one the user can stand behind.
+     */
+    val groundedNumbers: MutableSet<String> = LinkedHashSet()
+
+    /** What the user wrote (with this turn's memories) and what tools returned; never the model's own words. */
+    private fun ground(message: ChatMessage) {
+        val text = when (message) {
+            is ChatMessage.User -> if (message.note) null else message.rendered ?: message.text
+            is ChatMessage.ToolObservation -> message.observation
+            else -> null
+        } ?: return
+        groundedNumbers += PhoneNumbers.keysIn(text)
+        while (groundedNumbers.size > MAX_GROUNDED_NUMBERS) groundedNumbers.remove(groundedNumbers.first())
     }
 
     /**
@@ -347,6 +370,7 @@ class Session(
         workingSummary = null
         epochTools.clear()
         discoveredTools.clear()
+        groundedNumbers.clear()
     }
 
     /**
@@ -404,6 +428,8 @@ class Session(
         messages.clear()
         messages += adopted
         appendedCount = adopted.size
+        groundedNumbers.clear()
+        adopted.forEach(::ground)
         pruneIdentities()
         adopted.size
     }
@@ -440,5 +466,6 @@ class Session(
         const val SUMMARY_BUDGET_CHARS = 1200
         const val LINE_CHARS = 120
         const val KEYWORD_LIMIT = 12
+        const val MAX_GROUNDED_NUMBERS = 64
     }
 }

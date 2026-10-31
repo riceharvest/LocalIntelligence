@@ -37,10 +37,12 @@ import dev.localintelligence.core.tool.CancellationSignal
 import dev.localintelligence.core.tool.ObservationStore
 import dev.localintelligence.core.tool.ToolFinder
 import dev.localintelligence.core.tool.ObservationTruncator
+import dev.localintelligence.core.tool.PhoneNumbers
 import dev.localintelligence.core.tool.ToolContext
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolRegistry
 import dev.localintelligence.core.tool.ToolResult
+import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.ToolRequest
 import dev.localintelligence.core.tool.ToolSelector
 import kotlinx.coroutines.CancellationException
@@ -97,9 +99,13 @@ private const val TERMINATE_MARKER = "You have made no progress"
  * WHY A FIXED SET: the listed tools sit in the prompt's cached prefix. Measured on
  * a Samsung A05s with LFM3-1.7B: a list that differed per conversation prefilled
  * 842 new tokens (81 s) on the first message, against 33-38 s before; with the same
- * list every time, a new chat prefills only its own user turn. These eight are the
- * everyday tools, about 1,250 tokens of schema together. The picker's other picks
+ * list every time, a new chat prefills only its own user turn. These nine are the
+ * everyday tools, about 1,330 tokens of schema together. The picker's other picks
  * are described in the turn and are callable (see [planNativeTurnTools]).
+ *
+ * WHY weather.get: from tools.find's listing alone, LFM3-1.7B answered "What's the
+ * weather in Utrecht tomorrow?" with web searches in 2 of 6 runs; listed, it called
+ * weather.get with the place and days in 5 of 5, and chat questions still called no tool.
  */
 val NATIVE_CORE_TOOLS: List<String> = listOf(
     "device.battery",
@@ -110,6 +116,7 @@ val NATIVE_CORE_TOOLS: List<String> = listOf(
     "web.fetch",
     "calendar.search",
     "location.get",
+    "weather.get",
 )
 
 class AgentController(
@@ -769,6 +776,24 @@ class AgentController(
             return null
         }
 
+        // A call or a text goes only to a number the user wrote or a tool returned
+        // (see PhoneNumbers). Refused before the policy, so the user is never asked to
+        // approve a number nobody gave, and as a refusal the model can act on.
+        ungroundedNumber(tool, action.arguments)?.let { number ->
+            trace += StepTrace(
+                step, StepTrace.Kind.TOOL_CALL, "refused ${action.name}: number not from the user or a tool",
+                success = false,
+                toolName = action.name,
+            )
+            log("guard: ${action.name} refused, its number is not in the conversation")
+            metrics?.recordToolCall(action.name, action.arguments, executed = false)
+            sessions.observe(
+                "${action.name} did not run: $number is not a number the user gave or a tool returned. " +
+                    "Look it up with contacts.search, or ask the user for it.",
+            )
+            return null
+        }
+
         // Counted the moment the call is well-formed, before any gate decides
         // its fate. Counting only executed calls would make "the model tried
         // fourteen times" invisible, which is the failure this metric exists
@@ -966,7 +991,7 @@ class AgentController(
 
         val observation = truncate(call.name, hooks.afterTool(call.name, call.args, result.observation, result.success))
         loopDetector.recordResult(call.name, observation, result.success, result.error)
-        sessions.appendToolObservation(call.tool, observation, result.success)
+        sessions.appendToolObservation(call.tool, withArgumentsOnFirstUse(call.tool, observation), result.success)
         // Charge the call to the task's blast radius. This happens on the
         // EXECUTE path only, and a denied call never reaches it, which is what
         // stops a model from starving itself by attempting what it may not do.
@@ -1439,6 +1464,38 @@ class AgentController(
         lastPrompt = prompt
         lastVisible = visible
         return request(prompt, visible, callable)
+    }
+
+    /**
+     * [observation], and on a tool's first direct call in a conversation, its arguments.
+     *
+     * WHY: a tool called straight from tools.find's listing never showed the model its
+     * arguments; the listing gives a name and a few words, and the call grammar lets an
+     * optional argument be left out. Measured with LFM3-1.7B: "What's the weather in Utrecht
+     * tomorrow?" called weather.get with no place, got the phone's own town and went on to
+     * search the web. After the arguments are shown once, the tool counts as found.
+     * Not part of what the loop detector compares, so a repeat still reads as a repeat.
+     */
+    private fun withArgumentsOnFirstUse(tool: AgentTool, observation: String): String {
+        val name = tool.definition.name
+        if (!config.toolLookup || name in sessions.epochTools || name in sessions.discoveredTools) return observation
+        sessions.discoveredTools += name
+        val lines = ToolFinder.argumentLines(tool.definition)
+        if (lines.isEmpty()) return observation
+        return "$observation\n\n$name takes these arguments, for your next call:\n" + lines.joinToString("\n")
+    }
+
+    /**
+     * The first argument of a call or text that is a phone number nobody in the conversation
+     * gave, or null. Only communication tools: a number elsewhere (a timer, a search) reaches no one.
+     */
+    private fun ungroundedNumber(tool: AgentTool, arguments: ToolArgs): String? {
+        if (tool.definition.risk != ToolRisk.EXTERNAL_COMMUNICATION) return null
+        return arguments.values.firstNotNullOfOrNull { value ->
+            val text = (value as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+            val key = text?.let(PhoneNumbers::keyOfWhole)
+            text.takeIf { key != null && key !in sessions.groundedNumbers }
+        }
     }
 
     /**

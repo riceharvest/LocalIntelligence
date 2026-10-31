@@ -394,10 +394,13 @@ class WebSearchTool private constructor(
     constructor(grant: PlatformGrant, settings: SettingsReader) :
         this(HttpUrlConnectionOpener(userAgent = SEARCH_USER_AGENT), grant, settings)
 
+    // WHY no weather example and the pointer to weather.get: with "weather amsterdam" as the
+    // example query, LFM3-1.7B sent weather questions here although weather.get was in
+    // tools.find's listing ("There's no direct weather.get listed in my primary tools").
     override val definition: ToolDefinition = ToolDefinition(
         name = "web.search",
         description = "Searches the web and returns the top results as numbered titles, links and " +
-            "short snippets. Use web.fetch on a link to read the page.",
+            "short snippets. Use web.fetch on a link to read the page. For weather, use weather.get.",
         category = "web",
         schema = buildJsonObject {
             put("type", JsonPrimitive("object"))
@@ -411,7 +414,7 @@ class WebSearchTool private constructor(
                             put("maxLength", JsonPrimitive(MAX_QUERY_CHARS))
                             put(
                                 "description",
-                                JsonPrimitive("The search words, for example \"weather amsterdam\"."),
+                                JsonPrimitive("The search words, for example \"rijksmuseum opening hours\"."),
                             )
                         },
                     )
@@ -447,7 +450,7 @@ class WebSearchTool private constructor(
         withContext(Dispatchers.IO) {
             try {
                 val query = WebArgs.coerceString(args["query"])
-                    ?: return@withContext invalid("No query argument. Pass the search words, for example query=\"weather amsterdam\".")
+                    ?: return@withContext invalid("No query argument. Pass the search words, for example query=\"rijksmuseum opening hours\".")
                 if (query.length > MAX_QUERY_CHARS) {
                     return@withContext invalid(
                         "That query is ${query.length} characters, over the $MAX_QUERY_CHARS limit. " +
