@@ -148,7 +148,7 @@ clearing the key stops the next message, and picking a local model stops it at o
 
 ### T8. Remote MCP server sends arguments and receives text — opt-in
 
-The MCP plugin (`mcp.remote`) is off by default. With it off, or with no server
+The MCP plugin (`mcp.remote`) is off by default. It takes up to five servers. With it off, or with no server
 address set, nothing is sent and no tools are offered. With it on, the app
 connects to the one address the user typed, over https only, and lists that
 server's tools once per run. Each listed tool is offered as `mcp.<name>`.

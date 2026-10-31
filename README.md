@@ -27,7 +27,7 @@ With no key, token or address set, that feature makes no network call. Nothing i
 | Remote chat model (Technical) | You pick it on the Models page and give its key | OpenRouter, Groq, Cerebras, DeepSeek, Together, Mistral, Google Gemini, or your own server (Custom) | The whole conversation, and any attached image or audio. Picking a local model stops it. |
 | ChatGPT as the chat model | You sign in with your ChatGPT account | OpenAI | The whole conversation, and any attached image |
 | Image and video generation | The OpenRouter plugin on, with your key | openrouter.ai | The prompt the model wrote |
-| MCP server | The MCP plugin on, with the one server address you enter | That server | Each tool call's arguments, and your token if you set one. https only. |
+| MCP servers | The MCP plugin on, with up to five server addresses you enter | Those servers | Each tool call's arguments, and your token if you set one. https only. |
 | Home Assistant (Technical) | Your address and long-lived token | Your Home Assistant server | Service calls you approve. Entity states come back, fenced as untrusted. |
 | Email (Technical) | Your address and an app password | Gmail, iCloud, Fastmail, or your own IMAP/SMTP server | `email.search` and `email.read` fetch mail. `email.send` sends after you confirm. |
 | Cloud sandbox (Technical, remote chat model only) | Your Daytona or Vercel key, or your SSH server | Daytona, Vercel, or your SSH server. Termux runs on the phone itself. | Commands and files you approve |

@@ -51,7 +51,7 @@ Target tasks:
 ### Explicitly NOT in v0
 
 Autonomous coding, browser computer-use, multi-agent, long-running autonomous agents,
-Linux environment, Python, Git, MCP, skills marketplace, voice assistant,
+Linux environment, Python, Git, skills marketplace, voice assistant,
 Accessibility automation, root/Shizuku, cloud sync.
 
 Screen control of other apps (Accessibility, Shizuku) stays out. Google Play forbids an AI
