@@ -183,6 +183,14 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Long-polls Telegram while the Telegram plugin is on, so messages from a linked chat
+             reach the agent with the app in the background. Started and stopped by TelegramService.sync;
+             the type matches its startForeground call. -->
+        <service
+            android:name=".TelegramService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- Keeps the app alive while the browser is open for ChatGPT sign-in. Started and stopped
              by ChatGptSignInService's callers; the types match its startForeground call. -->
         <service
