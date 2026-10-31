@@ -219,7 +219,7 @@ class AppContainer(private val context: Context) {
     val scriptRepository: ScriptPluginRepository by lazy { ScriptPluginRepository(File(context.filesDir, "plugins")) }
 
     private val builtInPlugins: List<AgentPlugin> by lazy {
-        val families = androidToolPlugins(context)
+        val families = androidToolPlugins(context, settings)
         val cloud = openRouterPlugin
         // Checked here, against everything shipped and switched on or not. A run's
         // registry holds only the enabled tools, so checking it against the
