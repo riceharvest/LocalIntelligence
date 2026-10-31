@@ -253,6 +253,18 @@ object CoreSettings {
     )
 
     /**
+     * How many tokens the model may think before it answers. The native backend
+     * ends the thought when the budget runs out, so a small model that thinks on
+     * a plain "hi" is cut off instead of going on for a thousand tokens. Technical
+     * only: the default is measured, and most users never need to see it.
+     */
+    val THINKING_BUDGET = IntValue(
+        "model.thinking_budget", "Thinking",
+        "Tokens the model may think before it answers. 0 turns thinking off.",
+        SettingSection.MODEL, default = 128, min = 0, max = 1024,
+    )
+
+    /**
      * The HuggingFace read token for gated repositories. Technical only: a
      * Simple user who never opens a gated repo never needs it, and the Hub's
      * own error says where to add it.
@@ -307,7 +319,7 @@ object CoreSettings {
         READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
         COMPUTE, GPU_LAYERS, CONTEXT_LENGTH,
-        SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE, NATIVE_TOOL_FORMAT, HF_READ_TOKEN,
+        SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE, NATIVE_TOOL_FORMAT, THINKING_BUDGET, HF_READ_TOKEN,
         MAX_STEPS, MAX_VISIBLE_TOOLS, TOOL_LOOKUP, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
     )
 }

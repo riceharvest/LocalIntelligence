@@ -165,6 +165,13 @@ data class GenerationRequest(
      */
     val useNativeToolFormat: Boolean = false,
     /**
+     * Tokens the model may think before it answers, in the model's own tool format
+     * (llama.cpp only). 0 turns thinking off. The backend caps the thought at this
+     * many tokens and adds the same number to the output limit, so the answer keeps
+     * its room. Other backends and the app's own format ignore it.
+     */
+    val thinkingBudget: Int = 0,
+    /**
      * Whether the backend may start from a saved state of the prompt's start.
      * Off for the speed test, which measures a full prefill.
      */

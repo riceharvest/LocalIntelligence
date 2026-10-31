@@ -326,7 +326,14 @@ class LlamaCppBackend(
                     frequencyPenalty = params.frequencyPenalty,
                     presencePenalty = params.presencePenalty,
                     seed = params.seed,
-                    maxTokens = params.maxOutputTokens,
+                    // The thought spends the same limit as the answer, so a native reply with
+                    // a thinking budget gets that many tokens on top of its own limit. A negative
+                    // limit is a prefill-only warm-up and must stay one.
+                    maxTokens = if (native != null && params.maxOutputTokens > 0) {
+                        params.maxOutputTokens + request.thinkingBudget
+                    } else {
+                        params.maxOutputTokens
+                    },
                     onToken = sink,
                     parseSpecial = rendered.fromTemplate,
                     stablePrefixBytes = if (request.reusePrefix) rendered.stableBytes else 0,
@@ -606,6 +613,7 @@ class LlamaCppBackend(
             messagesJson = nativeMessages(request),
             promptToolsJson = toolsJson(listed),
             callableToolsJson = toolsJson(request.tools),
+            thinkingBudget = request.thinkingBudget,
         )
         val fields = reply?.let { runCatching { Json.parseToJsonElement(it).jsonObject }.getOrNull() }
         val prompt = fields?.string("prompt")
@@ -618,7 +626,7 @@ class LlamaCppBackend(
             // `lazy`: the tool-call grammar engages only once the model starts a call, so
             // every call in the log below is the model's own choice, never forced.
             "native tools: ${fields.string("format").orEmpty()}, prompt ${listed.size} tools, callable ${request.tools.size}, " +
-                "lazy=${fields.string("lazy") ?: "?"}",
+                "lazy=${fields.string("lazy") ?: "?"}, think=${request.thinkingBudget}",
         )
         // llama.cpp's own boundary first: the system message rendered alone with the prompt's
         // tools (see nativeChatPrepare). The text-based one is the fallback when it is 0.
@@ -638,7 +646,8 @@ class LlamaCppBackend(
         val h = handle
         if (h == null || h.isClosed) return null
         val listed = request.tools.take(request.listedToolCount)
-        return LlamaBridge.chatCount(h, nativeMessages(request), toolsJson(listed)).takeIf { it >= 0 }
+        return LlamaBridge.chatCount(h, nativeMessages(request), toolsJson(listed), request.thinkingBudget)
+            .takeIf { it >= 0 }
     }
 
     /**
