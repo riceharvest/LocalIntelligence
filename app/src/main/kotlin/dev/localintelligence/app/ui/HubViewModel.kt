@@ -16,6 +16,7 @@ import dev.localintelligence.core.hub.HubTransport
 import dev.localintelligence.core.hub.HuggingFaceClient
 import dev.localintelligence.core.hub.formatBytes
 import dev.localintelligence.core.model.gguf.GgufHeader
+import dev.localintelligence.core.model.gguf.KvCacheType
 import dev.localintelligence.android.hub.ModelDownloader
 import dev.localintelligence.android.hub.UrlConnectionTransport
 import kotlinx.coroutines.Dispatchers
@@ -298,6 +299,13 @@ class HubViewModel(
     private val tokenSource: HubTokenSource = HubTokenSource.NONE,
     /** The n_ctx a download is priced at: the same answer the model load will use. */
     private val contextLength: () -> Int = { DEFAULT_CONTEXT_LENGTH },
+    /**
+     * The n_ctx the load would allocate for a file whose header has been read. A plan priced
+     * from a header uses this, so the Hub's "fits" is the load's. Defaults to [contextLength].
+     */
+    private val contextLengthFor: (GgufHeader?) -> Int = { contextLength() },
+    /** The KV cache type the load allocates, which a plan priced from a header must use too. */
+    private val kvCacheType: () -> KvCacheType = { KvCacheType.DEFAULT },
     /**
      * Offer the fastest quant that fits rather than the largest. Speed matters
      * more on a phone than a few bits per weight: Q4_0 is what llama.cpp's ARM
@@ -821,10 +829,11 @@ class HubViewModel(
             val onDevice = downloader.isDownloaded(file)
             val plan = client.plan(
                 file = file,
-                contextLength = contextLength(),
+                contextLength = contextLengthFor(header),
                 budget = budget,
                 alreadyOnDiskBytes = alreadyOnDisk,
                 header = header,
+                kvCacheType = kvCacheType(),
             )
             PlannedFile(plan, header != null, onDevice, alreadyOnDisk)
         }

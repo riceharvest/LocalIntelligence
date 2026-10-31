@@ -69,7 +69,14 @@ import java.io.FileNotFoundException
  * only what is genuinely Android-specific: the descriptor, the content URI, and
  * the device-budget arithmetic that has no JVM equivalent.
  */
-class ModelImporter(private val contentResolver: ContentResolver) {
+class ModelImporter(
+    private val contentResolver: ContentResolver,
+    /**
+     * The KV cache type the next load allocates (the KV-cache setting). Read on every estimate,
+     * not once, so a model listed before the setting changed is priced the way it will load.
+     */
+    private val kvCacheType: () -> KvCacheType = { KvCacheType.DEFAULT },
+) {
 
     /**
      * Reads the header of [uri] and reports what it is and what it will cost.
@@ -144,7 +151,7 @@ class ModelImporter(private val contentResolver: ContentResolver) {
         fileSizeBytes: Long,
         contextLength: Int = DEFAULT_CONTEXT_LENGTH,
     ): ImportedModel {
-        val estimate = RamEstimate.from(header, contextLength)
+        val estimate = RamEstimate.from(header, contextLength, kvCacheType)
         return ImportedModel(
             uri = uri,
             displayName = header.metadata.name ?: displayNameFromUri(uri),
@@ -497,9 +504,11 @@ data class RamEstimate(
     /** The header this estimate is derived from. Kept so a context change can re-evaluate. */
     val header: GgufHeader,
     private val estimator: ModelMemoryEstimator = ModelMemoryEstimator(),
+    /** Where the cache type being priced is read from: the setting the load allocates by. */
+    private val kvCacheTypeSource: () -> KvCacheType = { KvCacheType.DEFAULT },
 ) : ModelFootprint {
     private fun at(contextLength: Int): MemoryEstimate =
-        estimator.estimate(header, contextLengthOverride = contextLength.toLong())
+        estimator.estimate(header, contextLengthOverride = contextLength.toLong(), kvCacheType = kvCacheType)
 
     /**
      * Bytes of weights, at the measured default context.
@@ -519,10 +528,10 @@ data class RamEstimate(
     /**
      * The KV cache type this estimate assumes.
      *
-     * f16, the llama.cpp default. Exposed so a UI can say which one it priced;
-     * the alternative types live in `KvCacheType` in `:core`.
+     * The KV-cache setting's type (q8_0 unless Technical mode chose another), the same one
+     * the native load allocates. Exposed so a UI can say which one it priced.
      */
-    val kvCacheType: KvCacheType get() = KvCacheType.F16
+    val kvCacheType: KvCacheType get() = kvCacheTypeSource()
 
     /** Total native bytes at [contextLength]. */
     override fun totalBytes(contextLength: Int): Long = at(contextLength).totalBytes
@@ -607,7 +616,10 @@ data class RamEstimate(
          * bits-per-weight guess, because the tensor table is present in the same
          * parse and makes both unnecessary.
          */
-        fun from(header: GgufHeader, contextLength: Int = ModelImporter.DEFAULT_CONTEXT_LENGTH): RamEstimate =
-            RamEstimate(header)
+        fun from(
+            header: GgufHeader,
+            contextLength: Int = ModelImporter.DEFAULT_CONTEXT_LENGTH,
+            kvCacheType: () -> KvCacheType = { KvCacheType.DEFAULT },
+        ): RamEstimate = RamEstimate(header, kvCacheTypeSource = kvCacheType)
     }
 }

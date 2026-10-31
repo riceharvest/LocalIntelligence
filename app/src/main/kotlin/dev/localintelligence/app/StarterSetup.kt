@@ -14,6 +14,8 @@ import dev.localintelligence.core.hub.HubRepoId
 import dev.localintelligence.core.hub.HubTokenSource
 import dev.localintelligence.core.hub.HuggingFaceClient
 import dev.localintelligence.core.hub.formatBytes
+import dev.localintelligence.core.model.gguf.GgufHeader
+import dev.localintelligence.core.model.gguf.KvCacheType
 import dev.localintelligence.android.hub.ModelDownloader
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -110,6 +112,10 @@ class StarterSetup(
     private val tokenSource: HubTokenSource,
     private val transfers: HubTransfers,
     private val contextLength: () -> Int,
+    /** The n_ctx the load would allocate for a file whose header has been read; see [HubViewModel]. */
+    private val contextLengthFor: (GgufHeader?) -> Int = { contextLength() },
+    /** The KV cache type the load allocates, which the plan priced from the header must use too. */
+    private val kvCacheType: () -> KvCacheType = { KvCacheType.DEFAULT },
     /** The app's model readiness, so a model loaded from Models completes the setup too. */
     private val availability: StateFlow<ModelAvailability>,
     /** [AppContainer.adoptDownloaded]: registers and loads the file. Null, or not chat-ready, is a failure. */
@@ -226,10 +232,11 @@ class StarterSetup(
             val header = client.probeHeader(file, tokenSource.token())
             client.plan(
                 file = file,
-                contextLength = contextLength(),
+                contextLength = contextLengthFor(header),
                 budget = budget,
                 alreadyOnDiskBytes = downloader.partialFileFor(file).localBytes(),
                 header = header,
+                kvCacheType = kvCacheType(),
             )
         }
         plan.reject?.let { reject ->

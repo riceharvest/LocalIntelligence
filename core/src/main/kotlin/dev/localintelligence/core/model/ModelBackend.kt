@@ -1,5 +1,6 @@
 package dev.localintelligence.core.model
 
+import dev.localintelligence.core.model.gguf.KvCacheType
 import dev.localintelligence.core.tool.CancellationSignal
 import dev.localintelligence.core.tool.ToolDefinition
 import kotlinx.serialization.json.JsonObject
@@ -24,6 +25,11 @@ data class ModelSpec(
      * gate, so what is checked is what is loaded.
      */
     val contextLength: Int? = null,
+    /**
+     * How the KV cache is stored, from the KV-cache setting. The RAM gate prices this same
+     * type, so what is checked is what is allocated. Backends with their own cache ignore it.
+     */
+    val kvCacheType: KvCacheType = KvCacheType.DEFAULT,
 )
 
 data class ModelCapabilities(

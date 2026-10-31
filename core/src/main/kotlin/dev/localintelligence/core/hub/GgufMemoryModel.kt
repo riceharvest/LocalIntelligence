@@ -2,6 +2,7 @@ package dev.localintelligence.core.hub
 
 import dev.localintelligence.core.model.gguf.EstimateBasis
 import dev.localintelligence.core.model.gguf.GgufHeader
+import dev.localintelligence.core.model.gguf.KvCacheType
 import dev.localintelligence.core.model.gguf.MemoryEstimate
 import dev.localintelligence.core.model.gguf.ModelMemoryEstimator
 
@@ -65,10 +66,12 @@ object GgufMemoryModel {
     fun from(
         header: GgufHeader,
         estimator: ModelMemoryEstimator = ModelMemoryEstimator(),
+        kvCacheType: KvCacheType = KvCacheType.F16,
     ): MemoryModel = MemoryModel { fileBytes, quant, contextLength, parameterCount ->
         estimator.estimate(
             header = header,
             contextLengthOverride = contextLength.toLong(),
+            kvCacheType = kvCacheType,
         ).totalBytes
     }
 
@@ -91,20 +94,21 @@ object GgufMemoryModel {
     fun rangedFrom(
         header: GgufHeader,
         estimator: ModelMemoryEstimator = ModelMemoryEstimator(),
+        kvCacheType: KvCacheType = KvCacheType.F16,
     ): RangedMemoryModel = object : RangedMemoryModel {
         override fun estimate(
             fileBytes: Long,
             quant: GgufQuant?,
             contextLength: Int,
             parameterCount: Long?,
-        ): Long = range(estimator, header, contextLength).centralBytes
+        ): Long = range(estimator, header, contextLength, kvCacheType).centralBytes
 
         override fun estimateRange(
             fileBytes: Long,
             quant: GgufQuant?,
             contextLength: Int,
             parameterCount: Long?,
-        ): MemoryRange = range(estimator, header, contextLength)
+        ): MemoryRange = range(estimator, header, contextLength, kvCacheType)
     }
 
     /**
@@ -120,10 +124,12 @@ object GgufMemoryModel {
         estimator: ModelMemoryEstimator,
         header: GgufHeader,
         contextLength: Int,
+        kvCacheType: KvCacheType,
     ): MemoryRange {
         val estimate = estimator.estimate(
             header = header,
             contextLengthOverride = contextLength.toLong(),
+            kvCacheType = kvCacheType,
         )
         val floor = estimate.weightsBytes + estimate.overheadBytes
         return MemoryRange(

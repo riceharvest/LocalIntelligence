@@ -177,6 +177,7 @@ class LlamaCppBackend(
                 useMmap = opened.isMmapCapable,
                 compute = compute,
                 outputsMax = outputsMax,
+                kvCacheType = model.kvCacheType,
             )
             // A GPU builds its compute pipelines on the first prefill and decode,
             // which is where a driver bug most likely crashes or fails. Running

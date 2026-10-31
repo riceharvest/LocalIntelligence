@@ -95,6 +95,11 @@ struct LlamaHandle {
     // placement); either empty keeps anchors in memory only.
     std::string prefix_dir;
     std::string prefix_key;
+    // The KV cache type the context was actually created with ("f16", "q8_0" or
+    // "q4_0"; it differs from the requested one after the f16 fallback). Part of
+    // every anchor's file name, so an anchor saved from one cache type is never
+    // offered to another.
+    std::string kv_type;
     bool backend_initialised = false;
 
     // The SAF descriptor's /proc/self/fd path is valid only while the
@@ -135,11 +140,13 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSystemInfo(JNIEnv
 // non-empty error string. `n_threads` 0 means "let llama.cpp decide".
 // `gpu_backend` null runs on the CPU; "Vulkan" or "OpenCL" puts `gpu_layers`
 // layers (negative: all) on that backend's first GPU. `outputs_max` caps the
-// logits rows one batch may ask for (0: a whole batch).
+// logits rows one batch may ask for (0: a whole batch). `kv_type` is the KV cache
+// type wanted, "f16", "q8_0" or "q4_0"; a context that refuses a quantised one is
+// created again with f16 (a quantised V cache needs flash attention).
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
         JNIEnv * env, jclass, jlong handle, jstring path, jint n_ctx, jint n_threads,
-        jboolean use_mmap, jstring gpu_backend, jint gpu_layers, jint outputs_max);
+        jboolean use_mmap, jstring gpu_backend, jint gpu_layers, jint outputs_max, jstring kv_type);
 
 // The usable GPUs, "backend\tdescription" each. Starts the GPU drivers.
 JNIEXPORT jobjectArray JNICALL
