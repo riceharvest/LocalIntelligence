@@ -3,6 +3,7 @@ package dev.localintelligence.app.settings
 import android.content.Context
 import android.content.SharedPreferences
 import dev.localintelligence.android.cloud.ChatGptSettingsWriter
+import dev.localintelligence.android.cloud.sandbox.SandboxSettingsWriter
 import dev.localintelligence.android.hub.KeystoreCipher
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.CoreSettings
@@ -30,7 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class SettingsStore(
     context: Context,
     private val simpleValues: () -> Map<String, Any> = { emptyMap() },
-) : SettingsReader, ChatGptSettingsWriter {
+) : SettingsReader, ChatGptSettingsWriter, SandboxSettingsWriter {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 

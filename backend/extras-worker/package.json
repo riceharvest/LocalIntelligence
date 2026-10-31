@@ -1,0 +1,15 @@
+{
+  "name": "localintelligence-extras-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker that verifies Google Play purchases and provisions per-customer Extras keys",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261031.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.156.0"
+  }
+}

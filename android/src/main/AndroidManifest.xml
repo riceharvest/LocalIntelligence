@@ -35,4 +35,29 @@
     -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
+    <!--
+      Termux's RUN_COMMAND permission is protectionLevel "dangerous" and defined by Termux. An app that sends
+      the RUN_COMMAND intent must declare it, and the user then switches it on under this app's Additional
+      permissions. Without this line the permission is never granted and the Termux provider stays off.
+    -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+
+    <!--
+      The Termux provider checks that Termux is installed (getPackageInfo) before it sends a command, which
+      needs the package to be visible on Android 11 and later.
+    -->
+    <queries>
+        <package android:name="com.termux" />
+    </queries>
+
+    <!--
+      Termux sends each command's result back to this receiver through a PendingIntent that this app made.
+      It is not exported, so no other app can deliver a result to it.
+    -->
+    <application>
+        <receiver
+            android:name="dev.localintelligence.android.cloud.sandbox.TermuxResultReceiver"
+            android:exported="false" />
+    </application>
+
 </manifest>

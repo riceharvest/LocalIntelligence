@@ -53,7 +53,7 @@ private const val CONNECT_TIMEOUT_MS = 20_000
 private const val READ_TIMEOUT_MS = 30_000
 
 /** A JSON reply is a few kilobytes; a command's output is the largest thing that comes back in one. */
-private const val MAX_JSON_BYTES = 4 * 1024 * 1024
+internal const val MAX_JSON_BYTES = 4 * 1024 * 1024
 
 /** The largest file the read tool will download. */
 internal const val MAX_FILE_BYTES = 1024 * 1024
@@ -64,7 +64,7 @@ private val SANDBOX_ID = Regex("[A-Za-z0-9_-]{1,128}")
 /** Words a refusal uses when the organization has run out of credit or quota. Unverified against Daytona's wording. */
 private val BILLING_WORDS = Regex("credit|balance|billing|wallet|quota", RegexOption.IGNORE_CASE)
 
-private const val BAD_REPLY = "Daytona sent a reply this app cannot read. Try again."
+internal const val BAD_REPLY = "Daytona sent a reply this app cannot read. Try again."
 
 /**
  * The Daytona implementation of [SandboxProvider]. Built per call from the live settings, so a
@@ -259,7 +259,7 @@ internal class DaytonaProvider(
 }
 
 /** A reply that came back, whatever its status. */
-private class Reply(val status: Int, val body: ByteArray) {
+internal class Reply(val status: Int, val body: ByteArray) {
     val ok: Boolean get() = status in 200..299
 }
 
@@ -267,7 +267,7 @@ private class Reply(val status: Int, val body: ByteArray) {
  * Reads at most [max] bytes. A larger reply is a failure rather than a cut: a cut file or
  * a cut JSON reply would look complete to the model.
  */
-private fun readBounded(input: InputStream, max: Int): ByteArray {
+internal fun readBounded(input: InputStream, max: Int): ByteArray {
     val out = ByteArrayOutputStream()
     val buffer = ByteArray(16 * 1024)
     while (true) {
@@ -276,7 +276,7 @@ private fun readBounded(input: InputStream, max: Int): ByteArray {
         if (out.size() + n > max) {
             throw SandboxFailure(
                 ToolError.Unavailable("reply too large"),
-                "Daytona sent more than ${max / 1024} KB, which is too large to use here.",
+                "The sandbox service sent more than ${max / 1024} KB, which is too large to use here.",
             )
         }
         out.write(buffer, 0, n)
@@ -288,5 +288,5 @@ private fun readBounded(input: InputStream, max: Int): ByteArray {
  * A path in the URL's query string. Spaces become %20, not "+", because a query parser on
  * the service side may read "+" as a space or as a plus sign.
  */
-private fun encode(path: String): String =
+internal fun encode(path: String): String =
     URLEncoder.encode(path, Charsets.UTF_8.name()).replace("+", "%20")
