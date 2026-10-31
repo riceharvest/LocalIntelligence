@@ -6,7 +6,6 @@ import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.settings.SettingsMode
-import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.core.settings.SettingsReader
 import dev.localintelligence.core.settings.mode
 import dev.localintelligence.core.tool.AgentTool
