@@ -87,6 +87,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.localintelligence.android.cloud.clearGeneratedMedia
 import dev.localintelligence.android.cloud.generatedMediaBytes
+import dev.localintelligence.android.mcp.McpSettings
 import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.android.tools.OBSERVATIONS_FAMILY_ID
 import dev.localintelligence.app.export.ChatExporter
@@ -139,6 +140,8 @@ fun SettingsScreen(
     onOpenDocuments: () -> Unit = {},
     /** Opens the script plugins screen. Defaulted, like [onOpenSkills]. */
     onOpenScripts: () -> Unit = {},
+    /** The ChatGPT row, shown in Simple mode. Null hides it. */
+    chatGptRow: (@Composable () -> Unit)? = null,
     /** The folder of generated images and videos, for the Storage row. Null hides the row. */
     generatedMedia: File? = null,
     onOpenModels: () -> Unit = {},
@@ -184,6 +187,7 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 ModeSwitch(store)
+                if (!technical) chatGptRow?.invoke()
                 if (!technical && !suggestionInstalled) SuggestionCard(suggestion) { onOpenHub(suggestion.repo, suggestion.file) }
                 suggestion.alternative?.takeIf { !technical && !alternativeInstalled }?.let { alt ->
                     AlternativeCard(alt) { onOpenHub(alt.repo, alt.file) }
@@ -211,7 +215,11 @@ fun SettingsScreen(
                     val speedTestHere = technical && speedTest != null && section == SettingSection.MODEL
                     if (inSection.isEmpty() && !speedTestHere) continue
                     SectionHeader(section.title)
-                    inSection.forEach { SettingRow(store, it, technical) }
+                    inSection.forEach { def ->
+                        // The Add a server helper sits above the first remote MCP address row.
+                        if (def === McpSettings.urls[0]) McpAddServerRow(store)
+                        SettingRow(store, def, technical)
+                    }
                     if (speedTestHere) speedTest?.let { SpeedTestRow(it) }
                 }
 

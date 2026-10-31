@@ -182,7 +182,7 @@ fun PendingToolRow(
 ) {
     // A sandbox call shows its command, path or content at once: the user is approving exactly that text.
     var details by rememberSaveable(pending.toolName, pending.arguments) {
-        mutableStateOf(pending.toolName.startsWith(SANDBOX_TOOL_PREFIX))
+        mutableStateOf(pending.toolName in SHOWN_FIRST || pending.toolName.startsWith(SANDBOX_TOOL_PREFIX))
     }
     // The service flips the run state a moment after a tap, so a second tap in that
     // gap would send a second decision and add a second Approval row.
@@ -238,6 +238,14 @@ fun PendingToolRow(
         }
     }
 }
+
+/**
+ * Tools whose approval card opens with its details already showing.
+ *
+ * A text or a call goes to a person outside the phone, so the recipient and the full
+ * message must be in front of the person before they tap Allow, not behind Details.
+ */
+private val SHOWN_FIRST: Set<String> = setOf("sms.send", "phone.call")
 
 /**
  * The risk in one line. Three cases, kept apart because they decide the answer
@@ -742,6 +750,13 @@ private val toolVerbs: Map<String, ToolVerb> = mapOf(
     "notifications.reply" to ToolVerb("Replying", "Replied", "reply"),
     "email.draft" to ToolVerb("Drafting email", "Drafted email", "draft an email"),
     "message.draft" to ToolVerb("Drafting message", "Drafted message", "draft a message"),
+    "sms.search" to ToolVerb("Searching texts", "Searched texts", "search texts"),
+    "sms.send" to ToolVerb("Sending text", "Sent text", "send a text"),
+    "calls.recent" to ToolVerb("Reading recent calls", "Read recent calls", "read recent calls"),
+    "phone.call" to ToolVerb("Calling someone", "Called someone", "call someone"),
+    "phone.dnd" to ToolVerb("Changing Do Not Disturb", "Changed Do Not Disturb", "change Do Not Disturb"),
+    "phone.brightness" to ToolVerb("Changing brightness", "Changed brightness", "change the brightness"),
+    "device.screen_time" to ToolVerb("Reading screen time", "Read screen time", "read screen time"),
     "location.get" to ToolVerb("Checking location", "Checked location", "check your location"),
     "web.fetch" to ToolVerb("Opening page", "Opened page", "open a web page"),
     "web.search" to ToolVerb("Searching the web", "Searched the web", "search the web"),
@@ -783,7 +798,7 @@ private fun markFor(toolName: String): ImageVector =
         "web" -> Icons.Filled.Public
         "timer" -> Icons.Filled.Timer
         "location" -> Icons.Filled.Place
-        "email", "message" -> Icons.Filled.Edit
+        "email", "message", "sms", "calls" -> Icons.Filled.Edit
         "documents" -> Icons.Filled.Description
         "history" -> Icons.Filled.History
         "image", "video" -> Icons.Filled.Image

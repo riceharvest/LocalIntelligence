@@ -1,10 +1,15 @@
 package dev.localintelligence.android.tools
 
 import android.Manifest
+import android.app.AppOpsManager
+import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Process
+import android.provider.Settings
 import androidx.core.content.ContextCompat
+import dev.localintelligence.android.tools.messages.DefaultAssistant
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.PlatformRequirement
 import dev.localintelligence.core.tool.contracts.ToolPermissions
@@ -90,6 +95,14 @@ class AndroidPlatformGrant(context: Context) : PlatformGrant {
                     .isGranted(appContext)
 
             ToolPermissions.DOCUMENT_READ -> canReadDocuments()
+
+            // Special accesses: no runtime permission can grant them, so each is a real
+            // platform query. A `checkSelfPermission` here would report the normal manifest
+            // permission as granted whether or not the person switched it on.
+            ToolPermissions.DO_NOT_DISTURB -> notificationPolicyGranted()
+            ToolPermissions.WRITE_SETTINGS_ACCESS -> Settings.System.canWrite(appContext)
+            ToolPermissions.USAGE_ACCESS -> usageAccessGranted()
+            ToolPermissions.DEFAULT_ASSISTANT -> DefaultAssistant.isHeld(appContext)
 
             // Writing is two different capabilities. Creating a document in
             // Downloads needs no permission from API 29, and overwriting a
@@ -208,6 +221,25 @@ class AndroidPlatformGrant(context: Context) : PlatformGrant {
      * [canReadDocuments].
      */
     fun canCreateDocuments(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+
+    /** True when the person has turned on Do Not Disturb access for this app. */
+    private fun notificationPolicyGranted(): Boolean =
+        appContext.getSystemService(NotificationManager::class.java)?.isNotificationPolicyAccessGranted == true
+
+    /**
+     * True when Usage access is on for this app. The app-ops mode is the platform's own
+     * answer; `checkOpNoThrow` is the pre-API-29 spelling of the same query.
+     */
+    private fun usageAccessGranted(): Boolean {
+        val ops = appContext.getSystemService(AppOpsManager::class.java) ?: return false
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), appContext.packageName)
+        } else {
+            @Suppress("DEPRECATION")
+            ops.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), appContext.packageName)
+        }
+        return mode == AppOpsManager.MODE_ALLOWED
+    }
 
     /**
      * Whether the app can see any other app at all.

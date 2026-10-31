@@ -70,8 +70,9 @@ import kotlinx.serialization.json.putJsonObject
  *   explicit "remember X" in the runtime, not behind a model-visible tool. Exposing
  *   `memory.write` would let the model invent a memory the user never asked for.
  *   `history.search` is the one read-only exception: it only reads past messages.
- * - **A general SMS send.** `notifications.reply` covers the only send path v0
- *   needs. A second send tool collides with it on the word "text".
+ * - **A general SMS send.** Added with `sms.send` (texts and calls, default-assistant
+ *   only). It is the one way to send a text by name; `notifications.reply` still answers
+ *   messages already on screen.
  * - **Settings read/write, wifi, storage, clock.** Real
  *   capabilities, none of which a target task needs, and each a fresh pair of tags
  *   competing for the same six retrieval slots.
@@ -142,7 +143,7 @@ object V0ToolCatalogue {
     /** Categories, in the order a reader should expect to meet them. */
     val categories: List<String> = listOf(
         "files", "apps", "clipboard", "device", "alarm", "calendar",
-        "contacts", "notifications", "web", "history", "documents",
+        "contacts", "notifications", "web", "history", "documents", "messages",
     )
 
     /**
@@ -540,6 +541,24 @@ object V0ToolCatalogue {
             requiredPermission = "android.permission.VIBRATE",
         ),
 
+        ToolDefinition(
+            name = "device.screen_time",
+            description = "List the apps used most in a period, with minutes for each. Use when the " +
+                "user asks how long they used their phone or which apps they use most.",
+            category = "device",
+            schema = objSchema {
+                putJsonObject("period") {
+                    put("type", "string")
+                    putJsonArray("enum") { add("today"); add("yesterday"); add("week") }
+                    put("description", "today, yesterday or week (the last 7 days). Default today.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("screen time", "usage", "how long", "most used apps", "phone use", "digital wellbeing"),
+            requiredPermission = "android.permission.PACKAGE_USAGE_STATS",
+        ),
+
         // ----------------------------------------------------------------- phone
         ToolDefinition(
             name = "phone.flashlight",
@@ -619,6 +638,63 @@ object V0ToolCatalogue {
             requiredPermission = null,
         ),
 
+        ToolDefinition(
+            name = "phone.call",
+            description = "Place a phone call now to a number, after the user confirms. Use when the " +
+                "user asks to call someone now; phone.dial only opens the dialer.",
+            category = "phone",
+            schema = objSchema(required = listOf("number")) {
+                putJsonObject("number") {
+                    put("type", "string")
+                    put("maxLength", 30)
+                    put("description", "Phone number to call, e.g. +31612345678.")
+                }
+            },
+            risk = ToolRisk.EXTERNAL_COMMUNICATION,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("call", "phone call", "ring", "place a call", "bel nu"),
+            requiredPermission = "android.permission.CALL_PHONE",
+        ),
+        ToolDefinition(
+            name = "phone.dnd",
+            description = "Set Do Not Disturb to off, priority, alarms only, or none. Use when the user " +
+                "says do not disturb, silence notifications or turn DND off.",
+            category = "phone",
+            schema = objSchema(required = listOf("mode")) {
+                putJsonObject("mode") {
+                    put("type", "string")
+                    putJsonArray("enum") { add("off"); add("priority"); add("alarms"); add("none") }
+                    put("description", "off, priority, alarms or none.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("do not disturb", "dnd", "silence", "priority", "alarms only", "niet storen"),
+            requiredPermission = "android.permission.ACCESS_NOTIFICATION_POLICY",
+        ),
+        ToolDefinition(
+            name = "phone.brightness",
+            description = "Set the screen brightness to a percentage, or back to automatic. Use when the " +
+                "user asks for the screen brighter, dimmer or automatic.",
+            category = "phone",
+            schema = objSchema {
+                putJsonObject("level") {
+                    put("type", "integer")
+                    put("minimum", 0)
+                    put("maximum", 100)
+                    put("description", "Brightness as a percentage, 0 to 100.")
+                }
+                putJsonObject("auto") {
+                    put("type", "boolean")
+                    put("description", "true to set brightness back to automatic.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("brightness", "screen brightness", "dimmer", "brighter", "auto brightness", "helderheid"),
+            requiredPermission = "android.permission.WRITE_SETTINGS",
+        ),
+
         // ------------------------------------------------------------------ maps
         ToolDefinition(
             name = "maps.navigate",
@@ -657,6 +733,81 @@ object V0ToolCatalogue {
             observationOrigin = ObservationOrigin.LOCAL,
             tags = setOf("map", "show on map", "where is", "nearby", "in de buurt"),
             requiredPermission = null,
+        ),
+
+        // ------------------------------------------------------------- messages
+        ToolDefinition(
+            name = "sms.search",
+            description = "Search the texts on this phone, newest first. Use when the user asks what a " +
+                "text said or whether someone texted.",
+            category = "messages",
+            schema = objSchema {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "Words to find in the text. Optional.")
+                }
+                putJsonObject("from") {
+                    put("type", "string")
+                    put("maxLength", 100)
+                    put("description", "Sender name or number. Optional.")
+                }
+                putJsonObject("max_results") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 20)
+                    put("description", "How many texts to return. Default 10.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("sms", "text", "texts", "messages", "text from", "did he text", "sms search"),
+            requiredPermission = "android.permission.READ_SMS",
+        ),
+        ToolDefinition(
+            name = "sms.send",
+            description = "Sends a text message directly to a phone number, after the user confirms. Use " +
+                "when the user asks to text someone now; message.draft opens a draft instead.",
+            category = "messages",
+            schema = objSchema(required = listOf("to", "text")) {
+                putJsonObject("to") {
+                    put("type", "string")
+                    put("maxLength", 30)
+                    put("description", "Phone number to text, e.g. +31612345678.")
+                }
+                putJsonObject("text") {
+                    put("type", "string")
+                    put("maxLength", 1000)
+                    put("description", "The full text message.")
+                }
+            },
+            risk = ToolRisk.EXTERNAL_COMMUNICATION,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("send a text", "send sms", "sms", "text someone", "stuur een sms"),
+            requiredPermission = "android.permission.SEND_SMS",
+        ),
+        ToolDefinition(
+            name = "calls.recent",
+            description = "List recent calls, newest first, with who they were with. Use when the user " +
+                "asks who called, missed calls or who they called.",
+            category = "messages",
+            schema = objSchema {
+                putJsonObject("max_results") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 20)
+                    put("description", "How many calls to return. Default 10.")
+                }
+                putJsonObject("type") {
+                    put("type", "string")
+                    putJsonArray("enum") { add("missed"); add("incoming"); add("outgoing") }
+                    put("description", "Only missed, incoming or outgoing calls. Optional.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("call log", "missed call", "missed calls", "who called", "recent calls", "call history"),
+            requiredPermission = "android.permission.READ_CALL_LOG",
         ),
 
         // ----------------------------------------------------------------- alarm
@@ -1274,6 +1425,76 @@ object V0ToolCatalogue {
             requiredPermission = null,
         ),
 
+        // ------------------------------------------------------------------ info
+        // The Weather and facts family (tools.info). Free services, no key. MUST match
+        // the tools in android/.../tools/info/. The tier and origin are checked at
+        // composition: NETWORK because the reply is third-party text.
+        ToolDefinition(
+            name = "weather.get",
+            description = "Gets the current weather, today's high, low and rain chance, and the days after, " +
+                "for a place or the phone's location.",
+            category = "info",
+            schema = objSchema {
+                putJsonObject("place") {
+                    put("type", "string")
+                    put("maxLength", 120)
+                    put("description", "Town or place name, for example Haarlem. Leave out for the phone's location.")
+                }
+                putJsonObject("days") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 7)
+                    put("description", "Days to forecast, 1 to 7. Default 1, today only.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("weather", "rain", "temperature", "forecast", "weer", "regen"),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "wiki.search",
+            description = "Looks up a Wikipedia article and returns its title, a short extract and its link.",
+            category = "info",
+            schema = objSchema(required = listOf("query")) {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "The name or topic to look up, for example Haarlem.")
+                }
+                putJsonObject("language") {
+                    put("type", "string")
+                    put("maxLength", 10)
+                    put("description", "Wikipedia language code, for example en or nl. Default en.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("wikipedia", "who is", "what is"),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "places.search",
+            description = "Finds a place or address on OpenStreetMap and returns each name, address and coordinates.",
+            category = "info",
+            schema = objSchema(required = listOf("query")) {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "The place name or address, for example Rijksmuseum.")
+                }
+                putJsonObject("near") {
+                    put("type", "string")
+                    put("maxLength", 120)
+                    put("description", "Town or area to search near, for example Amsterdam. Optional.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("address of", "where is", "find a"),
+            requiredPermission = null,
+        ),
+
         // ----------------------------------------------------------------- cloud
         // Offered only when the OpenRouter plugin is on and a key is set. The
         // catalogue lists them so the risk tier is checked like every other tool.
@@ -1418,6 +1639,90 @@ object V0ToolCatalogue {
             observationOrigin = ObservationOrigin.NETWORK,
             tags = setOf(
                 "my document", "the pdf", "in the file", "according to", "my notes", "document",
+            ),
+            requiredPermission = null,
+        ),
+
+        // ------------------------------------------------------------------ home
+        // Offered only with the Home Assistant plugin on, in Technical mode, with an address and a
+        // token set. Split by risk tier because RiskPolicy reads one tier per tool, not per argument:
+        // locks and covers are DESTRUCTIVE in home.secure, so they confirm every time.
+        ToolDefinition(
+            name = "home.devices",
+            description = "Lists the smart-home devices in Home Assistant that match some words or a " +
+                "device type, with their state, and returns their entity ids.",
+            category = "home",
+            schema = objSchema {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 80)
+                    put("description", "Words from the device name, for example \"kitchen light\".")
+                }
+                putJsonObject("domain") {
+                    put("type", "string")
+                    put("maxLength", 40)
+                    put("description", "Device type: light, switch, fan, climate, cover, media_player, lock or sensor.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "lights", "lamp", "heating", "thermostat", "smart home", "is the light on",
+                "which lights", "device status",
+            ),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "home.control",
+            description = "Turns a light, switch, fan, media player or thermostat on or off, or changes it, " +
+                "in Home Assistant, and returns its new state.",
+            category = "home",
+            schema = objSchema(required = listOf("entity_id", "action")) {
+                putJsonObject("entity_id") {
+                    put("type", "string")
+                    put("maxLength", 120)
+                    put("description", "The entity id from home.devices, for example light.kitchen_ceiling.")
+                }
+                putJsonObject("action") {
+                    put("type", "string")
+                    put("maxLength", 20)
+                    put("description", "turn_on, turn_off, toggle, play, pause or set_temperature.")
+                }
+                putJsonObject("value") {
+                    put("type", "number")
+                    put("description", "Brightness percent 0 to 100 for a light turn_on, or degrees 5 to 35 for set_temperature.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "turn on the", "turn off the", "lights", "lamp", "heating", "thermostat",
+                "set the temperature", "dim", "switch on", "switch off",
+            ),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "home.secure",
+            description = "Locks or unlocks a door, or opens or closes a cover such as a garage door or " +
+                "curtains, in Home Assistant, after the user confirms.",
+            category = "home",
+            schema = objSchema(required = listOf("entity_id", "action")) {
+                putJsonObject("entity_id") {
+                    put("type", "string")
+                    put("maxLength", 120)
+                    put("description", "The lock or cover entity id from home.devices, for example lock.front_door.")
+                }
+                putJsonObject("action") {
+                    put("type", "string")
+                    put("maxLength", 20)
+                    put("description", "lock, unlock, open or close.")
+                }
+            },
+            risk = ToolRisk.DESTRUCTIVE,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "lock the door", "unlock the door", "front door", "garage door", "curtains",
+                "blinds", "open the curtains", "close the blinds",
             ),
             requiredPermission = null,
         ),

@@ -58,6 +58,9 @@ import dev.localintelligence.android.tools.notifications.LocalNotificationListen
 import dev.localintelligence.app.execution.TaskAlarmScheduler
 import dev.localintelligence.core.tool.contracts.PlatformRequirement
 import dev.localintelligence.core.tool.contracts.ToolPermissions
+import dev.localintelligence.android.tools.AndroidPlatformGrant
+import dev.localintelligence.android.tools.messages.DefaultAssistant
+import dev.localintelligence.app.openAssistantSettings
 
 /**
  * The screen where a permission the user was told about can actually be granted.
@@ -271,6 +274,7 @@ fun PermissionScreen(
                     onAsk = { entry.grant.permissionOrNull()?.let { ask(listOf(it)) } },
                     onOpenSettings = { openAppSettings(context) },
                     onOpenScreen = { (entry.grant as? Grant.Screen)?.open(context) },
+                    onOpenRole = { openAssistantSettings(context) },
                 )
             }
 
@@ -345,6 +349,12 @@ data class PermissionEntry(
     /** Why this app wants it, tied to the action a tool performs. */
     val why: String,
     val grant: Grant,
+    /**
+     * True when the permission may be used only while LocalIntelligence is the default
+     * assistant app. Google Play's policy for texts and the call log, and the tools
+     * check the same role on every call. The runtime dialog is withheld until it is held.
+     */
+    val needsAssistantRole: Boolean = false,
 )
 
 /**
@@ -395,6 +405,18 @@ private val NOTIFICATIONS = PlatformRequirement(
  */
 fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry> = buildList {
     // ---- Android will show a dialog for these. ----
+    // ---- The default assistant app. Texts and the call log are usable only while it is held. ----
+    add(
+        PermissionEntry(
+            requirement = ToolPermissions.DEFAULT_ASSISTANT,
+            title = "Default assistant app",
+            why = "Needed before texts and call history can be used.",
+            grant = Grant.Screen { context ->
+                openAssistantSettings(context)
+                true
+            },
+        ),
+    )
     add(
         PermissionEntry(
             requirement = ToolPermissions.CONTACTS,
@@ -417,6 +439,41 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
             title = "Calendar, writing",
             why = "Add events when you ask.",
             grant = Grant.Dialog(ToolPermissions.WRITE_CALENDAR),
+        ),
+    )
+    add(
+        PermissionEntry(
+            requirement = ToolPermissions.SMS_READ,
+            title = "Texts, reading",
+            why = "Search your texts when you ask.",
+            grant = Grant.Dialog(ToolPermissions.READ_SMS),
+            needsAssistantRole = true,
+        ),
+    )
+    add(
+        PermissionEntry(
+            requirement = ToolPermissions.SMS_SEND,
+            title = "Texts, sending",
+            why = "Send a text when you ask, after you confirm it.",
+            grant = Grant.Dialog(ToolPermissions.SEND_SMS),
+            needsAssistantRole = true,
+        ),
+    )
+    add(
+        PermissionEntry(
+            requirement = ToolPermissions.CALL_LOG_READ,
+            title = "Call history",
+            why = "See who called when you ask.",
+            grant = Grant.Dialog(ToolPermissions.READ_CALL_LOG),
+            needsAssistantRole = true,
+        ),
+    )
+    add(
+        PermissionEntry(
+            requirement = ToolPermissions.PHONE_CALL,
+            title = "Phone calls",
+            why = "Place a call when you ask, after you confirm it.",
+            grant = Grant.Dialog(ToolPermissions.CALL_PHONE),
         ),
     )
     if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
@@ -450,6 +507,39 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
             why = "Read and reply to notifications when you ask.",
             grant = Grant.Screen { context ->
                 LocalNotificationListenerService.requestConsent(context)
+            },
+        ),
+    )
+    add(
+        PermissionEntry(
+            requirement = ToolPermissions.DO_NOT_DISTURB,
+            title = "Do Not Disturb",
+            why = "Change Do Not Disturb when you ask.",
+            grant = Grant.Screen { context ->
+                openSettings(context, Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+            },
+        ),
+    )
+    add(
+        PermissionEntry(
+            requirement = ToolPermissions.WRITE_SETTINGS_ACCESS,
+            title = "Screen brightness",
+            why = "Change the screen brightness when you ask.",
+            grant = Grant.Screen { context ->
+                openSettings(
+                    context,
+                    Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, android.net.Uri.parse("package:${context.packageName}")),
+                )
+            },
+        ),
+    )
+    add(
+        PermissionEntry(
+            requirement = ToolPermissions.USAGE_ACCESS,
+            title = "Screen time",
+            why = "Read which apps you use most when you ask.",
+            grant = Grant.Screen { context ->
+                openSettings(context, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             },
         ),
     )
@@ -590,6 +680,13 @@ enum class PermissionStatus {
      * Needs a system screen rather than a runtime dialog, and is currently off.
      */
     REQUIRES_SCREEN,
+
+    /**
+     * The permission exists but may be used only while LocalIntelligence is the default
+     * assistant app, and that role is not held. The dialog is withheld until it is, because
+     * Google Play allows the permission only for the default assistant.
+     */
+    NEEDS_ASSISTANT_ROLE,
     ;
 
     val isSatisfied: Boolean get() = this == GRANTED || this == NOT_A_PERMISSION
@@ -630,6 +727,11 @@ private fun statusOf(
             entry.grant is Grant.Screen -> PermissionStatus.REQUIRES_SCREEN
             else -> PermissionStatus.NOT_A_PERMISSION
         }
+    // Checked before the permission on purpose: a granted texts permission is still not used
+    // while the default-assistant role is off, and the screen must say so.
+    if (entry.needsAssistantRole && !DefaultAssistant.isHeld(context)) {
+        return PermissionStatus.NEEDS_ASSISTANT_ROLE
+    }
     if (isPermissionHeld(context, permission)) return PermissionStatus.GRANTED
     if (activity == null) return PermissionStatus.DENIED
     val rationale = ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)
@@ -664,6 +766,14 @@ private fun probeSatisfied(context: Context, entry: PermissionEntry): Boolean {
         // Activity, so the app demonstrably has focus, and the answer to "can the
         // clipboard be read" right now is yes.
         ToolPermissions.CLIPBOARD_BACKGROUND_READ -> true
+
+        // Special accesses and the assistant role, read through the same platform queries the
+        // tools use, so the screen and a tool cannot disagree about one switch.
+        ToolPermissions.DO_NOT_DISTURB,
+        ToolPermissions.WRITE_SETTINGS_ACCESS,
+        ToolPermissions.USAGE_ACCESS,
+        ToolPermissions.DEFAULT_ASSISTANT,
+        -> AndroidPlatformGrant(context).isGranted(entry.requirement)
 
         // Everything else with no runtime permission is a normal permission:
         // VIBRATE and INTERNET are granted by being in the manifest, and the
@@ -718,6 +828,7 @@ private fun PermissionCard(
     onAsk: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenScreen: () -> Unit,
+    onOpenRole: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -750,6 +861,7 @@ private fun PermissionCard(
                         PermissionStatus.NOT_ASKED,
                         PermissionStatus.DENIED,
                         PermissionStatus.REQUIRES_SCREEN,
+                        PermissionStatus.NEEDS_ASSISTANT_ROLE,
                         -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
@@ -769,6 +881,18 @@ private fun PermissionCard(
                 PermissionStatus.REQUIRES_SCREEN -> {
                     Button(onClick = onOpenScreen) {
                         Text("Open settings")
+                    }
+                }
+
+                PermissionStatus.NEEDS_ASSISTANT_ROLE -> {
+                    Text(
+                        "Only the default assistant app can use this. Make LocalIntelligence " +
+                            "the default assistant first.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(onClick = onOpenRole) {
+                        Text("Set as default assistant")
                     }
                 }
 
@@ -803,6 +927,7 @@ private val PermissionStatus.label: String
         PermissionStatus.DENIED_FOREVER -> "Blocked"
         PermissionStatus.NOT_A_PERMISSION -> "Nothing to grant"
         PermissionStatus.REQUIRES_SCREEN -> "Off"
+        PermissionStatus.NEEDS_ASSISTANT_ROLE -> "Off"
     }
 
 /**
