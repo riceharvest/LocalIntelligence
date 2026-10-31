@@ -189,11 +189,12 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
 // `callable_tools_json` every tool the reply may call (a superset, in the same
 // order). Returns {"prompt": "...", "format": "<format name>"} as JSON, or null when
 // the model has no chat engine or its template cannot render tools; the caller
-// then uses the flat or template path.
+// then uses the flat or template path. thinking_budget above 0 turns the template's
+// thinking on and makes nativeGenerate cap the thought at that many tokens.
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
         JNIEnv * env, jclass, jlong handle, jstring messages_json, jstring prompt_tools_json,
-        jstring callable_tools_json);
+        jstring callable_tools_json, jint thinking_budget);
 
 // The prepared reply as JSON: {"content": "...", "tool_calls": [{"name": "...",
 // "arguments": "..."}]}. Null if there is no finished native generation.
@@ -202,10 +203,12 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatResult(JNIEnv
 
 // The token count of the prompt nativeChatPrepare would render for these messages and
 // prompt tools, without preparing anything (the handle's prepared session is left as it
-// is). -1 when the model cannot render tools or on any failure.
+// is). thinking_budget is as for nativeChatPrepare, so the count prices the same
+// prompt. -1 when the model cannot render tools or on any failure.
 JNIEXPORT jint JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatCount(
-        JNIEnv * env, jclass, jlong handle, jstring messages_json, jstring prompt_tools_json);
+        JNIEnv * env, jclass, jlong handle, jstring messages_json, jstring prompt_tools_json,
+        jint thinking_budget);
 
 // Where the system prompt's state is saved between runs, and the key that
 // names this model load. Call after a successful load; empty disables it.

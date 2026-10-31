@@ -235,6 +235,8 @@ class AgentController(
     private val useModelTemplate: Boolean = true,
     /** Whether a backend with its own tool format uses it. From the user's settings. */
     private val useNativeToolFormat: Boolean = false,
+    /** Tokens the model may think before it answers, with its own tool format. From the user's settings. */
+    private val thinkingBudget: Int = 0,
     /**
      * Invoked right before a tool runs, with the tool's name and its arguments
      * in the same compact form the trace uses.
@@ -1470,6 +1472,7 @@ class AgentController(
             tools = callable.map { it.definition },
             listedToolCount = listed.size,
             useNativeToolFormat = useNativeToolFormat,
+            thinkingBudget = thinkingBudget,
         )
     }
 

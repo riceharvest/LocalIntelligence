@@ -21,6 +21,7 @@
 #pragma clang diagnostic ignored "-Wunused-function"
 #include "chat.h"
 #include "common.h"
+#include "reasoning-budget.h"
 #pragma clang diagnostic pop
 
 #include <set>
@@ -166,6 +167,11 @@ struct NativeChat {
     // Strings that end the reply when the model writes them.
     std::vector<std::string> stops;
     std::string format;
+    // The thinking budget this reply was prepared with (0: thinking off), and the tags of the
+    // session's thinking block. nativeGenerate caps the thought with them (see its budget note).
+    int32_t thinking_budget = 0;
+    std::string thinking_start;
+    std::vector<std::string> thinking_ends;
 };
 
 void free_model_locked(LlamaHandle * h) {
@@ -557,22 +563,22 @@ void parse_native_request(const llama_vocab * vocab, const std::string & message
     }
 }
 
-// The template inputs for a native prompt rendered with [tools]. Thinking is off and
-// the tool choice is automatic, for every native render.
+// The template inputs for a native prompt rendered with [tools]. The tool choice is
+// automatic, for every native render. [thinking] turns the template's thinking on; it is
+// on only with a thinking budget, which caps the thought (nativeGenerate).
 common_chat_templates_inputs native_inputs(const std::vector<common_chat_msg> & msgs,
-                                           const std::vector<common_chat_tool> & tools) {
+                                           const std::vector<common_chat_tool> & tools, bool thinking) {
     common_chat_templates_inputs inputs;
     inputs.messages = msgs;
     inputs.use_jinja = true;
     inputs.add_generation_prompt = true;
     inputs.parallel_tool_calls = false;
     inputs.tool_choice = COMMON_CHAT_TOOL_CHOICE_AUTO;
-    // Thinking off: decoding is 7 tokens/s on the slowest phones, and the models this
-    // app runs answer well without it.
-    inputs.enable_thinking = false;
-    // Thinking off is a request, not a guarantee: LFM3 still writes a thought and a
-    // closing </think> now and then. The parser takes any thought out of the reply
-    // (llama-server's default), so the user sees only the answer.
+    // Thinking is requested only with a budget: decoding is 7 tokens/s on the slowest
+    // phones, so an unbounded thought is the cost the budget exists to stop.
+    inputs.enable_thinking = thinking;
+    // The parser takes any thought out of the reply (llama-server's default), so the user
+    // sees only the answer, whether or not the model thought.
     inputs.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
     inputs.tools = tools;
     return inputs;
@@ -583,10 +589,12 @@ common_chat_templates_inputs native_inputs(const std::vector<common_chat_msg> & 
 // tools starts with, whose state nativeGenerate keeps (stable_bytes). Returns 0 when that
 // text is not a prefix of `full`, or when the template cannot render a system message
 // without a user turn (the exception is caught here, so the prompt itself still prepares).
-int32_t system_prefix_bytes(common_chat_templates * tmpls, const NativeRequest & req, const std::string & full) {
+int32_t system_prefix_bytes(common_chat_templates * tmpls, const NativeRequest & req, const std::string & full,
+                            bool thinking) {
     if (req.msgs.empty() || req.msgs.front().role != "system") return 0;
     try {
-        common_chat_templates_inputs head = native_inputs(std::vector<common_chat_msg>{req.msgs.front()}, req.prompt_tools);
+        common_chat_templates_inputs head = native_inputs(std::vector<common_chat_msg>{req.msgs.front()},
+                                                          req.prompt_tools, thinking);
         head.add_generation_prompt = false;
         const std::string text = joined_parts(common_chat_templates_apply(tmpls, head).prompt.parts);
         if (!text.empty() && text.size() < full.size() && full.compare(0, text.size(), text) == 0) {
@@ -1369,7 +1377,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeTakeResult(JNIEnv
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
         JNIEnv * env, jclass, jlong handle, jstring messages_json, jstring prompt_tools_json,
-        jstring callable_tools_json) {
+        jstring callable_tools_json, jint thinking_budget) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr || messages_json == nullptr || prompt_tools_json == nullptr ||
         callable_tools_json == nullptr) {
@@ -1397,13 +1405,14 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
 
         // The prompt lists the conversation's fixed tools, so its start does not
         // change when a tool is described in one turn (see planTurnTools).
+        const bool thinking = thinking_budget > 0;
         const common_chat_params rendered =
-            common_chat_templates_apply(nc->tmpls.get(), native_inputs(req.msgs, req.prompt_tools));
+            common_chat_templates_apply(nc->tmpls.get(), native_inputs(req.msgs, req.prompt_tools, thinking));
 
         // The reply may call any callable tool, so the grammar and the parser are
         // built from that list. The prompt above is not rendered from it.
         auto session = std::make_unique<common_chat_session>(
-            nc->tmpls.get(), vocab, native_inputs(req.msgs, req.callable_tools));
+            nc->tmpls.get(), vocab, native_inputs(req.msgs, req.callable_tools, thinking));
         if (!req.callable_tools.empty() &&
             (rendered.format == COMMON_CHAT_FORMAT_CONTENT_ONLY ||
              session->format() == COMMON_CHAT_FORMAT_CONTENT_ONLY)) {
@@ -1419,6 +1428,9 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
         nc->grammar_triggers = sampling.grammar_triggers;
         nc->preserved = sampling.preserved_tokens;
         nc->stops = session->additional_stops();
+        nc->thinking_budget = thinking ? thinking_budget : 0;
+        nc->thinking_start = session->thinking_start_tag();
+        nc->thinking_ends = session->thinking_end_tags();
         nc->parts = rendered.prompt.parts;
         nc->format = common_chat_format_name(rendered.format);
         nc->session = std::move(session);
@@ -1427,7 +1439,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
         // Where the conversation-independent start of the prompt ends (see
         // system_prefix_bytes); nativeGenerate keeps the state there.
         const std::string full = joined_parts(nc->parts);
-        const int32_t stable = system_prefix_bytes(nc->tmpls.get(), req, full);
+        const int32_t stable = system_prefix_bytes(nc->tmpls.get(), req, full, thinking);
         return to_jstring(env, "{\"prompt\":" + json_quote(full) +
                                ",\"format\":" + json_quote(nc->format) +
                                ",\"lazy\":" + (nc->grammar_lazy ? "true" : "false") +
@@ -1446,7 +1458,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatPrepare(
 // are most of the difference from the app's own text prompt.
 JNIEXPORT jint JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatCount(
-        JNIEnv * env, jclass, jlong handle, jstring messages_json, jstring prompt_tools_json) {
+        JNIEnv * env, jclass, jlong handle, jstring messages_json, jstring prompt_tools_json, jint thinking_budget) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr || messages_json == nullptr || prompt_tools_json == nullptr) {
         return -1;
@@ -1466,8 +1478,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatCount(
         const llama_vocab * vocab = as_vocab(h->vocab);
         NativeRequest req;
         parse_native_request(vocab, messages, prompt_tools, nullptr, req);
-        const common_chat_params rendered =
-            common_chat_templates_apply(nc->tmpls.get(), native_inputs(req.msgs, req.prompt_tools));
+        const common_chat_params rendered = common_chat_templates_apply(
+            nc->tmpls.get(), native_inputs(req.msgs, req.prompt_tools, thinking_budget > 0));
         if (!req.prompt_tools.empty() && rendered.format == COMMON_CHAT_FORMAT_CONTENT_ONLY) {
             return -1;
         }
@@ -1726,6 +1738,61 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         publish();
         return to_jstring(env, outcome.error);
     }
+
+    // ---- thinking budget ------------------------------------------------------
+    // The thought is capped at the budget the reply was prepared with. Built as
+    // common_sampler_init builds it (sampling.cpp): the start and end tags as token
+    // sequences, and the first end tag is the one forced when the budget runs out (no
+    // message). The sampler is passthrough until the start tag is seen, so a model whose
+    // template does not open a thought is untouched. Null unless the template has a thinking
+    // block and a budget was asked for.
+    llama_sampler * rbudget = nullptr;
+    if (native_nc != nullptr && native_nc->thinking_budget > 0 && !native_nc->thinking_start.empty() &&
+        !native_nc->thinking_ends.empty()) {
+        std::string tag_err;
+        std::vector<llama_token> start_tokens;
+        bool tags_ok = tokenize(vocab, native_nc->thinking_start, start_tokens, tag_err,
+                                /*parse_special=*/true, /*add_special=*/false) && !start_tokens.empty();
+        std::vector<llama_tokens> end_seqs;
+        llama_tokens forced;
+        for (const std::string & tag : native_nc->thinking_ends) {
+            llama_tokens end_tokens;
+            if (!tokenize(vocab, tag, end_tokens, tag_err, true, false) || end_tokens.empty()) {
+                tags_ok = false;
+                break;
+            }
+            if (forced.empty()) forced = end_tokens;
+            end_seqs.push_back(std::move(end_tokens));
+        }
+        if (tags_ok) {
+            rbudget = common_reasoning_budget_init(vocab, std::vector<llama_tokens>{start_tokens}, end_seqs, forced,
+                                                   native_nc->thinking_budget);
+        }
+    }
+    // The prompt goes through the budget first, so a template that opens the thought itself
+    // starts the count. A media prompt has no token list here, so its text is tokenised.
+    if (rbudget != nullptr) {
+        std::vector<llama_token> budget_prompt;
+        if (mm_chunks) {
+            std::string tag_err;
+            tokenize(vocab, prompt_str, budget_prompt, tag_err, /*parse_special=*/true, /*add_special=*/false);
+        } else {
+            budget_prompt = tokens;
+        }
+        for (const llama_token t : budget_prompt) llama_sampler_accept(rbudget, t);
+    }
+    // A lazy grammar (the tool-call grammar) is not applied while the thought is counted or
+    // forced, as llama.cpp's common sampler does (grammar_should_apply).
+    bool thinking_capped = false;
+    auto budget_running = [&]() {
+        if (rbudget == nullptr) return false;
+        const common_reasoning_budget_state st = common_reasoning_budget_get_state(rbudget);
+        return st == REASONING_BUDGET_COUNTING || st == REASONING_BUDGET_WAITING_UTF8 ||
+               st == REASONING_BUDGET_FORCING;
+    };
+    auto grammar_applies = [&]() {
+        return grammar_smpl != nullptr && !(native_nc != nullptr && native_nc->grammar_lazy && budget_running());
+    };
 
     constexpr llama_seq_id kPromptSeq = 0;
     // How far before a prompt's end a hybrid model's state is copied: past the
@@ -2005,6 +2072,9 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
                 cur.size = candidates.size();
                 cur.selected = -1;
                 cur.sorted = false;
+                // The budget first, as sampling.cpp does: while the thought is forced it leaves
+                // only the forced token, and it is a no-op at every other time.
+                if (rbudget != nullptr) llama_sampler_apply(rbudget, &cur);
                 llama_sampler_apply(chain, &cur);
                 if (cur.selected >= 0 &&
                     static_cast<size_t>(cur.selected) < cur.size) {
@@ -2012,7 +2082,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
                 }
                 // Grammar check on the one sampled token; only when it breaks the
                 // grammar is the full vocabulary constrained and sampled again.
-                if (grammar_smpl != nullptr && id >= 0) {
+                if (grammar_applies() && id >= 0) {
                     llama_token_data single{id, logits[id], 0.0f};
                     llama_token_data_array one{&single, 1, -1, false};
                     llama_sampler_apply(grammar_smpl, &one);
@@ -2024,6 +2094,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
                         cur.size = candidates.size();
                         cur.selected = -1;
                         cur.sorted = false;
+                        if (rbudget != nullptr) llama_sampler_apply(rbudget, &cur);
                         llama_sampler_apply(grammar_smpl, &cur);
                         llama_sampler_apply(chain, &cur);
                         id = (cur.selected >= 0 && static_cast<size_t>(cur.selected) < cur.size)
@@ -2046,7 +2117,17 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
                 outcome.stop = static_cast<int32_t>(StopCode::MAX_TOKENS);
             }
 
-            if (grammar_smpl != nullptr) llama_sampler_accept(grammar_smpl, id);
+            // Read before the budget takes the token: the gate is the state the token was sampled in.
+            if (grammar_applies()) llama_sampler_accept(grammar_smpl, id);
+            if (rbudget != nullptr) {
+                llama_sampler_accept(rbudget, id);
+                const common_reasoning_budget_state st = common_reasoning_budget_get_state(rbudget);
+                if (!thinking_capped && (st == REASONING_BUDGET_WAITING_UTF8 || st == REASONING_BUDGET_FORCING)) {
+                    thinking_capped = true;
+                    __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "thinking capped at %d tokens",
+                                        native_nc->thinking_budget);
+                }
+            }
             llama_sampler_accept(chain, id);
             outcome.completion_tokens++;
             gen_tokens.push_back(id);
@@ -2190,6 +2271,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
 
     llama_sampler_free(chain);
     if (grammar_smpl != nullptr) llama_sampler_free(grammar_smpl);
+    if (rbudget != nullptr) llama_sampler_free(rbudget);
 
     // The accumulated text is authoritative; the token stream was for latency.
     if (!failed && !outcome.error.empty()) {

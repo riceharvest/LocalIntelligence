@@ -1447,6 +1447,7 @@ class AppContainer(private val context: Context) {
         constrainOutput = snapshot[CoreSettings.CONSTRAINED_OUTPUT],
         useModelTemplate = snapshot[CoreSettings.MODEL_CHAT_TEMPLATE],
         useNativeToolFormat = snapshot[CoreSettings.NATIVE_TOOL_FORMAT],
+        thinkingBudget = snapshot[CoreSettings.THINKING_BUDGET],
     )
     }
 

@@ -281,15 +281,18 @@ object LlamaBridge {
      * template, and prepares its tool-call parser for [callableToolsJson]. The prompt
      * lists [promptToolsJson] (the same tools every turn of a conversation). Returns
      * `{"prompt": "...", "format": "..."}` as JSON, or null when the model has no
-     * chat engine or its template cannot render tools.
+     * chat engine or its template cannot render tools. [thinkingBudget] above 0 turns
+     * the template's thinking on, and the next [generate] caps the thought at that many
+     * tokens; 0 leaves thinking off.
      */
     fun chatPrepare(
         handle: Handle,
         messagesJson: String,
         promptToolsJson: String,
         callableToolsJson: String,
+        thinkingBudget: Int,
     ): String? = if (isAvailable) {
-        nativeChatPrepare(handle.ptr, messagesJson, promptToolsJson, callableToolsJson)
+        nativeChatPrepare(handle.ptr, messagesJson, promptToolsJson, callableToolsJson, thinkingBudget)
     } else {
         null
     }
@@ -306,9 +309,9 @@ object LlamaBridge {
      * tools, or -1 when native does not apply. Prepares nothing, so it is safe while the
      * handle's prepared reply is still in use.
      */
-    fun chatCount(handle: Handle, messagesJson: String, promptToolsJson: String): Int =
+    fun chatCount(handle: Handle, messagesJson: String, promptToolsJson: String, thinkingBudget: Int): Int =
         if (isAvailable) {
-            handle.withPinned { nativeChatCount(it, messagesJson, promptToolsJson) } ?: -1
+            handle.withPinned { nativeChatCount(it, messagesJson, promptToolsJson, thinkingBudget) } ?: -1
         } else {
             -1
         }
@@ -414,10 +417,12 @@ object LlamaBridge {
         sink: TokenSink?, parseSpecial: Boolean, stablePrefixBytes: Int, nativeChat: Boolean,
     ): String?
     @JvmStatic private external fun nativeChatPrepare(
-        ptr: Long, messagesJson: String, promptToolsJson: String, callableToolsJson: String,
+        ptr: Long, messagesJson: String, promptToolsJson: String, callableToolsJson: String, thinkingBudget: Int,
     ): String?
     @JvmStatic private external fun nativeChatResult(ptr: Long): String?
-    @JvmStatic private external fun nativeChatCount(ptr: Long, messagesJson: String, promptToolsJson: String): Int
+    @JvmStatic private external fun nativeChatCount(
+        ptr: Long, messagesJson: String, promptToolsJson: String, thinkingBudget: Int,
+    ): Int
     @JvmStatic private external fun nativeSetPrefixCache(ptr: Long, dir: String, key: String)
 
     /**
