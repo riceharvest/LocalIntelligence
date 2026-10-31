@@ -14,6 +14,8 @@ import dev.localintelligence.android.cloud.OpenRouterChatBackend
 import dev.localintelligence.android.cloud.OpenRouterPlugin
 import dev.localintelligence.android.documents.DocumentEmbedder
 import dev.localintelligence.android.cloud.OpenRouterSettings
+import dev.localintelligence.android.cloud.sandbox.SANDBOX_TOOL_PREFIX
+import dev.localintelligence.android.cloud.sandbox.SandboxPlugin
 import dev.localintelligence.android.documents.DocumentStore
 import dev.localintelligence.android.documents.DocumentsPlugin
 import dev.localintelligence.android.documents.DOCUMENT_EMBEDDING_MODEL
@@ -221,6 +223,7 @@ class AppContainer(private val context: Context) {
     private val builtInPlugins: List<AgentPlugin> by lazy {
         val families = androidToolPlugins(context)
         val cloud = openRouterPlugin
+        val sandbox = sandboxPlugin
         // Checked here, against everything shipped and switched on or not. A run's
         // registry holds only the enabled tools, so checking it against the
         // catalogue would fail whenever any plugin is off, which is the default for
@@ -230,11 +233,12 @@ class AppContainer(private val context: Context) {
         // an instance here stands for it (the check reads definitions only).
         val finder = ToolFinder(SimpleToolRegistry(emptyList(), catalogue = emptyList()), LexicalToolSelector(), session)
         CatalogueAgreement.require(
-            families.flatMap { it.tools() } + cloud.shippedTools() + docs.shippedTools() + finder,
+            families.flatMap { it.tools() } + cloud.shippedTools() + sandbox.shippedTools() +
+                docs.shippedTools() + finder,
             V0ToolCatalogue.definitions,
         )
         val remote = McpPlugin(settings)
-        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + remote
+        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + sandbox + remote
     }
 
     /**
@@ -553,6 +557,8 @@ class AppContainer(private val context: Context) {
             .remove(KEY_SESSION_ID)
             .apply()
         restoredTurns = emptyList()
+        // The old conversation's cloud sandbox is stopped; the next one starts its own.
+        sandboxPlugin.endConversation()
     }
 
     /**
@@ -714,6 +720,13 @@ class AppContainer(private val context: Context) {
      * The chat model reads the same switch and key, so the two cannot disagree.
      */
     val openRouterPlugin: OpenRouterPlugin by lazy { OpenRouterPlugin(context, settings) }
+
+    /**
+     * The cloud sandbox plugin: commands run on the user's own Daytona account. Its tools are
+     * offered only in Technical mode and only while the remote chat model answers; see
+     * [newController]. New chat stops its sandbox ([startNewConversation]).
+     */
+    val sandboxPlugin: SandboxPlugin by lazy { SandboxPlugin(settings) }
 
     /**
      * The remote chat model. It is never loaded by [loadModel]: it becomes the resident
@@ -1394,7 +1407,12 @@ class AppContainer(private val context: Context) {
                 observationBudgetChars = budget.observationBudget,
             )
         }
-        val pluginTools = pluginSet.tools()
+        // Sandbox tools run on the user's cloud account, so they are offered only while the
+        // remote chat model is the one answering this run (the same as remoteChatActive). A
+        // small on-device model is not trusted with a computer that is billed to the user.
+        val pluginTools = pluginSet.tools().filter { tool ->
+            !tool.definition.name.startsWith(SANDBOX_TOOL_PREFIX) || model === remoteChatBackend
+        }
         // With "Let the model look up tools" on, tools.find searches the same
         // enabled tools the run may call.
         val finder = if (config.toolLookup) {
