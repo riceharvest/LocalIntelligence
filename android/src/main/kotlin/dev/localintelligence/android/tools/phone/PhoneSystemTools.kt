@@ -49,7 +49,15 @@ internal enum class DndMode(val arg: String, val filter: Int, val label: String)
     companion object {
         val ARG_NAMES: List<String> = values().map { it.arg }
 
-        fun byArg(raw: String): DndMode? = values().firstOrNull { it.arg == raw.trim().lowercase() }
+        /**
+         * "on" is priority, what Android's own Do Not Disturb switch turns on. WHY: "Turn on do
+         * not disturb" makes LFM3-1.7B pass mode "on", and its call format does not hold the
+         * argument to the enum, so the call failed and cost a second step.
+         */
+        fun byArg(raw: String): DndMode? {
+            val key = raw.trim().lowercase()
+            return if (key == "on") PRIORITY else values().firstOrNull { it.arg == key }
+        }
     }
 }
 
