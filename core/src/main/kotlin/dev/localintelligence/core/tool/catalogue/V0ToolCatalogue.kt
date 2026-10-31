@@ -72,7 +72,7 @@ import kotlinx.serialization.json.putJsonObject
  *   `history.search` is the one read-only exception: it only reads past messages.
  * - **A general SMS send.** `notifications.reply` covers the only send path v0
  *   needs. A second send tool collides with it on the word "text".
- * - **Settings read/write, wifi, volume, storage, media, clock.** Real
+ * - **Settings read/write, wifi, storage, clock.** Real
  *   capabilities, none of which a target task needs, and each a fresh pair of tags
  *   competing for the same six retrieval slots.
  * - **Browser and computer-use.** Banned by `docs/architecture.md` section 1.
@@ -540,6 +540,125 @@ object V0ToolCatalogue {
             requiredPermission = "android.permission.VIBRATE",
         ),
 
+        // ----------------------------------------------------------------- phone
+        ToolDefinition(
+            name = "phone.flashlight",
+            description = "Turn the flashlight on or off. Use when the user asks for the torch or light.",
+            category = "phone",
+            schema = objSchema(required = listOf("on")) {
+                putJsonObject("on") {
+                    put("type", "boolean")
+                    put("description", "true to turn the flashlight on, false to turn it off.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("flashlight", "torch", "light", "zaklamp"),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "phone.volume",
+            description = "Set the volume of one sound stream or the ringer mode. Use when the user " +
+                "says louder, quieter, mute, silent or vibrate mode.",
+            category = "phone",
+            schema = objSchema {
+                putJsonObject("stream") {
+                    put("type", "string")
+                    put("description", "media, ring, alarm or notification. Default media.")
+                }
+                putJsonObject("level") {
+                    put("type", "integer")
+                    put("minimum", 0)
+                    put("maximum", 100)
+                    put("description", "Volume as a percentage, 0 to 100.")
+                }
+                putJsonObject("mode") {
+                    put("type", "string")
+                    put("description", "normal, vibrate or silent. Ring stream only.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf(
+                "volume", "louder", "quieter", "mute", "silent", "ringer",
+                "vibrate mode", "harder", "zachter",
+            ),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "phone.media",
+            description = "Play, pause, skip or go back in the playing media app. Use when the user " +
+                "says pause, play, next song or previous song.",
+            category = "phone",
+            schema = objSchema(required = listOf("action")) {
+                putJsonObject("action") {
+                    put("type", "string")
+                    put("description", "play, pause, next or previous.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("music", "pause", "play", "next song", "skip", "previous song", "podcast"),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "phone.dial",
+            description = "Open the dialer with a number filled in; the user presses call. Use when " +
+                "the user asks to call someone. Look a name up with contacts.search first.",
+            category = "phone",
+            schema = objSchema(required = listOf("number")) {
+                putJsonObject("number") {
+                    put("type", "string")
+                    put("maxLength", 30)
+                    put("description", "Phone number to dial, e.g. +31612345678.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("call", "dial", "phone number", "ring", "bel"),
+            requiredPermission = null,
+        ),
+
+        // ------------------------------------------------------------------ maps
+        ToolDefinition(
+            name = "maps.navigate",
+            description = "Start directions to a place in a maps app. Use when the user asks how to " +
+                "get somewhere or to be taken there.",
+            category = "maps",
+            schema = objSchema(required = listOf("destination")) {
+                putJsonObject("destination") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "Address or place name.")
+                }
+                putJsonObject("mode") {
+                    put("type", "string")
+                    put("description", "drive, walk, bike or transit. Default drive.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("navigate", "directions", "route", "take me to", "how do i get to"),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "maps.show",
+            description = "Show a place, address or search on the map without routing. Use when the " +
+                "user asks where something is or what is nearby.",
+            category = "maps",
+            schema = objSchema(required = listOf("query")) {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "Place, address or search to show.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("map", "show on map", "where is", "nearby", "in de buurt"),
+            requiredPermission = null,
+        ),
+
         // ----------------------------------------------------------------- alarm
         ToolDefinition(
             name = "alarm.create",
@@ -846,6 +965,34 @@ object V0ToolCatalogue {
                 "contact card", "their email", "their address",
             ),
             requiredPermission = "android.permission.READ_CONTACTS",
+        ),
+
+        ToolDefinition(
+            name = "contacts.add",
+            description = "Open the contacts app with a new contact filled in for the user to save. " +
+                "Use when the user asks to save or add a number or person.",
+            category = "contacts",
+            schema = objSchema(required = listOf("name")) {
+                putJsonObject("name") {
+                    put("type", "string")
+                    put("maxLength", 100)
+                    put("description", "Full name of the new contact.")
+                }
+                putJsonObject("phone") {
+                    put("type", "string")
+                    put("maxLength", 30)
+                    put("description", "Phone number, e.g. +31612345678. Optional.")
+                }
+                putJsonObject("email") {
+                    put("type", "string")
+                    put("maxLength", 120)
+                    put("description", "Email address. Optional.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("add contact", "save number", "new contact"),
+            requiredPermission = null,
         ),
 
         // --------------------------------------------------------- notifications

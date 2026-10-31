@@ -2,8 +2,19 @@ package dev.localintelligence.android.tools.contacts
 
 import android.content.Context
 import android.content.ContentResolver
+import android.content.Intent
 import android.database.Cursor
+import android.net.Uri
 import android.provider.ContactsContract
+import dev.localintelligence.android.tools.device.ArgCoerce
+import dev.localintelligence.android.tools.device.ArgResult
+import dev.localintelligence.android.tools.device.guarded
+import dev.localintelligence.android.tools.phone.PhoneNumber
+import dev.localintelligence.android.tools.phone.canHandle
+import dev.localintelligence.android.tools.phone.cancelledBefore
+import dev.localintelligence.android.tools.phone.invalidArgument
+import dev.localintelligence.android.tools.phone.startIntent
+import dev.localintelligence.android.tools.phone.textArg
 import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
@@ -700,6 +711,110 @@ class ContactsGetTool internal constructor(
     }
 }
 
+/**
+ * Opens the contacts app with a new contact prefilled, for the user to look at and save.
+ *
+ * WHY it never writes: saving needs WRITE_CONTACTS, which this app does not ask for, and
+ * a model that could save a contact would be creating records the user never reviewed.
+ * The insert form is the review step.
+ */
+class ContactsAddTool(private val appContext: Context) : AgentTool {
+
+    override val definition: ToolDefinition = ToolDefinition(
+        name = "contacts.add",
+        description = "Open the contacts app with a new contact filled in for the user to save. " +
+            "Nothing is saved until they tap save.",
+        category = "contacts",
+        schema = buildJsonObject {
+            put("type", "object")
+            put("properties", buildJsonObject {
+                put("name", buildJsonObject {
+                    put("type", "string")
+                    put("maxLength", ADD_NAME_MAX)
+                    put("description", "Full name of the new contact.")
+                })
+                put("phone", buildJsonObject {
+                    put("type", "string")
+                    put("maxLength", PhoneNumber.MAX_CHARS)
+                    put("description", "Phone number, e.g. +31612345678. Optional.")
+                })
+                put("email", buildJsonObject {
+                    put("type", "string")
+                    put("maxLength", ADD_EMAIL_MAX)
+                    put("description", "Email address. Optional.")
+                })
+            })
+            put("required", buildJsonArray { add("name") })
+        },
+        risk = ToolRisk.REVERSIBLE,
+        observationOrigin = ObservationOrigin.LOCAL,
+        tags = setOf("add contact", "save number", "new contact"),
+        requiredPermission = null,
+    )
+
+    override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
+        val name = when (val r = textArg(args, "name", ADD_NAME_MAX)) {
+            is ArgResult.Present -> r.value
+            is ArgResult.Missing -> return invalidArgument("name is required: the person's full name.")
+            is ArgResult.Unusable -> return invalidArgument(
+                "name must be one piece of text under $ADD_NAME_MAX characters, but was ${r.got}.",
+            )
+        }
+        val phone = when (val r = textArg(args, "phone", PhoneNumber.MAX_CHARS * 2, optional = true)) {
+            is ArgResult.Present -> PhoneNumber.clean(r.value)
+                ?: return invalidArgument(
+                    "\"${ArgCoerce.ellipsize(r.value, 24)}\" is not a phone number. Send digits with an " +
+                        "optional leading +, or leave phone out.",
+                )
+            is ArgResult.Missing -> null
+            is ArgResult.Unusable -> return invalidArgument("phone must be one piece of text, but was ${r.got}.")
+        }
+        val email = when (val r = textArg(args, "email", ADD_EMAIL_MAX, optional = true)) {
+            is ArgResult.Present -> r.value.takeIf { EMAIL_SHAPE.matches(it) }
+                ?: return invalidArgument(
+                    "\"${ArgCoerce.ellipsize(r.value, 24)}\" is not an email address. Leave email out or send one like name@example.com.",
+                )
+            is ArgResult.Missing -> null
+            is ArgResult.Unusable -> return invalidArgument("email must be one piece of text, but was ${r.got}.")
+        }
+        if (context.signal.isCancelled()) return cancelledBefore("contacts.add")
+        return guarded("contacts.add") { openInsertForm(name, phone, email) }
+    }
+
+    private fun openInsertForm(name: String, phone: String?, email: String?): ToolResult {
+        val intent = Intent(Intent.ACTION_INSERT).apply {
+            type = ContactsContract.Contacts.CONTENT_TYPE
+            putExtra(ContactsContract.Intents.Insert.NAME, name)
+            if (phone != null) putExtra(ContactsContract.Intents.Insert.PHONE, phone)
+            if (email != null) putExtra(ContactsContract.Intents.Insert.EMAIL, email)
+        }
+        if (!canHandle(appContext, intent)) {
+            return ToolResult(
+                success = false,
+                observation = "No contacts app on this phone can add a contact, so nothing was opened.",
+                error = ToolError.Unavailable("no contacts app for insert"),
+            )
+        }
+        if (!startIntent(appContext, intent)) {
+            return ToolResult(
+                success = false,
+                observation = "Android refused to open the contacts app, so nothing was opened.",
+                error = ToolError.Unavailable("startActivity refused for contacts.add"),
+            )
+        }
+        return ToolResult(
+            success = true,
+            observation = "Opened a new contact for $name in the contacts app. It is not saved until the user taps save.",
+        )
+    }
+
+    private companion object {
+        const val ADD_NAME_MAX = 100
+        const val ADD_EMAIL_MAX = 120
+        val EMAIL_SHAPE = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
+    }
+}
+
 // -------------------------------------------------------------- cursor null-safety --
 
 /** A column the provider did not return reads as empty, never as an exception. */
@@ -730,5 +845,6 @@ fun contactsTools(context: Context, grant: PlatformGrant): List<AgentTool> {
     return listOf(
         ContactsSearchTool(resolver, grant),
         ContactsGetTool(resolver, grant),
+        ContactsAddTool(context.applicationContext),
     )
 }
