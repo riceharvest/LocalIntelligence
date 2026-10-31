@@ -19,6 +19,7 @@ import dev.localintelligence.android.cloud.RemoteProviders
 import dev.localintelligence.android.cloud.OpenRouterPlugin
 import dev.localintelligence.android.documents.DocumentEmbedder
 import dev.localintelligence.android.cloud.OpenRouterSettings
+import dev.localintelligence.android.cloud.browser.CloudBrowserPlugin
 import dev.localintelligence.android.cloud.sandbox.SANDBOX_TOOL_PREFIX
 import dev.localintelligence.android.cloud.sandbox.SandboxPlugin
 import dev.localintelligence.android.documents.DocumentStore
@@ -263,6 +264,7 @@ class AppContainer(private val context: Context) {
         val families = androidToolPlugins(context, settings)
         val cloud = openRouterPlugin
         val sandbox = sandboxPlugin
+        val browser = cloudBrowserPlugin
         val chatGpt = chatGptPlugin
         // Checked here, against everything shipped and switched on or not. A run's
         // registry holds only the enabled tools, so checking it against the
@@ -275,12 +277,12 @@ class AppContainer(private val context: Context) {
         val home = HomeAssistantPlugin(settings)
         val email = EmailPlugin(settings)
         CatalogueAgreement.require(
-            families.flatMap { it.tools() } + cloud.shippedTools() + sandbox.shippedTools() +
+            families.flatMap { it.tools() } + cloud.shippedTools() + sandbox.shippedTools() + browser.shippedTools() +
                 docs.shippedTools() + finder + home.shippedTools() + email.shippedTools(),
             V0ToolCatalogue.definitions,
         )
         val remote = McpPlugin(settings)
-        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + sandbox + remote + home + email
+        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + sandbox + browser + remote + home + email
     }
 
     /**
@@ -770,6 +772,12 @@ class AppContainer(private val context: Context) {
      * [newController]. New chat stops its sandbox ([startNewConversation]).
      */
     val sandboxPlugin: SandboxPlugin by lazy { SandboxPlugin(settings) }
+
+    /**
+     * The cloud browser plugin: a web task runs on the user's own Browser Use account. Its tools are
+     * offered in Technical mode to any chat model, each start asks first.
+     */
+    val cloudBrowserPlugin: CloudBrowserPlugin by lazy { CloudBrowserPlugin(settings) }
 
     /**
      * The remote chat model. It is never loaded by [loadModel]: it becomes the resident
