@@ -2118,10 +2118,18 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             }
 
             // Read before the budget takes the token: the gate is the state the token was sampled in.
-            if (grammar_applies()) llama_sampler_accept(grammar_smpl, id);
+            const bool grammar_took = grammar_applies();
+            if (grammar_took) llama_sampler_accept(grammar_smpl, id);
             if (rbudget != nullptr) {
                 llama_sampler_accept(rbudget, id);
                 const common_reasoning_budget_state st = common_reasoning_budget_get_state(rbudget);
+                // The thought just ended: the grammar did not see its end tag, which can be part of
+                // a tool-call trigger pattern, so it is replayed into it (common_sampler_accept).
+                if (grammar_smpl != nullptr && !grammar_took && st == REASONING_BUDGET_DONE) {
+                    if (const llama_tokens * end_seq = common_reasoning_budget_get_end_match(rbudget)) {
+                        for (const llama_token t : *end_seq) llama_sampler_accept(grammar_smpl, t);
+                    }
+                }
                 if (!thinking_capped && (st == REASONING_BUDGET_WAITING_UTF8 || st == REASONING_BUDGET_FORCING)) {
                     thinking_capped = true;
                     __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "thinking capped at %d tokens",
