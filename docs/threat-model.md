@@ -29,8 +29,9 @@ threat model does not apply.
 3. **Model → tool.** A tool call the model emits. Still not automatically
    trusted: risk tier decides whether confirmation is required, and the model
    does not get to lower its own tier.
-4. **Model → network.** `web.fetch` and `web.search`. Any text in a URL reaches a
-   host the model chose; a search query reaches `html.duckduckgo.com` (see T3).
+4. **Model → network.** `web.fetch`, `web.search`, and the integrations in T9. Any text
+   in a URL reaches a host the model chose; a search query reaches the search provider
+   the user chose (see T3).
 
 ## Threats
 
@@ -90,8 +91,9 @@ host (`RiskPolicy`, `NETWORK_EGRESS`). Nothing limits the destination after that
 no host allowlist exists, and an approved host receives whatever the model put in
 the URL. This is the most significant open item in the document.
 
-`web.search` sends the query text, once, to `html.duckduckgo.com` as the `q`
-parameter of a GET. The host is fixed in code, so the model cannot redirect the
+By default `web.search` sends the query text, once, to `html.duckduckgo.com` as the `q`
+parameter of a GET. In Technical mode the user can choose Brave, Tavily, Exa or a SearXNG
+server instead (T9). The host is fixed in code, so the model cannot redirect the
 search elsewhere, and the request carries no cookies or account. The query is
 therefore visible to DuckDuckGo, which is a third party, and it is the one
 place the app discloses what the user typed rather than what a page says.
@@ -138,9 +140,10 @@ confirmation unless the user chose to skip it.
 
 The same key can also make the chat model (`OpenRouterChatBackend`). That is
 off unless the user picks "OpenRouter" on the Models page, and it is not
-restored after a restart. With it selected, the whole conversation goes to
-`openrouter.ai`: the system prompt, every user turn, the tool observations (still
-fenced as untrusted), and any attached image or audio. Switching the plugin off or
+restored after a restart. With it selected, the whole conversation goes to the
+endpoint the user picked: OpenRouter, or one of the other OpenAI-compatible providers
+or the user's own server (T9). That is the system prompt, every user turn, the tool
+observations (still fenced as untrusted), and any attached image or audio. Switching the plugin off or
 clearing the key stops the next message, and picking a local model stops it at once.
 
 ### T8. Remote MCP server sends arguments and receives text — opt-in
@@ -172,6 +175,48 @@ instructions there, and the fence on tool output does not cover them. The fix is
 to fence descriptions as well and to treat them as data in the prompt; neither
 is done yet. A user who connects a server is trusting that server's descriptions
 as well as its results.
+
+### T9. Other opt-in egress paths: gated, fenced, with stated gaps
+
+Each path below is off until the user turns it on and gives it a key, token, address or
+account. Nothing is sent before then. The shared rules are enforced in code:
+
+- **Keys and tokens** are encrypted with the Android Keystore (`KeystoreCipher`) and are
+  never shown back in Settings.
+- **Keys and tokens go over https only**, except to a host on the user's own network
+  (a private IPv4 range, a `.local` name, or loopback). That plain-http exception exists
+  only for the custom model endpoint (`normalizedCustomBase`) and Home Assistant
+  (`HomeAddress`, which also refuses loopback and link-local). MCP is https only. The
+  Daytona and Vercel addresses are checked to be https, email uses TLS, and the other
+  services have fixed https addresses.
+- **Output from every path is fenced as untrusted**, the same as `web.fetch`.
+- **Confirmation tiers** (`RiskPolicy`). `EXTERNAL_COMMUNICATION` asks by default; the
+  "Send messages without asking" switch can skip it, except for texts and calls.
+  `NETWORK_EGRESS` asks unless "Open websites without asking" is on. `DESTRUCTIVE` asks
+  unless "Run deletions without asking" is on.
+
+| Path | Gate | What protects it |
+|---|---|---|
+| Telegram gateway | Technical mode, a bot token, and a private chat linked in a 5-minute window | Only linked private chats are answered. A group is never offered for linking. An unlinked chat gets one "waiting for approval" reply and nothing else. Runs are unattended, so anything needing approval is declined, and the reply says to approve it on the phone. The offset is persisted, so a message is not run twice. Messages older than an hour are skipped. |
+| Cloud browser (`cloud.browser`) | Technical mode and a Browser Use key | Each task is `EXTERNAL_COMMUNICATION` and shows its full instruction and start address. The per-task spend limit defaults to $1.00. Results are fenced. A saved profile is used only if the user set its id. Technical mode offers these tools to any chat model, including the on-device one, because the browser runs in the cloud, not on the phone. |
+| Cloud sandbox (`sandbox.*`) | Technical mode, a Daytona, Vercel or SSH provider, and a remote chat model answering the run | Commands and file writes ask by default, and the card shows the full command or content. The Daytona key goes only to https. The SSH server's host key is pinned on first connect and checked before login; a changed key is refused. The on-device model is never offered these tools. |
+| Email (`email.*`) | Technical mode and an app password (Gmail, iCloud, Fastmail or custom) | TLS only. Connections open per call, with no background sync. `email.send` asks, and the card shows to, subject and full body. Mail text is fenced. |
+| Home Assistant (`home.*`) | Technical mode, the user's address and token | `home.secure` (lock and cover) is `DESTRUCTIVE`. Alarm panels are refused. Loopback and link-local addresses are refused in both schemes. |
+| Texts and call log (`sms.*`, `calls.recent`) | The app is the default assistant (`RoleManager.ROLE_ASSISTANT`), checked on every call | Reads are only for the default assistant, and the permission dialogs are withheld until the role is held. `sms.send` and `phone.call` ask. Texts are fenced. |
+| Search providers (`web.search`) | Technical mode and the user's key for Brave, Tavily or Exa, or the user's SearXNG address | A provider error is reported as an error. The search does not fall back to another provider, because the user chose where the query goes. |
+| Remote chat presets | Technical mode and the key for each provider | The conversation goes only to the endpoint the user chose. OpenRouter-only request fields are sent only to OpenRouter. Model lists come from that provider's `GET /models`. |
+| Extras (Play subscription) | A Play purchase. Not offered until the Extras server is deployed (`EXTRAS_BACKEND_URL`) | The Extras server sees the Play purchase token and a random install id. It stores only SHA-256 hashes of tokens and install ids, and AES-GCM encrypts provider keys. Provider keys carry monthly limits. The app sends only over https. A paused, ended or refunded subscription disables the keys. |
+
+**Known gaps, not yet fixed:**
+
+- The Extras Pub/Sub push endpoint is authenticated by its secret path only. The OIDC
+  check is not written yet.
+- Each conversation with Vercel Sandbox leaves a named `li-…` sandbox and snapshot. Nothing
+  deletes them yet.
+- The text-only address check in T2 applies to every host in this table, including the
+  user's own Daytona, SSH and custom endpoints. Nothing resolves DNS at validation time.
+- The Telegram, sandbox, browser, email, Home Assistant and Extras paths have not been run
+  against their live services. No key has been used against a real account yet.
 
 ## Deliberately not defended
 

@@ -5,9 +5,10 @@
   names and exact addresses, never ranges, so a narrower rule cannot express "the LAN".
 
   The policy is enforced in the app instead, where the address is known:
-  - Anything that sends a key or token (custom model endpoint, Home Assistant, MCP) accepts
-    http:// only for loopback, .local and private IPv4 hosts (RemoteProvider's private-host
-    check); a public host must be https.
+  - The custom model endpoint accepts http:// only for loopback, .local and private IPv4
+    hosts (RemoteProvider's own-network check). Home Assistant accepts http:// only for a
+    private address or a single-label, .local or .home.arpa name. MCP accepts https:// only.
+    A public host must be https everywhere.
   - web.fetch sends no credentials and fences every page as untrusted.
   System and user certificate trust are unchanged.
 -->
