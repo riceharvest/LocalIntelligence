@@ -161,6 +161,8 @@ fun ModelManagerScreen(
     onListRemoteModels: (suspend () -> List<String>)? = null,
     /** Saves the picked model id for the remote provider. */
     onPickRemoteModel: ((String) -> Unit)? = null,
+    /** The ChatGPT entry (sign in, model picker, use). Null hides it. */
+    chatGptCard: (@Composable () -> Unit)? = null,
     /**
      * Makes a local model the resident one, the way import does. Returns the outcome so a
      * model that does not fit is reported here rather than shown as a silent no-op.
@@ -463,6 +465,9 @@ fun ModelManagerScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                if (chatGptCard != null) {
+                    item(key = "chatgpt") { chatGptCard() }
+                }
                 if (remoteChatOffer != null && onUseRemoteChat != null) {
                     item(key = "remote-chat") {
                         RemoteChatCard(

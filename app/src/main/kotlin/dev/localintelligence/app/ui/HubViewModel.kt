@@ -305,7 +305,7 @@ class HubViewModel(
      */
     private val contextLengthFor: (GgufHeader?) -> Int = { contextLength() },
     /** The KV cache type the load allocates, which a plan priced from a header must use too. */
-    private val kvCacheType: () -> KvCacheType = { KvCacheType.DEFAULT },
+    private val kvCacheType: (GgufHeader?) -> KvCacheType = { KvCacheType.DEFAULT },
     /**
      * Offer the fastest quant that fits rather than the largest. Speed matters
      * more on a phone than a few bits per weight: Q4_0 is what llama.cpp's ARM
@@ -833,7 +833,7 @@ class HubViewModel(
                 budget = budget,
                 alreadyOnDiskBytes = alreadyOnDisk,
                 header = header,
-                kvCacheType = kvCacheType(),
+                kvCacheType = kvCacheType(header),
             )
             PlannedFile(plan, header != null, onDevice, alreadyOnDisk)
         }

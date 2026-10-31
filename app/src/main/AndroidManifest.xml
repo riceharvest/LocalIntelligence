@@ -161,6 +161,13 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Keeps the app alive while the browser is open for ChatGPT sign-in. Started and stopped
+             by ChatGptSignInService's callers; the types match its startForeground call. -->
+        <service
+            android:name=".ChatGptSignInService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|shortService" />
+
         <!-- Shares a chat export. Only cacheDir/exports is covered (see
              res/xml/export_paths.xml), and the grant is per share, so no other
              app can read the transcript later. Not exported. -->
