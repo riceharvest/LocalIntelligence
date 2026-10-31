@@ -14,6 +14,7 @@ import dev.localintelligence.android.tools.history.historyTools
 import dev.localintelligence.android.tools.location.locationTools
 import dev.localintelligence.android.tools.files.fileTools
 import dev.localintelligence.android.tools.notifications.notificationTools
+import dev.localintelligence.android.tools.phone.phoneTools
 import dev.localintelligence.android.tools.observations.observationTools
 import dev.localintelligence.android.tools.web.webTools
 import dev.localintelligence.core.tool.AgentTool
@@ -58,6 +59,7 @@ fun androidTools(context: Context): List<AgentTool> {
     val grant = AndroidPlatformGrant(appContext)
     val tools = buildList {
         addAll(deviceTools(appContext, grant))
+        addAll(phoneTools(appContext, grant))
         addAll(fileTools(appContext, grant))
         addAll(appTools(appContext))
         addAll(clipboardTools(appContext))
@@ -89,6 +91,9 @@ fun androidToolPlugins(context: Context): List<AgentPlugin> {
             deviceTools(app, grant)
         },
         ToolFamily("tools.files", "Files", "List, search, read, write and delete files") { fileTools(app, grant) },
+        ToolFamily("tools.phone", "Phone controls", "Flashlight, volume, media, calls, maps and new contacts") {
+            phoneTools(app, grant)
+        },
         ToolFamily("tools.apps", "Apps", "List and open apps, share to them") { appTools(app) },
         ToolFamily("tools.clipboard", "Clipboard", "Read and write the clipboard") { clipboardTools(app) },
         ToolFamily("tools.alarms", "Alarms", "Set, list and cancel alarms") { alarmTools(app, grant) },
