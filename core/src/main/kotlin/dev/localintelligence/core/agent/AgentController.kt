@@ -986,7 +986,7 @@ class AgentController(
 
         val observation = truncate(call.name, hooks.afterTool(call.name, call.args, result.observation, result.success))
         loopDetector.recordResult(call.name, observation, result.success, result.error)
-        sessions.appendToolObservation(call.tool, observation, result.success)
+        sessions.appendToolObservation(call.tool, withArgumentsOnFirstUse(call.tool, observation), result.success)
         // Charge the call to the task's blast radius. This happens on the
         // EXECUTE path only, and a denied call never reaches it, which is what
         // stops a model from starving itself by attempting what it may not do.
@@ -1459,6 +1459,25 @@ class AgentController(
         lastPrompt = prompt
         lastVisible = visible
         return request(prompt, visible, callable)
+    }
+
+    /**
+     * [observation], and on a tool's first direct call in a conversation, its arguments.
+     *
+     * WHY: a tool called straight from tools.find's listing never showed the model its
+     * arguments; the listing gives a name and a few words, and the call grammar lets an
+     * optional argument be left out. Measured with LFM3-1.7B: "What's the weather in Utrecht
+     * tomorrow?" called weather.get with no place, got the phone's own town and went on to
+     * search the web. After the arguments are shown once, the tool counts as found.
+     * Not part of what the loop detector compares, so a repeat still reads as a repeat.
+     */
+    private fun withArgumentsOnFirstUse(tool: AgentTool, observation: String): String {
+        val name = tool.definition.name
+        if (!config.toolLookup || name in sessions.epochTools || name in sessions.discoveredTools) return observation
+        sessions.discoveredTools += name
+        val lines = ToolFinder.argumentLines(tool.definition)
+        if (lines.isEmpty()) return observation
+        return "$observation\n\n$name takes these arguments, for your next call:\n" + lines.joinToString("\n")
     }
 
     /**
