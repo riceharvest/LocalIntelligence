@@ -10,14 +10,25 @@ package dev.localintelligence.core.model.gguf
  * quartering the cache is usually the difference between "will not load" and "loads".
  */
 enum class KvCacheType(val label: String, val bytesPerElement: Double) {
-    /** The default. 2 bytes per element per tensor. */
+    /** llama.cpp's own default. 2 bytes per element per tensor. */
     F16("f16", 2.0),
 
     /** ~1.06 bytes per element — a 47% cache saving for a small quality cost. */
     Q8_0("q8_0", 34.0 / 32.0),
 
     /** ~0.56 bytes per element — a 72% cache saving; visible quality cost on long context. */
-    Q4_0("q4_0", 18.0 / 32.0),
+    Q4_0("q4_0", 18.0 / 32.0);
+
+    companion object {
+        /**
+         * What the app allocates unless the Technical setting says otherwise. One constant, so the
+         * setting's default, the load and the estimate agree.
+         */
+        val DEFAULT: KvCacheType = Q8_0
+
+        /** The type a setting value names ([label]); anything unrecognised is [DEFAULT]. */
+        fun fromId(id: String?): KvCacheType = entries.firstOrNull { it.label == id } ?: DEFAULT
+    }
 }
 
 /**

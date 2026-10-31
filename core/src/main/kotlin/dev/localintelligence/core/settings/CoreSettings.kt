@@ -187,6 +187,23 @@ object CoreSettings {
         applies = SettingApplies.NEXT_MODEL_LOAD,
     )
 
+    /**
+     * Technical only: Simple mode reads the default (q8_0). A quantised V cache needs flash
+     * attention; the native load retries with f16 when the context refuses the chosen type.
+     */
+    val KV_CACHE_TYPE = Choice(
+        "model.kv_cache_type", "KV cache type",
+        "How the model's attention memory is stored: q8_0 halves the memory of f16 for a negligible " +
+            "quality cost, q4_0 quarters it.",
+        SettingSection.MODEL, "q8_0",
+        listOf(
+            Choice.Option("q8_0", "q8_0 (half the memory)"),
+            Choice.Option("f16", "f16"),
+            Choice.Option("q4_0", "q4_0 (smallest, lower quality)"),
+        ),
+        applies = SettingApplies.NEXT_MODEL_LOAD,
+    )
+
     // ---- sampling ----------------------------------------------------------
 
     val TEMPERATURE = FloatValue(
@@ -318,7 +335,7 @@ object CoreSettings {
         TOOL_CALLS_AUTO_COLLAPSE,
         READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
-        COMPUTE, GPU_LAYERS, CONTEXT_LENGTH,
+        COMPUTE, GPU_LAYERS, CONTEXT_LENGTH, KV_CACHE_TYPE,
         SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE, NATIVE_TOOL_FORMAT, THINKING_BUDGET, HF_READ_TOKEN,
         MAX_STEPS, MAX_VISIBLE_TOOLS, TOOL_LOOKUP, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
     )

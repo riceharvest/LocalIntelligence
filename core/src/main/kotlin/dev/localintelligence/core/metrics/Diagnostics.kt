@@ -8,6 +8,7 @@ import dev.localintelligence.core.hub.HuggingFaceClient
 import dev.localintelligence.core.hub.PreDownloadMemoryModel
 import dev.localintelligence.core.model.gguf.EstimateBasis
 import dev.localintelligence.core.model.gguf.GgufHeader
+import dev.localintelligence.core.model.gguf.KvCacheType
 import dev.localintelligence.core.model.gguf.MemoryEstimate
 import dev.localintelligence.core.model.gguf.ModelMemoryEstimator
 
@@ -306,6 +307,8 @@ object RamGateCrossCheck {
      *   parameter because it is a separate function in a separate module, and a
      *   check that quietly substituted one for the other would be the defect it
      *   exists to catch.
+     * @param kvCacheType the cache type the loader allocates (the KV-cache setting), so the
+     *   loader-side figure is priced the way the load allocates it.
      */
     fun run(
         fileName: String,
@@ -314,6 +317,7 @@ object RamGateCrossCheck {
         contextLength: Int,
         budget: DeviceBudget,
         loaderAvailableBytes: Long,
+        kvCacheType: KvCacheType = KvCacheType.F16,
     ): DiagnosticCheck {
         val quant = GgufQuant.fromFileName(fileName)
         val parameters = HuggingFaceClient.parseParameterCount(fileName)
@@ -358,6 +362,7 @@ object RamGateCrossCheck {
         val estimate = ModelMemoryEstimator().estimate(
             header = header,
             contextLengthOverride = contextLength.toLong(),
+            kvCacheType = kvCacheType,
         )
         val loaderFits = estimate.totalBytes <= loaderAvailableBytes
         val gateTotal = gate.totalBytes

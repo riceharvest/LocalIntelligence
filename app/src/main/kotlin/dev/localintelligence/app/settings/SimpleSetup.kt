@@ -71,6 +71,7 @@ data class SuggestedModel(
 
 /** The Simple-mode values that depend on RAM class and CPU speed (research-context-defaults.md 3.3). */
 data class SimpleDefaults(
+    /** Only the n_ctx for a model with no memory estimate; otherwise [ContextLength] decides. */
     val contextLength: Int,
     val workingTokenLimit: Int,
     val maxOutputTokens: Int,
@@ -123,17 +124,48 @@ object SimpleSetup {
         }
     }
 
-    /** Values for the settings Simple mode hides. Anything absent reads as its default. */
+    /**
+     * Values for the settings Simple mode hides. Anything absent reads as its default.
+     * The context length is absent on purpose: it reads Automatic, which [ContextLength]
+     * resolves from the phone and the model instead of a fixed table value.
+     */
     fun values(facts: DeviceFacts): Map<String, Any> {
         val d = defaults(facts)
         return mapOf(
-            CoreSettings.CONTEXT_LENGTH.key to d.contextLength.toString(),
             CoreSettings.WORKING_TOKEN_LIMIT.key to d.workingTokenLimit,
             CoreSettings.MAX_OUTPUT_TOKENS.key to d.maxOutputTokens,
             CoreSettings.MAX_VISIBLE_TOOLS.key to d.maxVisibleTools,
             CoreSettings.OBSERVATION_BUDGET.key to d.observationBudget,
             CoreSettings.MEMORY_RESULTS.key to d.memoryResults,
         )
+    }
+
+    /** What the prompt may hold, from the context a model was actually loaded with. */
+    data class PromptBudget(val workingTokenLimit: Int, val observationBudget: Int)
+
+    /**
+     * The prompt budget for a model loaded with [nContext] tokens, Simple mode only.
+     *
+     * A bigger n_ctx is no use while the working limit stays at the 4K rows' 2600, but a prompt
+     * the CPU cannot read in reasonable time is no use either: 65% of the window, capped by
+     * what this speed class prefills (2600 / 8000 / 16000 tokens). The table's rows are the
+     * floor, so a model that comes out at 4096 keeps what it always had. The observation
+     * budget (characters) is 40% of the working limit, in hundreds.
+     *
+     * Null when the window is unknown: the table's values stand.
+     */
+    fun promptBudget(facts: DeviceFacts, nContext: Int): PromptBudget? {
+        if (nContext <= 0) return null
+        val d = defaults(facts)
+        val cap = when (facts.speedClass) {
+            SpeedClass.SLOW -> 2600
+            SpeedClass.MID -> 8000
+            SpeedClass.FAST -> 16000
+        }
+        val share = (0.65 * nContext).toInt()
+        val working = maxOf(minOf(share, cap), minOf(d.workingTokenLimit, share))
+        val observation = maxOf((working * 0.4).toInt() / 100 * 100, d.observationBudget)
+        return PromptBudget(working, observation)
     }
 
     fun suggestedModel(facts: DeviceFacts): SuggestedModel = when {

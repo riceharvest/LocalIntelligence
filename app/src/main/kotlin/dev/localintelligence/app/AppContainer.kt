@@ -69,6 +69,8 @@ import dev.localintelligence.core.metrics.RunRecorder
 import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.ModelBackend
 import dev.localintelligence.core.model.ModelSpec
+import dev.localintelligence.core.model.gguf.GgufHeader
+import dev.localintelligence.core.model.gguf.KvCacheType
 import dev.localintelligence.core.model.SpeechOutput
 import dev.localintelligence.core.policy.RiskPolicy
 import dev.localintelligence.core.tool.LexicalToolSelector
@@ -166,13 +168,22 @@ class AppContainer(private val context: Context) {
 
     /** Every setting in the app. See [SettingsStore]. */
     /**
+     * The KV cache type the next load allocates and every memory estimate prices: the KV-cache
+     * setting, whose default (q8_0) is also what Simple mode reads.
+     */
+    fun kvCacheType(): KvCacheType = KvCacheType.fromId(settings[CoreSettings.KV_CACHE_TYPE])
+
+    /**
      * The n_ctx [model] is priced at and loaded with: the context-length setting, else the
-     * Simple table for this phone. One function for the RAM gate and the load.
+     * largest window the phone and this model allow (see [ContextLength]). One function for
+     * the RAM gate and the load; [model]'s estimate is priced with [kvCacheType].
      */
     fun contextLengthFor(model: ImportedModel): Int = ContextLength.resolve(
         setting = settings[CoreSettings.CONTEXT_LENGTH],
         facts = deviceFacts,
         trainedContext = model.trainedContextLength,
+        footprint = model.estimate,
+        availableRamBytes = hubBudget.availableRamBytes(),
         liteRtLm = model.architecture == ModelImporter.LITERTLM_ARCHITECTURE,
     )
 
@@ -876,7 +887,7 @@ class AppContainer(private val context: Context) {
         )
     }
 
-    val importer: ModelImporter by lazy { ModelImporter(context.contentResolver) }
+    val importer: ModelImporter by lazy { ModelImporter(context.contentResolver, kvCacheType = ::kvCacheType) }
 
     /**
      * Durable stores. Opened lazily so a cold start that never runs a task never
@@ -1029,6 +1040,7 @@ class AppContainer(private val context: Context) {
                     quantType = model.quantType,
                     supportedBackends = model.supportedBackends,
                     contextLength = loadContext,
+                    kvCacheType = kvCacheType(),
                 ),
             )
         } catch (e: CancellationException) {
@@ -1368,7 +1380,20 @@ class AppContainer(private val context: Context) {
         val pluginSet = PluginSet(plugins, snapshot, settings::isPluginEnabled)
         // No catalogue here: the enabled subset is smaller than the catalogue by design.
         // The full set is checked once, in `plugins`.
-        val config = snapshot.agentConfig()
+        // Simple mode sizes the prompt budget from the window the loaded model really has, bounded
+        // by this CPU's speed; Technical keeps the user's values. A remote model is not bound by
+        // this phone's CPU, so it keeps the table's values too.
+        val config = snapshot.agentConfig().let { base ->
+            val budget = if (settings.mode == SettingsMode.SIMPLE && model !== remoteChatBackend) {
+                SimpleSetup.promptBudget(deviceFacts, model.capabilities.contextLength)
+            } else {
+                null
+            }
+            if (budget == null) base else base.copy(
+                workingTokenLimit = budget.workingTokenLimit,
+                observationBudgetChars = budget.observationBudget,
+            )
+        }
         val pluginTools = pluginSet.tools()
         // With "Let the model look up tools" on, tools.find searches the same
         // enabled tools the run may call.
@@ -1548,13 +1573,24 @@ class AppContainer(private val context: Context) {
         budget = hubBudget,
         tokenSource = hubTokenSource,
         registrar = registrar,
-        contextLength = { hubContextLength() },
+        contextLength = { hubContextLength(null) },
+        contextLengthFor = ::hubContextLength,
+        kvCacheType = ::kvCacheType,
         transfers = hubTransfers,
     )
 
-    /** The n_ctx a Hub download is priced at: the same answer the model load will use. */
-    private fun hubContextLength(): Int =
-        ContextLength.resolve(settings[CoreSettings.CONTEXT_LENGTH], deviceFacts, trainedContext = null)
+    /**
+     * The n_ctx a Hub download is priced at: the same function, with the same inputs, the model
+     * load will use. With the file's [header] (the Hub probes it before a download) that is the
+     * window the load will allocate; without one it is the Simple table's value.
+     */
+    private fun hubContextLength(header: GgufHeader?): Int = ContextLength.resolve(
+        setting = settings[CoreSettings.CONTEXT_LENGTH],
+        facts = deviceFacts,
+        trainedContext = header?.metadata?.contextLength?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+        footprint = header?.let { RamEstimate.from(it, kvCacheType = ::kvCacheType) },
+        availableRamBytes = hubBudget.availableRamBytes(),
+    )
 
     /**
      * Simple mode's one-tap first run (see [StarterSetup]). App-scoped, so a download that the chat
@@ -1569,7 +1605,9 @@ class AppContainer(private val context: Context) {
             budget = hubBudget,
             tokenSource = hubTokenSource,
             transfers = hubTransfers,
-            contextLength = { hubContextLength() },
+            contextLength = { hubContextLength(null) },
+            contextLengthFor = ::hubContextLength,
+            kvCacheType = ::kvCacheType,
             availability = modelAvailability.state,
             adopt = { file -> adoptDownloaded(file) },
             awaitPrefix = { awaitPrefixWarm() },

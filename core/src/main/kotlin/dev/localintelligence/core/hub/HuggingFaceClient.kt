@@ -3,6 +3,7 @@ package dev.localintelligence.core.hub
 import dev.localintelligence.core.model.gguf.GgufHeader
 import dev.localintelligence.core.model.gguf.GgufLimits
 import dev.localintelligence.core.model.gguf.GgufParser
+import dev.localintelligence.core.model.gguf.KvCacheType
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.IOException
@@ -351,6 +352,11 @@ class HuggingFaceClient(
          * on disk space alone. The default keeps every GGUF caller unchanged.
          */
         ramGate: Boolean = true,
+        /**
+         * The KV cache type the load will allocate, so a plan priced from a header
+         * matches the load. Unused without a header: the name-based estimate is f16.
+         */
+        kvCacheType: KvCacheType = KvCacheType.F16,
     ): DownloadPlan {
         // WHY `rangedFrom` AND NOT `from`: `from` returns the plain
         // `MemoryModel` the seam declares, and a lambda cannot also be a
@@ -361,7 +367,7 @@ class HuggingFaceClient(
         // `centralBytes` so the screen's "unless it needs more" caveat can
         // never fire. The tensor table still leaves the runtime-buffer term
         // unmeasured, so the range it produces is that term's width.
-        val effectiveModel = header?.let { GgufMemoryModel.rangedFrom(it) } ?: model
+        val effectiveModel = header?.let { GgufMemoryModel.rangedFrom(it, kvCacheType = kvCacheType) } ?: model
         val ram = if (ramGate) {
             FitGate.ramFit(
                 fileBytes = file.sizeBytes,

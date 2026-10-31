@@ -1,5 +1,7 @@
 package dev.localintelligence.android.inference
 
+import dev.localintelligence.core.model.gguf.KvCacheType
+
 /**
  * The complete JNI surface over the llama.cpp native library.
  *
@@ -138,8 +140,16 @@ object LlamaBridge {
         compute: LlamaCompute = LlamaCompute.CPU,
         /** Logits rows one batch may ask for; 0 is a whole batch. See llama_jni.cpp. */
         outputsMax: Int = 0,
+        /**
+         * How the KV cache is stored. A quantised cache needs flash attention; when the context
+         * refuses it the native load retries once with f16 and logs which type it used.
+         */
+        kvCacheType: KvCacheType = KvCacheType.DEFAULT,
     ): String? = if (isAvailable) {
-        nativeLoadModel(handle.ptr, path, contextLength, threads, useMmap, compute.gpuBackend, compute.gpuLayers, outputsMax)
+        nativeLoadModel(
+            handle.ptr, path, contextLength, threads, useMmap, compute.gpuBackend, compute.gpuLayers, outputsMax,
+            kvCacheType.label,
+        )
     } else {
         "the llama.cpp native library is not available on this device"
     }
@@ -404,7 +414,7 @@ object LlamaBridge {
     @JvmStatic private external fun nativeSystemInfo(): String
     @JvmStatic private external fun nativeLoadModel(
         ptr: Long, path: String, contextLength: Int, threads: Int, useMmap: Boolean,
-        gpuBackend: String?, gpuLayers: Int, outputsMax: Int,
+        gpuBackend: String?, gpuLayers: Int, outputsMax: Int, kvType: String,
     ): String?
     @JvmStatic private external fun nativeGpuDevices(): Array<String>
     @JvmStatic private external fun nativeUnload(ptr: Long)

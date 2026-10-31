@@ -191,6 +191,7 @@ void free_model_locked(LlamaHandle * h) {
     h->anchor_tokens.clear();
     h->anchor_state.clear();
     h->prefix_key.clear();
+    h->kv_type.clear();
     if (h->context != nullptr) {
         llama_free(as_context(h->context));
         h->context = nullptr;
@@ -879,6 +880,24 @@ ggml_backend_dev_t find_gpu(const std::string & backend) {
 ggml_backend_dev_t kNoDevices[] = {nullptr};
 
 
+// ---- KV cache type -----------------------------------------------------------
+
+// The cache types the KV-cache setting offers, by the names Kotlin passes. Anything
+// else is f16, which every build accepts.
+ggml_type kv_type_from_name(const std::string & name) {
+    if (name == "q8_0") return GGML_TYPE_Q8_0;
+    if (name == "q4_0") return GGML_TYPE_Q4_0;
+    return GGML_TYPE_F16;
+}
+
+const char * kv_type_name(ggml_type type) {
+    switch (type) {
+        case GGML_TYPE_Q8_0: return "q8_0";
+        case GGML_TYPE_Q4_0: return "q4_0";
+        default: return "f16";
+    }
+}
+
 // ---- system prompt anchor ----------------------------------------------------
 
 // Bumped when llama.cpp's state format may have changed (a llama.cpp update),
@@ -907,6 +926,10 @@ std::string anchor_path(const LlamaHandle * h, const std::vector<llama_token> & 
     if (h->prefix_dir.empty() || h->prefix_key.empty()) return "";
     uint64_t x = fnv1a(h->prefix_key.data(), h->prefix_key.size());
     x = fnv1a(kAnchorFormat, sizeof(kAnchorFormat), x);
+    // The cache type the context really has and its size: a state saved from an f16
+    // cache must never be offered to a q8_0 one (or to a different n_ctx).
+    x = fnv1a(h->kv_type.data(), h->kv_type.size(), x);
+    x = fnv1a(&h->n_ctx, sizeof(h->n_ctx), x);
     x = fnv1a(tokens.data(), static_cast<size_t>(n) * sizeof(llama_token), x);
     char name[48];
     snprintf(name, sizeof(name), "prefix-%016llx.state", static_cast<unsigned long long>(x));
@@ -1069,7 +1092,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeSystemInfo(JNIEnv
 JNIEXPORT jstring JNICALL
 Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
         JNIEnv * env, jclass, jlong handle, jstring path, jint n_ctx, jint n_threads,
-        jboolean use_mmap, jstring gpu_backend, jint gpu_layers, jint outputs_max) {
+        jboolean use_mmap, jstring gpu_backend, jint gpu_layers, jint outputs_max, jstring kv_type) {
     LlamaHandle * h = reinterpret_cast<LlamaHandle *>(handle);
     if (h == nullptr) {
         return to_jstring(env, "null handle");
@@ -1081,6 +1104,13 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     if (!jstring_utf8(env, path, model_path)) {
         return to_jstring(env, "could not read the model path");
     }
+
+    // The KV cache type wanted; anything unrecognised is f16, which every build accepts.
+    std::string kv_name;
+    if (kv_type != nullptr && !jstring_utf8(env, kv_type, kv_name)) {
+        return to_jstring(env, "could not read the KV cache type");
+    }
+    ggml_type kv_wanted = kv_type_from_name(kv_name);
 
     // Null or empty: the CPU. Otherwise a GPU backend's name, "Vulkan" or "OpenCL".
     std::string gpu_name;
@@ -1157,9 +1187,11 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     // is nothing to offload to.
     cparams.offload_kqv = !gpu_name.empty();
     cparams.op_offload = !gpu_name.empty();
-    // f16 KV cache, which is what RamEstimate assumes.
-    cparams.type_k = GGML_TYPE_F16;
-    cparams.type_v = GGML_TYPE_F16;
+    // The KV cache type the setting chose (q8_0 unless Technical mode says otherwise), the
+    // same one RamEstimate prices. K and V are stored alike.
+    ggml_type kv_used = kv_wanted;
+    cparams.type_k = kv_used;
+    cparams.type_v = kv_used;
     // Chat asks for logits on one row per batch (the last prompt token, then
     // each sampled token), and llama.cpp reserves the output head for
     // n_outputs_max rows: 512 by default, 113-462 MiB of compute buffer for
@@ -1181,10 +1213,21 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     }
 
     llama_context * ctx = llama_init_from_model(model, cparams);
+    if (ctx == nullptr && kv_used != GGML_TYPE_F16) {
+        // A quantised V cache needs flash attention, which an architecture or a backend may
+        // not have. Try once more with f16 rather than failing the load.
+        __android_log_print(ANDROID_LOG_WARN, "LocalLlama", "kv cache %s refused, using f16", kv_type_name(kv_used));
+        kv_used = GGML_TYPE_F16;
+        cparams.type_k = kv_used;
+        cparams.type_v = kv_used;
+        ctx = llama_init_from_model(model, cparams);
+    }
     if (ctx == nullptr) {
         llama_model_free(model);
         return to_jstring(env, "could not create a context for " + model_path);
     }
+    __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "kv cache %s (%d ctx)", kv_type_name(kv_used),
+                        static_cast<int>(llama_n_ctx(ctx)));
     // A cancel stops the computation between graph nodes, not only between
     // 512-token batches: a batch is ~45 s on a slow phone, and a new message
     // (or Stop) must not wait that out. llama_decode then returns non-zero,
@@ -1220,6 +1263,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
         }
     }
     h->n_ctx = static_cast<int32_t>(llama_n_ctx(ctx));
+    h->kv_type = kv_type_name(kv_used);
     h->n_batch = static_cast<int32_t>(cparams.n_batch);
     h->n_vocab = llama_vocab_n_tokens(vocab);
     h->eog_token = static_cast<int32_t>(llama_vocab_eot(vocab));
