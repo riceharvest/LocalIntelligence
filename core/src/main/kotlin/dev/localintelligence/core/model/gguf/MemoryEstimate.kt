@@ -21,10 +21,10 @@ enum class KvCacheType(val label: String, val bytesPerElement: Double) {
 
     companion object {
         /**
-         * What the app allocates unless the Technical setting says otherwise. One constant, so the
-         * setting's default, the load and the estimate agree.
+         * The concrete type used when code needs one specific type (or when no quantised cache
+         * is chosen or supported).
          */
-        val DEFAULT: KvCacheType = Q8_0
+        val DEFAULT: KvCacheType = F16
 
         /** The type a setting value names ([label]); anything unrecognised is [DEFAULT]. */
         fun fromId(id: String?): KvCacheType = entries.firstOrNull { it.label == id } ?: DEFAULT

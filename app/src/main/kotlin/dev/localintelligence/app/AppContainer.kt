@@ -26,6 +26,7 @@ import dev.localintelligence.android.tools.androidToolPlugins
 import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.android.scripts.ScriptPluginRepository
 import dev.localintelligence.android.scripts.ScriptRunner
+import dev.localintelligence.app.settings.ContextChoice
 import dev.localintelligence.app.settings.ContextLength
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.execution.ScheduledRunReporter
@@ -168,24 +169,55 @@ class AppContainer(private val context: Context) {
 
     /** Every setting in the app. See [SettingsStore]. */
     /**
-     * The KV cache type the next load allocates and every memory estimate prices: the KV-cache
-     * setting, whose default (q8_0) is also what Simple mode reads.
+     * The decision function for [model]: resolves both the context length and KV cache type
+     * (see [ContextLength.decide]). The load and the RAM gate use this same decision.
      */
-    fun kvCacheType(): KvCacheType = KvCacheType.fromId(settings[CoreSettings.KV_CACHE_TYPE])
-
-    /**
-     * The n_ctx [model] is priced at and loaded with: the context-length setting, else the
-     * largest window the phone and this model allow (see [ContextLength]). One function for
-     * the RAM gate and the load; [model]'s estimate is priced with [kvCacheType].
-     */
-    fun contextLengthFor(model: ImportedModel): Int = ContextLength.resolve(
+    fun contextChoiceFor(model: ImportedModel): ContextChoice = ContextLength.decide(
         setting = settings[CoreSettings.CONTEXT_LENGTH],
+        kvSetting = settings[CoreSettings.KV_CACHE_TYPE],
         facts = deviceFacts,
         trainedContext = model.trainedContextLength,
-        footprint = model.estimate,
+        footprintFor = { type ->
+            (model.estimate as? RamEstimate)?.let { ram -> RamEstimate.from(ram.header, kvCacheType = { type }) }
+                ?: model.estimate
+        },
         availableRamBytes = hubBudget.availableRamBytes(),
         liteRtLm = model.architecture == ModelImporter.LITERTLM_ARCHITECTURE,
     )
+
+    /**
+     * Resolves the context length and KV cache type for a probed or known [GgufHeader].
+     */
+    fun contextChoiceFor(header: GgufHeader?): ContextChoice = ContextLength.decide(
+        setting = settings[CoreSettings.CONTEXT_LENGTH],
+        kvSetting = settings[CoreSettings.KV_CACHE_TYPE],
+        facts = deviceFacts,
+        trainedContext = header?.metadata?.contextLength?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+        footprintFor = { type -> header?.let { RamEstimate.from(it, kvCacheType = { type }) } },
+        availableRamBytes = hubBudget.availableRamBytes(),
+    )
+
+    /**
+     * The n_ctx [model] is priced at and loaded with: the context-length setting, else the
+     * largest window the phone and this model allow (see [ContextLength.decide]). One function for
+     * the RAM gate and the load.
+     */
+    fun contextLengthFor(model: ImportedModel): Int = contextChoiceFor(model).nCtx
+
+    /**
+     * The KV cache type allocated for [model], determined per model by [ContextLength.decide].
+     */
+    fun kvCacheTypeFor(model: ImportedModel): KvCacheType = contextChoiceFor(model).kvCacheType
+
+    /**
+     * The KV cache type allocated for [header], determined per header by [ContextLength.decide].
+     */
+    fun kvCacheTypeFor(header: GgufHeader?): KvCacheType = contextChoiceFor(header).kvCacheType
+
+    /**
+     * Fallback for code needing one concrete type without a model: delegates to [kvCacheTypeFor] with null.
+     */
+    fun kvCacheType(): KvCacheType = kvCacheTypeFor(null as GgufHeader?)
 
     val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
 
@@ -887,7 +919,7 @@ class AppContainer(private val context: Context) {
         )
     }
 
-    val importer: ModelImporter by lazy { ModelImporter(context.contentResolver, kvCacheType = ::kvCacheType) }
+    val importer: ModelImporter by lazy { ModelImporter(context.contentResolver, kvCacheType = ::kvCacheTypeFor) }
 
     /**
      * Durable stores. Opened lazily so a cold start that never runs a task never
@@ -1001,7 +1033,8 @@ class AppContainer(private val context: Context) {
         // ModelManagerScreen renders it, so the only missing piece was the gate.
         // This is where a download that was judged too large at plan time still
         // gets caught, e.g. a model sideloaded onto a smaller device.
-        val loadContext = contextLengthFor(model)
+        val choice = contextChoiceFor(model)
+        val loadContext = choice.nCtx
         if (!model.fitsOnDevice(loadContext)) {
             val needed = model.estimate.totalBytes(loadContext)
             val have = RamEstimate.usableDeviceBytes()
@@ -1040,7 +1073,7 @@ class AppContainer(private val context: Context) {
                     quantType = model.quantType,
                     supportedBackends = model.supportedBackends,
                     contextLength = loadContext,
-                    kvCacheType = kvCacheType(),
+                    kvCacheType = choice.kvCacheType,
                 ),
             )
         } catch (e: CancellationException) {
@@ -1575,7 +1608,7 @@ class AppContainer(private val context: Context) {
         registrar = registrar,
         contextLength = { hubContextLength(null) },
         contextLengthFor = ::hubContextLength,
-        kvCacheType = ::kvCacheType,
+        kvCacheType = ::hubKvCacheType,
         transfers = hubTransfers,
     )
 
@@ -1584,13 +1617,9 @@ class AppContainer(private val context: Context) {
      * load will use. With the file's [header] (the Hub probes it before a download) that is the
      * window the load will allocate; without one it is the Simple table's value.
      */
-    private fun hubContextLength(header: GgufHeader?): Int = ContextLength.resolve(
-        setting = settings[CoreSettings.CONTEXT_LENGTH],
-        facts = deviceFacts,
-        trainedContext = header?.metadata?.contextLength?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
-        footprint = header?.let { RamEstimate.from(it, kvCacheType = ::kvCacheType) },
-        availableRamBytes = hubBudget.availableRamBytes(),
-    )
+    private fun hubContextLength(header: GgufHeader?): Int = contextChoiceFor(header).nCtx
+
+    private fun hubKvCacheType(header: GgufHeader?): KvCacheType = contextChoiceFor(header).kvCacheType
 
     /**
      * Simple mode's one-tap first run (see [StarterSetup]). App-scoped, so a download that the chat
@@ -1607,7 +1636,7 @@ class AppContainer(private val context: Context) {
             transfers = hubTransfers,
             contextLength = { hubContextLength(null) },
             contextLengthFor = ::hubContextLength,
-            kvCacheType = ::kvCacheType,
+            kvCacheType = ::hubKvCacheType,
             availability = modelAvailability.state,
             adopt = { file -> adoptDownloaded(file) },
             awaitPrefix = { awaitPrefixWarm() },
