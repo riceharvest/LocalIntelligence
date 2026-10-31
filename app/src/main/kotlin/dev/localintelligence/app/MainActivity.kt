@@ -188,6 +188,8 @@ class MainActivity : ComponentActivity() {
                         val technical = remember(chatSettingsVersion) {
                             container.settings.mode == SettingsMode.TECHNICAL
                         }
+                        // Simple mode's one-tap first run. Technical keeps the Hub card, so it gets no starter.
+                        val starterState by container.starterSetup.state.collectAsStateWithLifecycle()
                         Column(modifier = Modifier.fillMaxSize()) {
                             NotificationAccessBanner()
                             CompositionLocalProvider(LocalTechnicalDetail provides technical) {
@@ -209,6 +211,9 @@ class MainActivity : ComponentActivity() {
                                     val pick = SimpleSetup.suggestedModel(container.deviceFacts)
                                     nav.navigate("$ROUTE_HUB?repo=${Uri.encode(pick.repo)}&file=${Uri.encode(pick.file)}")
                                 },
+                                starter = if (technical) null else starterState,
+                                onStartStarter = { container.starterSetup.start() },
+                                onCancelStarter = { container.starterSetup.cancel() },
                             )
                             }
                         }

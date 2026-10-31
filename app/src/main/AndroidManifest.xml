@@ -3,6 +3,8 @@
 
     <!-- Model inference is on-device. Network is only for the optional web.fetch tool. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Lets the first-run screen say "you're on mobile data" before a large download. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Tool permissions. Each is requested lazily, only when a tool that needs
          it is actually invoked. See docs/tool-contract.md. -->
