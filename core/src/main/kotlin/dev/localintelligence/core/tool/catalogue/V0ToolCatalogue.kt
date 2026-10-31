@@ -70,8 +70,9 @@ import kotlinx.serialization.json.putJsonObject
  *   explicit "remember X" in the runtime, not behind a model-visible tool. Exposing
  *   `memory.write` would let the model invent a memory the user never asked for.
  *   `history.search` is the one read-only exception: it only reads past messages.
- * - **A general SMS send.** `notifications.reply` covers the only send path v0
- *   needs. A second send tool collides with it on the word "text".
+ * - **A general SMS send.** Added with `sms.send` (texts and calls, default-assistant
+ *   only). It is the one way to send a text by name; `notifications.reply` still answers
+ *   messages already on screen.
  * - **Settings read/write, wifi, storage, clock.** Real
  *   capabilities, none of which a target task needs, and each a fresh pair of tags
  *   competing for the same six retrieval slots.

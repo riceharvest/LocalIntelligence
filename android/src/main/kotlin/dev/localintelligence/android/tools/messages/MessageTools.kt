@@ -60,7 +60,12 @@ private const val MAX_FROM_CHARS: Int = 100
 private const val MAX_TEXT_CHARS: Int = 1000
 private const val SNIPPET_CHARS: Int = 140
 
-/** `Telephony.TextBasedSmsColumns.MESSAGE_TYPE_SENT`, written out so the query does not depend on the constant's home. */
+/**
+ * `Telephony.TextBasedSmsColumns` message types, written out so the query does not depend on
+ * where the constants live. Only inbox and sent are searched: drafts, outbox and failed texts
+ * are not conversations with anyone, and a failed outgoing text would read as one from its recipient.
+ */
+private const val SMS_TYPE_INBOX: Int = 1
 private const val SMS_TYPE_SENT: Int = 2
 
 /**
@@ -211,7 +216,9 @@ class SmsSearchTool(private val appContext: Context, private val grant: Platform
     }
 
     private fun search(query: String?, from: String?, max: Int, signal: CancellationSignal): ToolResult {
-        val selection = query?.let { "${Telephony.Sms.BODY} LIKE ? ESCAPE '\\'" }
+        val inboxOrSent = "${Telephony.Sms.TYPE} IN ($SMS_TYPE_INBOX,$SMS_TYPE_SENT)"
+        val selection = if (query == null) inboxOrSent
+        else "$inboxOrSent AND ${Telephony.Sms.BODY} LIKE ? ESCAPE '\\'"
         val selectionArgs = query?.let { arrayOf("%${escapeLike(it)}%") }
         val cursor = appContext.contentResolver.query(
             Telephony.Sms.CONTENT_URI,
@@ -409,7 +416,7 @@ class CallsRecentTool(private val appContext: Context, private val grant: Platfo
             return invalidArgument("type must be one of ${CALL_TYPE_BY_ARG.keys.joinToString(", ")}, but was \"${ArgCoerce.ellipsize(typeArg, 24)}\".")
         }
 
-        DefaultAssistant.refusalUnlessHeld(appContext, "Reading call history")?.let { return it }
+        DefaultAssistant.refusalUnlessHeld(appContext, "Reading and sending texts")?.let { return it }
         if (!grant.isGranted(ToolPermissions.CALL_LOG_READ)) {
             return permissionRefusal("calls.recent", ToolPermissions.CALL_LOG_READ)
         }
