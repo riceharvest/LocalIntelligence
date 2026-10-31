@@ -29,6 +29,7 @@ import dev.localintelligence.android.documents.DOCUMENT_SEARCH_MODE
 import dev.localintelligence.android.documents.SEARCH_MODE_HYBRID
 import dev.localintelligence.android.mcp.McpPlugin
 import dev.localintelligence.android.tools.home.HomeAssistantPlugin
+import dev.localintelligence.android.tools.email.EmailPlugin
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.android.skills.SkillsPlugin
 import dev.localintelligence.android.tools.androidToolPlugins
@@ -274,13 +275,14 @@ class AppContainer(private val context: Context) {
         // an instance here stands for it (the check reads definitions only).
         val finder = ToolFinder(SimpleToolRegistry(emptyList(), catalogue = emptyList()), LexicalToolSelector(), session)
         val home = HomeAssistantPlugin(settings)
+        val email = EmailPlugin(settings)
         CatalogueAgreement.require(
             families.flatMap { it.tools() } + cloud.shippedTools() + sandbox.shippedTools() + browser.shippedTools() +
-                docs.shippedTools() + finder + home.shippedTools(),
+                docs.shippedTools() + finder + home.shippedTools() + email.shippedTools(),
             V0ToolCatalogue.definitions,
         )
         val remote = McpPlugin(settings)
-        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + sandbox + browser + remote + home
+        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + sandbox + browser + remote + home + email
     }
 
     /**
