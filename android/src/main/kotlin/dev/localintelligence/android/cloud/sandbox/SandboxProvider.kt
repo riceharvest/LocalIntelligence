@@ -27,10 +27,10 @@ interface SandboxProvider {
     suspend fun exec(info: SandboxInfo, command: String, timeoutSeconds: Int): ExecResult
 
     /** Writes [bytes] to [path] in the sandbox, creating folders and overwriting a file. */
-    suspend fun upload(info: SandboxInfo, path: String, bytes: ByteArray)
+    suspend fun writeFile(info: SandboxInfo, path: String, bytes: ByteArray)
 
     /** The bytes of the file at [path]. Throws when the file is larger than the provider's cap. */
-    suspend fun download(info: SandboxInfo, path: String): ByteArray
+    suspend fun readFile(info: SandboxInfo, path: String): ByteArray
 }
 
 /**

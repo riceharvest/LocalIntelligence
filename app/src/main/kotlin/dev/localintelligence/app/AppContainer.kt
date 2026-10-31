@@ -557,8 +557,9 @@ class AppContainer(private val context: Context) {
             .remove(KEY_SESSION_ID)
             .apply()
         restoredTurns = emptyList()
-        // The old conversation's cloud sandbox is stopped; the next one starts its own.
-        sandboxPlugin.endConversation()
+        // The old conversation's cloud sandbox is stopped in the background: a stop can take a
+        // network round trip, and the chat should clear now. The next conversation starts its own.
+        appScope.launch { sandboxPlugin.endConversation() }
     }
 
     /**

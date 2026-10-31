@@ -80,7 +80,7 @@ class SandboxPlugin(private val reader: SettingsReader) : AgentPlugin {
     private val session = SandboxSession(reader)
 
     override val id: String = SandboxSettings.PLUGIN_ID
-    override val title: String = "Cloud sandbox (Daytona)"
+    override val title: String = "Cloud sandbox"
     override val summary: String =
         "Run commands and files in a cloud computer on your own Daytona account. Technical mode only, and " +
             "only while a remote chat model answers. Commands and files are sent to Daytona."

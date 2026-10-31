@@ -22,7 +22,7 @@ import java.net.URLEncoder
 //
 // Two hosts, and the key goes to both:
 //   - The control plane, at the API base (default https://app.daytona.io/api):
-//       POST   {api}/sandbox                  create (cpu 1, memory 1 GB, disk 3 GB, autoStopInterval)
+//       POST   {api}/sandbox                  create (default snapshot and resources, autoStopInterval)
 //       GET    {api}/sandbox/{id}             read state and the toolbox address
 //       POST   {api}/sandbox/{id}/start       start a stopped sandbox
 //       POST   {api}/sandbox/{id}/stop        stop it (files kept)
@@ -30,6 +30,9 @@ import java.net.URLEncoder
 //       POST   {toolbox}/process/execute      {command, timeout} -> {exitCode, result}
 //       POST   {toolbox}/files/upload-v2?path=...   raw body, application/octet-stream
 //       GET    {toolbox}/files/download?path=...
+//
+// The sandbox is created with no resource fields, so Daytona's default (1 vCPU, 1 GB RAM,
+// 3 GiB disk, per its docs) applies. No target or region is sent either.
 //
 // Every request sends "Authorization: Bearer <key>". An API key already names the organization,
 // so no X-Daytona-Organization-ID header is sent (that header is for JWT logins only).
@@ -46,11 +49,6 @@ internal const val DAYTONA_ID: String = "daytona"
 /** Daytona's cloud API. Used unless the user sets another address in Settings. */
 internal const val DAYTONA_DEFAULT_API: String = "https://app.daytona.io/api"
 
-/** Resources of Daytona's default sandbox (1 vCPU, 1 GB RAM, 3 GiB disk), the smallest the sandbox tools ask for. */
-private const val SANDBOX_CPU = 1
-private const val SANDBOX_MEMORY_GB = 1
-private const val SANDBOX_DISK_GB = 3
-
 private const val CONNECT_TIMEOUT_MS = 20_000
 private const val READ_TIMEOUT_MS = 30_000
 
@@ -62,6 +60,9 @@ internal const val MAX_FILE_BYTES = 1024 * 1024
 
 /** Sandbox ids are short URL-safe strings. Anything else in a reply is rejected before it is used in a path. */
 private val SANDBOX_ID = Regex("[A-Za-z0-9_-]{1,128}")
+
+/** Words a refusal uses when the organization has run out of credit or quota. Unverified against Daytona's wording. */
+private val BILLING_WORDS = Regex("credit|balance|billing|wallet|quota", RegexOption.IGNORE_CASE)
 
 private const val BAD_REPLY = "Daytona sent a reply this app cannot read. Try again."
 
@@ -77,9 +78,6 @@ internal class DaytonaProvider(
 
     override suspend fun create(idleMinutes: Int): SandboxInfo = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
-            put("cpu", SANDBOX_CPU)
-            put("memory", SANDBOX_MEMORY_GB)
-            put("disk", SANDBOX_DISK_GB)
             put("autoStopInterval", idleMinutes)
             put("public", false)
         }.toString()
@@ -120,7 +118,7 @@ internal class DaytonaProvider(
             )
         }
 
-    override suspend fun upload(info: SandboxInfo, path: String, bytes: ByteArray): Unit =
+    override suspend fun writeFile(info: SandboxInfo, path: String, bytes: ByteArray): Unit =
         withContext(Dispatchers.IO) {
             checked(
                 exchange(
@@ -131,7 +129,7 @@ internal class DaytonaProvider(
             Unit
         }
 
-    override suspend fun download(info: SandboxInfo, path: String): ByteArray = withContext(Dispatchers.IO) {
+    override suspend fun readFile(info: SandboxInfo, path: String): ByteArray = withContext(Dispatchers.IO) {
         checked(
             exchange(
                 "GET", "${toolboxOf(info)}/files/download?path=${encode(path)}", null, null,
@@ -170,23 +168,39 @@ internal class DaytonaProvider(
         throw failure(reply.status, reply.body)
     }
 
-    /** One short line per HTTP failure. The sentence is fixed; Daytona's own words are appended, with the key removed. */
+    /**
+     * One plain sentence per failure. Daytona's own words are appended only to the generic case,
+     * because the mapped cases already say what happened and what to do. Daytona's docs name no
+     * credit or billing status, so a refusal counts as "out of credit" when its text says so.
+     */
     private fun failure(status: Int, body: ByteArray): SandboxFailure {
-        val mapped: Pair<ToolError, String> = when (status) {
-            401, 403 -> ToolError.PermissionDenied("Daytona refused the key") to
-                "Daytona refused the key. Check the Daytona API key in Settings."
-            402 -> ToolError.Unavailable("out of credit") to
-                "Daytona refused: out of credit. Add credit in your Daytona account."
-            404 -> ToolError.NotFound("no such sandbox or file") to
-                "Daytona has no such sandbox or file."
-            429 -> ToolError.Unavailable("rate or quota limit") to
-                "Daytona refused: quota or rate limit reached. Try again later."
-            else -> ToolError.Unavailable("HTTP $status") to
-                "Daytona returned HTTP $status. Try again later."
+        val raw = String(body, Charsets.UTF_8)
+        return when {
+            status == 401 || status == 403 -> SandboxFailure(
+                ToolError.PermissionDenied("Daytona refused the key"),
+                "Daytona refused the key. Check the Daytona API key in Settings.",
+            )
+            BILLING_WORDS.containsMatchIn(raw) -> SandboxFailure(
+                ToolError.Unavailable("out of credit"),
+                "Daytona refused: out of credit. Check your Daytona balance and plan.",
+            )
+            status == 429 -> SandboxFailure(
+                ToolError.Unavailable("rate limit"),
+                "Daytona refused: rate limit reached. Wait a minute and try again.",
+            )
+            status == 404 -> SandboxFailure(
+                ToolError.NotFound("no such sandbox or file"),
+                "Daytona has no such sandbox or file.",
+            )
+            else -> {
+                val detail = scrubbed(body)
+                SandboxFailure(
+                    ToolError.Unavailable("HTTP $status"),
+                    "Daytona returned HTTP $status. Try again later." +
+                        if (detail.isBlank()) "" else " Daytona said: $detail",
+                )
+            }
         }
-        val (error, sentence) = mapped
-        val detail = scrubbed(body)
-        return SandboxFailure(error, if (detail.isBlank()) sentence else "$sentence Daytona said: $detail")
     }
 
     /** Daytona's message, or the start of its body, with the key removed and whitespace collapsed. */

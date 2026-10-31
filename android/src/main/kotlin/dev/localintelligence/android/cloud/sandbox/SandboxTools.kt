@@ -172,7 +172,7 @@ internal class SandboxWriteFileTool(private val session: SandboxSession) : Agent
             )
         }
         val info = session.ready(context.signal)
-        session.provider().upload(info, path, bytes)
+        session.provider().writeFile(info, path, bytes)
         ToolResult(success = true, observation = "Wrote ${bytes.size} bytes to $path in the sandbox.")
     }
 }
@@ -211,7 +211,7 @@ internal class SandboxReadFileTool(private val session: SandboxSession) : AgentT
                 error = ToolError.InvalidArguments("path"),
             )
         val info = session.ready(context.signal)
-        val bytes = session.provider().download(info, path)
+        val bytes = session.provider().readFile(info, path)
         when {
             bytes.isEmpty() -> ToolResult(success = true, observation = "$path is empty.")
             bytes.take(BINARY_SNIFF_BYTES).any { it == 0.toByte() } -> ToolResult(
