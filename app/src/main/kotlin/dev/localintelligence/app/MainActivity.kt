@@ -586,6 +586,11 @@ class MainActivity : ComponentActivity() {
                         ExtrasScreen(
                             store = container.settings,
                             billing = container.extras,
+                            onCloudChat = { on ->
+                                extrasScope.launch {
+                                    if (on) container.useRemoteChat() else container.useLocalModel()
+                                }
+                            },
                             onSubscribe = { activity ->
                                 extrasScope.launch {
                                     container.extras.subscribe(activity)

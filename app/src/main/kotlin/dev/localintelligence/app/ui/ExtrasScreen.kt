@@ -6,6 +6,10 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.Switch
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -53,6 +57,8 @@ fun ExtrasScreen(
     billing: ExtrasBilling,
     /** Starts Play's purchase sheet for the given activity. */
     onSubscribe: (Activity) -> Unit,
+    /** The cloud-chat switch moved: true hands chat to Extras' model, false to the phone's own. */
+    onCloudChat: (Boolean) -> Unit = {},
     onBack: () -> Unit,
 ) {
     val revision by store.changes.collectAsState()
@@ -113,6 +119,23 @@ fun ExtrasScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Manage subscription") }
+
+                if (active) {
+                    val cloudChat = store[ExtrasSettings.CLOUD_CHAT]
+                    Row(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(ExtrasSettings.CLOUD_CHAT.title, modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = cloudChat,
+                            onCheckedChange = { on ->
+                                store.set(ExtrasSettings.CLOUD_CHAT, on)
+                                onCloudChat(on)
+                            },
+                        )
+                    }
+                }
 
                 notice?.let { Text(it) }
 

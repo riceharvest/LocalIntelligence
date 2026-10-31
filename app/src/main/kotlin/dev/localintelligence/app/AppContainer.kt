@@ -14,6 +14,7 @@ import dev.localintelligence.android.cloud.ChatGptChatBackend
 import dev.localintelligence.android.cloud.ChatGptPlugin
 import dev.localintelligence.android.cloud.ChatGptSignIn
 import dev.localintelligence.android.cloud.CredentialSource
+import dev.localintelligence.android.cloud.ExtrasSettings
 import dev.localintelligence.android.cloud.OpenRouterChatBackend
 import dev.localintelligence.android.cloud.RemoteChatOffer
 import dev.localintelligence.android.cloud.RemoteProviders
@@ -1433,7 +1434,8 @@ class AppContainer(private val context: Context) {
             // Simple mode with Extras active: the managed chat answers from launch, with the
             // note that messages go to the cloud. Otherwise the selected local model loads.
             val extrasChat = settings.mode == SettingsMode.SIMPLE &&
-                CredentialSource.extrasActive(settings) && useRemoteChatLocked()
+                CredentialSource.extrasActive(settings) && settings[ExtrasSettings.CLOUD_CHAT] &&
+                useRemoteChatLocked()
             if (!extrasChat) loadSelectedModel()
         }
         restoredTurns
