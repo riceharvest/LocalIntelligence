@@ -33,6 +33,10 @@ use the network; each is opt-in or asks first, and none is silent:
   it on the Models page): with it selected, the whole conversation goes to
   openrouter.ai, and any image or audio you attach goes with it. Picking a local
   model stops this.
+- **ChatGPT as the chat model** (plugin "Chat with ChatGPT", off by default, opt-in
+  like OpenRouter): you sign in with your ChatGPT account and allow the app to use
+  your plan. With it selected, the whole conversation goes to OpenAI, and any image
+  you attach goes with it. Picking a local model stops this.
 - **`web.search`** sends the search words to `html.duckduckgo.com` (no key,
   no account). Like `web.fetch`, it asks first and names the host.
 - **MCP** (plugin "MCP", off by default) talks to the one server you enter;
@@ -40,7 +44,7 @@ use the network; each is opt-in or asks first, and none is silent:
 - **Skills from a URL**: adding a skill by URL downloads that one file, when you
   tap Add.
 
-Nothing else in the app opens a socket. Apart from the OpenRouter chat model
+Nothing else in the app opens a socket. Apart from the OpenRouter and ChatGPT chat models
 above, which you select yourself, no conversation content, memory,
 file, contact, or calendar entry is transmitted by the app itself. Every
 network tool call asks you to confirm first, and the confirmation names the

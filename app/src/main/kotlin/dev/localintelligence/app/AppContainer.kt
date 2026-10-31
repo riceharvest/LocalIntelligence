@@ -10,6 +10,9 @@ import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
+import dev.localintelligence.android.cloud.ChatGptChatBackend
+import dev.localintelligence.android.cloud.ChatGptPlugin
+import dev.localintelligence.android.cloud.ChatGptSignIn
 import dev.localintelligence.android.cloud.OpenRouterChatBackend
 import dev.localintelligence.android.cloud.OpenRouterPlugin
 import dev.localintelligence.android.documents.DocumentEmbedder
@@ -253,6 +256,7 @@ class AppContainer(private val context: Context) {
     private val builtInPlugins: List<AgentPlugin> by lazy {
         val families = androidToolPlugins(context)
         val cloud = openRouterPlugin
+        val chatGpt = chatGptPlugin
         // Checked here, against everything shipped and switched on or not. A run's
         // registry holds only the enabled tools, so checking it against the
         // catalogue would fail whenever any plugin is off, which is the default for
@@ -266,7 +270,7 @@ class AppContainer(private val context: Context) {
             V0ToolCatalogue.definitions,
         )
         val remote = McpPlugin(settings)
-        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + remote
+        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + remote
     }
 
     /**
@@ -759,11 +763,79 @@ class AppContainer(private val context: Context) {
     }
 
     /**
+     * The ChatGPT plugin: the sign-in account and the model choice. One instance for the plugin
+     * list and the chat model, so the switch and the account cannot disagree.
+     */
+    val chatGptPlugin: ChatGptPlugin by lazy { ChatGptPlugin(reader = settings, writer = settings) }
+
+    /** The ChatGPT chat model. Like OpenRouter, it is resident only when the user picks it. */
+    val chatGptBackend: ChatGptChatBackend by lazy {
+        ChatGptChatBackend(plugin = chatGptPlugin, enabled = { settings.isPluginEnabled(chatGptPlugin) })
+    }
+
+    /** Sign-in. The keep-alive service runs only while the browser is in front. */
+    val chatGptSignIn: ChatGptSignIn by lazy {
+        ChatGptSignIn(
+            context = context,
+            plugin = chatGptPlugin,
+            keepAlive = { runCatching { ChatGptSignInService.start(context) } },
+            releaseKeepAlive = { ChatGptSignInService.stop(context) },
+        )
+    }
+
+    /**
      * True when the remote chat model is the one answering. Checked by the speed test and
      * the Models screen, which both describe the resident model and must not describe a
      * local file that is not in memory.
      */
     val remoteChatActive: Boolean get() = loadedBackend === remoteChatBackend
+
+    /** True while ChatGPT is the model answering. The OpenRouter entry does not read this. */
+    val chatGptActive: Boolean get() = loadedBackend === chatGptBackend
+
+    /**
+     * True when ChatGPT can answer now: the plugin is on and an account is signed in. Read at
+     * the moment it matters, so a sign-out or a switch-off takes effect at the next message.
+     */
+    fun chatGptChatOn(): Boolean = settings.isPluginEnabled(chatGptPlugin) && chatGptPlugin.account() != null
+
+    /**
+     * Makes ChatGPT the resident backend, unloading whatever held the memory. Returns false,
+     * changing nothing, when ChatGPT cannot answer. Like [useRemoteChat], the choice is not saved.
+     */
+    suspend fun useChatGpt(): Boolean = readinessLock.withLock {
+        if (!chatGptChatOn()) return@withLock false
+        val previous = loadedBackend
+        if (previous != null && previous !== chatGptBackend) {
+            stopPrefixWork()
+            loadedBackend = null
+            previous.unload()
+        }
+        loadedBackend = chatGptBackend
+        modelAvailability.set(ModelAvailability.Ready(displayName = "ChatGPT"))
+        true
+    }
+
+    /**
+     * Gives the phone's own model back: the selected local model is loaded again. With none ever
+     * selected, ChatGPT is only dropped. Used when the user leaves ChatGPT or signs out.
+     */
+    suspend fun useLocalModel() {
+        val model = selectedModel
+        if (model != null) {
+            loadModel(model)
+        } else {
+            readinessLock.withLock { dropChatGptLocked() }
+        }
+    }
+
+    private suspend fun dropChatGptLocked() {
+        if (loadedBackend !== chatGptBackend) return
+        stopPrefixWork()
+        loadedBackend = null
+        chatGptBackend.unload()
+        modelAvailability.set(ModelAvailability.None)
+    }
 
     /**
      * The chat model id to offer on the Models screen, or null when the option is off:
@@ -849,7 +921,7 @@ class AppContainer(private val context: Context) {
     private fun speedTestTarget(): SpeedTestTarget? {
         if (modelAvailability.current !is ModelAvailability.Ready) return null
         // The remote model has no file on this phone to measure.
-        if (remoteChatActive) return null
+        if (remoteChatActive || chatGptActive) return null
         val model = selectedModel ?: return null
         val file = model.uri.path?.takeIf { model.uri.scheme == "file" }?.let { File(it).name }
         val backend = residentBackend()
@@ -1131,7 +1203,7 @@ class AppContainer(private val context: Context) {
         when {
             previous == null -> modelAvailability.set(failed)
             loadedBackend === previous -> modelAvailability.set(before)
-            previous === remoteChatBackend -> {
+            previous === remoteChatBackend || previous === chatGptBackend -> {
                 loadedBackend = previous
                 modelAvailability.set(before)
             }
@@ -1417,7 +1489,7 @@ class AppContainer(private val context: Context) {
         // by this CPU's speed; Technical keeps the user's values. A remote model is not bound by
         // this phone's CPU, so it keeps the table's values too.
         val config = snapshot.agentConfig().let { base ->
-            val budget = if (settings.mode == SettingsMode.SIMPLE && model !== remoteChatBackend) {
+            val budget = if (settings.mode == SettingsMode.SIMPLE && model !== remoteChatBackend && model !== chatGptBackend) {
                 SimpleSetup.promptBudget(deviceFacts, model.capabilities.contextLength)
             } else {
                 null
@@ -1728,7 +1800,7 @@ class AppContainer(private val context: Context) {
     suspend fun removeModel(model: ImportedModel) {
         readinessLock.withLock {
             val uriText = model.uri.toString()
-            if (selectedModel?.uri == model.uri && loadedBackend !== remoteChatBackend) {
+            if (selectedModel?.uri == model.uri && loadedBackend !== remoteChatBackend && loadedBackend !== chatGptBackend) {
                 stopPrefixWork()
                 loadedBackend?.let { runCatching { it.unload() } }
                 loadedBackend = null
