@@ -66,8 +66,9 @@ class RiskPolicy(
      *
      * [displayTarget] is the conversation or contact the tool resolved for
      * this call (see `AgentTool.describeTarget`), or null. It only changes the
-     * wording of an external-communication confirmation that names no recipient
-     * in its arguments; it never changes which outcome is chosen.
+     * wording of an external-communication confirmation, so the person reads a
+     * name where the arguments hold an opaque handle or a bare number; it never
+     * changes which outcome is chosen.
      *
      * [requestedByMessage] is false when the user's own message does not ask for this tool
      * (the controller scores the tool against the message). Only a guarded tool is affected:
@@ -128,6 +129,9 @@ class RiskPolicy(
      */
     private fun autoAccepted(definition: ToolDefinition, gated: Decision): Decision? {
         if (gated.outcome != PolicyOutcome.REQUIRE_CONFIRMATION) return null
+        // A tool named here is never auto-accepted, whatever tier it is in: the user's
+        // "send without asking" does not reach a text or a call the phone places.
+        if (definition.name in config.neverAutoAccept) return null
         if (definition.risk !in config.autoAcceptTiers) return null
         if (gated.rule !in AUTO_ACCEPTABLE_RULES) return null
         return gated.copy(
@@ -259,7 +263,7 @@ class RiskPolicy(
             // unknown-target rule, so the target branches must not decide first
             // (#153). MESSAGE_IS_BARE_LINK is not in AUTO_ACCEPTABLE_RULES.
             if (analysis.bodyIsBareLink) {
-                val recipient = target?.let { " to $it" }.orEmpty()
+                val recipient = (displayTarget ?: target)?.let { " to $it" }.orEmpty()
                 return decide(
                     definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.MESSAGE_IS_BARE_LINK,
                     "The message ${definition.name} would send$recipient is a bare link with no other text. " +
@@ -286,13 +290,13 @@ class RiskPolicy(
             if (!analysis.targetIsKnown) {
                 return decide(
                     definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.EXTERNAL_TO_UNKNOWN_TARGET,
-                    "${definition.name} sends to $target, which is not one of the contacts you marked as " +
+                    "${definition.name} sends to ${displayTarget ?: target}, which is not one of the contacts you marked as " +
                         "trusted. Check that this is who you mean before sending.",
                 )
             }
             return decide(
                 definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.RISK_TIER,
-                "${definition.name} sends a message to $target on behalf of someone else. " +
+                "${definition.name} sends a message to ${displayTarget ?: target} on behalf of someone else. " +
                     "It cannot be unsent once it lands.",
             )
         }

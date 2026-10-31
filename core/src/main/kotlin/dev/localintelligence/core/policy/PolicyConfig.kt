@@ -146,6 +146,12 @@ data class PolicyConfig(
      * causes is skipped; see `RiskPolicy.evaluate`.
      */
     val autoAcceptTiers: Set<dev.localintelligence.core.tool.ToolRisk> = emptySet(),
+    /**
+     * Tool names whose confirmation is never skipped, whatever [autoAcceptTiers] says.
+     * Texts and calls the phone places itself are the examples: the Approvals toggle
+     * for outside messages must not send a text to a stranger unseen.
+     */
+    val neverAutoAccept: Set<String> = DEFAULT_NEVER_AUTO_ACCEPT,
 ) {
     companion object {
         /**
@@ -160,6 +166,7 @@ data class PolicyConfig(
             "/storage/emulated/0/Android/obb/",
         )
 
+        val DEFAULT_NEVER_AUTO_ACCEPT: Set<String> = setOf("sms.send", "phone.call")
         const val DEFAULT_BULK_THRESHOLD = 10
         const val DEFAULT_DESTRUCTIVE_BULK_BLOCK = 100
         const val DEFAULT_MAX_ACTIONS_PER_TASK = 200
