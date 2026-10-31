@@ -26,7 +26,8 @@ import java.net.URL
 // McpPlugin caches the listing for a few minutes, not the session.
 //
 // What leaves the phone: every JSON-RPC body, the tool arguments the model
-// chose, and the bearer token in the Authorization header. Redirects are not
+// chose, and the token, in the Authorization header or in the one header the
+// user named for that server. Redirects are not
 // followed, so the token cannot be carried to a host the user did not name.
 //
 // The reply to a POST is either one JSON document or an SSE stream. For a
@@ -64,6 +65,8 @@ internal class McpSession private constructor(
     private val url: String,
     private val token: String?,
     private val timeoutMs: Int,
+    /** The header the token goes in; null sends it as Authorization: Bearer. */
+    private val tokenHeader: String?,
 ) {
     @Volatile
     private var sessionId: String? = null
@@ -149,7 +152,10 @@ internal class McpSession private constructor(
             connection.setRequestProperty("Content-Type", "application/json")
             connection.setRequestProperty("Accept", "application/json, text/event-stream")
             connection.setRequestProperty("MCP-Protocol-Version", MCP_PROTOCOL_VERSION)
-            token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
+            token?.let { value ->
+                if (tokenHeader == null) connection.setRequestProperty("Authorization", "Bearer $value")
+                else connection.setRequestProperty(tokenHeader, value)
+            }
             sessionId?.let { connection.setRequestProperty("Mcp-Session-Id", it) }
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
 
@@ -250,7 +256,7 @@ internal class McpSession private constructor(
          * Opens a session: initialize, then notifications/initialized. Throws
          * [McpException] or an [IOException] if the server does not answer.
          */
-        fun open(url: String, token: String?, timeoutMs: Int = TIMEOUT_MS): McpSession =
-            McpSession(url, token, timeoutMs).also { it.handshake() }
+        fun open(url: String, token: String?, timeoutMs: Int = TIMEOUT_MS, tokenHeader: String? = null): McpSession =
+            McpSession(url, token, timeoutMs, tokenHeader).also { it.handshake() }
     }
 }

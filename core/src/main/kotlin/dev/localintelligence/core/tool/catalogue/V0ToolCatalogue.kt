@@ -1421,6 +1421,51 @@ object V0ToolCatalogue {
             requiredPermission = null,
         ),
 
+        // ---------------------------------------------------------------- browser
+        // Offered only in Technical mode, with the Cloud browser plugin on and a Browser Use key set.
+        // Any chat model may delegate a whole web task. Each start asks first: the task runs on the
+        // user's own account and can spend money or sign in somewhere.
+        ToolDefinition(
+            name = "browser.task",
+            description = "Gives a web task to a cloud browser on the user's own Browser Use account and " +
+                "returns the result text. Use for booking, filling in or finding something on a website.",
+            category = "browser",
+            schema = objSchema(required = listOf("task")) {
+                putJsonObject("task") {
+                    put("type", "string")
+                    put("maxLength", 4000)
+                    put("description", "What to do on the web, in plain words, for example \"find the price of a 205/55R16 tyre at example.com\".")
+                }
+                putJsonObject("start_url") {
+                    put("type", "string")
+                    put("maxLength", 2048)
+                    put("description", "Optional web address to open first, for example \"https://example.com\".")
+                }
+            },
+            risk = ToolRisk.EXTERNAL_COMMUNICATION,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "browser", "website", "web task", "book", "fill in", "online form", "price on site", "cloud browser",
+            ),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "browser.status",
+            description = "Checks a cloud browser task by its task id and returns its result if it has finished.",
+            category = "browser",
+            schema = objSchema(required = listOf("task_id")) {
+                putJsonObject("task_id") {
+                    put("type", "string")
+                    put("maxLength", 64)
+                    put("description", "The task id that browser.task reported.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("browser status", "check task", "web task status", "browser task", "finished task"),
+            requiredPermission = null,
+        ),
+
         // ------------------------------------------------------------------ info
         // The Weather and facts family (tools.info). Free services, no key. MUST match
         // the tools in android/.../tools/info/. The tier and origin are checked at
@@ -1719,6 +1764,112 @@ object V0ToolCatalogue {
             tags = setOf(
                 "lock the door", "unlock the door", "front door", "garage door", "curtains",
                 "blinds", "open the curtains", "close the blinds",
+            ),
+            requiredPermission = null,
+        ),
+
+        // ------------------------------------------------------------------ email
+        // The user's own mail account over IMAP and SMTP (tools/email). Results are
+        // third-party text, so every observation is NETWORK origin and fenced.
+        ToolDefinition(
+            name = "email.search",
+            description = "Finds emails in the user's mail account by words, sender and recent days, " +
+                "and returns each one's uid, date, sender, subject and a short snippet.",
+            category = "email",
+            schema = objSchema {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "Words to look for in the subject or body.")
+                }
+                putJsonObject("from") {
+                    put("type", "string")
+                    put("maxLength", 120)
+                    put("description", "Part of the sender's name or address.")
+                }
+                putJsonObject("since_days") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 365)
+                    put("description", "Only mail from this many days back. Default 14.")
+                }
+                putJsonObject("folder") {
+                    put("type", "string")
+                    put("maxLength", 100)
+                    put("description", "Mailbox name. Default INBOX.")
+                }
+                putJsonObject("max_results") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 25)
+                    put("description", "How many emails to return. Default 10.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "search my email", "find an email", "emails from", "inbox", "mail from",
+                "did they email", "unread email", "look for an email",
+            ),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "email.read",
+            description = "Reads one email by uid as plain text, truncated, and lists its attachments " +
+                "by name and size.",
+            category = "email",
+            schema = objSchema(required = listOf("uid")) {
+                putJsonObject("uid") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("description", "The uid from email.search.")
+                }
+                putJsonObject("folder") {
+                    put("type", "string")
+                    put("maxLength", 100)
+                    put("description", "Mailbox name. Default INBOX.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "read the email", "open the email", "what did they write", "email body",
+                "attachments in the email", "read my mail",
+            ),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "email.send",
+            description = "Sends an email from the user's mail account to one recipient, after the user " +
+                "approves the exact text. Can reply to an email by uid.",
+            category = "email",
+            schema = objSchema(required = listOf("to", "subject", "body")) {
+                putJsonObject("to") {
+                    put("type", "string")
+                    put("maxLength", 254)
+                    put("description", "The recipient's email address.")
+                }
+                putJsonObject("subject") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "The subject line.")
+                }
+                putJsonObject("body") {
+                    put("type", "string")
+                    put("maxLength", 10000)
+                    put("description", "The plain-text message.")
+                }
+                putJsonObject("reply_to_uid") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("description", "The uid of the email being replied to, from email.search. Optional.")
+                }
+            },
+            risk = ToolRisk.EXTERNAL_COMMUNICATION,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "send an email", "email him", "email her", "reply to the email", "write an email",
+                "reply by email",
             ),
             requiredPermission = null,
         ),

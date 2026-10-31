@@ -87,6 +87,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.localintelligence.android.cloud.clearGeneratedMedia
 import dev.localintelligence.android.cloud.generatedMediaBytes
+import dev.localintelligence.android.gateway.telegram.TelegramSettings
 import dev.localintelligence.android.mcp.McpSettings
 import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.android.tools.OBSERVATIONS_FAMILY_ID
@@ -218,6 +219,8 @@ fun SettingsScreen(
                     inSection.forEach { def ->
                         // The Add a server helper sits above the first remote MCP address row.
                         if (def === McpSettings.urls[0]) McpAddServerRow(store)
+                        // The Telegram block sits above its token row.
+                        if (def === TelegramSettings.TOKEN) TelegramPanel(store)
                         SettingRow(store, def, technical)
                     }
                     if (speedTestHere) speedTest?.let { SpeedTestRow(it) }

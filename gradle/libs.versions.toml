@@ -16,6 +16,9 @@ pdfbox = "2.0.27.0"
 # SSH for the sandbox plugin's SSH provider. Maven Central: com.github.mwiede:jsch, the maintained
 # fork of JSch. 2.28.8 is the newest release there (maven-metadata.xml, checked 2026-10-31).
 jsch = "2.28.8"
+# IMAP and SMTP for the Email plugin. Maven Central: com.sun.mail:android-mail, the javax.mail build for
+# Android. 1.6.8 is the newest release there (checked 2026-10-31); android-activation is its matching release.
+androidMail = "1.6.8"
 
 [libraries]
 # LiteRT-LM: the second ModelBackend runtime, benchmarked against llama.cpp.
@@ -60,6 +63,9 @@ compose-material-icons-extended = { module = "androidx.compose.material:material
 
 pdfbox-android = { module = "com.tom-roush:pdfbox-android", version.ref = "pdfbox" }
 jsch = { module = "com.github.mwiede:jsch", version.ref = "jsch" }
+
+android-mail = { module = "com.sun.mail:android-mail", version.ref = "androidMail" }
+android-activation = { module = "com.sun.mail:android-activation", version.ref = "androidMail" }
 
 # JavaScript sandbox for script plugins: an isolated process with no network, no file
 # system and no Java bridge. Google Maven (androidx), not Central. 1.1.1 is the latest

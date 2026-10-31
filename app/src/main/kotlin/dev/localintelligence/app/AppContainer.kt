@@ -19,6 +19,7 @@ import dev.localintelligence.android.cloud.RemoteProviders
 import dev.localintelligence.android.cloud.OpenRouterPlugin
 import dev.localintelligence.android.documents.DocumentEmbedder
 import dev.localintelligence.android.cloud.OpenRouterSettings
+import dev.localintelligence.android.cloud.browser.CloudBrowserPlugin
 import dev.localintelligence.android.cloud.sandbox.SANDBOX_TOOL_PREFIX
 import dev.localintelligence.android.cloud.sandbox.SandboxPlugin
 import dev.localintelligence.android.documents.DocumentStore
@@ -26,8 +27,10 @@ import dev.localintelligence.android.documents.DocumentsPlugin
 import dev.localintelligence.android.documents.DOCUMENT_EMBEDDING_MODEL
 import dev.localintelligence.android.documents.DOCUMENT_SEARCH_MODE
 import dev.localintelligence.android.documents.SEARCH_MODE_HYBRID
+import dev.localintelligence.android.gateway.telegram.TelegramPlugin
 import dev.localintelligence.android.mcp.McpPlugin
 import dev.localintelligence.android.tools.home.HomeAssistantPlugin
+import dev.localintelligence.android.tools.email.EmailPlugin
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.android.skills.SkillsPlugin
 import dev.localintelligence.android.tools.androidToolPlugins
@@ -262,6 +265,7 @@ class AppContainer(private val context: Context) {
         val families = androidToolPlugins(context, settings)
         val cloud = openRouterPlugin
         val sandbox = sandboxPlugin
+        val browser = cloudBrowserPlugin
         val chatGpt = chatGptPlugin
         // Checked here, against everything shipped and switched on or not. A run's
         // registry holds only the enabled tools, so checking it against the
@@ -272,13 +276,15 @@ class AppContainer(private val context: Context) {
         // an instance here stands for it (the check reads definitions only).
         val finder = ToolFinder(SimpleToolRegistry(emptyList(), catalogue = emptyList()), LexicalToolSelector(), session)
         val home = HomeAssistantPlugin(settings)
+        val email = EmailPlugin(settings)
         CatalogueAgreement.require(
-            families.flatMap { it.tools() } + cloud.shippedTools() + sandbox.shippedTools() +
-                docs.shippedTools() + finder + home.shippedTools(),
+            families.flatMap { it.tools() } + cloud.shippedTools() + sandbox.shippedTools() + browser.shippedTools() +
+                docs.shippedTools() + finder + home.shippedTools() + email.shippedTools(),
             V0ToolCatalogue.definitions,
         )
         val remote = McpPlugin(settings)
-        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + sandbox + remote + home
+        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + sandbox + browser + remote + home +
+            email + telegramPlugin
     }
 
     /**
@@ -770,6 +776,12 @@ class AppContainer(private val context: Context) {
     val sandboxPlugin: SandboxPlugin by lazy { SandboxPlugin(settings, settings, context.applicationContext) }
 
     /**
+     * The cloud browser plugin: a web task runs on the user's own Browser Use account. Its tools are
+     * offered in Technical mode to any chat model, each start asks first.
+     */
+    val cloudBrowserPlugin: CloudBrowserPlugin by lazy { CloudBrowserPlugin(settings) }
+
+    /**
      * The remote chat model. It is never loaded by [loadModel]: it becomes the resident
      * backend only when the user picks it on the Models screen ([useRemoteChat]).
      */
@@ -779,6 +791,9 @@ class AppContainer(private val context: Context) {
             enabled = { settings.isPluginEnabled(openRouterPlugin) },
         )
     }
+
+    /** Telegram as a remote keyboard for this phone. Off by default; see TelegramService. */
+    val telegramPlugin: TelegramPlugin by lazy { TelegramPlugin() }
 
     /**
      * The ChatGPT plugin: the sign-in account and the model choice. One instance for the plugin

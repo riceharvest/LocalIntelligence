@@ -102,4 +102,9 @@ dependencies {
 
     // The sandbox script plugins run in. See scripts/ScriptRunner.kt.
     implementation(libs.androidx.javascriptengine)
+
+    // IMAP and SMTP for the Email plugin (tools/email). javax.mail packages, with the
+    // activation classes JavaMail needs for MIME parts.
+    implementation(libs.android.mail)
+    implementation(libs.android.activation)
 }
