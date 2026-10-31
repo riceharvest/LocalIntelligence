@@ -1357,6 +1357,74 @@ object V0ToolCatalogue {
             requiredPermission = null,
         ),
 
+        // --------------------------------------------------------------- sandbox
+        // Offered only in Technical mode, with the Daytona plugin on and a key set, and only
+        // while the remote chat model answers. Each call goes to the user's own Daytona account,
+        // so each one asks first.
+        ToolDefinition(
+            name = "sandbox.run",
+            description = "Runs a shell command in a cloud computer billed to the user's Daytona account " +
+                "and returns the exit code and output.",
+            category = "sandbox",
+            schema = objSchema(required = listOf("command")) {
+                putJsonObject("command") {
+                    put("type", "string")
+                    put("maxLength", 10000)
+                    put("description", "The shell command to run, for example \"python3 script.py\".")
+                }
+                putJsonObject("timeout_seconds") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 600)
+                    put("description", "Seconds before the command is stopped. 60 by default, at most 600.")
+                }
+            },
+            risk = ToolRisk.EXTERNAL_COMMUNICATION,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "run", "command", "shell", "terminal", "execute", "script", "python", "code", "cloud", "sandbox",
+            ),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "sandbox.write_file",
+            description = "Writes a text file in the cloud computer billed to the user's Daytona account; " +
+                "the file is overwritten if it exists.",
+            category = "sandbox",
+            schema = objSchema(required = listOf("path", "content")) {
+                putJsonObject("path") {
+                    put("type", "string")
+                    put("maxLength", 512)
+                    put("description", "Where to write the file in the sandbox, for example \"notes/todo.txt\".")
+                }
+                putJsonObject("content") {
+                    put("type", "string")
+                    put("description", "The full text of the file. At most 256 KB.")
+                }
+            },
+            risk = ToolRisk.EXTERNAL_COMMUNICATION,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("write file", "save file", "create file", "file", "sandbox", "cloud"),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "sandbox.read_file",
+            description = "Reads a text file from the cloud computer billed to the user's Daytona account " +
+                "and returns its text.",
+            category = "sandbox",
+            schema = objSchema(required = listOf("path")) {
+                putJsonObject("path") {
+                    put("type", "string")
+                    put("maxLength", 512)
+                    put("description", "The file to read in the sandbox, for example \"output/result.txt\".")
+                }
+            },
+            risk = ToolRisk.EXTERNAL_COMMUNICATION,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("read file", "open file", "show file", "file", "sandbox", "cloud"),
+            requiredPermission = null,
+        ),
+
         // ------------------------------------------------------------------ info
         // The Weather and facts family (tools.info). Free services, no key. MUST match
         // the tools in android/.../tools/info/. The tier and origin are checked at

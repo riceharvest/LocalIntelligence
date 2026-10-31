@@ -82,6 +82,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.localintelligence.android.cloud.sandbox.SANDBOX_TOOL_PREFIX
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.RunningTool
 import dev.localintelligence.app.ui.ChatMessage
@@ -179,8 +180,9 @@ fun PendingToolRow(
     onDecline: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // A sandbox call shows its command, path or content at once: the user is approving exactly that text.
     var details by rememberSaveable(pending.toolName, pending.arguments) {
-        mutableStateOf(pending.toolName in SHOWN_FIRST)
+        mutableStateOf(pending.toolName in SHOWN_FIRST || pending.toolName.startsWith(SANDBOX_TOOL_PREFIX))
     }
     // The service flips the run state a moment after a tap, so a second tap in that
     // gap would send a second decision and add a second Approval row.
