@@ -13,6 +13,9 @@ androidxTestJunit = "1.2.1"
 # PDF text extraction for the Documents plugin. Maven Central: com.tom-roush:pdfbox-android
 # 2.0.27.0 is the newest 2.0.x release there (checked 2026-10-30). Its classes live under com.tom_roush.pdfbox.
 pdfbox = "2.0.27.0"
+# IMAP and SMTP for the Email plugin. Maven Central: com.sun.mail:android-mail, the javax.mail build for
+# Android. 1.6.8 is the newest release there (checked 2026-10-31); android-activation is its matching release.
+androidMail = "1.6.8"
 
 [libraries]
 # LiteRT-LM: the second ModelBackend runtime, benchmarked against llama.cpp.
@@ -56,6 +59,9 @@ compose-material3 = { module = "androidx.compose.material3:material3" }
 compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
 
 pdfbox-android = { module = "com.tom-roush:pdfbox-android", version.ref = "pdfbox" }
+
+android-mail = { module = "com.sun.mail:android-mail", version.ref = "androidMail" }
+android-activation = { module = "com.sun.mail:android-activation", version.ref = "androidMail" }
 
 # JavaScript sandbox for script plugins: an isolated process with no network, no file
 # system and no Java bridge. Google Maven (androidx), not Central. 1.1.1 is the latest
