@@ -50,6 +50,8 @@ import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.encodePickedPicture
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.settings.SuggestedModel
+import dev.localintelligence.app.ui.ChatGptModelCard
+import dev.localintelligence.app.ui.ChatGptSettingsCard
 import dev.localintelligence.app.ui.ChatMessage
 import dev.localintelligence.app.ui.ChatScreen
 import dev.localintelligence.app.ui.ChatViewModel
@@ -253,26 +255,31 @@ class MainActivity : ComponentActivity() {
                         // The resident model's URI, so only its row offers the speed test.
                         val modelState by container.modelAvailability.state
                             .collectAsStateWithLifecycle()
-                        // Re-read when a setting changes, so the OpenRouter entry appears
+                        // Re-read when a setting changes, so the remote chat entry appears
                         // once a key is saved and disappears when the plugin is switched off.
                         val settingsVersion by container.settings.changes.collectAsStateWithLifecycle()
-                        val remoteModel = remember(settingsVersion) { container.remoteChatModelOrNull() }
+                        val remoteOffer = remember(settingsVersion) { container.remoteChatOfferOrNull() }
                         val modelScope = rememberCoroutineScope()
                         ModelManagerScreen(
                             technical = remember(settingsVersion) { container.settings.mode == SettingsMode.TECHNICAL },
                             models = models,
                             contextLengthFor = container::contextLengthFor,
                             speedTest = container.speedTest,
-                            loadedModelUri = if (modelState is ModelAvailability.Ready && !container.remoteChatActive) {
+                            loadedModelUri = if (modelState is ModelAvailability.Ready && !container.remoteChatActive && !container.chatGptActive) {
                                 container.selectedModel?.uri?.toString()
                             } else {
                                 null
                             },
-                            remoteChatModel = remoteModel,
+                            remoteChatOffer = remoteOffer,
                             remoteChatActive = container.remoteChatActive,
                             onUseRemoteChat = {
                                 withContext(Dispatchers.IO) { container.useRemoteChat() }
                             },
+                            onListRemoteModels = {
+                                withContext(Dispatchers.IO) { container.listRemoteModels() }
+                            },
+                            onPickRemoteModel = { model -> container.setRemoteChatModel(model) },
+                            chatGptCard = { ChatGptModelCard(container) },
                             onUseModel = { model ->
                                 withContext(Dispatchers.IO) { container.loadModel(model) }
                             },
@@ -532,6 +539,7 @@ class MainActivity : ComponentActivity() {
                             generatedMedia = generatedMediaDir(applicationContext),
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
                             onOpenScripts = { nav.navigate(ROUTE_SCRIPTS) },
+                            chatGptRow = { ChatGptSettingsCard(container) },
                             onOpenModels = { nav.navigate(ROUTE_MODELS) },
                             onOpenSchedule = { nav.navigate(ROUTE_SCHEDULE) },
                             onOpenTrace = { nav.navigate(ROUTE_TRACE) },

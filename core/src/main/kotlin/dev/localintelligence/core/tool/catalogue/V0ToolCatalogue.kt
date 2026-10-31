@@ -1357,6 +1357,76 @@ object V0ToolCatalogue {
             requiredPermission = null,
         ),
 
+        // ------------------------------------------------------------------ info
+        // The Weather and facts family (tools.info). Free services, no key. MUST match
+        // the tools in android/.../tools/info/. The tier and origin are checked at
+        // composition: NETWORK because the reply is third-party text.
+        ToolDefinition(
+            name = "weather.get",
+            description = "Gets the current weather, today's high, low and rain chance, and the days after, " +
+                "for a place or the phone's location.",
+            category = "info",
+            schema = objSchema {
+                putJsonObject("place") {
+                    put("type", "string")
+                    put("maxLength", 120)
+                    put("description", "Town or place name, for example Haarlem. Leave out for the phone's location.")
+                }
+                putJsonObject("days") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 7)
+                    put("description", "Days to forecast, 1 to 7. Default 1, today only.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("weather", "rain", "temperature", "forecast", "weer", "regen"),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "wiki.search",
+            description = "Looks up a Wikipedia article and returns its title, a short extract and its link.",
+            category = "info",
+            schema = objSchema(required = listOf("query")) {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "The name or topic to look up, for example Haarlem.")
+                }
+                putJsonObject("language") {
+                    put("type", "string")
+                    put("maxLength", 10)
+                    put("description", "Wikipedia language code, for example en or nl. Default en.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("wikipedia", "who is", "what is"),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "places.search",
+            description = "Finds a place or address on OpenStreetMap and returns each name, address and coordinates.",
+            category = "info",
+            schema = objSchema(required = listOf("query")) {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "The place name or address, for example Rijksmuseum.")
+                }
+                putJsonObject("near") {
+                    put("type", "string")
+                    put("maxLength", 120)
+                    put("description", "Town or area to search near, for example Amsterdam. Optional.")
+                }
+            },
+            risk = ToolRisk.NETWORK_EGRESS,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("address of", "where is", "find a"),
+            requiredPermission = null,
+        ),
+
         // ----------------------------------------------------------------- cloud
         // Offered only when the OpenRouter plugin is on and a key is set. The
         // catalogue lists them so the risk tier is checked like every other tool.

@@ -17,7 +17,11 @@ import dev.localintelligence.android.tools.files.fileTools
 import dev.localintelligence.android.tools.notifications.notificationTools
 import dev.localintelligence.android.tools.phone.phoneTools
 import dev.localintelligence.android.tools.observations.observationTools
+import dev.localintelligence.android.tools.info.infoTools
+import dev.localintelligence.android.tools.web.WebSearchSettings
 import dev.localintelligence.android.tools.web.webTools
+import dev.localintelligence.core.settings.SettingDef
+import dev.localintelligence.core.settings.SettingsReader
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.catalogue.V0ToolCatalogue
 
@@ -50,7 +54,7 @@ import dev.localintelligence.core.tool.catalogue.V0ToolCatalogue
  * [dev.localintelligence.core.tool.ToolSelector]'s job at run time, and doing it
  * here would mean a second, static selection rule nothing measures.
  */
-fun androidTools(context: Context): List<AgentTool> {
+fun androidTools(context: Context, settings: SettingsReader): List<AgentTool> {
     val appContext = context.applicationContext
     // The one platform-truthful answer to "may this app do this right now",
     // built once and shared. See AndroidPlatformGrant for why the runtime's
@@ -69,7 +73,8 @@ fun androidTools(context: Context): List<AgentTool> {
         addAll(calendarTools(appContext, grant))
         addAll(contactsTools(appContext, grant))
         addAll(notificationTools(grant))
-        addAll(webTools(grant))
+        addAll(webTools(grant, settings))
+        addAll(infoTools(appContext, grant))
         addAll(locationTools(appContext, grant))
         addAll(draftTools(appContext))
         addAll(observationTools(lazyObservationStore(appContext)))
@@ -85,7 +90,7 @@ fun androidTools(context: Context): List<AgentTool> {
  * Catalogue agreement is checked over all of them at once, before any is
  * switched off, so a disabled family cannot hide a drifted risk tier.
  */
-fun androidToolPlugins(context: Context): List<AgentPlugin> {
+fun androidToolPlugins(context: Context, settings: SettingsReader): List<AgentPlugin> {
     val app = context.applicationContext
     val grant = AndroidPlatformGrant(app)
     val families = listOf(
@@ -107,7 +112,13 @@ fun androidToolPlugins(context: Context): List<AgentPlugin> {
         ToolFamily("tools.notifications", "Notifications", "Read, dismiss and reply to notifications") {
             notificationTools(grant)
         },
-        ToolFamily("tools.web", "Web", "Search the web and fetch pages") { webTools(grant) },
+        ToolFamily(
+            "tools.web", "Web", "Search the web and fetch pages",
+            settingRows = WebSearchSettings.all,
+        ) { webTools(grant, settings) },
+        ToolFamily("tools.info", "Weather and facts", "Weather, Wikipedia and places. No key needed.") {
+            infoTools(app, grant)
+        },
         ToolFamily("tools.location", "Location", "Current approximate location") { locationTools(app, grant) },
         ToolFamily("tools.drafts", "Drafts", "Open a message or email draft for you to send") { draftTools(app) },
         // Not a user switch: a long result's preview tells the model to call this tool,
@@ -134,8 +145,10 @@ private class ToolFamily(
     override val id: String,
     override val title: String,
     override val summary: String,
+    settingRows: List<SettingDef<*>> = emptyList(),
     build: () -> List<AgentTool>,
 ) : AgentPlugin {
+    override val settings: List<SettingDef<*>> = settingRows
     private val built: List<AgentTool> by lazy(build)
     override fun tools(): List<AgentTool> = built
 }

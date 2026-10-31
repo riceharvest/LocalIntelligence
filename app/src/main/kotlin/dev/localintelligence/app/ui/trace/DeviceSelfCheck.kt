@@ -332,7 +332,7 @@ class DeviceSelfCheck(
         val estimate = ModelMemoryEstimator().estimate(
             header = header,
             contextLengthOverride = ModelImporter.DEFAULT_CONTEXT_LENGTH.toLong(),
-            kvCacheType = container.kvCacheType(),
+            kvCacheType = container.kvCacheTypeFor(header),
         )
         val rows = buildList {
             add(Finding.measured("GGUF version", header.version.toString(),
@@ -428,7 +428,7 @@ class DeviceSelfCheck(
             // gate's. Substituting one for the other here would recreate the
             // disagreement this check exists to catch.
             loaderAvailableBytes = RamEstimate.usableDeviceBytes(),
-            kvCacheType = container.kvCacheType(),
+            kvCacheType = container.kvCacheTypeFor(header),
         )
     }
 

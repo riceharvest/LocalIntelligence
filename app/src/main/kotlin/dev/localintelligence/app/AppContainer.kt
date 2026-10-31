@@ -10,7 +10,12 @@ import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.android.inference.ModelImporter
+import dev.localintelligence.android.cloud.ChatGptChatBackend
+import dev.localintelligence.android.cloud.ChatGptPlugin
+import dev.localintelligence.android.cloud.ChatGptSignIn
 import dev.localintelligence.android.cloud.OpenRouterChatBackend
+import dev.localintelligence.android.cloud.RemoteChatOffer
+import dev.localintelligence.android.cloud.RemoteProviders
 import dev.localintelligence.android.cloud.OpenRouterPlugin
 import dev.localintelligence.android.documents.DocumentEmbedder
 import dev.localintelligence.android.cloud.OpenRouterSettings
@@ -26,6 +31,7 @@ import dev.localintelligence.android.tools.androidToolPlugins
 import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.android.scripts.ScriptPluginRepository
 import dev.localintelligence.android.scripts.ScriptRunner
+import dev.localintelligence.app.settings.ContextChoice
 import dev.localintelligence.app.settings.ContextLength
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.execution.ScheduledRunReporter
@@ -168,24 +174,55 @@ class AppContainer(private val context: Context) {
 
     /** Every setting in the app. See [SettingsStore]. */
     /**
-     * The KV cache type the next load allocates and every memory estimate prices: the KV-cache
-     * setting, whose default (q8_0) is also what Simple mode reads.
+     * The decision function for [model]: resolves both the context length and KV cache type
+     * (see [ContextLength.decide]). The load and the RAM gate use this same decision.
      */
-    fun kvCacheType(): KvCacheType = KvCacheType.fromId(settings[CoreSettings.KV_CACHE_TYPE])
-
-    /**
-     * The n_ctx [model] is priced at and loaded with: the context-length setting, else the
-     * largest window the phone and this model allow (see [ContextLength]). One function for
-     * the RAM gate and the load; [model]'s estimate is priced with [kvCacheType].
-     */
-    fun contextLengthFor(model: ImportedModel): Int = ContextLength.resolve(
+    fun contextChoiceFor(model: ImportedModel): ContextChoice = ContextLength.decide(
         setting = settings[CoreSettings.CONTEXT_LENGTH],
+        kvSetting = settings[CoreSettings.KV_CACHE_TYPE],
         facts = deviceFacts,
         trainedContext = model.trainedContextLength,
-        footprint = model.estimate,
+        footprintFor = { type ->
+            (model.estimate as? RamEstimate)?.let { ram -> RamEstimate.from(ram.header, kvCacheType = { type }) }
+                ?: model.estimate
+        },
         availableRamBytes = hubBudget.availableRamBytes(),
         liteRtLm = model.architecture == ModelImporter.LITERTLM_ARCHITECTURE,
     )
+
+    /**
+     * Resolves the context length and KV cache type for a probed or known [GgufHeader].
+     */
+    fun contextChoiceFor(header: GgufHeader?): ContextChoice = ContextLength.decide(
+        setting = settings[CoreSettings.CONTEXT_LENGTH],
+        kvSetting = settings[CoreSettings.KV_CACHE_TYPE],
+        facts = deviceFacts,
+        trainedContext = header?.metadata?.contextLength?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+        footprintFor = { type -> header?.let { RamEstimate.from(it, kvCacheType = { type }) } },
+        availableRamBytes = hubBudget.availableRamBytes(),
+    )
+
+    /**
+     * The n_ctx [model] is priced at and loaded with: the context-length setting, else the
+     * largest window the phone and this model allow (see [ContextLength.decide]). One function for
+     * the RAM gate and the load.
+     */
+    fun contextLengthFor(model: ImportedModel): Int = contextChoiceFor(model).nCtx
+
+    /**
+     * The KV cache type allocated for [model], determined per model by [ContextLength.decide].
+     */
+    fun kvCacheTypeFor(model: ImportedModel): KvCacheType = contextChoiceFor(model).kvCacheType
+
+    /**
+     * The KV cache type allocated for [header], determined per header by [ContextLength.decide].
+     */
+    fun kvCacheTypeFor(header: GgufHeader?): KvCacheType = contextChoiceFor(header).kvCacheType
+
+    /**
+     * Fallback for code needing one concrete type without a model: delegates to [kvCacheTypeFor] with null.
+     */
+    fun kvCacheType(): KvCacheType = kvCacheTypeFor(null as GgufHeader?)
 
     val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
 
@@ -219,8 +256,9 @@ class AppContainer(private val context: Context) {
     val scriptRepository: ScriptPluginRepository by lazy { ScriptPluginRepository(File(context.filesDir, "plugins")) }
 
     private val builtInPlugins: List<AgentPlugin> by lazy {
-        val families = androidToolPlugins(context)
+        val families = androidToolPlugins(context, settings)
         val cloud = openRouterPlugin
+        val chatGpt = chatGptPlugin
         // Checked here, against everything shipped and switched on or not. A run's
         // registry holds only the enabled tools, so checking it against the
         // catalogue would fail whenever any plugin is off, which is the default for
@@ -234,7 +272,7 @@ class AppContainer(private val context: Context) {
             V0ToolCatalogue.definitions,
         )
         val remote = McpPlugin(settings)
-        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + remote
+        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + remote
     }
 
     /**
@@ -727,23 +765,105 @@ class AppContainer(private val context: Context) {
     }
 
     /**
+     * The ChatGPT plugin: the sign-in account and the model choice. One instance for the plugin
+     * list and the chat model, so the switch and the account cannot disagree.
+     */
+    val chatGptPlugin: ChatGptPlugin by lazy { ChatGptPlugin(reader = settings, writer = settings) }
+
+    /** The ChatGPT chat model. Like OpenRouter, it is resident only when the user picks it. */
+    val chatGptBackend: ChatGptChatBackend by lazy {
+        ChatGptChatBackend(plugin = chatGptPlugin, enabled = { settings.isPluginEnabled(chatGptPlugin) })
+    }
+
+    /** Sign-in. The keep-alive service runs only while the browser is in front. */
+    val chatGptSignIn: ChatGptSignIn by lazy {
+        ChatGptSignIn(
+            context = context,
+            plugin = chatGptPlugin,
+            keepAlive = { runCatching { ChatGptSignInService.start(context) } },
+            releaseKeepAlive = { ChatGptSignInService.stop(context) },
+        )
+    }
+
+    /**
      * True when the remote chat model is the one answering. Checked by the speed test and
      * the Models screen, which both describe the resident model and must not describe a
      * local file that is not in memory.
      */
     val remoteChatActive: Boolean get() = loadedBackend === remoteChatBackend
 
+    /** True while ChatGPT is the model answering. The OpenRouter entry does not read this. */
+    val chatGptActive: Boolean get() = loadedBackend === chatGptBackend
+
     /**
-     * The chat model id to offer on the Models screen, or null when the option is off:
-     * the plugin is switched off, or no key is stored.
+     * True when ChatGPT can answer now: the plugin is on and an account is signed in. Read at
+     * the moment it matters, so a sign-out or a switch-off takes effect at the next message.
      */
-    fun remoteChatModelOrNull(): String? {
-        val key = settings[OpenRouterSettings.API_KEY]
-        return if (settings.isPluginEnabled(openRouterPlugin) && key.isNotBlank()) {
-            settings[OpenRouterSettings.CHAT_MODEL]
-        } else {
-            null
+    fun chatGptChatOn(): Boolean = settings.isPluginEnabled(chatGptPlugin) && chatGptPlugin.account() != null
+
+    /**
+     * Makes ChatGPT the resident backend, unloading whatever held the memory. Returns false,
+     * changing nothing, when ChatGPT cannot answer. Like [useRemoteChat], the choice is not saved.
+     */
+    suspend fun useChatGpt(): Boolean = readinessLock.withLock {
+        if (!chatGptChatOn()) return@withLock false
+        val previous = loadedBackend
+        if (previous != null && previous !== chatGptBackend) {
+            stopPrefixWork()
+            loadedBackend = null
+            previous.unload()
         }
+        loadedBackend = chatGptBackend
+        modelAvailability.set(ModelAvailability.Ready(displayName = "ChatGPT"))
+        true
+    }
+
+    /**
+     * Gives the phone's own model back: the selected local model is loaded again. With none ever
+     * selected, ChatGPT is only dropped. Used when the user leaves ChatGPT or signs out.
+     */
+    suspend fun useLocalModel() {
+        val model = selectedModel
+        if (model != null) {
+            loadModel(model)
+        } else {
+            readinessLock.withLock { dropChatGptLocked() }
+        }
+    }
+
+    private suspend fun dropChatGptLocked() {
+        if (loadedBackend !== chatGptBackend) return
+        stopPrefixWork()
+        loadedBackend = null
+        chatGptBackend.unload()
+        modelAvailability.set(ModelAvailability.None)
+    }
+
+    /**
+     * What the Models screen offers for the remote chat provider, or null when the option is
+     * off: the plugin is switched off, or the chosen provider has no key (or no valid address).
+     */
+    fun remoteChatOfferOrNull(): RemoteChatOffer? {
+        if (!settings.isPluginEnabled(openRouterPlugin)) return null
+        val endpoint = RemoteProviders.endpoint(settings) ?: return null
+        return RemoteChatOffer(
+            providerLabel = endpoint.provider.label,
+            destination = endpoint.destination,
+            model = endpoint.model,
+            canListModels = endpoint.provider.listsModels,
+        )
+    }
+
+    /** The model ids the chosen provider lists. Opt-in: the plugin must be on, and it is a network call. */
+    suspend fun listRemoteModels(): List<String> = withContext(Dispatchers.IO) {
+        check(settings.isPluginEnabled(openRouterPlugin)) { "remote chat is off" }
+        val endpoint = RemoteProviders.endpoint(settings) ?: error("the chat provider is not set up")
+        OpenRouterChatBackend.fetchModelIds(endpoint)
+    }
+
+    /** Saves the chat model id for the chosen provider. Chosen from the list or typed. */
+    fun setRemoteChatModel(model: String) {
+        settings.set(OpenRouterSettings.CHAT_MODEL, model.trim())
     }
 
     /**
@@ -755,7 +875,8 @@ class AppContainer(private val context: Context) {
      * time, not one that survives a restart unnoticed.
      */
     suspend fun useRemoteChat(): Boolean = readinessLock.withLock {
-        val model = remoteChatModelOrNull() ?: return@withLock false
+        val offer = remoteChatOfferOrNull() ?: return@withLock false
+        if (offer.model.isBlank()) return@withLock false
         val previous = loadedBackend
         if (previous != null && previous !== remoteChatBackend) {
             stopPrefixWork()
@@ -763,7 +884,7 @@ class AppContainer(private val context: Context) {
             previous.unload()
         }
         loadedBackend = remoteChatBackend
-        modelAvailability.set(ModelAvailability.Ready(displayName = "OpenRouter: $model"))
+        modelAvailability.set(ModelAvailability.Ready(displayName = "${offer.providerLabel}: ${offer.model}"))
         true
     }
 
@@ -817,7 +938,7 @@ class AppContainer(private val context: Context) {
     private fun speedTestTarget(): SpeedTestTarget? {
         if (modelAvailability.current !is ModelAvailability.Ready) return null
         // The remote model has no file on this phone to measure.
-        if (remoteChatActive) return null
+        if (remoteChatActive || chatGptActive) return null
         val model = selectedModel ?: return null
         val file = model.uri.path?.takeIf { model.uri.scheme == "file" }?.let { File(it).name }
         val backend = residentBackend()
@@ -887,7 +1008,7 @@ class AppContainer(private val context: Context) {
         )
     }
 
-    val importer: ModelImporter by lazy { ModelImporter(context.contentResolver, kvCacheType = ::kvCacheType) }
+    val importer: ModelImporter by lazy { ModelImporter(context.contentResolver, kvCacheType = ::kvCacheTypeFor) }
 
     /**
      * Durable stores. Opened lazily so a cold start that never runs a task never
@@ -1001,7 +1122,8 @@ class AppContainer(private val context: Context) {
         // ModelManagerScreen renders it, so the only missing piece was the gate.
         // This is where a download that was judged too large at plan time still
         // gets caught, e.g. a model sideloaded onto a smaller device.
-        val loadContext = contextLengthFor(model)
+        val choice = contextChoiceFor(model)
+        val loadContext = choice.nCtx
         if (!model.fitsOnDevice(loadContext)) {
             val needed = model.estimate.totalBytes(loadContext)
             val have = RamEstimate.usableDeviceBytes()
@@ -1040,7 +1162,7 @@ class AppContainer(private val context: Context) {
                     quantType = model.quantType,
                     supportedBackends = model.supportedBackends,
                     contextLength = loadContext,
-                    kvCacheType = kvCacheType(),
+                    kvCacheType = choice.kvCacheType,
                 ),
             )
         } catch (e: CancellationException) {
@@ -1098,7 +1220,7 @@ class AppContainer(private val context: Context) {
         when {
             previous == null -> modelAvailability.set(failed)
             loadedBackend === previous -> modelAvailability.set(before)
-            previous === remoteChatBackend -> {
+            previous === remoteChatBackend || previous === chatGptBackend -> {
                 loadedBackend = previous
                 modelAvailability.set(before)
             }
@@ -1384,7 +1506,7 @@ class AppContainer(private val context: Context) {
         // by this CPU's speed; Technical keeps the user's values. A remote model is not bound by
         // this phone's CPU, so it keeps the table's values too.
         val config = snapshot.agentConfig().let { base ->
-            val budget = if (settings.mode == SettingsMode.SIMPLE && model !== remoteChatBackend) {
+            val budget = if (settings.mode == SettingsMode.SIMPLE && model !== remoteChatBackend && model !== chatGptBackend) {
                 SimpleSetup.promptBudget(deviceFacts, model.capabilities.contextLength)
             } else {
                 null
@@ -1575,7 +1697,7 @@ class AppContainer(private val context: Context) {
         registrar = registrar,
         contextLength = { hubContextLength(null) },
         contextLengthFor = ::hubContextLength,
-        kvCacheType = ::kvCacheType,
+        kvCacheType = ::hubKvCacheType,
         transfers = hubTransfers,
     )
 
@@ -1584,13 +1706,9 @@ class AppContainer(private val context: Context) {
      * load will use. With the file's [header] (the Hub probes it before a download) that is the
      * window the load will allocate; without one it is the Simple table's value.
      */
-    private fun hubContextLength(header: GgufHeader?): Int = ContextLength.resolve(
-        setting = settings[CoreSettings.CONTEXT_LENGTH],
-        facts = deviceFacts,
-        trainedContext = header?.metadata?.contextLength?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
-        footprint = header?.let { RamEstimate.from(it, kvCacheType = ::kvCacheType) },
-        availableRamBytes = hubBudget.availableRamBytes(),
-    )
+    private fun hubContextLength(header: GgufHeader?): Int = contextChoiceFor(header).nCtx
+
+    private fun hubKvCacheType(header: GgufHeader?): KvCacheType = contextChoiceFor(header).kvCacheType
 
     /**
      * Simple mode's one-tap first run (see [StarterSetup]). App-scoped, so a download that the chat
@@ -1607,7 +1725,7 @@ class AppContainer(private val context: Context) {
             transfers = hubTransfers,
             contextLength = { hubContextLength(null) },
             contextLengthFor = ::hubContextLength,
-            kvCacheType = ::kvCacheType,
+            kvCacheType = ::hubKvCacheType,
             availability = modelAvailability.state,
             adopt = { file -> adoptDownloaded(file) },
             awaitPrefix = { awaitPrefixWarm() },
@@ -1699,7 +1817,7 @@ class AppContainer(private val context: Context) {
     suspend fun removeModel(model: ImportedModel) {
         readinessLock.withLock {
             val uriText = model.uri.toString()
-            if (selectedModel?.uri == model.uri && loadedBackend !== remoteChatBackend) {
+            if (selectedModel?.uri == model.uri && loadedBackend !== remoteChatBackend && loadedBackend !== chatGptBackend) {
                 stopPrefixWork()
                 loadedBackend?.let { runCatching { it.unload() } }
                 loadedBackend = null
