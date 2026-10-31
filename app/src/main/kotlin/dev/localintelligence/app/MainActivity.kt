@@ -50,6 +50,8 @@ import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.encodePickedPicture
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.settings.SuggestedModel
+import dev.localintelligence.app.ui.ChatGptModelCard
+import dev.localintelligence.app.ui.ChatGptSettingsCard
 import dev.localintelligence.app.ui.ChatMessage
 import dev.localintelligence.app.ui.ChatScreen
 import dev.localintelligence.app.ui.ChatViewModel
@@ -263,7 +265,7 @@ class MainActivity : ComponentActivity() {
                             models = models,
                             contextLengthFor = container::contextLengthFor,
                             speedTest = container.speedTest,
-                            loadedModelUri = if (modelState is ModelAvailability.Ready && !container.remoteChatActive) {
+                            loadedModelUri = if (modelState is ModelAvailability.Ready && !container.remoteChatActive && !container.chatGptActive) {
                                 container.selectedModel?.uri?.toString()
                             } else {
                                 null
@@ -273,6 +275,7 @@ class MainActivity : ComponentActivity() {
                             onUseRemoteChat = {
                                 withContext(Dispatchers.IO) { container.useRemoteChat() }
                             },
+                            chatGptCard = { ChatGptModelCard(container) },
                             onUseModel = { model ->
                                 withContext(Dispatchers.IO) { container.loadModel(model) }
                             },
@@ -532,6 +535,7 @@ class MainActivity : ComponentActivity() {
                             generatedMedia = generatedMediaDir(applicationContext),
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
                             onOpenScripts = { nav.navigate(ROUTE_SCRIPTS) },
+                            chatGptRow = { ChatGptSettingsCard(container) },
                             onOpenModels = { nav.navigate(ROUTE_MODELS) },
                             onOpenSchedule = { nav.navigate(ROUTE_SCHEDULE) },
                             onOpenTrace = { nav.navigate(ROUTE_TRACE) },

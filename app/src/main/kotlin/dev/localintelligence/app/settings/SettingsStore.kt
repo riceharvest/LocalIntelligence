@@ -2,6 +2,7 @@ package dev.localintelligence.app.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import dev.localintelligence.android.cloud.ChatGptSettingsWriter
 import dev.localintelligence.android.hub.KeystoreCipher
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.CoreSettings
@@ -29,7 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class SettingsStore(
     context: Context,
     private val simpleValues: () -> Map<String, Any> = { emptyMap() },
-) : SettingsReader {
+) : SettingsReader, ChatGptSettingsWriter {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
@@ -67,7 +68,7 @@ class SettingsStore(
      * Encrypts and saves a secret. Blank clears it. Returns false, and stores
      * nothing, when the Keystore refuses: a secret is never written in plain text.
      */
-    fun setSecret(def: SettingDef.Secret, value: String): Boolean {
+    override fun setSecret(def: SettingDef.Secret, value: String): Boolean {
         if (value.isBlank()) return clearSecret(def)
         val (ciphertext, iv) = cipher.encryptParts(value.trim()) ?: return false
         prefs.edit().putString(def.key, iv + SEPARATOR + ciphertext).apply()
@@ -75,7 +76,7 @@ class SettingsStore(
         return true
     }
 
-    fun clearSecret(def: SettingDef.Secret): Boolean {
+    override fun clearSecret(def: SettingDef.Secret): Boolean {
         prefs.edit().remove(def.key).apply()
         _changes.value += 1
         return true
@@ -88,7 +89,7 @@ class SettingsStore(
         return cipher.decryptParts(ciphertext = parts[1], iv = parts[0])
     }
 
-    fun <T : Any> set(def: SettingDef<T>, value: T) {
+    override fun <T : Any> set(def: SettingDef<T>, value: T) {
         if (def is SettingDef.Secret) {
             // Callers must use setSecret; a plain write here would store the key unencrypted.
             return
@@ -114,7 +115,7 @@ class SettingsStore(
     fun isPluginEnabled(plugin: AgentPlugin): Boolean =
         prefs.getBoolean(pluginKey(plugin), plugin.enabledByDefault)
 
-    fun setPluginEnabled(plugin: AgentPlugin, enabled: Boolean) {
+    override fun setPluginEnabled(plugin: AgentPlugin, enabled: Boolean) {
         prefs.edit().putBoolean(pluginKey(plugin), enabled).apply()
         _changes.value += 1
     }
