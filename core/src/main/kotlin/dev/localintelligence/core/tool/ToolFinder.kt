@@ -119,8 +119,8 @@ class ToolFinder(
      *
      * Three tiers, the first that fits the budget. Budget (as Hermes sizes it): the smaller
      * of 5% of the context and 4000 tokens, at about 4 characters a token. Tier 1 is one line
-     * per tool, name and a short description. Tier 2 is names only. Tier 3 is a count per
-     * category, which is the floor and may still overrun a budget that tiny.
+     * per tool, name and a short description. Tier 2 is names only, and the floor whenever
+     * the names fit under the 4000-token cap. Tier 3 is a count per category, only past that.
      */
     private fun listing(): ToolDefinition {
         val deferred = registry.all().map { it.definition }
@@ -140,7 +140,13 @@ class ToolFinder(
                 "$category: ${tools.size} " + if (tools.size == 1) "tool" else "tools"
             },
         )
+        // Names are the floor, not counts: a model that cannot see a tool's name does not know
+        // it exists (Hermes's benchmark finding), and every name together is a few hundred
+        // tokens, cached once in the prefix. Hermes's 5% rule was sized for large windows; on a
+        // 4096-token phone it would leave only counts. Counts are used only past the 4000 cap.
+        val namesOnlyCap = LISTING_MAX_TOKENS * CHARS_PER_TOKEN
         val (tier, body) = tiers.firstOrNull { (_, text) -> text.length + INTRO.length + 1 <= budgetChars }
+            ?: tiers[1].takeIf { (_, text) -> text.length + INTRO.length + 1 <= namesOnlyCap }
             ?: tiers.last()
         val text = if (deferred.isEmpty()) INTRO else "$INTRO\n$body"
         log("tool lookup: listing tier $tier, ${deferred.size} deferred tools, ~${text.length / CHARS_PER_TOKEN} tokens")
