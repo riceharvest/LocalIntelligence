@@ -1228,7 +1228,7 @@ object V0ToolCatalogue {
                     put("description", "Days to forecast, 1 to 7. Default 1, today only.")
                 }
             },
-            risk = ToolRisk.READ_ONLY,
+            risk = ToolRisk.NETWORK_EGRESS,
             observationOrigin = ObservationOrigin.NETWORK,
             tags = setOf("weather", "rain", "temperature", "forecast", "weer", "regen"),
             requiredPermission = null,
@@ -1249,7 +1249,7 @@ object V0ToolCatalogue {
                     put("description", "Wikipedia language code, for example en or nl. Default en.")
                 }
             },
-            risk = ToolRisk.READ_ONLY,
+            risk = ToolRisk.NETWORK_EGRESS,
             observationOrigin = ObservationOrigin.NETWORK,
             tags = setOf("wikipedia", "who is", "what is"),
             requiredPermission = null,
@@ -1270,7 +1270,7 @@ object V0ToolCatalogue {
                     put("description", "Town or area to search near, for example Amsterdam. Optional.")
                 }
             },
-            risk = ToolRisk.READ_ONLY,
+            risk = ToolRisk.NETWORK_EGRESS,
             observationOrigin = ObservationOrigin.NETWORK,
             tags = setOf("address of", "where is", "find a"),
             requiredPermission = null,

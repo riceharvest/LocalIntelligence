@@ -67,7 +67,10 @@ class PlacesSearchTool(private val grant: PlatformGrant) : AgentTool {
         description = "Finds a place or address on OpenStreetMap and returns each name, address and coordinates.",
         category = "info",
         schema = PLACES_SCHEMA,
-        risk = ToolRisk.READ_ONLY,
+        // NETWORK_EGRESS like web.search: the query leaves the phone, so the user confirms (or
+        // auto-accepts network tools) the same way.
+        risk = ToolRisk.NETWORK_EGRESS,
+        fixedHost = "nominatim.openstreetmap.org",
         observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf("address of", "where is", "find a"),
         requiredPermission = null,

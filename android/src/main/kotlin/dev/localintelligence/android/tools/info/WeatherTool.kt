@@ -79,7 +79,10 @@ class WeatherGetTool(
             "for a place or the phone's location.",
         category = "info",
         schema = WEATHER_SCHEMA,
-        risk = ToolRisk.READ_ONLY,
+        // NETWORK_EGRESS like web.search: the query leaves the phone, so the user confirms (or
+        // auto-accepts network tools) the same way.
+        risk = ToolRisk.NETWORK_EGRESS,
+        fixedHost = "api.open-meteo.com",
         observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf("weather", "rain", "temperature", "forecast", "weer", "regen"),
         requiredPermission = null,

@@ -66,7 +66,10 @@ class WikiSearchTool(private val grant: PlatformGrant) : AgentTool {
         description = "Looks up a Wikipedia article and returns its title, a short extract and its link.",
         category = "info",
         schema = WIKI_SCHEMA,
-        risk = ToolRisk.READ_ONLY,
+        // NETWORK_EGRESS like web.search: the query leaves the phone, so the user confirms (or
+        // auto-accepts network tools) the same way.
+        risk = ToolRisk.NETWORK_EGRESS,
+        fixedHost = "wikipedia.org",
         observationOrigin = ObservationOrigin.NETWORK,
         tags = setOf("wikipedia", "who is", "what is"),
         requiredPermission = null,
