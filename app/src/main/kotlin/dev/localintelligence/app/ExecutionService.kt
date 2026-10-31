@@ -106,6 +106,16 @@ class ExecutionService : Service() {
     private var scheduledTaskIdInFlight: String? = null
 
     /**
+     * The Telegram chat this run answers, or null for any other run.
+     *
+     * A Telegram run is unattended in the same way a scheduled one is: nobody is
+     * watching the phone, so approvals are declined and the outcome is sent to the
+     * chat instead of a task row. Held here for the same reason as the task id.
+     */
+    @Volatile
+    private var replyChatInFlight: Long? = null
+
+    /**
      * The run-claim taken at the start of a run, released in
      * `stopForegroundAndSelf`.
      *
@@ -155,10 +165,13 @@ class ExecutionService : Service() {
                 // seconds, and the five-second foreground deadline does not pause
                 // for it.
                 startTaskForeground()
+                val replyChat = intent.getLongExtra(EXTRA_REPLY_CHAT_ID, NO_REPLY_CHAT)
+                    .takeIf { it != NO_REPLY_CHAT }
                 startRun(
                     task,
                     intent.getStringExtra(EXTRA_SCHEDULED_TASK_ID),
                     startId,
+                    replyChat,
                 )
             }
 
@@ -263,7 +276,7 @@ class ExecutionService : Service() {
 
     // ----------------------------------------------------------------- internals
 
-    private fun startRun(task: String, scheduledTaskId: String?, startId: Int) {
+    private fun startRun(task: String, scheduledTaskId: String?, startId: Int, replyChat: Long?) {
         // One run at a time, across BOTH entry points.
         //
         // serviceScope is a pool scope, not a mutex, and this service receives a
@@ -280,7 +293,7 @@ class ExecutionService : Service() {
         if (claim == null) {
             // A refused CHAT start leaves its queued attachments behind; they would ride on the next message.
             // A refused scheduled start never owned the chat's queue, so it must not clear it.
-            if (scheduledTaskId == null) container.pendingAttachments.clear()
+            if (scheduledTaskId == null && replyChat == null) container.pendingAttachments.clear()
             // A REFUSAL IS NOT A TERMINAL EVENT FOR THIS SERVICE.
             //
             // `onStartCommand` delivers to the SAME service instance, so
@@ -303,7 +316,7 @@ class ExecutionService : Service() {
             // There is nothing to release (we hold no claim) and nothing to stop
             // (this service legitimately belongs to the other run), so the
             // refusal is reported and the service is left entirely alone.
-            reportRefusal(startId, task, scheduledTaskId)
+            reportRefusal(startId, task, scheduledTaskId, replyChat)
             return
         }
         activeClaim = claim
@@ -323,13 +336,17 @@ class ExecutionService : Service() {
         // path reaches.
         ScheduledRunRegistry.begin(scheduledTaskId)
         scheduledTaskIdInFlight = scheduledTaskId
+        replyChatInFlight = replyChat
+        // Nobody is watching a scheduled or Telegram run, so neither can wait for an approval
+        // and neither may take what the chat queued.
+        val unattended = scheduledTaskId != null || replyChat != null
         readinessInFlight = null
         val agent = AgentViewModel(
             // Called by AgentViewModel only after the model is ready, so the
             // controller binds to the backend that is actually loaded.
             newController = {
                 container.newController(
-                    background = scheduledTaskId != null,
+                    background = unattended,
                     // Streaming, wired at last. Every layer below already existed -
                     // generateStreaming on the backend, the per-token JNI callback,
                     // RunSinks.streamingText, appendStreamToken - and the loop called the
@@ -365,9 +382,9 @@ class ExecutionService : Service() {
             scope = serviceScope,
             sinks = sinks,
             // Nobody is watching a scheduled run, so it cannot wait for an approval.
-            declineApprovals = scheduledTaskId != null,
-            // Chat runs take what the chat queued; scheduled runs never do.
-            attachments = if (scheduledTaskId == null) container.pendingAttachments else null,
+            declineApprovals = unattended,
+            // Chat runs take what the chat queued; scheduled and Telegram runs never do.
+            attachments = if (!unattended) container.pendingAttachments else null,
         )
         this.agent = agent
         agent.prepareThenStart(task) {
@@ -494,7 +511,7 @@ class ExecutionService : Service() {
         state: RunState,
         interruptedIfUnfinished: Boolean = false,
     ) {
-        if (scheduledTaskIdInFlight == null) return
+        if (scheduledTaskIdInFlight == null && replyChatInFlight == null) return
         if (reportedInFlight) return
         val outcome = when {
             state is RunState.Finished -> state
@@ -510,6 +527,19 @@ class ExecutionService : Service() {
         }
         reportedInFlight = true
         try {
+            replyChatInFlight?.let { chat ->
+                TelegramReplies.send(
+                    container.settings,
+                    chat,
+                    TelegramReplies.outcomeText(
+                        outcome.outcome,
+                        sinks.trace.value,
+                        readinessInFlight,
+                        agent?.approvalDeclined == true,
+                    ),
+                )
+                return
+            }
             ScheduledRunReporter.settle(
                 context = applicationContext,
                 scheduledTaskId = scheduledTaskIdInFlight,
@@ -545,7 +575,10 @@ class ExecutionService : Service() {
      * [ScheduledRunReporter.settle] reads its state from `sinks`, which is the
      * other run's.
      */
-    private fun reportRefusal(startId: Int, task: String, scheduledTaskId: String?) {
+    private fun reportRefusal(startId: Int, task: String, scheduledTaskId: String?, replyChat: Long?) {
+        replyChat?.let {
+            TelegramReplies.send(container.settings, it, BUSY_REPLY)
+        }
         if (scheduledTaskId != null) {
             // Best effort: a failure to record must not crash the receiver path.
             runCatching {
@@ -654,6 +687,11 @@ class ExecutionService : Service() {
          */
         const val EXTRA_SCHEDULED_TASK_ID = "scheduledTaskId"
 
+        /** The Telegram chat a run answers. [NO_REPLY_CHAT] when there is none. */
+        const val EXTRA_REPLY_CHAT_ID = "replyChatId"
+        private const val NO_REPLY_CHAT = Long.MIN_VALUE
+        private const val BUSY_REPLY = "The phone is already running a task. Send it again when that one has finished."
+
         /**
          * Starts a run. Always `startForegroundService`, so `onStartCommand` is
          * obliged to post the notification within five seconds — and we post it
@@ -678,11 +716,12 @@ class ExecutionService : Service() {
          * contract, not a workaround, which is why this stayed a plain
          * `startForegroundService` instead of growing a fallback path.
          */
-        fun start(context: Context, task: String, scheduledTaskId: String? = null) {
+        fun start(context: Context, task: String, scheduledTaskId: String? = null, replyChatId: Long? = null) {
             val intent = Intent(context, ExecutionService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_TASK, task)
                 .putExtra(EXTRA_SCHEDULED_TASK_ID, scheduledTaskId)
+                .putExtra(EXTRA_REPLY_CHAT_ID, replyChatId ?: NO_REPLY_CHAT)
             ContextCompat.startForegroundService(context, intent)
         }
 

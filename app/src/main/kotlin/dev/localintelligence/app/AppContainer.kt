@@ -26,6 +26,7 @@ import dev.localintelligence.android.documents.DocumentsPlugin
 import dev.localintelligence.android.documents.DOCUMENT_EMBEDDING_MODEL
 import dev.localintelligence.android.documents.DOCUMENT_SEARCH_MODE
 import dev.localintelligence.android.documents.SEARCH_MODE_HYBRID
+import dev.localintelligence.android.gateway.telegram.TelegramPlugin
 import dev.localintelligence.android.mcp.McpPlugin
 import dev.localintelligence.android.tools.home.HomeAssistantPlugin
 import dev.localintelligence.android.skills.SkillRepository
@@ -278,7 +279,8 @@ class AppContainer(private val context: Context) {
             V0ToolCatalogue.definitions,
         )
         val remote = McpPlugin(settings)
-        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + sandbox + remote + home
+        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + sandbox + remote + home +
+            telegramPlugin
     }
 
     /**
@@ -779,6 +781,9 @@ class AppContainer(private val context: Context) {
             enabled = { settings.isPluginEnabled(openRouterPlugin) },
         )
     }
+
+    /** Telegram as a remote keyboard for this phone. Off by default; see TelegramService. */
+    val telegramPlugin: TelegramPlugin by lazy { TelegramPlugin() }
 
     /**
      * The ChatGPT plugin: the sign-in account and the model choice. One instance for the plugin
