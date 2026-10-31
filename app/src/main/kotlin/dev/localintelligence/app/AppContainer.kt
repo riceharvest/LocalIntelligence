@@ -25,6 +25,7 @@ import dev.localintelligence.android.documents.DOCUMENT_EMBEDDING_MODEL
 import dev.localintelligence.android.documents.DOCUMENT_SEARCH_MODE
 import dev.localintelligence.android.documents.SEARCH_MODE_HYBRID
 import dev.localintelligence.android.mcp.McpPlugin
+import dev.localintelligence.android.tools.home.HomeAssistantPlugin
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.android.skills.SkillsPlugin
 import dev.localintelligence.android.tools.androidToolPlugins
@@ -267,12 +268,13 @@ class AppContainer(private val context: Context) {
         // tools.find ships too, offered only with "Let the model look up tools";
         // an instance here stands for it (the check reads definitions only).
         val finder = ToolFinder(SimpleToolRegistry(emptyList(), catalogue = emptyList()), LexicalToolSelector(), session)
+        val home = HomeAssistantPlugin(settings)
         CatalogueAgreement.require(
-            families.flatMap { it.tools() } + cloud.shippedTools() + docs.shippedTools() + finder,
+            families.flatMap { it.tools() } + cloud.shippedTools() + docs.shippedTools() + finder + home.shippedTools(),
             V0ToolCatalogue.definitions,
         )
         val remote = McpPlugin(settings)
-        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + remote
+        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + remote + home
     }
 
     /**

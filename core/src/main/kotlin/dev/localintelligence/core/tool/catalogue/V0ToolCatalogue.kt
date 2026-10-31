@@ -1574,6 +1574,90 @@ object V0ToolCatalogue {
             ),
             requiredPermission = null,
         ),
+
+        // ------------------------------------------------------------------ home
+        // Offered only with the Home Assistant plugin on, in Technical mode, with an address and a
+        // token set. Split by risk tier because RiskPolicy reads one tier per tool, not per argument:
+        // locks and covers are DESTRUCTIVE in home.secure, so they confirm every time.
+        ToolDefinition(
+            name = "home.devices",
+            description = "Lists the smart-home devices in Home Assistant that match some words or a " +
+                "device type, with their state, and returns their entity ids.",
+            category = "home",
+            schema = objSchema {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 80)
+                    put("description", "Words from the device name, for example \"kitchen light\".")
+                }
+                putJsonObject("domain") {
+                    put("type", "string")
+                    put("maxLength", 40)
+                    put("description", "Device type: light, switch, fan, climate, cover, media_player, lock or sensor.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "lights", "lamp", "heating", "thermostat", "smart home", "is the light on",
+                "which lights", "device status",
+            ),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "home.control",
+            description = "Turns a light, switch, fan, media player or thermostat on or off, or changes it, " +
+                "in Home Assistant, and returns its new state.",
+            category = "home",
+            schema = objSchema(required = listOf("entity_id", "action")) {
+                putJsonObject("entity_id") {
+                    put("type", "string")
+                    put("maxLength", 120)
+                    put("description", "The entity id from home.devices, for example light.kitchen_ceiling.")
+                }
+                putJsonObject("action") {
+                    put("type", "string")
+                    put("maxLength", 20)
+                    put("description", "turn_on, turn_off, toggle, play, pause or set_temperature.")
+                }
+                putJsonObject("value") {
+                    put("type", "number")
+                    put("description", "Brightness percent 0 to 100 for a light turn_on, or degrees 5 to 35 for set_temperature.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "turn on the", "turn off the", "lights", "lamp", "heating", "thermostat",
+                "set the temperature", "dim", "switch on", "switch off",
+            ),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "home.secure",
+            description = "Locks or unlocks a door, or opens or closes a cover such as a garage door or " +
+                "curtains, in Home Assistant, after the user confirms.",
+            category = "home",
+            schema = objSchema(required = listOf("entity_id", "action")) {
+                putJsonObject("entity_id") {
+                    put("type", "string")
+                    put("maxLength", 120)
+                    put("description", "The lock or cover entity id from home.devices, for example lock.front_door.")
+                }
+                putJsonObject("action") {
+                    put("type", "string")
+                    put("maxLength", 20)
+                    put("description", "lock, unlock, open or close.")
+                }
+            },
+            risk = ToolRisk.DESTRUCTIVE,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "lock the door", "unlock the door", "front door", "garage door", "curtains",
+                "blinds", "open the curtains", "close the blinds",
+            ),
+            requiredPermission = null,
+        ),
     )
 
     init {

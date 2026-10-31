@@ -87,6 +87,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.localintelligence.android.cloud.clearGeneratedMedia
 import dev.localintelligence.android.cloud.generatedMediaBytes
+import dev.localintelligence.android.mcp.McpSettings
 import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.android.tools.OBSERVATIONS_FAMILY_ID
 import dev.localintelligence.app.export.ChatExporter
@@ -214,7 +215,11 @@ fun SettingsScreen(
                     val speedTestHere = technical && speedTest != null && section == SettingSection.MODEL
                     if (inSection.isEmpty() && !speedTestHere) continue
                     SectionHeader(section.title)
-                    inSection.forEach { SettingRow(store, it, technical) }
+                    inSection.forEach { def ->
+                        // The Add a server helper sits above the first remote MCP address row.
+                        if (def === McpSettings.urls[0]) McpAddServerRow(store)
+                        SettingRow(store, def, technical)
+                    }
                     if (speedTestHere) speedTest?.let { SpeedTestRow(it) }
                 }
 
