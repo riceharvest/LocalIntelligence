@@ -23,7 +23,8 @@ export interface Env {
   /** OpenRouter Management API key (created at openrouter.ai/settings/management-keys). */
   OPENROUTER_PROVISIONING_KEY: string;
   /** Exa service key for the Team Management API (Service keys tab, after Exa enables it). */
-  EXA_ADMIN_KEY: string;
+  /** Optional: without it Extras provisions no search key. */
+  EXA_ADMIN_KEY?: string;
   /** Random path segment that Pub/Sub's push URL must contain, e.g. POST /v1/rtdn/<secret>. */
   RTDN_PATH_SECRET: string;
   /** Base64 of 32 random bytes. Encrypts provider key secrets stored in D1. */

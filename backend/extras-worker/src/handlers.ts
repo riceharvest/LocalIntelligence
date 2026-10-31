@@ -166,11 +166,12 @@ function requireInstallId(body: Record<string, unknown>): string {
   return installId;
 }
 
-function credentialsResponse(env: Env, expiresAt: string, openrouterKey: string, exaKey: string): Response {
+/** `exa` is null when no search key could be made; the app then keeps its free search provider. */
+function credentialsResponse(env: Env, expiresAt: string, openrouterKey: string, exaKey: string | null): Response {
   return jsonNoStore({
     expiresAt,
     openrouter: { key: openrouterKey, model: env.DEFAULT_MODEL },
-    exa: { key: exaKey },
+    exa: exaKey ? { key: exaKey } : null,
   });
 }
 

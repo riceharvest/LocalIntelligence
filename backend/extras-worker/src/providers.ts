@@ -88,7 +88,7 @@ export async function createExaKey(env: Env, name: string): Promise<NewExaKey> {
   const response = await fetch(EXA_KEYS, {
     method: "POST",
     headers: {
-      "x-api-key": env.EXA_ADMIN_KEY,
+      "x-api-key": exaAdminKey(env),
       "content-type": "application/json",
     },
     body: JSON.stringify({ name, rateLimit, budgetCents }),
@@ -116,7 +116,13 @@ function extractExaSecret(_body: unknown): string | null {
 export async function deleteExaKey(env: Env, id: string): Promise<void> {
   const response = await fetch(`${EXA_KEYS}/${encodeURIComponent(id)}`, {
     method: "DELETE",
-    headers: { "x-api-key": env.EXA_ADMIN_KEY },
+    headers: { "x-api-key": exaAdminKey(env) },
   });
   if (!response.ok && response.status !== 404) throw new ProviderError("exa_delete_key", response.status);
+}
+
+/** The Exa team-management key; callers only reach Exa when it is set. */
+function exaAdminKey(env: Env): string {
+  if (!env.EXA_ADMIN_KEY) throw new ProviderError("exa_not_configured", 503);
+  return env.EXA_ADMIN_KEY;
 }

@@ -27,7 +27,8 @@ import {
 
 export interface ProvisionedKeys {
   openrouterKey: string;
-  exaKey: string;
+  /** Null when Exa is not set up, not enabled for the team, or did not return a usable key. Search then stays on the free provider. */
+  exaKey: string | null;
 }
 
 export async function provisionActive(env: Env, start: CustomerRow, expiresAt: string): Promise<ProvisionedKeys> {
@@ -46,25 +47,31 @@ export async function provisionActive(env: Env, start: CustomerRow, expiresAt: s
   // cancellation whose cleanup then failed part way.
   await setOpenRouterKeyDisabled(env, requireValue(row.openrouter_key_hash), false);
 
-  if (!row.exa_key_id || !row.exa_key_enc) {
-    const created = await createExaKey(env, `extras-${row.id}`);
-    if (!created.secret) {
-      // Without the secret the key is useless to the phone, so do not leave it behind.
-      await deleteExaKey(env, created.id);
-      throw new ProviderError("exa_missing_secret", 502);
+  // Exa is optional: the chat model is what Extras is bought for, so a search key that cannot be
+  // made (no admin key, the feature not enabled, or no secret in the reply) never blocks activation.
+  if (env.EXA_ADMIN_KEY && (!row.exa_key_id || !row.exa_key_enc)) {
+    try {
+      const created = await createExaKey(env, `extras-${row.id}`);
+      if (!created.secret) {
+        // Without the secret the key is useless to the phone, so do not leave it behind.
+        await deleteExaKey(env, created.id);
+      } else {
+        const enc = await encryptSecret(created.secret, env.CREDENTIAL_ENCRYPTION_KEY);
+        if (!(await saveExaKey(env, row.id, created.id, enc))) {
+          await deleteExaKey(env, created.id);
+        }
+        row = await reload(env, row);
+      }
+    } catch (e) {
+      console.warn("exa key not provisioned", e instanceof ProviderError ? e.message : "error");
     }
-    const enc = await encryptSecret(created.secret, env.CREDENTIAL_ENCRYPTION_KEY);
-    if (!(await saveExaKey(env, row.id, created.id, enc))) {
-      await deleteExaKey(env, created.id);
-    }
-    row = await reload(env, row);
   }
 
   await setStatus(env, row.id, "active", expiresAt);
 
   return {
     openrouterKey: await decryptSecret(requireValue(row.openrouter_key_enc), env.CREDENTIAL_ENCRYPTION_KEY),
-    exaKey: await decryptSecret(requireValue(row.exa_key_enc), env.CREDENTIAL_ENCRYPTION_KEY),
+    exaKey: row.exa_key_enc ? await decryptSecret(row.exa_key_enc, env.CREDENTIAL_ENCRYPTION_KEY) : null,
   };
 }
 
