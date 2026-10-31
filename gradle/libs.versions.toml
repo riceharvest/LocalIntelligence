@@ -13,6 +13,9 @@ androidxTestJunit = "1.2.1"
 # PDF text extraction for the Documents plugin. Maven Central: com.tom-roush:pdfbox-android
 # 2.0.27.0 is the newest 2.0.x release there (checked 2026-10-30). Its classes live under com.tom_roush.pdfbox.
 pdfbox = "2.0.27.0"
+# SSH for the sandbox plugin's SSH provider. Maven Central: com.github.mwiede:jsch, the maintained
+# fork of JSch. 2.28.8 is the newest release there (maven-metadata.xml, checked 2026-10-31).
+jsch = "2.28.8"
 
 [libraries]
 # LiteRT-LM: the second ModelBackend runtime, benchmarked against llama.cpp.
@@ -56,6 +59,7 @@ compose-material3 = { module = "androidx.compose.material3:material3" }
 compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
 
 pdfbox-android = { module = "com.tom-roush:pdfbox-android", version.ref = "pdfbox" }
+jsch = { module = "com.github.mwiede:jsch", version.ref = "jsch" }
 
 # JavaScript sandbox for script plugins: an isolated process with no network, no file
 # system and no Java bridge. Google Maven (androidx), not Central. 1.1.1 is the latest

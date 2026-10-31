@@ -35,4 +35,23 @@
     -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
+    <!--
+      The Termux provider checks that Termux is installed (getPackageInfo) before it sends a command, which
+      needs the package to be visible on Android 11 and later. The permission itself is not declared here: it
+      belongs to Termux, and the user switches it on in Android Settings.
+    -->
+    <queries>
+        <package android:name="com.termux" />
+    </queries>
+
+    <!--
+      Termux sends each command's result back to this receiver through a PendingIntent that this app made.
+      It is not exported, so no other app can deliver a result to it.
+    -->
+    <application>
+        <receiver
+            android:name="dev.localintelligence.android.cloud.sandbox.TermuxResultReceiver"
+            android:exported="false" />
+    </application>
+
 </manifest>

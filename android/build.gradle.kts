@@ -98,6 +98,7 @@ dependencies {
 
     // PDF text extraction for the Documents plugin (PDFTextStripper). Init: DocumentImport.
     implementation(libs.pdfbox.android)
+    implementation(libs.jsch)
 
     // The sandbox script plugins run in. See scripts/ScriptRunner.kt.
     implementation(libs.androidx.javascriptengine)
