@@ -104,7 +104,7 @@ class LocationGetTool(
                         observation = "This phone has no location service, so the location cannot be read.",
                         error = ToolError.Unavailable("no LocationManager"),
                     )
-                val fix = currentFix(lm) ?: return@withContext ToolResult(
+                val fix = currentFix(appContext, lm) ?: return@withContext ToolResult(
                     success = false,
                     observation = "No location is available: Location is turned off or no fix could be " +
                         "found. Tell the user to turn on Location in quick settings, then try again.",
@@ -140,52 +140,6 @@ class LocationGetTool(
             }
         }
 
-    /** A fresh fix when the platform can give one in time, else the best last known fix. */
-    @SuppressLint("MissingPermission")
-    private suspend fun currentFix(lm: LocationManager): Location? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val provider = FRESH_PROVIDERS.firstOrNull { lm.isProviderEnabled(it) }
-            if (provider != null) {
-                val fresh = withTimeoutOrNull(FRESH_FIX_TIMEOUT_MS) { requestFresh(lm, provider) }
-                if (fresh != null) return fresh
-            }
-        }
-        return lastKnown(lm)
-    }
-
-    /** API 30+ only; the caller checks the SDK level. Cancelling the coroutine cancels the request. */
-    @SuppressLint("MissingPermission")
-    @RequiresApi(Build.VERSION_CODES.R)
-    private suspend fun requestFresh(lm: LocationManager, provider: String): Location? =
-        suspendCancellableCoroutine<Location?> { cont ->
-            val cancel = android.os.CancellationSignal()
-            cont.invokeOnCancellation { cancel.cancel() }
-            try {
-                lm.getCurrentLocation(
-                    provider,
-                    cancel,
-                    ContextCompat.getMainExecutor(appContext),
-                ) { location -> if (cont.isActive) cont.resume(location) }
-            } catch (e: SecurityException) {
-                if (cont.isActive) cont.resume(null)
-            }
-        }
-
-    /** The newest last-known fix across every enabled provider that will answer. */
-    @SuppressLint("MissingPermission")
-    private fun lastKnown(lm: LocationManager): Location? {
-        var best: Location? = null
-        for (provider in lm.getProviders(true)) {
-            val loc = try {
-                lm.getLastKnownLocation(provider)
-            } catch (e: SecurityException) {
-                null
-            } ?: continue
-            if (best == null || loc.time > best.time) best = loc
-        }
-        return best
-    }
-
     private fun describe(fix: Location, nowMillis: Long): String {
         val coords = String.format(Locale.US, "%.5f, %.5f", fix.latitude, fix.longitude)
         val accuracy = if (fix.hasAccuracy()) "±${fix.accuracy.roundToInt()} m" else "accuracy unknown"
@@ -197,3 +151,58 @@ class LocationGetTool(
 /** The tool set for the location family. */
 fun locationTools(context: Context, grant: PlatformGrant): List<AgentTool> =
     listOf(LocationGetTool(context.applicationContext, grant))
+
+/**
+ * The phone's best current fix, or null when there is none. The caller checks the
+ * permission first. weather.get uses this too, so both tools read location the same way.
+ */
+internal suspend fun phoneFix(appContext: Context): Location? {
+    val lm = appContext.getSystemService(LocationManager::class.java) ?: return null
+    return currentFix(appContext, lm)
+}
+
+/** A fresh fix when the platform can give one in time, else the best last known fix. */
+@SuppressLint("MissingPermission")
+private suspend fun currentFix(appContext: Context, lm: LocationManager): Location? {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val provider = FRESH_PROVIDERS.firstOrNull { lm.isProviderEnabled(it) }
+        if (provider != null) {
+            val fresh = withTimeoutOrNull(FRESH_FIX_TIMEOUT_MS) { requestFresh(appContext, lm, provider) }
+            if (fresh != null) return fresh
+        }
+    }
+    return lastKnown(lm)
+}
+
+/** API 30+ only; the caller checks the SDK level. Cancelling the coroutine cancels the request. */
+@SuppressLint("MissingPermission")
+@RequiresApi(Build.VERSION_CODES.R)
+private suspend fun requestFresh(appContext: Context, lm: LocationManager, provider: String): Location? =
+    suspendCancellableCoroutine<Location?> { cont ->
+        val cancel = android.os.CancellationSignal()
+        cont.invokeOnCancellation { cancel.cancel() }
+        try {
+            lm.getCurrentLocation(
+                provider,
+                cancel,
+                ContextCompat.getMainExecutor(appContext),
+            ) { location -> if (cont.isActive) cont.resume(location) }
+        } catch (e: SecurityException) {
+            if (cont.isActive) cont.resume(null)
+        }
+    }
+
+/** The newest last-known fix across every enabled provider that will answer. */
+@SuppressLint("MissingPermission")
+private fun lastKnown(lm: LocationManager): Location? {
+    var best: Location? = null
+    for (provider in lm.getProviders(true)) {
+        val loc = try {
+            lm.getLastKnownLocation(provider)
+        } catch (e: SecurityException) {
+            null
+        } ?: continue
+        if (best == null || loc.time > best.time) best = loc
+    }
+    return best
+}

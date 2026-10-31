@@ -12,6 +12,7 @@ import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
+import dev.localintelligence.core.settings.SettingsReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
@@ -24,7 +25,10 @@ import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
 // ===========================================================================
-// web.search — NETWORK_EGRESS query to DuckDuckGo's HTML endpoint.
+// web.search — NETWORK_EGRESS query to the provider chosen in Settings.
+//
+// DuckDuckGo (the default, no key) is the HTML endpoint below. Brave, Tavily, Exa
+// and SearXNG are reached through KeyedSearch.kt; the choice is WebSearchSettings.PROVIDER.
 //
 // WHY THE HTML ENDPOINT AND NOT AN API: every search API with a usable free
 // tier needs a key, and a key compiled into a phone app is a key anyone can
@@ -185,8 +189,13 @@ internal object SearchObservations {
     private const val CUT_NOTE: String = "\n(more results cut to fit the observation)"
 
     /** Numbered compact lines: "1. Title — https://host/path" then "   snippet". */
-    fun render(query: String, hits: List<SearchHit>, budget: Int = ObservationTruncator.DEFAULT_BUDGET_CHARS): String {
-        val out = StringBuilder("Results for \"$query\" from DuckDuckGo:")
+    fun render(
+        query: String,
+        hits: List<SearchHit>,
+        source: String,
+        budget: Int = ObservationTruncator.DEFAULT_BUDGET_CHARS,
+    ): String {
+        val out = StringBuilder("Results for \"$query\" from $source:")
         var cut = false
         for ((index, hit) in hits.withIndex()) {
             val block = buildString {
@@ -291,7 +300,7 @@ internal class WebSearcher(
                     return ToolResult(
                         success = true,
                         observation = ObservationTruncator.truncate(
-                            SearchObservations.render(query, hits),
+                            SearchObservations.render(query, hits, source = "DuckDuckGo"),
                         ),
                         data = buildJsonObject {
                             put("query", JsonPrimitive(query))
@@ -375,9 +384,12 @@ internal class WebSearcher(
 class WebSearchTool private constructor(
     private val opener: ResponseOpener,
     private val grant: PlatformGrant,
+    /** Read live, as OpenRouterPlugin reads its key: a provider change applies to the next search. */
+    private val settings: SettingsReader,
 ) : AgentTool {
 
-    constructor(grant: PlatformGrant) : this(HttpUrlConnectionOpener(userAgent = SEARCH_USER_AGENT), grant)
+    constructor(grant: PlatformGrant, settings: SettingsReader) :
+        this(HttpUrlConnectionOpener(userAgent = SEARCH_USER_AGENT), grant, settings)
 
     override val definition: ToolDefinition = ToolDefinition(
         name = "web.search",
@@ -420,8 +432,8 @@ class WebSearchTool private constructor(
         // Stated, as in WebFetchTool: the results are written by third parties,
         // and this is what makes ModelBackend fence them.
         observationOrigin = ObservationOrigin.NETWORK,
-        // The endpoint is fixed, so the confirmation can name it.
-        fixedHost = SEARCH_HOST,
+        // No fixedHost: the provider is a setting, so one fixed host would be wrong for
+        // every provider but DuckDuckGo. The confirmation says "an external host" instead.
         tags = setOf(
             "search", "search for", "look up", "google", "search the web", "web search", "find online",
         ),
@@ -445,7 +457,11 @@ class WebSearchTool private constructor(
                     min = 1,
                     max = MAX_RESULTS,
                 )
-                WebSearcher(opener).search(query.replace(Regex("\\s+"), " "), maxResults, context, grant)
+                val compact = query.replace(Regex("\\s+"), " ")
+                when (val provider = SearchProvider.fromId(settings[WebSearchSettings.PROVIDER])) {
+                    SearchProvider.DUCKDUCKGO -> WebSearcher(opener).search(compact, maxResults, context, grant)
+                    else -> keyedSearch(provider, compact, maxResults, context)
+                }
             } catch (e: Exception) {
                 ToolResult(
                     success = false,
@@ -456,6 +472,33 @@ class WebSearchTool private constructor(
             }
         }
 
+    /**
+     * A keyed or self-hosted provider. The secret comes from [CredentialSource] (or the
+     * SearXNG address from Settings), and a missing one is said plainly, not guessed at.
+     */
+    private fun keyedSearch(provider: SearchProvider, query: String, maxResults: Int, context: ToolContext): ToolResult {
+        val secret = if (provider == SearchProvider.SEARXNG) {
+            settings[WebSearchSettings.SEARXNG_URL].trim()
+        } else {
+            CredentialSource(settings).keyFor(provider).orEmpty()
+        }
+        if (secret.isEmpty()) {
+            val observation = if (provider == SearchProvider.SEARXNG) {
+                "SearXNG needs the address of your instance. Add it in Settings, under Plugins, " +
+                    "or switch the search provider to DuckDuckGo."
+            } else {
+                "${provider.label} needs an API key. Add it in Settings, under Plugins, " +
+                    "or switch the search provider to DuckDuckGo."
+            }
+            return ToolResult(
+                success = false,
+                observation = observation,
+                error = ToolError.PermissionDenied("no ${provider.id} credential"),
+            )
+        }
+        return KeyedSearch.search(provider, query, maxResults, secret, grant, context.signal)
+    }
+
     private fun invalid(observation: String): ToolResult = ToolResult(
         success = false,
         observation = observation,
@@ -465,6 +508,6 @@ class WebSearchTool private constructor(
     internal companion object {
         /** Test seam: a [WebSearchTool] backed by a scripted transport. */
         fun withOpener(opener: ResponseOpener, grant: PlatformGrant): WebSearchTool =
-            WebSearchTool(opener, grant)
+            WebSearchTool(opener, grant, SettingsReader.DEFAULTS)
     }
 }
