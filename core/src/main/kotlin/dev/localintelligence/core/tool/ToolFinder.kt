@@ -207,7 +207,9 @@ class ToolFinder(
             return if (sentence.length <= SHORT_DESCRIPTION_CHARS) {
                 sentence
             } else {
-                sentence.take(SHORT_DESCRIPTION_CHARS - 3).trimEnd() + "..."
+                // At a word boundary: half a word ("screen size, tot...") costs tokens and says nothing.
+                val cut = sentence.take(SHORT_DESCRIPTION_CHARS - 3)
+                cut.substringBeforeLast(' ', cut).trimEnd(',', ';', ':', ' ') + "..."
             }
         }
 
