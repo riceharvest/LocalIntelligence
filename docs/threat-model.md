@@ -151,8 +151,9 @@ connects to the one address the user typed, over https only, and lists that
 server's tools once per run. Each listed tool is offered as `mcp.<name>`.
 
 What leaves the phone: the JSON-RPC requests (the handshake, the tool list, and
-each call with the arguments the model chose), and the optional bearer token in
-the `Authorization` header. The token is encrypted under the Keystore and never
+each call with the arguments the model chose), and the optional token, in the
+`Authorization` header or in the one header name the user set for that server
+(for example `x-api-key`). The token is encrypted under the Keystore and never
 shown back. Errors the server returns are cut to 160 characters and have the
 token removed before the model sees them. Redirects are not followed, so the
 token cannot reach a host the user did not name. The address goes through the

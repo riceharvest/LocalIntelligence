@@ -52,11 +52,11 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * The settings rows this plugin adds. Keys are prefixed with the plugin id.
  *
- * Up to [MAX_SERVERS] servers, each an address row and a token row. Server 1 keeps
- * the keys this plugin shipped with, so an address and token already set carry
- * over unchanged. Servers 2 to 5 are Technical-mode rows; an empty address means
- * that slot is not used. Every slot is listed rather than shown on demand, because
- * the settings screen is generated from a flat list of rows.
+ * Up to [MAX_SERVERS] servers, each an address row, a token row and a token header
+ * name row. Server 1 keeps the keys this plugin shipped with, so an address and token
+ * already set carry over unchanged. Servers 2 to 5 are Technical-mode rows; an empty
+ * address means that slot is not used. Every slot is listed rather than shown on
+ * demand, because the settings screen is generated from a flat list of rows.
  */
 object McpSettings {
     const val PLUGIN_ID = "mcp.remote"
@@ -66,6 +66,7 @@ object McpSettings {
 
     private fun urlKey(slot: Int): String = if (slot == 1) "mcp.remote.url" else "mcp.remote.url.$slot"
     private fun tokenKey(slot: Int): String = if (slot == 1) "mcp.remote.token" else "mcp.remote.token.$slot"
+    private fun headerKey(slot: Int): String = if (slot == 1) "mcp.remote.header" else "mcp.remote.header.$slot"
 
     /** Simple for slot 1, so Simple mode can reach it: with no address nothing is sent. */
     private fun urlRow(slot: Int) = SettingDef.Text(
@@ -82,8 +83,21 @@ object McpSettings {
      */
     private fun tokenRow(slot: Int) = SettingDef.Secret(
         tokenKey(slot), if (slot == 1) "Bearer token" else "Server $slot bearer token",
-        "Optional. Sent to the server as Authorization: Bearer. Stored encrypted and never shown back.",
+        "Optional. Sent to the server as Authorization: Bearer, or in the header named in the row " +
+            "below. Stored encrypted and never shown back.",
         SettingSection.PLUGINS, simple = slot == 1,
+    )
+
+    /**
+     * Simple for slot 1, like its token: read as empty in Simple mode, the token would go
+     * out as Bearer and the server would refuse it.
+     */
+    private fun headerRow(slot: Int) = SettingDef.Text(
+        headerKey(slot), if (slot == 1) "Token header name" else "Server $slot token header name",
+        "Optional. Empty sends the token as Authorization: Bearer. A name such as x-api-key sends the " +
+            "token as-is in that header. Letters, digits and hyphens only. Hop-by-hop names, Host, " +
+            "Content-Length and the headers the app sets itself are refused, and that server is skipped.",
+        SettingSection.PLUGINS, default = "", maxLength = 64, simple = slot == 1,
     )
 
     /** Address rows, index 0 is server 1. */
@@ -92,7 +106,10 @@ object McpSettings {
     /** Token rows, index 0 is server 1. */
     val tokens: List<SettingDef.Secret> = (1..MAX_SERVERS).map(::tokenRow)
 
-    val all: List<SettingDef<*>> = (0 until MAX_SERVERS).flatMap { listOf(urls[it], tokens[it]) }
+    /** Token header name rows, index 0 is server 1. Empty means Authorization: Bearer. */
+    val headers: List<SettingDef.Text> = (1..MAX_SERVERS).map(::headerRow)
+
+    val all: List<SettingDef<*>> = (0 until MAX_SERVERS).flatMap { listOf(urls[it], tokens[it], headers[it]) }
 }
 
 /**
@@ -115,8 +132,8 @@ class McpPlugin(
     /** A server's tools as it listed them, and until when that listing may be reused. */
     private class Listing(val tools: List<JsonObject>, val validUntil: Long)
 
-    /** Keyed by address and token, so a changed setting is listed again at once. */
-    private val listings = ConcurrentHashMap<Pair<String, String?>, Listing>()
+    /** Keyed by address, token and token header, so a changed setting is listed again at once. */
+    private val listings = ConcurrentHashMap<Triple<String, String?, String?>, Listing>()
 
     /**
      * Called once per run, from the thread that builds the run's controller: the
@@ -137,14 +154,19 @@ class McpPlugin(
             val address = reader[McpSettings.urls[index]].trim().takeIf { it.isNotEmpty() }
                 ?: return@mapNotNull null
             val url = acceptedAddress(address) ?: return@mapNotNull null
+            val header = reader[McpSettings.headers[index]].trim().takeIf { it.isNotEmpty() }
+            // A header name the app must not send skips this server only: the token would
+            // go in the wrong place, and the other servers still answer.
+            if (header != null && !acceptedHeader(header)) return@mapNotNull null
             Server(
                 slot = index + 1,
                 url = url,
                 token = reader[McpSettings.tokens[index]].takeIf { it.isNotBlank() },
+                tokenHeader = header,
             )
         }
         // A server that was removed or changed must not keep its old token in memory.
-        listings.keys.retainAll(servers.map { it.url to it.token }.toSet())
+        listings.keys.retainAll(servers.map { Triple(it.url, it.token, it.tokenHeader) }.toSet())
         val listed = runBlocking {
             servers.map { server -> async(Dispatchers.IO) { listingOf(server) } }.awaitAll()
         }
@@ -155,8 +177,11 @@ class McpPlugin(
         return servers.indices.flatMap { i -> toolsFrom(servers[i], numbered, listed[i]) }
     }
 
-    /** One configured server: its slot number (1 to 5), checked address and optional token. */
-    private class Server(val slot: Int, val url: String, val token: String?)
+    /**
+     * One configured server: its slot number (1 to 5), checked address, optional token and
+     * the header the token goes in (null for Authorization: Bearer).
+     */
+    private class Server(val slot: Int, val url: String, val token: String?, val tokenHeader: String?)
 
     /**
      * The server's tools, from the cache while it is fresh. A listing that works is kept
@@ -165,11 +190,11 @@ class McpPlugin(
      * within that minute.
      */
     private fun listingOf(server: Server): List<JsonObject> {
-        val key = server.url to server.token
+        val key = Triple(server.url, server.token, server.tokenHeader)
         val now = System.currentTimeMillis()
         listings[key]?.takeIf { it.validUntil > now }?.let { return it.tools }
         val listed = try {
-            McpSession.open(server.url, server.token, LISTING_TIMEOUT_MS).listTools()
+            McpSession.open(server.url, server.token, LISTING_TIMEOUT_MS, server.tokenHeader).listTools()
         } catch (e: IOException) {
             null
         } catch (e: RuntimeException) {
@@ -184,7 +209,7 @@ class McpPlugin(
     private fun toolsFrom(server: Server, numbered: Boolean, listed: List<JsonObject>): List<AgentTool> {
         val prefix = if (numbered) "${CatalogueAgreement.DYNAMIC_TOOL_PREFIX}${server.slot}."
         else CatalogueAgreement.DYNAMIC_TOOL_PREFIX
-        return remoteTools(server.url, server.token, listed, prefix)
+        return remoteTools(server.url, server.token, listed, prefix, server.tokenHeader)
     }
 
     /**
@@ -210,6 +235,7 @@ internal fun remoteTools(
     token: String?,
     listed: List<JsonObject>,
     prefix: String = CatalogueAgreement.DYNAMIC_TOOL_PREFIX,
+    tokenHeader: String? = null,
 ): List<AgentTool> {
     val taken = HashSet<String>()
     return listed.mapNotNull { tool ->
@@ -217,9 +243,25 @@ internal fun remoteTools(
             ?: return@mapNotNull null
         val name = toolName(remoteName, prefix) ?: return@mapNotNull null
         if (!taken.add(name)) return@mapNotNull null
-        McpRemoteTool(url, token, remoteName, definition(name, remoteName, tool))
+        McpRemoteTool(url, token, tokenHeader, remoteName, definition(name, remoteName, tool))
     }
 }
+
+/** Header names a custom token header must not use: the HTTP layer's own, and the ones the client sets. */
+private val REFUSED_TOKEN_HEADERS = setOf(
+    "host", "content-length", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+    "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade",
+    "content-type", "accept", "mcp-protocol-version", "mcp-session-id",
+)
+
+private val HEADER_NAME_CHARS = Regex("[A-Za-z0-9-]+")
+
+/**
+ * True when [name] may carry the token: letters, digits and hyphens only, and not a
+ * refused name. Header names are case-insensitive, so the check lowercases first.
+ */
+internal fun acceptedHeader(name: String): Boolean =
+    HEADER_NAME_CHARS.matches(name) && name.lowercase() !in REFUSED_TOKEN_HEADERS
 
 /**
  * [prefix] (`mcp.`, or `mcp.<slot>.` with several servers) plus the remote name,
@@ -276,6 +318,7 @@ private fun definition(name: String, remoteName: String, tool: JsonObject): Tool
 private class McpRemoteTool(
     private val url: String,
     private val token: String?,
+    private val tokenHeader: String?,
     private val remoteName: String,
     override val definition: ToolDefinition,
 ) : AgentTool {
@@ -290,7 +333,7 @@ private class McpRemoteTool(
                 )
             }
             try {
-                val result = McpSession.open(url, token).callTool(remoteName, args)
+                val result = McpSession.open(url, token, tokenHeader = tokenHeader).callTool(remoteName, args)
                 val text = contentText(result)
                 val observation = text.ifEmpty { "(the server returned no text)" }
                     .take(ObservationStore.MAX_STORED_CHARS)

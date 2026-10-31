@@ -20,11 +20,16 @@ import dev.localintelligence.app.settings.SettingsStore
 // settings block, so every hint is static text, shown at all times.
 // ===========================================================================
 
-/** Writes the first empty server address. Returns false when all five rows are used. */
-private fun fillNextEmptyRow(store: SettingsStore, address: String): Boolean {
+/**
+ * Writes the first empty server address and its token header name ("" for Bearer), so a
+ * header left over in that row cannot change how the new server is called. Returns false
+ * when all five rows are used.
+ */
+private fun fillNextEmptyRow(store: SettingsStore, address: String, tokenHeader: String = ""): Boolean {
     val slot = McpSettings.urls.indexOfFirst { store.stored(it).isBlank() }
     if (slot < 0) return false
     store.set(McpSettings.urls[slot], address)
+    store.set(McpSettings.headers[slot], tokenHeader)
     return true
 }
 
@@ -39,6 +44,9 @@ fun McpAddServerRow(store: SettingsStore) {
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilledTonalButton(onClick = { fillNextEmptyRow(store, ZAPIER_ADDRESS) }) { Text("Zapier") }
+            FilledTonalButton(onClick = { fillNextEmptyRow(store, COMPOSIO_ADDRESS, COMPOSIO_TOKEN_HEADER) }) {
+                Text("Composio")
+            }
             // Custom writes nothing: the user types the address into an empty row.
             FilledTonalButton(onClick = { }) { Text("Custom") }
         }
@@ -47,7 +55,7 @@ fun McpAddServerRow(store: SettingsStore) {
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "Composio: not supported yet. It needs an x-api-key header, which this app does not send.",
+            "Composio: paste your Composio API key into that server's token row. It is sent in the x-api-key header.",
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
@@ -59,3 +67,10 @@ fun McpAddServerRow(store: SettingsStore) {
 
 /** Zapier's documented connection endpoint. The token goes in the Bearer row, not in the address. */
 private const val ZAPIER_ADDRESS = "https://mcp.zapier.com/api/v1/connect"
+
+/**
+ * Composio's consumer connection endpoint, from its MCP docs. Its API key goes in the
+ * x-api-key header, not as a Bearer token, so the preset also sets the header row.
+ */
+private const val COMPOSIO_ADDRESS = "https://connect.composio.dev/mcp"
+private const val COMPOSIO_TOKEN_HEADER = "x-api-key"
