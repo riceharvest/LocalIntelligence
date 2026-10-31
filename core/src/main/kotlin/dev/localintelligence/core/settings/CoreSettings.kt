@@ -310,9 +310,8 @@ object CoreSettings {
     )
     val TOOL_LOOKUP = Toggle(
         "agent.tool_lookup", "Let the model look up tools",
-        "The prompt lists a few tools and a lookup tool; the model asks for others when it needs them. " +
-            "A shorter prompt, but a small model may not look up the right tool.",
-        SettingSection.AGENT, default = false,
+        "The model sees a short list of every other tool and loads the ones it needs.",
+        SettingSection.AGENT, default = true,
     )
     val MAX_MALFORMED_RETRIES = IntValue(
         "agent.retries", "Retries on a bad reply",
