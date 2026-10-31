@@ -1425,6 +1425,51 @@ object V0ToolCatalogue {
             requiredPermission = null,
         ),
 
+        // ---------------------------------------------------------------- browser
+        // Offered only in Technical mode, with the Cloud browser plugin on and a Browser Use key set.
+        // Any chat model may delegate a whole web task. Each start asks first: the task runs on the
+        // user's own account and can spend money or sign in somewhere.
+        ToolDefinition(
+            name = "browser.task",
+            description = "Gives a web task to a cloud browser on the user's own Browser Use account and " +
+                "returns the result text. Use for booking, filling in or finding something on a website.",
+            category = "browser",
+            schema = objSchema(required = listOf("task")) {
+                putJsonObject("task") {
+                    put("type", "string")
+                    put("maxLength", 4000)
+                    put("description", "What to do on the web, in plain words, for example \"find the price of a 205/55R16 tyre at example.com\".")
+                }
+                putJsonObject("start_url") {
+                    put("type", "string")
+                    put("maxLength", 2048)
+                    put("description", "Optional web address to open first, for example \"https://example.com\".")
+                }
+            },
+            risk = ToolRisk.EXTERNAL_COMMUNICATION,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "browser", "website", "web task", "book", "fill in", "online form", "price on site", "cloud browser",
+            ),
+            requiredPermission = null,
+        ),
+        ToolDefinition(
+            name = "browser.status",
+            description = "Checks a cloud browser task by its task id and returns its result if it has finished.",
+            category = "browser",
+            schema = objSchema(required = listOf("task_id")) {
+                putJsonObject("task_id") {
+                    put("type", "string")
+                    put("maxLength", 64)
+                    put("description", "The task id that browser.task reported.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("browser status", "check task", "web task status", "browser task", "finished task"),
+            requiredPermission = null,
+        ),
+
         // ------------------------------------------------------------------ info
         // The Weather and facts family (tools.info). Free services, no key. MUST match
         // the tools in android/.../tools/info/. The tier and origin are checked at
