@@ -5,6 +5,7 @@ import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.settings.SettingsMode
+import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.core.settings.SettingsReader
 import dev.localintelligence.core.settings.mode
 import dev.localintelligence.core.tool.AgentTool
@@ -79,7 +80,7 @@ object CloudBrowserSettings {
 }
 
 /** The one place the browser key is read. Today it is the user's own key from Settings. */
-internal fun browserKeyOf(reader: SettingsReader): String = reader[CloudBrowserSettings.API_KEY]
+internal fun browserKeyOf(reader: SettingsReader): String = CredentialSource.browserKey(reader)
 
 /** The provider the Provider setting picks. Browser Use is the only option, which the Choice setting enforces. */
 internal fun providerFor(reader: SettingsReader): CloudBrowserProvider =

@@ -2,7 +2,6 @@ package dev.localintelligence.android.tools.web
 
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingSection
-import dev.localintelligence.core.settings.SettingsReader
 
 // ===========================================================================
 // Which search provider web.search talks to, and where its credential comes from.
@@ -80,24 +79,4 @@ object WebSearchSettings {
     )
 
     val all: List<SettingDef<*>> = listOf(PROVIDER, BRAVE_KEY, TAVILY_KEY, EXA_KEY, SEARXNG_URL)
-}
-
-/**
- * Where a keyed provider's credential comes from. Today that is the user's own key,
- * read from Settings. A managed key for Simple users would be another reader of the
- * same shape. The search code asks here and never reads a setting itself, so the
- * managed option can plug in without touching the providers.
- */
-internal class CredentialSource(private val settings: SettingsReader) {
-
-    /** The key for [provider], or null when none is set. DuckDuckGo and SearXNG take no key. */
-    fun keyFor(provider: SearchProvider): String? {
-        val raw = when (provider) {
-            SearchProvider.BRAVE -> settings[WebSearchSettings.BRAVE_KEY]
-            SearchProvider.TAVILY -> settings[WebSearchSettings.TAVILY_KEY]
-            SearchProvider.EXA -> settings[WebSearchSettings.EXA_KEY]
-            SearchProvider.DUCKDUCKGO, SearchProvider.SEARXNG -> ""
-        }
-        return raw.trim().takeIf { it.isNotEmpty() }
-    }
 }

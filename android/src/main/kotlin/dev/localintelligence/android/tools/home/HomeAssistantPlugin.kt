@@ -1,5 +1,6 @@
 package dev.localintelligence.android.tools.home
 
+import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.android.tools.requireCatalogueAgreement
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.SettingDef
@@ -44,21 +45,6 @@ object HomeAssistantSettings {
     )
 
     val all: List<SettingDef<*>> = listOf(ADDRESS, TOKEN)
-}
-
-/**
- * Where the Home Assistant token comes from. Every keyed integration reads its
- * credential through one of these, so a managed key can later be supplied here
- * without touching the tool code. Today the only source is the user's own token.
- */
-fun interface CredentialSource {
-    /** The token to send, or null when none is set. */
-    fun token(): String?
-}
-
-/** The access token the user pasted into Settings. */
-class UserTokenSource(private val reader: SettingsReader) : CredentialSource {
-    override fun token(): String? = reader[HomeAssistantSettings.TOKEN].trim().takeIf { it.isNotEmpty() }
 }
 
 /**
@@ -121,9 +107,9 @@ internal object HomeAddress {
 internal class HomeServer(val base: String, val token: String)
 
 /** The server to call now, read from the live settings, or null when not set up. */
-internal fun homeServer(reader: SettingsReader, credentials: CredentialSource): HomeServer? {
+internal fun homeServer(reader: SettingsReader): HomeServer? {
     val base = HomeAddress.accept(reader[HomeAssistantSettings.ADDRESS]) ?: return null
-    val token = credentials.token() ?: return null
+    val token = CredentialSource.homeToken(reader) ?: return null
     return HomeServer(base, token)
 }
 
@@ -136,7 +122,6 @@ internal fun homeServer(reader: SettingsReader, credentials: CredentialSource): 
  */
 class HomeAssistantPlugin(
     private val reader: SettingsReader,
-    private val credentials: CredentialSource = UserTokenSource(reader),
 ) : AgentPlugin {
     override val id: String = HomeAssistantSettings.PLUGIN_ID
     override val title: String = "Home Assistant"
@@ -147,14 +132,14 @@ class HomeAssistantPlugin(
     override val settings: List<SettingDef<*>> = HomeAssistantSettings.all
 
     private val built: List<AgentTool> by lazy {
-        requireCatalogueAgreement(homeTools { homeServer(reader, credentials) })
+        requireCatalogueAgreement(homeTools { homeServer(reader) })
     }
 
     override fun tools(): List<AgentTool> {
         // Simple mode never offers these: they need an address and a token, which
         // are Technical settings.
         if (reader.mode != SettingsMode.TECHNICAL) return emptyList()
-        return if (homeServer(reader, credentials) == null) emptyList() else built
+        return if (homeServer(reader) == null) emptyList() else built
     }
 
     /** Every tool this plugin ships, configured or not, for the catalogue check at startup. */

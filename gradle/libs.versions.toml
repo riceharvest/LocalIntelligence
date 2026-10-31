@@ -10,6 +10,7 @@ activityCompose = "1.10.1"
 lifecycle = "2.9.1"
 navigation = "2.9.5"
 androidxTestJunit = "1.2.1"
+billing = "9.1.0"
 # PDF text extraction for the Documents plugin. Maven Central: com.tom-roush:pdfbox-android
 # 2.0.27.0 is the newest 2.0.x release there (checked 2026-10-30). Its classes live under com.tom_roush.pdfbox.
 pdfbox = "2.0.27.0"
@@ -40,6 +41,7 @@ litert-npu-google-tensor = { module = "com.google.ai.edge.litert:litert-npu-runt
 
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+billing-ktx = { module = "com.android.billingclient:billing-ktx", version.ref = "billing" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }

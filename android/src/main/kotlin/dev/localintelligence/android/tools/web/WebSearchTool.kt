@@ -1,5 +1,6 @@
 package dev.localintelligence.android.tools.web
 
+import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
@@ -12,7 +13,9 @@ import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
+import dev.localintelligence.core.settings.SettingsMode
 import dev.localintelligence.core.settings.SettingsReader
+import dev.localintelligence.core.settings.mode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
@@ -458,7 +461,7 @@ class WebSearchTool private constructor(
                     max = MAX_RESULTS,
                 )
                 val compact = query.replace(Regex("\\s+"), " ")
-                when (val provider = SearchProvider.fromId(settings[WebSearchSettings.PROVIDER])) {
+                when (val provider = searchProviderFor(settings)) {
                     SearchProvider.DUCKDUCKGO -> WebSearcher(opener).search(compact, maxResults, context, grant)
                     else -> keyedSearch(provider, compact, maxResults, context)
                 }
@@ -480,7 +483,7 @@ class WebSearchTool private constructor(
         val secret = if (provider == SearchProvider.SEARXNG) {
             settings[WebSearchSettings.SEARXNG_URL].trim()
         } else {
-            CredentialSource(settings).keyFor(provider).orEmpty()
+            CredentialSource.searchKey(settings, provider).orEmpty()
         }
         if (secret.isEmpty()) {
             val observation = if (provider == SearchProvider.SEARXNG) {
@@ -510,4 +513,15 @@ class WebSearchTool private constructor(
         fun withOpener(opener: ResponseOpener, grant: PlatformGrant): WebSearchTool =
             WebSearchTool(opener, grant, SettingsReader.DEFAULTS)
     }
+}
+
+/**
+ * The provider a search uses. Simple mode has no provider choice, so it reads DuckDuckGo;
+ * with Extras active that Simple default becomes Exa, the managed search. A Technical choice
+ * always stands, and so does a failure: the search never switches to another provider on error.
+ */
+internal fun searchProviderFor(reader: SettingsReader): SearchProvider {
+    val chosen = SearchProvider.fromId(reader[WebSearchSettings.PROVIDER])
+    val simpleDefault = chosen == SearchProvider.DUCKDUCKGO && reader.mode == SettingsMode.SIMPLE
+    return if (simpleDefault && CredentialSource.extrasSearchAvailable(reader)) SearchProvider.EXA else chosen
 }

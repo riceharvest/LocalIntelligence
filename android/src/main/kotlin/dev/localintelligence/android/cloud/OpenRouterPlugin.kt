@@ -143,7 +143,7 @@ class OpenRouterPlugin(
     }
 
     override fun tools(): List<AgentTool> =
-        if (CredentialSource.keyFor(reader, RemoteProvider.OPENROUTER).isBlank()) emptyList() else built
+        if (CredentialSource.ownKeyFor(reader, RemoteProvider.OPENROUTER).isBlank()) emptyList() else built
 
     /**
      * Every tool this plugin ships, key or no key. For the catalogue check at
@@ -186,7 +186,7 @@ private class ImageGenerateTool(
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         withContext(Dispatchers.IO) {
             try {
-                val key = CredentialSource.keyFor(reader, RemoteProvider.OPENROUTER)
+                val key = CredentialSource.ownKeyFor(reader, RemoteProvider.OPENROUTER)
                 if (key.isBlank()) return@withContext noKey("image.generate")
                 val prompt = promptOf(args) ?: return@withContext badPrompt("image.generate")
                 if (context.signal.isCancelled()) return@withContext cancelled("image.generate")
@@ -258,7 +258,7 @@ private class VideoGenerateTool(
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         withContext(Dispatchers.IO) {
             try {
-                val key = CredentialSource.keyFor(reader, RemoteProvider.OPENROUTER)
+                val key = CredentialSource.ownKeyFor(reader, RemoteProvider.OPENROUTER)
                 if (key.isBlank()) return@withContext noKey("video.generate")
                 val prompt = promptOf(args) ?: return@withContext badPrompt("video.generate")
                 if (context.signal.isCancelled()) return@withContext cancelled("video.generate")
@@ -363,7 +363,7 @@ private class VideoStatusTool(
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         withContext(Dispatchers.IO) {
             try {
-                val key = CredentialSource.keyFor(reader, RemoteProvider.OPENROUTER)
+                val key = CredentialSource.ownKeyFor(reader, RemoteProvider.OPENROUTER)
                 if (key.isBlank()) return@withContext noKey("video.status")
                 val jobId = (args["job_id"] as? JsonPrimitive)?.contentOrNull?.trim()
                     ?.takeIf { JOB_ID.matches(it) }

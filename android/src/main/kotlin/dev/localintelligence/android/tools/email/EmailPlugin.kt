@@ -1,5 +1,6 @@
 package dev.localintelligence.android.tools.email
 
+import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.android.tools.requireCatalogueAgreement
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.SettingDef
@@ -142,21 +143,6 @@ object EmailSettings {
 }
 
 /**
- * Where the mailbox password comes from. Every keyed integration reads its credential through one
- * of these, so a managed credential can later be supplied here without touching the tool code.
- * Today the only source is the user's own app password.
- */
-fun interface EmailCredentialSource {
-    /** The password to send, or null when none is set. */
-    fun password(): String?
-}
-
-/** The app password the user pasted into Settings. */
-class UserPasswordSource(private val reader: SettingsReader) : EmailCredentialSource {
-    override fun password(): String? = reader[EmailSettings.PASSWORD].trim().takeIf { it.isNotEmpty() }
-}
-
-/**
  * Everything one call needs: the mailbox, the password and the server pair. [label] and
  * [passwordAdvice] are for the sentence shown when the password is refused.
  */
@@ -175,10 +161,10 @@ private val ADDRESS_SHAPE = Regex("[^@\\s]{1,64}@[^@\\s]{1,253}")
 private val HOST_SHAPE = Regex("[A-Za-z0-9][A-Za-z0-9.-]{0,252}")
 
 /** The account to use now, read from the live settings, or null when it is not set up. */
-internal fun mailAccount(reader: SettingsReader, credentials: EmailCredentialSource): MailAccount? {
+internal fun mailAccount(reader: SettingsReader): MailAccount? {
     val address = reader[EmailSettings.ADDRESS].trim()
     if (!ADDRESS_SHAPE.matches(address)) return null
-    val password = credentials.password() ?: return null
+    val password = CredentialSource.mailPassword(reader) ?: return null
     val preset = EmailPreset.entries.firstOrNull { it.id == reader[EmailSettings.PRESET] } ?: EmailPreset.CUSTOM
     val servers = preset.servers ?: ServerPair(
         imapHost = reader[EmailSettings.CUSTOM_IMAP_HOST].trim(),
@@ -208,7 +194,6 @@ internal fun mailAccount(reader: SettingsReader, credentials: EmailCredentialSou
  */
 class EmailPlugin(
     private val reader: SettingsReader,
-    private val credentials: EmailCredentialSource = UserPasswordSource(reader),
 ) : AgentPlugin {
     override val id: String = EmailSettings.PLUGIN_ID
     override val title: String = "Email"
@@ -219,13 +204,13 @@ class EmailPlugin(
     override val settings: List<SettingDef<*>> = EmailSettings.all
 
     private val built: List<AgentTool> by lazy {
-        requireCatalogueAgreement(emailTools { mailAccount(reader, credentials) })
+        requireCatalogueAgreement(emailTools { mailAccount(reader) })
     }
 
     override fun tools(): List<AgentTool> {
         // Simple mode never offers these: they need an address and a password, which are Technical settings.
         if (reader.mode != SettingsMode.TECHNICAL) return emptyList()
-        return if (mailAccount(reader, credentials) == null) emptyList() else built
+        return if (mailAccount(reader) == null) emptyList() else built
     }
 
     /** Every tool this plugin ships, configured or not, for the catalogue check at startup. */
