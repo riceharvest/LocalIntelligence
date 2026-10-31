@@ -773,7 +773,7 @@ class AppContainer(private val context: Context) {
      * offered only in Technical mode and only while the remote chat model answers; see
      * [newController]. New chat stops its sandbox ([startNewConversation]).
      */
-    val sandboxPlugin: SandboxPlugin by lazy { SandboxPlugin(settings) }
+    val sandboxPlugin: SandboxPlugin by lazy { SandboxPlugin(settings, settings, context.applicationContext) }
 
     /**
      * The cloud browser plugin: a web task runs on the user's own Browser Use account. Its tools are

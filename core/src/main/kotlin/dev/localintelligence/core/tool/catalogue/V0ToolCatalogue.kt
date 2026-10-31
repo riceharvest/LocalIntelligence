@@ -1358,13 +1358,11 @@ object V0ToolCatalogue {
         ),
 
         // --------------------------------------------------------------- sandbox
-        // Offered only in Technical mode, with the Daytona plugin on and a key set, and only
-        // while the remote chat model answers. Each call goes to the user's own Daytona account,
-        // so each one asks first.
+        // Offered only in Technical mode, with the sandbox plugin on and its provider set up, and only
+        // while the remote chat model answers. Each call goes to the user's own computer, so each one asks first.
         ToolDefinition(
             name = "sandbox.run",
-            description = "Runs a shell command in a cloud computer billed to the user's Daytona account " +
-                "and returns the exit code and output.",
+            description = "Runs a shell command in the user's own cloud computer and returns the exit code and output.",
             category = "sandbox",
             schema = objSchema(required = listOf("command")) {
                 putJsonObject("command") {
@@ -1388,8 +1386,7 @@ object V0ToolCatalogue {
         ),
         ToolDefinition(
             name = "sandbox.write_file",
-            description = "Writes a text file in the cloud computer billed to the user's Daytona account; " +
-                "the file is overwritten if it exists.",
+            description = "Writes a text file in the user's own cloud computer; the file is overwritten if it exists.",
             category = "sandbox",
             schema = objSchema(required = listOf("path", "content")) {
                 putJsonObject("path") {
@@ -1409,8 +1406,7 @@ object V0ToolCatalogue {
         ),
         ToolDefinition(
             name = "sandbox.read_file",
-            description = "Reads a text file from the cloud computer billed to the user's Daytona account " +
-                "and returns its text.",
+            description = "Reads a text file from the user's own cloud computer and returns its text.",
             category = "sandbox",
             schema = objSchema(required = listOf("path")) {
                 putJsonObject("path") {

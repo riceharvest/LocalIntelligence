@@ -24,8 +24,8 @@ import java.net.SocketTimeoutException
 
 // ===========================================================================
 // The three sandbox tools. Every one is EXTERNAL_COMMUNICATION: the call sends something to a
-// computer on the user's Daytona account, so each call asks first, and the approval card shows
-// the command, path or content in full.
+// computer the user set up (a cloud sandbox, their SSH server, or Termux), so each call asks first,
+// and the approval card shows the command, path or content in full.
 //
 // Their output is NETWORK origin, so the loop fences it as third-party text. A command can print
 // anything, and a downloaded file can hold anything.
@@ -51,11 +51,11 @@ private const val BINARY_SNIFF_BYTES = 8 * 1024
 
 /** The tools of this plugin, in catalogue order. Descriptions match V0ToolCatalogue exactly. */
 private const val RUN_DESCRIPTION =
-    "Runs a shell command in a cloud computer billed to the user's Daytona account and returns the exit code and output."
+    "Runs a shell command in the user's own cloud computer and returns the exit code and output."
 private const val WRITE_DESCRIPTION =
-    "Writes a text file in the cloud computer billed to the user's Daytona account; the file is overwritten if it exists."
+    "Writes a text file in the user's own cloud computer; the file is overwritten if it exists."
 private const val READ_DESCRIPTION =
-    "Reads a text file from the cloud computer billed to the user's Daytona account and returns its text."
+    "Reads a text file from the user's own cloud computer and returns its text."
 
 /** `sandbox.run`: one shell command, with its exit code and output. */
 internal class SandboxRunTool(private val session: SandboxSession) : AgentTool {
@@ -100,8 +100,8 @@ internal class SandboxRunTool(private val session: SandboxSession) : AgentTool {
                 error = ToolError.InvalidArguments("command"),
             )
         val timeout = WebArgs.coerceInt(args["timeout_seconds"], fallback = 60, min = 1, max = 600)
-        val info = session.ready(context.signal)
-        val result = session.provider().exec(info, command, timeout)
+        val ready = session.ready(context.signal)
+        val result = ready.provider.exec(ready.info, command, timeout)
         val output = result.output.trimEnd()
         val observation = buildString {
             append("Exit code ").append(result.exitCode).append('.')
@@ -171,8 +171,8 @@ internal class SandboxWriteFileTool(private val session: SandboxSession) : Agent
                 error = ToolError.InvalidArguments("content too large"),
             )
         }
-        val info = session.ready(context.signal)
-        session.provider().writeFile(info, path, bytes)
+        val ready = session.ready(context.signal)
+        ready.provider.writeFile(ready.info, path, bytes)
         ToolResult(success = true, observation = "Wrote ${bytes.size} bytes to $path in the sandbox.")
     }
 }
@@ -210,8 +210,8 @@ internal class SandboxReadFileTool(private val session: SandboxSession) : AgentT
                 observation = "sandbox.read_file needs path, a file path in the sandbox.",
                 error = ToolError.InvalidArguments("path"),
             )
-        val info = session.ready(context.signal)
-        val bytes = session.provider().readFile(info, path)
+        val ready = session.ready(context.signal)
+        val bytes = ready.provider.readFile(ready.info, path)
         when {
             bytes.isEmpty() -> ToolResult(success = true, observation = "$path is empty.")
             bytes.take(BINARY_SNIFF_BYTES).any { it == 0.toByte() } -> ToolResult(
@@ -254,13 +254,13 @@ private suspend fun guarded(name: String, block: suspend () -> ToolResult): Tool
         } catch (e: SocketTimeoutException) {
             ToolResult(
                 success = false,
-                observation = "$name: Daytona did not answer in time. Try again.",
+                observation = "$name: the sandbox did not answer in time. Try again.",
                 error = ToolError.Timeout("$name socket timeout"),
             )
         } catch (e: IOException) {
             ToolResult(
                 success = false,
-                observation = "$name could not reach Daytona (${e.javaClass.simpleName}). " +
+                observation = "$name could not reach the sandbox (${e.javaClass.simpleName}). " +
                     "Check the connection before retrying.",
                 error = ToolError.Unavailable("network: ${e.javaClass.simpleName}"),
             )
