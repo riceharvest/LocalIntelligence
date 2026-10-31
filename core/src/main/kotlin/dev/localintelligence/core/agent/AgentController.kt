@@ -632,7 +632,7 @@ class AgentController(
             // to keep in sync - it is the same call with the callback attached.
             // What the model may call: the listed tools plus any it found with
             // tools.find, which the prompt does not list (their descriptions are
-            // in the lookup's result).
+            // in the lookup's result). With tool lookup on, every enabled tool.
             val callable = withDiscovered(visible)
             val request = buildRequest(visible, callable)
             // StreamingModelBackend is a separate, OPTIONAL interface, so the
@@ -1441,8 +1441,22 @@ class AgentController(
         return request(prompt, visible, callable)
     }
 
-    /** [visible] plus the tools found with tools.find this conversation, if they still exist. */
+    /**
+     * [visible] plus the tools found with tools.find this conversation, if they still exist.
+     * With tool lookup on: [visible] plus every other enabled tool.
+     *
+     * WHY EVERY TOOL WITH LOOKUP: the model reads a name in tools.find's listing and calls it
+     * straight away. Measured with LFM3-1.7B: "turn on the flashlight" called phone.flashlight
+     * by name, and with only the loaded tools callable the call grammar turned it into
+     * device.battery. The prompt still lists only the core tools, so its cached start is the
+     * same; the grammar holds each tool's argument schema, so a direct call still gets its
+     * arguments right, and every call still goes through the validator and the risk policy.
+     */
     private fun withDiscovered(visible: List<AgentTool>): List<AgentTool> {
+        if (config.toolLookup) {
+            val listed = visible.map { it.definition.name }.toSet()
+            return visible + tools.all().filter { it.definition.name !in listed }
+        }
         if (sessions.discoveredTools.isEmpty()) return visible
         val listed = visible.map { it.definition.name }.toSet()
         val byName = tools.all().associateBy { it.definition.name }

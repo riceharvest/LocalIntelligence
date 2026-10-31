@@ -163,7 +163,8 @@ class ToolFinder(
         const val MAX_NAMED: Int = 5
 
         /** The listing's lead sentence. It is the first line of the description the model reads. */
-        private const val INTRO: String = "Loads tools that are not in your list. The other tools are:"
+        private const val INTRO: String =
+            "Shows the arguments of tools that are not in your list. You can also call them directly. The other tools are:"
 
         /** The listing's share of the context, and its absolute cap, in tokens (Hermes's rule). */
         private const val LISTING_SHARE_PERCENT: Int = 5
