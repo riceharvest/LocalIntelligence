@@ -65,6 +65,9 @@ android {
         // (declared in the manifest), so it stays out of the APK.
         jniLibs.excludes += "**/libOpenCL.so"
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // android-mail and android-activation both ship these; the licences are kept in the
+        // app's own notices, so one copy is not needed in the APK.
+        resources.excludes += "/META-INF/{NOTICE.md,LICENSE.md}"
     }
 }
 
