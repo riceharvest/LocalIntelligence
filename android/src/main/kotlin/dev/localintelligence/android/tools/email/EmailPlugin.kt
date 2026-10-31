@@ -37,7 +37,12 @@ class ServerPair(
     val smtpPort: Int,
 )
 
-/** A provider the Email settings can be set to. [passwordAdvice] is what to tell the user when the password is refused. */
+/**
+ * A provider the Email settings can be set to. [passwordAdvice] is what to tell the user when the password is refused.
+ *
+ * Outlook.com is not offered: Microsoft turned off basic authentication (app passwords) for Outlook.com IMAP and
+ * SMTP, so it needs OAuth2, which this plugin does not do. An Outlook preset would always fail to sign in.
+ */
 enum class EmailPreset(
     val id: String,
     val label: String,
@@ -55,18 +60,6 @@ enum class EmailPreset(
         ServerPair("imap.gmail.com", 993, "smtp.gmail.com", 465),
         "Gmail needs an app password, not your normal password. Make one at " +
             "https://support.google.com/accounts/answer/185833.",
-    ),
-
-    /**
-     * Setup page: https://support.microsoft.com/office/pop-imap-and-smtp-settings-8361e398-8af4-4e97-b147-6c6c4ac95353
-     * It lists outlook.office365.com:993 (IMAP, SSL/TLS) and smtp-mail.outlook.com:587 (SMTP, STARTTLS)
-     * for Outlook.com. The same page says Outlook.com uses OAuth2, so an app password may be refused.
-     */
-    OUTLOOK(
-        "outlook", "Outlook / Hotmail",
-        ServerPair("outlook.office365.com", 993, "smtp-mail.outlook.com", 587),
-        "Outlook.com may need an app password and may refuse one, because Microsoft moves it to " +
-            "OAuth2. See https://support.microsoft.com/office/pop-imap-and-smtp-settings-8361e398-8af4-4e97-b147-6c6c4ac95353.",
     ),
 
     /**
