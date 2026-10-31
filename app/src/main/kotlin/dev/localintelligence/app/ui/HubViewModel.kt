@@ -927,15 +927,6 @@ class HubViewModel(
         return guess
     }
 
-    /** The repository's projector to download with a model: Q8_0, else F16, else the smallest. */
-    private fun chooseProjector(files: List<HubGgufFile>): HubGgufFile? {
-        val projectors = files.filter { it.isProjector && !it.isSharded }
-        if (projectors.isEmpty()) return null
-        return projectors.firstOrNull { it.fileName.contains("q8_0", ignoreCase = true) }
-            ?: projectors.firstOrNull { it.fileName.contains("f16", ignoreCase = true) }
-            ?: projectors.minByOrNull { it.sizeBytes }
-    }
-
     /**
      * Downloads [projector] unless it is already on the phone, showing its
      * progress. Returns false when the user stopped it or it failed, so the
@@ -1238,4 +1229,18 @@ class HubViewModel(
             explicitNulls = false
         }
     }
+}
+
+/**
+ * The repository's projector to download with a model: Q8_0, else F16, else the smallest.
+ *
+ * Top level and internal, not a member, so the first-run starter ([dev.localintelligence.app.StarterSetup])
+ * picks the same projector the Hub does: two copies of this rule would drift apart.
+ */
+internal fun chooseProjector(files: List<HubGgufFile>): HubGgufFile? {
+    val projectors = files.filter { it.isProjector && !it.isSharded }
+    if (projectors.isEmpty()) return null
+    return projectors.firstOrNull { it.fileName.contains("q8_0", ignoreCase = true) }
+        ?: projectors.firstOrNull { it.fileName.contains("f16", ignoreCase = true) }
+        ?: projectors.minByOrNull { it.sizeBytes }
 }

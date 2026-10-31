@@ -1,7 +1,9 @@
 package dev.localintelligence.app.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -37,7 +39,9 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -58,6 +62,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -72,6 +77,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.RunState
+import dev.localintelligence.app.SetupState
 import dev.localintelligence.app.blockingReason
 import dev.localintelligence.app.isActive
 import dev.localintelligence.app.media.LiveDictation
@@ -134,6 +140,10 @@ fun ChatScreen(
     suggestion: SuggestedModel? = null,
     /** Opens the download screen for [suggestion]. */
     onGetSuggested: () -> Unit = {},
+    /** Simple mode's first run. Null in Technical mode, which keeps the Hub card. */
+    starter: SetupState? = null,
+    onStartStarter: () -> Unit = {},
+    onCancelStarter: () -> Unit = {},
 ) {
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
@@ -405,6 +415,10 @@ fun ChatScreen(
                         assistantName = assistantName,
                         suggestion = suggestion,
                         onGetSuggested = onGetSuggested,
+                        starter = starter,
+                        onStartStarter = onStartStarter,
+                        onCancelStarter = onCancelStarter,
+                        onExample = { text -> viewModel.send(text) },
                     )
                 }
             }
@@ -710,8 +724,18 @@ private fun EmptyState(
     assistantName: String,
     suggestion: SuggestedModel?,
     onGetSuggested: () -> Unit,
+    starter: SetupState?,
+    onStartStarter: () -> Unit,
+    onCancelStarter: () -> Unit,
+    onExample: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Simple mode's first run replaces the Hub card while there is no model, and while a setup
+    // that the user started is running. A ready model shows the normal line and the examples.
+    val starterShown = starter != null && starter !is SetupState.Ready && (
+        isMissingModel || starter is SetupState.Downloading || starter is SetupState.Preparing ||
+            starter is SetupState.Failed
+        )
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -719,6 +743,16 @@ private fun EmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
     ) {
+        if (starter != null && starterShown) {
+            StarterPanel(
+                starter = starter,
+                assistantName = assistantName,
+                onStart = onStartStarter,
+                onCancel = onCancelStarter,
+                onOpenModels = onOpenModels,
+            )
+            return@Column
+        }
         Text(
             text = blockedReason
                 ?: "Ask ${assistantName.trim().ifEmpty { "the assistant" }} to do something on this phone.",
@@ -726,6 +760,9 @@ private fun EmptyState(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
+        if (starter != null && blockedReason == null) {
+            ExampleChips(onExample)
+        }
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
         } else if (isMissingModel && suggestion != null) {
@@ -758,6 +795,157 @@ private fun EmptyState(
             }
         }
     }
+}
+
+/** The three first things a new user can ask, tapped to send. */
+private val STARTER_EXAMPLES = listOf(
+    "How much battery do I have?",
+    "Set a timer for 10 minutes",
+    "Wake me up at 7 tomorrow",
+)
+
+/**
+ * The first-run panel of Simple mode: one button for the download, then progress, then the wait for
+ * the first answer. No model name, quant or reason is shown; the user only needs to know what happens.
+ */
+@Composable
+private fun StarterPanel(
+    starter: SetupState,
+    assistantName: String,
+    onStart: () -> Unit,
+    onCancel: () -> Unit,
+    onOpenModels: () -> Unit,
+) {
+    val name = assistantName.trim().ifEmpty { "the assistant" }
+    when (starter) {
+        is SetupState.Idle -> {
+            Text(
+                text = "$name runs on your phone. It needs a one-time download to get started.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            val context = LocalContext.current
+            val label = when {
+                starter.onDisk -> "Finish setup"
+                starter.keptBytes > 0 -> "Continue setup · ${percentOf(starter.keptBytes, starter.sizeBytes)}%"
+                else -> "Get started · ${formatBytes(starter.sizeBytes)}"
+            }
+            Button(onClick = onStart, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(label)
+            }
+            // Read when the panel appears, not on every recomposition: the network does not change under it.
+            val metered = remember { isOnMeteredNetwork(context) }
+            if (metered) {
+                Text(
+                    text = "You're on mobile data. Wi-Fi is better for a download this size.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            TextButton(onClick = onOpenModels, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("Other models")
+            }
+        }
+
+        is SetupState.Downloading -> {
+            val fraction = if (starter.totalBytes > 0) {
+                (starter.bytes.toFloat() / starter.totalBytes).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+            val percent = (fraction * 100).toInt()
+            // TalkBack hears the progress once per ten percent, not on every tick of the bar.
+            val milestone = percent / 10
+            val announced = remember(milestone) { "Setting up, ${milestone * 10} percent" }
+            Text(
+                text = "Setting up · $percent%",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics {
+                    liveRegion = LiveRegionMode.Polite
+                    contentDescription = announced
+                },
+            )
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                text = "${formatBytes(starter.bytes)} of ${formatBytes(starter.totalBytes)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = "You can leave the app. It keeps going.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("Cancel")
+            }
+        }
+
+        SetupState.Preparing -> {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(
+                text = "Almost ready. This only happens once.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            )
+        }
+
+        is SetupState.Failed -> {
+            Text(
+                text = starter.message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            )
+            Button(onClick = onStart, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("Try again")
+            }
+        }
+
+        // The empty state does not show the panel for a ready model.
+        SetupState.Ready -> Unit
+    }
+}
+
+/** The three example questions, each a 48dp button that sends its text. */
+@Composable
+private fun ExampleChips(onExample: (String) -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        STARTER_EXAMPLES.forEach { text ->
+            OutlinedButton(
+                onClick = { onExample(text) },
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(text)
+            }
+        }
+    }
+}
+
+/** Whole percent of [part] in [whole], kept under 100 so a setup that is nearly done never reads "100%". */
+private fun percentOf(part: Long, whole: Long): Int =
+    if (whole > 0) ((part * 100) / whole).toInt().coerceIn(0, 99) else 0
+
+/** True when the active connection is metered, which is mobile data for most phones. False when it cannot be read. */
+private fun isOnMeteredNetwork(context: Context): Boolean = try {
+    (context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)?.isActiveNetworkMetered == true
+} catch (_: SecurityException) {
+    false
 }
 
 /**

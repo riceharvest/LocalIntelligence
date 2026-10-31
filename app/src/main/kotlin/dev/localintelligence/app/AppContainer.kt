@@ -1165,6 +1165,15 @@ class AppContainer(private val context: Context) {
     }
 
     /**
+     * Waits for the prefix build started by the last model load, if it is still running. The first-run
+     * starter calls it so "Ready" means the first message can be answered at once. It never cancels the
+     * build: a run that arrives meanwhile joins the same work.
+     */
+    internal suspend fun awaitPrefixWarm() {
+        prefixWork?.join()
+    }
+
+    /**
      * Stops the prefix build before its model is unloaded or replaced, and waits for it to
      * end, so the backend is not used while it is being released. Callers may hold
      * [readinessLock]: the build never takes that lock, so waiting for it cannot deadlock.
@@ -1539,11 +1548,33 @@ class AppContainer(private val context: Context) {
         budget = hubBudget,
         tokenSource = hubTokenSource,
         registrar = registrar,
-        contextLength = {
-            ContextLength.resolve(settings[CoreSettings.CONTEXT_LENGTH], deviceFacts, trainedContext = null)
-        },
+        contextLength = { hubContextLength() },
         transfers = hubTransfers,
     )
+
+    /** The n_ctx a Hub download is priced at: the same answer the model load will use. */
+    private fun hubContextLength(): Int =
+        ContextLength.resolve(settings[CoreSettings.CONTEXT_LENGTH], deviceFacts, trainedContext = null)
+
+    /**
+     * Simple mode's one-tap first run (see [StarterSetup]). App-scoped, so a download that the chat
+     * started keeps its state while the user is on another screen.
+     */
+    val starterSetup: StarterSetup by lazy {
+        StarterSetup(
+            scope = appScope,
+            suggestion = SimpleSetup.suggestedModel(deviceFacts),
+            client = hubClient,
+            downloader = hubDownloader,
+            budget = hubBudget,
+            tokenSource = hubTokenSource,
+            transfers = hubTransfers,
+            contextLength = { hubContextLength() },
+            availability = modelAvailability.state,
+            adopt = { file -> adoptDownloaded(file) },
+            awaitPrefix = { awaitPrefixWarm() },
+        )
+    }
 
     /**
      * Adopts a freshly downloaded file into the app's model list.
