@@ -255,10 +255,10 @@ class MainActivity : ComponentActivity() {
                         // The resident model's URI, so only its row offers the speed test.
                         val modelState by container.modelAvailability.state
                             .collectAsStateWithLifecycle()
-                        // Re-read when a setting changes, so the OpenRouter entry appears
+                        // Re-read when a setting changes, so the remote chat entry appears
                         // once a key is saved and disappears when the plugin is switched off.
                         val settingsVersion by container.settings.changes.collectAsStateWithLifecycle()
-                        val remoteModel = remember(settingsVersion) { container.remoteChatModelOrNull() }
+                        val remoteOffer = remember(settingsVersion) { container.remoteChatOfferOrNull() }
                         val modelScope = rememberCoroutineScope()
                         ModelManagerScreen(
                             technical = remember(settingsVersion) { container.settings.mode == SettingsMode.TECHNICAL },
@@ -270,11 +270,15 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 null
                             },
-                            remoteChatModel = remoteModel,
+                            remoteChatOffer = remoteOffer,
                             remoteChatActive = container.remoteChatActive,
                             onUseRemoteChat = {
                                 withContext(Dispatchers.IO) { container.useRemoteChat() }
                             },
+                            onListRemoteModels = {
+                                withContext(Dispatchers.IO) { container.listRemoteModels() }
+                            },
+                            onPickRemoteModel = { model -> container.setRemoteChatModel(model) },
                             chatGptCard = { ChatGptModelCard(container) },
                             onUseModel = { model ->
                                 withContext(Dispatchers.IO) { container.loadModel(model) }

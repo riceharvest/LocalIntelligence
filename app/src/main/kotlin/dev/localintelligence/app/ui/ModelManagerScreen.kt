@@ -57,6 +57,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.android.cloud.RemoteChatOffer
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.inference.RamEstimate
@@ -150,12 +151,16 @@ fun ModelManagerScreen(
     speedTest: SpeedTestRunner? = null,
     /** URI of the model that is resident, so its row gets the speed test button. */
     loadedModelUri: String? = null,
-    /** The OpenRouter chat model id, when that option is on (plugin on and a key set). Null hides the entry. */
-    remoteChatModel: String? = null,
+    /** The remote chat provider and model, when that option is on (plugin on and a key set). Null hides the entry. */
+    remoteChatOffer: RemoteChatOffer? = null,
     /** True while the remote chat model is the one answering. */
     remoteChatActive: Boolean = false,
     /** Makes the remote chat model the resident one. */
     onUseRemoteChat: (suspend () -> Unit)? = null,
+    /** Lists the model ids the remote provider offers. Null hides the list button. */
+    onListRemoteModels: (suspend () -> List<String>)? = null,
+    /** Saves the picked model id for the remote provider. */
+    onPickRemoteModel: ((String) -> Unit)? = null,
     /** The ChatGPT entry (sign in, model picker, use). Null hides it. */
     chatGptCard: (@Composable () -> Unit)? = null,
     /**
@@ -455,7 +460,7 @@ fun ModelManagerScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
-                    top = if (models.isEmpty() && remoteChatModel == null) 0.dp else 16.dp,
+                    top = if (models.isEmpty() && remoteChatOffer == null) 0.dp else 16.dp,
                     bottom = 88.dp, // clears the extended button
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -463,12 +468,14 @@ fun ModelManagerScreen(
                 if (chatGptCard != null) {
                     item(key = "chatgpt") { chatGptCard() }
                 }
-                if (remoteChatModel != null && onUseRemoteChat != null) {
+                if (remoteChatOffer != null && onUseRemoteChat != null) {
                     item(key = "remote-chat") {
                         RemoteChatCard(
-                            model = remoteChatModel,
+                            offer = remoteChatOffer,
                             active = remoteChatActive,
                             enabled = !busy,
+                            onListModels = onListRemoteModels,
+                            onPickModel = onPickRemoteModel,
                             onUse = {
                                 busyLabel = "Loading model…"
                                 busy = true
@@ -782,30 +789,43 @@ private fun ModelRow(
     }
 }
 
+/** How many listed model ids are shown at once. The rest are reachable by typing the id in Settings. */
+private const val LISTED_MODELS_SHOWN = 50
+
 /**
- * The OpenRouter chat entry. It is a card and not a model row because it is not a file on
+ * The remote chat entry. It is a card and not a model row because it is not a file on
  * this phone: there is no size, RAM or context figure to show, and inventing them would be
  * wrong. The sentence about where messages go comes before the button on purpose.
+ *
+ * "Choose from list" asks the provider for its model ids, only on tap, and offers them as
+ * buttons. Providers that do not list models do not get the button; the model is typed in
+ * Settings.
  */
 @Composable
 private fun RemoteChatCard(
-    model: String,
+    offer: RemoteChatOffer,
     active: Boolean,
     enabled: Boolean,
+    onListModels: (suspend () -> List<String>)?,
+    onPickModel: ((String) -> Unit)?,
     onUse: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
+    var listing by remember { mutableStateOf(false) }
+    var listed by remember { mutableStateOf<List<String>?>(null) }
+    var listError by remember { mutableStateOf<String?>(null) }
     Card(Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                text = "OpenRouter: $model",
+                text = "${offer.providerLabel}: ${offer.model.ifBlank { "no model chosen" }}",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = "Runs on openrouter.ai — your messages are sent there.",
+                text = "Runs on ${offer.destination} — your messages are sent there.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -816,7 +836,54 @@ private fun RemoteChatCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
-                TextButton(onClick = onUse, enabled = enabled) { Text("Use") }
+                TextButton(onClick = onUse, enabled = enabled && offer.model.isNotBlank()) { Text("Use") }
+            }
+            if (offer.canListModels && onListModels != null && onPickModel != null) {
+                TextButton(
+                    enabled = !listing,
+                    onClick = {
+                        listing = true
+                        listError = null
+                        scope.launch {
+                            runCatching { onListModels() }
+                                .onSuccess { listed = it }
+                                .onFailure {
+                                    listed = null
+                                    listError = "Could not list models. ${it.message.orEmpty().take(120)}"
+                                }
+                            listing = false
+                        }
+                    },
+                ) { Text(if (listing) "Listing…" else "Choose from list") }
+                listError?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                listed?.let { ids ->
+                    if (ids.isEmpty()) {
+                        Text(
+                            text = "The provider listed no models. Type the id in Settings.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    ids.take(LISTED_MODELS_SHOWN).forEach { id ->
+                        TextButton(onClick = {
+                            onPickModel(id)
+                            listed = null
+                        }) { Text(id) }
+                    }
+                    if (ids.size > LISTED_MODELS_SHOWN) {
+                        Text(
+                            text = "Showing the first $LISTED_MODELS_SHOWN of ${ids.size}. Type any other id in Settings.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }

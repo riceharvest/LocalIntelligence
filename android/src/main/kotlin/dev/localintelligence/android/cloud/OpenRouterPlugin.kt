@@ -77,15 +77,17 @@ object OpenRouterSettings {
         blankMeansDefault = true,
     )
     /**
-     * The remote chat model. Used only after the user picks "OpenRouter" on the Models
-     * screen; the plugin being on and a key being set are not enough on their own.
+     * The model for the remote chat provider, whichever one is picked. Blank means that
+     * provider's suggested model. The key keeps its old name so an existing choice survives.
+     * Used only after the user picks the remote model on the Models screen; the plugin being
+     * on and a key being set are not enough on their own.
      */
     val CHAT_MODEL = SettingDef.Text(
         "cloud.openrouter.chat_model", "Chat model",
-        "The OpenRouter model id for chat, used when you pick OpenRouter on the Models page. " +
-            "Typed as is. While it is the model answering, every message goes to openrouter.ai.",
-        SettingSection.PLUGINS, default = "google/gemini-2.5-flash", maxLength = 120,
-        blankMeansDefault = true,
+        "The model id for the chat provider you picked. Blank uses that provider's suggested " +
+            "model. Typed as is, or chosen from the provider's list on the Models page. While it " +
+            "is the model answering, every message goes to that provider.",
+        SettingSection.PLUGINS, default = "", maxLength = 120, blankMeansDefault = true,
     )
     /**
      * Only the budget the agent plans its conversation with. It is not sent to OpenRouter;
@@ -122,12 +124,13 @@ class OpenRouterPlugin(
     private val generatedDir = generatedMediaDir(context)
 
     override val id: String = OpenRouterSettings.PLUGIN_ID
-    override val title: String = "Cloud images, video and chat (OpenRouter)"
+    override val title: String = "Cloud images, video and chat"
     override val summary: String =
-        "Make images and short videos, or chat with a remote model, using your own OpenRouter key. " +
-            "Those prompts and messages are sent to openrouter.ai."
+        "Make images and short videos with your own OpenRouter key, or chat with a remote model " +
+            "from a provider you choose (OpenRouter, Groq, Cerebras, DeepSeek, Together, Mistral, " +
+            "Gemini, or your own server). Prompts and messages are sent to the service you use."
     override val enabledByDefault: Boolean = false
-    override val settings: List<SettingDef<*>> = OpenRouterSettings.all
+    override val settings: List<SettingDef<*>> = OpenRouterSettings.all + RemoteProviderSettings.all
 
     private val built: List<AgentTool> by lazy {
         requireCatalogueAgreement(
@@ -140,7 +143,7 @@ class OpenRouterPlugin(
     }
 
     override fun tools(): List<AgentTool> =
-        if (reader[OpenRouterSettings.API_KEY].isBlank()) emptyList() else built
+        if (CredentialSource.keyFor(reader, RemoteProvider.OPENROUTER).isBlank()) emptyList() else built
 
     /**
      * Every tool this plugin ships, key or no key. For the catalogue check at
@@ -183,7 +186,7 @@ private class ImageGenerateTool(
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         withContext(Dispatchers.IO) {
             try {
-                val key = reader[OpenRouterSettings.API_KEY]
+                val key = CredentialSource.keyFor(reader, RemoteProvider.OPENROUTER)
                 if (key.isBlank()) return@withContext noKey("image.generate")
                 val prompt = promptOf(args) ?: return@withContext badPrompt("image.generate")
                 if (context.signal.isCancelled()) return@withContext cancelled("image.generate")
@@ -255,7 +258,7 @@ private class VideoGenerateTool(
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         withContext(Dispatchers.IO) {
             try {
-                val key = reader[OpenRouterSettings.API_KEY]
+                val key = CredentialSource.keyFor(reader, RemoteProvider.OPENROUTER)
                 if (key.isBlank()) return@withContext noKey("video.generate")
                 val prompt = promptOf(args) ?: return@withContext badPrompt("video.generate")
                 if (context.signal.isCancelled()) return@withContext cancelled("video.generate")
@@ -360,7 +363,7 @@ private class VideoStatusTool(
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         withContext(Dispatchers.IO) {
             try {
-                val key = reader[OpenRouterSettings.API_KEY]
+                val key = CredentialSource.keyFor(reader, RemoteProvider.OPENROUTER)
                 if (key.isBlank()) return@withContext noKey("video.status")
                 val jobId = (args["job_id"] as? JsonPrimitive)?.contentOrNull?.trim()
                     ?.takeIf { JOB_ID.matches(it) }
@@ -533,18 +536,26 @@ private fun exchange(method: String, url: String, key: String, json: String?): R
  * goes through here, so the host check and the no-redirect rule cannot be skipped by a
  * new caller. The caller owns the connection and must disconnect it.
  */
-internal fun openOpenRouterConnection(method: String, url: String, key: String): HttpURLConnection {
-    check(url.startsWith("$API/")) { "not an OpenRouter address" }
+internal fun openOpenRouterConnection(method: String, url: String, key: String): HttpURLConnection =
+    openRemoteConnection(method, url, key, API)
+
+/**
+ * Opens one connection under [base], the only address the key may be sent to for this call.
+ * A blank [key] sends no Authorization header at all, for a local server that has none.
+ * Redirects are not followed, for the same reason as above.
+ */
+internal fun openRemoteConnection(method: String, url: String, key: String, base: String): HttpURLConnection {
+    check(url.startsWith("$base/")) { "address is outside the chosen provider" }
     val connection = URL(url).openConnection() as HttpURLConnection
     connection.requestMethod = method
     connection.connectTimeout = 20_000
     connection.readTimeout = 120_000
     connection.instanceFollowRedirects = false
-    connection.setRequestProperty("Authorization", "Bearer $key")
+    if (key.isNotBlank()) connection.setRequestProperty("Authorization", "Bearer $key")
     return connection
 }
 
-private fun readCapped(input: InputStream): ByteArray {
+internal fun readCapped(input: InputStream): ByteArray {
     val out = ByteArrayOutputStream()
     val buffer = ByteArray(16 * 1024)
     while (true) {
