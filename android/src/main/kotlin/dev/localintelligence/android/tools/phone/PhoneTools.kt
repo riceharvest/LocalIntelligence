@@ -124,14 +124,15 @@ internal enum class MediaAction(val arg: String) {
 }
 
 /**
- * Travel modes. [letter] is the value Google Maps reads from `google.navigation:mode=`.
- * `transit` is mapped to `r` as the brief specifies; see the report on the open question.
+ * Travel modes. [letter] is the value Google Maps reads from `google.navigation:mode=`, which
+ * knows d, w, b and l only. Transit has no letter: it goes through a Maps directions URL
+ * (`travelmode=transit`), which Google Maps opens as a route instead of turn-by-turn.
  */
-internal enum class NavMode(val arg: String, val letter: String) {
+internal enum class NavMode(val arg: String, val letter: String?) {
     DRIVE("drive", "d"),
     WALK("walk", "w"),
     BIKE("bike", "b"),
-    TRANSIT("transit", "r");
+    TRANSIT("transit", null);
 
     companion object {
         val ARG_NAMES: List<String> = values().map { it.arg }
@@ -644,8 +645,9 @@ class MapsNavigateTool(private val appContext: Context) : AgentTool {
 
     private fun navigate(destination: String, mode: NavMode): ToolResult {
         val encoded = Uri.encode(destination)
-        val google = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=$encoded&mode=${mode.letter}"))
-            .setPackage(GOOGLE_MAPS_PACKAGE)
+        val link = mode.letter?.let { "google.navigation:q=$encoded&mode=$it" }
+            ?: "https://www.google.com/maps/dir/?api=1&destination=$encoded&travelmode=transit"
+        val google = Intent(Intent.ACTION_VIEW, Uri.parse(link)).setPackage(GOOGLE_MAPS_PACKAGE)
         if (canHandle(appContext, google) && startIntent(appContext, google)) {
             return ToolResult(success = true, observation = "Opened ${mode.arg} directions to $destination in Google Maps.")
         }
