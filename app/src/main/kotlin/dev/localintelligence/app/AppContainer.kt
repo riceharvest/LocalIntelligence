@@ -1400,7 +1400,7 @@ class AppContainer(private val context: Context) {
         loopDetector = LoopDetector(),
         // The system prompt holds only what stays the same from message to
         // message (rules, name, tools); the clock is read once per run and goes
-        // at the start of the user turn, which the session stores as sent. A
+        // into the user turn after the task, for time-related tasks only, which the session stores as sent. A
         // prompt that changes near its start cannot reuse the previous
         // message's prefill (llama_jni.cpp).
         contextBuilder = java.time.ZonedDateTime.now().let { now ->

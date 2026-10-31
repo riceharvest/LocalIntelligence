@@ -16,8 +16,9 @@ import dev.localintelligence.core.tool.ToolDefinition
  *     a compaction; see [SummaryWriter])
  *  3. earlier conversation, oldest-first, each user turn as it was rendered
  *     when it was sent ([ChatMessage.User.rendered])
- *  4. the current task, rendered with this turn's clock, memories and skill
- *     hints ([renderTurn])
+ *  4. the current task, rendered by [renderTurn]: the task first, then the
+ *     context for it (clock when the task is about time, memories, skill hints)
+ *     under a label that says it is not part of the request
  *  5. this run's own turns, oldest-first
  *
  * Memories used to be their own block between 2 and 3. They depend on the
@@ -82,13 +83,21 @@ class DefaultContextBuilder(
     private val turnPreamble: () -> String = { "" },
 ) : ContextBuilder {
 
+    /**
+     * The task first, then its context under a label. The model reads the
+     * start of a turn as the request, so the context must never lead: on a short
+     * message a clock line at the front was taken for the task itself.
+     * The clock is added only for a task about time (see [TIME_TASK]).
+     */
     override fun renderTurn(task: String, memories: List<Memory>, hints: List<String>): String {
         val parts = ArrayList<String>(3)
-        turnPreamble().takeIf { it.isNotBlank() }?.let { parts += it }
+        if (TIME_TASK.containsMatchIn(task)) {
+            turnPreamble().takeIf { it.isNotBlank() }?.let { parts += it }
+        }
         renderMemories(memories)?.let { parts += it }
         hints.filter { it.isNotBlank() }.takeIf { it.isNotEmpty() }?.let { parts += it.joinToString("\n") }
         if (parts.isEmpty()) return task
-        return parts.joinToString("\n\n") + "\n\n" + task
+        return task + CONTEXT_SEPARATOR + parts.joinToString("\n\n")
     }
 
     override fun build(
@@ -293,3 +302,22 @@ internal object ContextLimits {
 
 /** Header on the memory block. A label, so a small model reads the lines as facts. */
 internal const val MEMORY_HEADER = "Remembered facts:"
+
+/**
+ * Put between the task and its context in a rendered turn. The label tells the
+ * model the context below is not the request. Exact text: it is what was measured.
+ */
+internal const val CONTEXT_SEPARATOR =
+    "\n\n---\nContext for this message (not part of the request):\n"
+
+/**
+ * Which tasks get the clock line. WHY: measured with the app's own agent loop
+ * (LFM3-1.7B, 36 runs), a clock line on every turn made short messages read as
+ * scheduling requests (the model set alarms on "hi"). With the clock only for
+ * time-related tasks, 34/36 passed against 19-20/36 with it always present.
+ * Case-insensitive, whole words.
+ */
+internal val TIME_TASK = Regex(
+    """\b(today|tomorrow|tonight|yesterday|morning|evening|afternoon|noon|midnight|week|weekend|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday|minutes?|hours?|seconds?|at \d|\d:\d|\d ?(am|pm)|calendar|agenda|schedule|alarm|wake|remind|timer|date|time|morgen|vandaag|vanavond|uur|minuten)\b""",
+    RegexOption.IGNORE_CASE,
+)

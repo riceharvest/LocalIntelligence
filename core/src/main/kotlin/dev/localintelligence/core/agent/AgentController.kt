@@ -403,8 +403,9 @@ class AgentController(
         // could not delete one more tomorrow without a reinstall.
         riskPolicy.resetTask()
         metrics?.beginStep(0)
-        // The turn is rendered once: the clock, the memories found for this task
-        // and matched skill hints go in front of the task, and the session keeps
+        // The turn is rendered once: the task comes first, then the clock (for a
+        // time-related task), the memories found for it and matched skill hints,
+        // and the session keeps
         // that rendering so every later prompt repeats it token for token. Read
         // per step instead, they changed the prompt's start on every message
         // and llama.cpp had to prefill the whole conversation again.
