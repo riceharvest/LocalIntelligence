@@ -114,27 +114,6 @@ object RemoteProviderSettings {
     )
 }
 
-/**
- * The one place a provider's key is read. Today every key is the user's own, typed in
- * Settings. A managed key for Simple users would be read here too, so no tool or backend
- * needs to change when it arrives.
- */
-object CredentialSource {
-    fun keyFor(reader: SettingsReader, provider: RemoteProvider): String {
-        val row = when (provider) {
-            RemoteProvider.OPENROUTER -> OpenRouterSettings.API_KEY
-            RemoteProvider.GROQ -> RemoteProviderSettings.GROQ_KEY
-            RemoteProvider.CEREBRAS -> RemoteProviderSettings.CEREBRAS_KEY
-            RemoteProvider.DEEPSEEK -> RemoteProviderSettings.DEEPSEEK_KEY
-            RemoteProvider.TOGETHER -> RemoteProviderSettings.TOGETHER_KEY
-            RemoteProvider.MISTRAL -> RemoteProviderSettings.MISTRAL_KEY
-            RemoteProvider.GEMINI -> RemoteProviderSettings.GEMINI_KEY
-            RemoteProvider.CUSTOM -> RemoteProviderSettings.CUSTOM_KEY
-        }
-        return reader[row]
-    }
-}
-
 /** Everything one request needs: where it goes, with which key, and which model. */
 class RemoteEndpoint(
     val provider: RemoteProvider,
@@ -164,8 +143,13 @@ object RemoteProviders {
             ?: RemoteProvider.OPENROUTER
 
     /** The model for [provider]: the model field, or the provider's suggested one when blank. */
-    fun modelFor(reader: SettingsReader, provider: RemoteProvider): String =
-        reader[OpenRouterSettings.CHAT_MODEL].ifBlank { provider.defaultModel.orEmpty() }
+    fun modelFor(reader: SettingsReader, provider: RemoteProvider): String {
+        // With the Extras key answering, the Extras model is the one; the user's model field is theirs.
+        if (provider == RemoteProvider.OPENROUTER && CredentialSource.chatUsesExtras(reader)) {
+            return reader[ExtrasSettings.OPENROUTER_MODEL].ifBlank { provider.defaultModel.orEmpty() }
+        }
+        return reader[OpenRouterSettings.CHAT_MODEL].ifBlank { provider.defaultModel.orEmpty() }
+    }
 
     /**
      * The endpoint for the chosen provider, or null when it cannot be called yet: no key

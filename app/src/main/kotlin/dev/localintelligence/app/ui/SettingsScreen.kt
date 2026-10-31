@@ -100,6 +100,7 @@ import dev.localintelligence.app.speedtest.SpeedTestResultBlock
 import dev.localintelligence.app.speedtest.SpeedTestRunner
 import dev.localintelligence.app.ui.components.openPermissionScreen
 import dev.localintelligence.core.plugin.AgentPlugin
+import androidx.compose.material.icons.filled.Star
 import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingApplies
@@ -146,6 +147,8 @@ fun SettingsScreen(
     /** The folder of generated images and videos, for the Storage row. Null hides the row. */
     generatedMedia: File? = null,
     onOpenModels: () -> Unit = {},
+    /** Opens the Extras screen. Null hides the row, which is the case while the backend is not set. */
+    onOpenExtras: (() -> Unit)? = null,
     onOpenSchedule: () -> Unit = {},
     onOpenTrace: () -> Unit = {},
     onOpenRedaction: () -> Unit = {},
@@ -201,6 +204,7 @@ fun SettingsScreen(
                     NavRow(Icons.Filled.AutoAwesome, "Skills", onOpenSkills)
                     NavRow(Icons.Filled.Description, "Documents", onOpenDocuments)
                     NavRow(Icons.Filled.Schedule, "Scheduled tasks", onOpenSchedule)
+                    onOpenExtras?.let { NavRow(Icons.Filled.Star, "Extras", it) }
                     NavRow(Icons.Filled.Lock, "Permissions") { openPermissionScreen(context) }
                     NavRow(Icons.Filled.Assistant, "Set as phone assistant") { openAssistantSettings(context) }
                     if (technical) NavRow(Icons.Filled.Extension, "Script plugins", onOpenScripts)

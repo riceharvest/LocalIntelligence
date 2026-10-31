@@ -62,6 +62,8 @@ import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.ModelManagerScreen
 import dev.localintelligence.app.ui.ScriptPluginsScreen
+import dev.localintelligence.app.ui.ExtrasScreen
+import dev.localintelligence.app.extras.ExtrasBilling
 import dev.localintelligence.app.ui.SettingsScreen
 import dev.localintelligence.app.ui.SkillsScreen
 import dev.localintelligence.app.ui.TraceScreen
@@ -541,6 +543,11 @@ class MainActivity : ComponentActivity() {
                             onOpenScripts = { nav.navigate(ROUTE_SCRIPTS) },
                             chatGptRow = { ChatGptSettingsCard(container) },
                             onOpenModels = { nav.navigate(ROUTE_MODELS) },
+                            onOpenExtras = if (ExtrasBilling.enabled) {
+                                { nav.navigate(ROUTE_EXTRAS) }
+                            } else {
+                                null
+                            },
                             onOpenSchedule = { nav.navigate(ROUTE_SCHEDULE) },
                             onOpenTrace = { nav.navigate(ROUTE_TRACE) },
                             onOpenRedaction = { nav.navigate(ROUTE_REDACTION) },
@@ -570,6 +577,22 @@ class MainActivity : ComponentActivity() {
                         SkillsScreen(
                             store = container.settings,
                             repository = container.skills,
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
+                    composable(ROUTE_EXTRAS) {
+                        val extrasScope = rememberCoroutineScope()
+                        ExtrasScreen(
+                            store = container.settings,
+                            billing = container.extras,
+                            onSubscribe = { activity ->
+                                extrasScope.launch {
+                                    container.extras.subscribe(activity)
+                                    // A Simple user who has just subscribed gets the managed chat now, not at the next launch.
+                                    if (container.settings.mode == SettingsMode.SIMPLE) container.useRemoteChat()
+                                }
+                            },
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -650,6 +673,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_SETTINGS = "settings"
         const val ROUTE_SKILLS = "skills"
         const val ROUTE_SCRIPTS = "scripts"
+        const val ROUTE_EXTRAS = "extras"
         const val ROUTE_DOCUMENTS = "documents"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */

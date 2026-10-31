@@ -5,6 +5,7 @@ import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.settings.SettingsMode
+import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.core.settings.SettingsReader
 import dev.localintelligence.core.settings.mode
 import dev.localintelligence.core.tool.AgentTool
@@ -98,7 +99,7 @@ class SandboxPlugin(private val reader: SettingsReader) : AgentPlugin {
     }
 
     override fun tools(): List<AgentTool> =
-        if (reader.mode != SettingsMode.TECHNICAL || reader[SandboxSettings.API_KEY].isBlank()) emptyList() else built
+        if (reader.mode != SettingsMode.TECHNICAL || CredentialSource.sandboxKey(reader).isBlank()) emptyList() else built
 
     /** Every tool this plugin ships, key or no key, for the startup catalogue check. */
     fun shippedTools(): List<AgentTool> = built
@@ -122,7 +123,7 @@ internal class SandboxSession(private val reader: SettingsReader) {
     /** The provider built from the live settings. Daytona is the only option, which the Choice setting enforces. */
     fun provider(): SandboxProvider = DaytonaProvider(
         apiBase = reader[SandboxSettings.API_URL],
-        apiKey = reader[SandboxSettings.API_KEY],
+        apiKey = CredentialSource.sandboxKey(reader),
     )
 
     /**

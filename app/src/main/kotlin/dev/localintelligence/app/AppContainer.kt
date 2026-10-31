@@ -13,6 +13,7 @@ import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.cloud.ChatGptChatBackend
 import dev.localintelligence.android.cloud.ChatGptPlugin
 import dev.localintelligence.android.cloud.ChatGptSignIn
+import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.android.cloud.OpenRouterChatBackend
 import dev.localintelligence.android.cloud.RemoteChatOffer
 import dev.localintelligence.android.cloud.RemoteProviders
@@ -51,6 +52,7 @@ import dev.localintelligence.core.policy.BlastRadiusTracker
 import dev.localintelligence.core.policy.PolicyConfig
 import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.core.hub.formatBytes
+import dev.localintelligence.app.extras.ExtrasBilling
 import dev.localintelligence.core.settings.mode
 import dev.localintelligence.core.settings.SettingsMode
 import dev.localintelligence.core.settings.SettingsReader
@@ -788,9 +790,13 @@ class AppContainer(private val context: Context) {
     val remoteChatBackend: OpenRouterChatBackend by lazy {
         OpenRouterChatBackend(
             reader = settings,
-            enabled = { settings.isPluginEnabled(openRouterPlugin) },
+            // Extras answers the chat too, so it counts as on without the plugin switch.
+            enabled = { settings.isPluginEnabled(openRouterPlugin) || CredentialSource.extrasActive(settings) },
         )
     }
+
+    /** Extras: the monthly subscription that supplies managed keys. Off unless the backend address is set. */
+    val extras: ExtrasBilling by lazy { ExtrasBilling(context, settings, BuildConfig.EXTRAS_BACKEND_URL) }
 
     /** Telegram as a remote keyboard for this phone. Off by default; see TelegramService. */
     val telegramPlugin: TelegramPlugin by lazy { TelegramPlugin() }
@@ -875,7 +881,7 @@ class AppContainer(private val context: Context) {
      * off: the plugin is switched off, or the chosen provider has no key (or no valid address).
      */
     fun remoteChatOfferOrNull(): RemoteChatOffer? {
-        if (!settings.isPluginEnabled(openRouterPlugin)) return null
+        if (!settings.isPluginEnabled(openRouterPlugin) && !CredentialSource.extrasActive(settings)) return null
         val endpoint = RemoteProviders.endpoint(settings) ?: return null
         return RemoteChatOffer(
             providerLabel = endpoint.provider.label,
@@ -905,9 +911,12 @@ class AppContainer(private val context: Context) {
      * selected. Sending a conversation to a third party should be a choice made again each
      * time, not one that survives a restart unnoticed.
      */
-    suspend fun useRemoteChat(): Boolean = readinessLock.withLock {
-        val offer = remoteChatOfferOrNull() ?: return@withLock false
-        if (offer.model.isBlank()) return@withLock false
+    suspend fun useRemoteChat(): Boolean = readinessLock.withLock { useRemoteChatLocked() }
+
+    /** [useRemoteChat] for a caller that already holds [readinessLock]. */
+    private suspend fun useRemoteChatLocked(): Boolean {
+        val offer = remoteChatOfferOrNull() ?: return false
+        if (offer.model.isBlank()) return false
         val previous = loadedBackend
         if (previous != null && previous !== remoteChatBackend) {
             stopPrefixWork()
@@ -915,8 +924,14 @@ class AppContainer(private val context: Context) {
             previous.unload()
         }
         loadedBackend = remoteChatBackend
-        modelAvailability.set(ModelAvailability.Ready(displayName = "${offer.providerLabel}: ${offer.model}"))
-        true
+        // With the Extras key, the name says plainly that messages leave the phone.
+        val name = if (CredentialSource.chatUsesExtras(settings)) {
+            "Extras cloud: ${offer.model}, messages go to the cloud"
+        } else {
+            "${offer.providerLabel}: ${offer.model}"
+        }
+        modelAvailability.set(ModelAvailability.Ready(displayName = name))
+        return true
     }
 
     /**
@@ -1413,7 +1428,14 @@ class AppContainer(private val context: Context) {
         restoreConversationOnce()
         // A scheduled run the last process died during has no result coming (#167).
         ScheduledRunReporter.settleInterrupted(context)
-        if (!modelAvailability.current.canRun) loadSelectedModel()
+        if (ExtrasBilling.enabled) appScope.launch(Dispatchers.IO) { extras.checkAtStart() }
+        if (!modelAvailability.current.canRun) {
+            // Simple mode with Extras active: the managed chat answers from launch, with the
+            // note that messages go to the cloud. Otherwise the selected local model loads.
+            val extrasChat = settings.mode == SettingsMode.SIMPLE &&
+                CredentialSource.extrasActive(settings) && useRemoteChatLocked()
+            if (!extrasChat) loadSelectedModel()
+        }
         restoredTurns
     }
 

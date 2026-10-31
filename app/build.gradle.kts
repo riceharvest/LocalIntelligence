@@ -26,6 +26,11 @@ android {
 
         // For the manual device probe in src/androidTest (DeviceModelProbe).
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // The Extras backend address. Empty by default, which hides the Extras row and makes
+        // no billing or backend call. Set it with -PextrasBackendUrl=https://... when the
+        // Worker is deployed; it is never a secret.
+        buildConfigField("String", "EXTRAS_BACKEND_URL", "\"${(findProperty("extrasBackendUrl") as? String).orEmpty()}\"")
     }
 
     buildTypes {
@@ -49,6 +54,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -86,6 +92,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.kotlinx.coroutines.android)
+    // Google Play Billing, for Extras only. Nothing else in the app uses it.
+    implementation(libs.billing.ktx)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
