@@ -140,6 +140,8 @@ fun SettingsScreen(
     onOpenDocuments: () -> Unit = {},
     /** Opens the script plugins screen. Defaulted, like [onOpenSkills]. */
     onOpenScripts: () -> Unit = {},
+    /** The ChatGPT row, shown in Simple mode. Null hides it. */
+    chatGptRow: (@Composable () -> Unit)? = null,
     /** The folder of generated images and videos, for the Storage row. Null hides the row. */
     generatedMedia: File? = null,
     onOpenModels: () -> Unit = {},
@@ -185,6 +187,7 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 ModeSwitch(store)
+                if (!technical) chatGptRow?.invoke()
                 if (!technical && !suggestionInstalled) SuggestionCard(suggestion) { onOpenHub(suggestion.repo, suggestion.file) }
                 suggestion.alternative?.takeIf { !technical && !alternativeInstalled }?.let { alt ->
                     AlternativeCard(alt) { onOpenHub(alt.repo, alt.file) }

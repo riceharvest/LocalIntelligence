@@ -433,10 +433,13 @@ class PhoneVolumeTool(private val appContext: Context) : AgentTool {
                 audio.ringerMode = mode.platform
             } catch (e: SecurityException) {
                 if (mode != RingerMode.SILENT) throw e
-                return ToolResult(
-                    success = false,
-                    observation = "Silent needs Do Not Disturb access; set to vibrate instead?",
-                    error = ToolError.PermissionDenied("Do Not Disturb access needed for silent ringer"),
+                // Silent is the one ringer mode that needs Do Not Disturb access. Open that screen
+                // rather than only saying so, the same way phone.dnd does.
+                return specialAccessRefusal(
+                    appContext,
+                    "phone.volume",
+                    ToolPermissions.DO_NOT_DISTURB,
+                    dndAccessScreen(),
                 )
             }
         }
@@ -712,7 +715,7 @@ class MapsShowTool(private val appContext: Context) : AgentTool {
 
 private const val MAX_PLACE_CHARS: Int = 200
 
-/** All six phone-family tools, wired to a real [Context]. */
+/** The phone-family tools, wired to a real [Context]. */
 fun phoneTools(context: Context, grant: PlatformGrant): List<AgentTool> {
     val app = context.applicationContext
     return listOf(
@@ -720,6 +723,10 @@ fun phoneTools(context: Context, grant: PlatformGrant): List<AgentTool> {
         PhoneVolumeTool(app),
         PhoneMediaTool(app, grant),
         PhoneDialTool(app),
+        PhoneCallTool(app, grant),
+        PhoneDndTool(app, grant),
+        PhoneBrightnessTool(app, grant),
+        DeviceScreenTimeTool(app, grant),
         MapsNavigateTool(app),
         MapsShowTool(app),
     )

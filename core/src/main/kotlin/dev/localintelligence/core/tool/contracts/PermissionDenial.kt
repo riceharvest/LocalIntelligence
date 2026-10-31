@@ -167,6 +167,27 @@ object ToolPermissions {
     const val INTERNET = "android.permission.INTERNET"
     const val ACCESS_COARSE_LOCATION = "android.permission.ACCESS_COARSE_LOCATION"
 
+    /**
+     * Texts and calls. Read and send are separate Android permissions, so they are
+     * separate cards. Google Play allows the first three only for the default assistant
+     * app, and the tools check that role on every call.
+     */
+    const val READ_SMS = "android.permission.READ_SMS"
+    const val SEND_SMS = "android.permission.SEND_SMS"
+    const val READ_CALL_LOG = "android.permission.READ_CALL_LOG"
+    const val CALL_PHONE = "android.permission.CALL_PHONE"
+
+    /**
+     * Special accesses. Android never shows a runtime dialog for these: a person turns
+     * them on in a system screen. They are declared in the manifest so the screen exists,
+     * and the requirements below name them with a null [PlatformRequirement.permission],
+     * because `checkSelfPermission` would report a normal permission as granted whether or
+     * not the switch is on.
+     */
+    const val ACCESS_NOTIFICATION_POLICY = "android.permission.ACCESS_NOTIFICATION_POLICY"
+    const val WRITE_SETTINGS = "android.permission.WRITE_SETTINGS"
+    const val PACKAGE_USAGE_STATS = "android.permission.PACKAGE_USAGE_STATS"
+
     /** Android 13+ replaced the single storage permission with per-type media ones. */
     const val READ_MEDIA_IMAGES = "android.permission.READ_MEDIA_IMAGES"
     const val READ_MEDIA_VIDEO = "android.permission.READ_MEDIA_VIDEO"
@@ -283,5 +304,68 @@ object ToolPermissions {
         capability = "Clipboard access while the app is in the background",
         grantInstructions = "Open LocalIntelligence and leave it on screen, then try again — " +
             "Android only lets a background app read the clipboard while it has focus.",
+    )
+    /**
+     * Reading texts. A runtime dialog, but Google Play lets the app ask only while it is
+     * the default assistant app, so the screen withholds the dialog until that role is held.
+     */
+    val SMS_READ = PlatformRequirement(
+        permission = READ_SMS,
+        capability = "Reading texts",
+        grantInstructions = "In LocalIntelligence, open Permissions and tap Allow next to " +
+            "Texts, reading. Texts work only while LocalIntelligence is the default assistant app.",
+    )
+
+    val SMS_SEND = PlatformRequirement(
+        permission = SEND_SMS,
+        capability = "Sending texts",
+        grantInstructions = "In LocalIntelligence, open Permissions and tap Allow next to " +
+            "Texts, sending. Texts work only while LocalIntelligence is the default assistant app.",
+    )
+
+    val CALL_LOG_READ = PlatformRequirement(
+        permission = READ_CALL_LOG,
+        capability = "Call history",
+        grantInstructions = "In LocalIntelligence, open Permissions and tap Allow next to " +
+            "Call history. It works only while LocalIntelligence is the default assistant app.",
+    )
+
+    val PHONE_CALL = PlatformRequirement(
+        permission = CALL_PHONE,
+        capability = "Making phone calls",
+        grantInstructions = "In LocalIntelligence, open Permissions and tap Allow next to " +
+            "Making phone calls.",
+    )
+
+    /** Do Not Disturb access: a special access, granted only on its Settings screen. */
+    val DO_NOT_DISTURB = PlatformRequirement(
+        permission = null,
+        capability = "Do Not Disturb access",
+        grantInstructions = "Settings > Apps > Special app access > Do Not Disturb access > " +
+            "LocalIntelligence, and turn it on.",
+    )
+
+    /** Changing screen brightness is a special access named "Modify system settings". */
+    val WRITE_SETTINGS_ACCESS = PlatformRequirement(
+        permission = null,
+        capability = "Permission to change system settings",
+        grantInstructions = "Settings > Apps > Special app access > Modify system settings > " +
+            "LocalIntelligence, and turn it on.",
+    )
+
+    /** Screen time reads the usage statistics, a special access on its own Settings screen. */
+    val USAGE_ACCESS = PlatformRequirement(
+        permission = null,
+        capability = "Usage access",
+        grantInstructions = "Settings > Apps > Special app access > Usage access > " +
+            "LocalIntelligence, and turn it on.",
+    )
+
+    /** The default assistant role. Not a permission: the user makes the app the assistant. */
+    val DEFAULT_ASSISTANT = PlatformRequirement(
+        permission = null,
+        capability = "The default assistant app",
+        grantInstructions = "Settings > Apps > Default apps > Digital assistant app, and choose " +
+            "LocalIntelligence.",
     )
 }

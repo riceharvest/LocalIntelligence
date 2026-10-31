@@ -13,6 +13,7 @@ import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.contracts.PermissionDenial
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
+import dev.localintelligence.core.settings.SettingsReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -1368,4 +1369,5 @@ class WebFetchTool private constructor(
  * fetcher is an [HttpUrlConnectionOpener] with no access to app state, so it
  * cannot read anything the user did not explicitly ask it to fetch.
  */
-fun webTools(grant: PlatformGrant): List<AgentTool> = listOf(WebFetchTool(grant), WebSearchTool(grant))
+fun webTools(grant: PlatformGrant, settings: SettingsReader): List<AgentTool> =
+    listOf(WebFetchTool(grant), WebSearchTool(grant, settings))

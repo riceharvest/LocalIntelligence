@@ -40,7 +40,10 @@ import java.net.HttpURLConnection
 import java.util.concurrent.atomic.AtomicBoolean
 
 // ===========================================================================
-// OpenRouter as the chat model. Off unless the user picks it on the Models screen.
+// A remote provider as the chat model. Off unless the user picks it on the Models screen.
+// The provider is one of [RemoteProvider]; every one speaks the same chat-completions
+// request, so this one path serves them all. OpenRouter is the first preset and keeps its
+// old behaviour, including its own sampling fields.
 //
 // WHY THIS IS A BACKEND AND NOT A TOOL: the agent loop asks one model for every
 // step, so a remote chat model has to be the thing that answers. A tool would
@@ -48,16 +51,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 //
 // What leaves the phone while this is the resident model: the whole conversation
 // (system prompt, user turns, tool observations as fenced text) and any attached
-// image or audio, in the request body, plus the key in the Bearer header. Nothing
-// else. The model id and sampling come from the user's settings.
+// image or audio, in the request body, plus the key in the Bearer header, and only
+// to the chosen provider's address. Nothing else. The model id and sampling come
+// from the user's settings.
 //
-// Every request is gated on the plugin being on and a key being set, read at the
-// moment of the request. Switching the plugin off, or clearing the key, stops the
-// next message without a restart and sends nothing.
+// Every request is gated on the plugin being on and the provider being set up (a key,
+// or a valid custom address), read at the moment of the request. Switching the plugin
+// off, or clearing the key, stops the next message without a restart and sends nothing.
 // ===========================================================================
 
 /**
- * Streams chat completions from OpenRouter's OpenAI-compatible API.
+ * Streams chat completions from the chosen provider's OpenAI-compatible API.
  *
  * [enabled] is supplied by the app container because the plugin switch lives in the
  * app's settings store, which this module cannot see.
@@ -82,7 +86,7 @@ class OpenRouterChatBackend(
             supportsGrammar = false,
             supportsVision = true,
             supportsKvCache = false,
-            supportsAudioInput = true,
+            supportsAudioInput = RemoteProviders.selected(reader).audioInput,
         )
 
     /** The connection of the request in flight, so [cancel] can close it from any thread. */
@@ -106,10 +110,16 @@ class OpenRouterChatBackend(
         onToken: (String) -> Unit,
     ): GenerationResult = withContext(Dispatchers.IO) {
         cancelRequested.set(false)
-        val key = reader[OpenRouterSettings.API_KEY]
-        if (!enabled() || key.isBlank()) {
-            return@withContext failed("OpenRouter chat is off or has no key. Pick a local model on the Models page.")
+        val provider = RemoteProviders.selected(reader)
+        val label = provider.label
+        val endpoint = RemoteProviders.endpoint(reader)
+        if (!enabled() || endpoint == null) {
+            return@withContext failed("$label chat is off or not set up. Pick a local model on the Models page, or check the chat provider in Settings.")
         }
+        if (endpoint.model.isBlank()) {
+            return@withContext failed("No chat model is set for $label. Choose one on the Models page.")
+        }
+        val key = endpoint.key
 
         val partial = StringBuilder()
         val stream = Stream()
@@ -117,8 +127,8 @@ class OpenRouterChatBackend(
         val onCancel = closeOnCancel(job)
         val startedAt = System.nanoTime()
         try {
-            val body = requestBody(request, reader[OpenRouterSettings.CHAT_MODEL]).toString()
-            val connection = openOpenRouterConnection("POST", "$API/chat/completions", key)
+            val body = requestBody(request, endpoint.model, provider).toString()
+            val connection = openRemoteConnection("POST", "${endpoint.base}/chat/completions", key, endpoint.base)
             active = connection
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
@@ -128,10 +138,10 @@ class OpenRouterChatBackend(
             val status = connection.responseCode
             if (status !in 200..299) {
                 val detail = connection.errorStream?.use { readSmall(it) }.orEmpty()
-                return@withContext failed(httpFailure(status, detail, key))
+                return@withContext failed(httpFailure(label, status, detail, key))
             }
             connection.inputStream.use { input ->
-                readStream(input, key, partial, stream, startedAt, onToken)
+                readStream(input, label, key, partial, stream, startedAt, onToken)
             }
             stream.error?.let { return@withContext failed(it) }
             GenerationResult(
@@ -155,13 +165,20 @@ class OpenRouterChatBackend(
                     completionTokens = stream.completionTokens,
                 )
             } else {
-                failed("could not reach OpenRouter (${e.javaClass.simpleName}). Check the connection.")
+                failed(
+                    if (isCleartextBlocked(e)) {
+                        "$label: Android blocks plain http:// to this address. Use an https:// address, " +
+                            "or a .local name on your network."
+                    } else {
+                        "could not reach $label (${e.javaClass.simpleName}). Check the connection."
+                    },
+                )
             }
         } catch (e: IllegalArgumentException) {
             // Raised for an attachment this backend cannot send. The message is ours.
             failed(e.message ?: "request not sent")
         } catch (e: Exception) {
-            failed("OpenRouter chat could not run (${e.javaClass.simpleName}).")
+            failed("$label chat could not run (${e.javaClass.simpleName}).")
         } finally {
             onCancel?.dispose()
             active?.disconnect()
@@ -222,6 +239,7 @@ class OpenRouterChatBackend(
      */
     private suspend fun readStream(
         input: InputStream,
+        label: String,
         key: String,
         partial: StringBuilder,
         stream: Stream,
@@ -239,7 +257,7 @@ class OpenRouterChatBackend(
 
                 val error = chunk["error"]?.jsonObject
                 if (error != null) {
-                    stream.error = "OpenRouter stopped the reply: " +
+                    stream.error = "$label stopped the reply: " +
                         scrubbed(error["message"]?.jsonPrimitive?.contentOrNull.orEmpty(), key)
                     break
                 }
@@ -275,18 +293,21 @@ class OpenRouterChatBackend(
          * The OpenAI-compatible request body. Sampling values that mean "off" in this app
          * (top_k 0, a negative seed) are omitted, because OpenRouter rejects some of them.
          */
-        internal fun requestBody(request: GenerationRequest, model: String): JsonObject {
+        internal fun requestBody(request: GenerationRequest, model: String, provider: RemoteProvider): JsonObject {
             val p: SamplingParams = request.params
             return buildJsonObject {
                 put("model", model)
-                put("messages", messagesJson(request))
+                put("messages", messagesJson(request, provider))
                 put("stream", true)
                 put("temperature", p.temperature)
                 put("top_p", p.topP)
-                if (p.topK > 0) put("top_k", p.topK)
-                put("min_p", p.minP)
-                put("repetition_penalty", p.repeatPenalty)
-                if (p.seed >= 0) put("seed", p.seed)
+                // OpenRouter's own fields. Other providers reject unknown fields, so they are not sent.
+                if (provider.openRouterExtras) {
+                    if (p.topK > 0) put("top_k", p.topK)
+                    put("min_p", p.minP)
+                    put("repetition_penalty", p.repeatPenalty)
+                    if (p.seed >= 0) put("seed", p.seed)
+                }
                 put("max_tokens", p.maxOutputTokens)
             }
         }
@@ -296,7 +317,7 @@ class OpenRouterChatBackend(
          * own, so it is a user turn; the fence from [dev.localintelligence.core.model.UntrustedContent]
          * is what tells the model it is quoted text.
          */
-        private fun messagesJson(request: GenerationRequest): JsonArray {
+        private fun messagesJson(request: GenerationRequest, provider: RemoteProvider): JsonArray {
             // Media go on the user's own turn, not on a note the agent loop added after it.
             val lastUser = request.messages.indexOfLast { it is ChatMessage.User && !it.note }
             return buildJsonArray {
@@ -307,7 +328,7 @@ class OpenRouterChatBackend(
                         is ChatMessage.User -> add(
                             turn(
                                 "user",
-                                if (index == lastUser) withMedia(message.text, request.media)
+                                if (index == lastUser) withMedia(message.text, request.media, provider)
                                 else JsonPrimitive(message.text),
                             ),
                         )
@@ -317,7 +338,7 @@ class OpenRouterChatBackend(
                     }
                 }
                 if (lastUser < 0 && request.media.isNotEmpty()) {
-                    add(turn("user", withMedia("", request.media)))
+                    add(turn("user", withMedia("", request.media, provider)))
                 }
             }
         }
@@ -331,7 +352,7 @@ class OpenRouterChatBackend(
          * Plain text when there is nothing attached; otherwise the content-part form.
          * Base64 is written without line breaks, because a wrapped data URI is not a URI.
          */
-        private fun withMedia(text: String, media: List<MediaInput>): JsonElement {
+        private fun withMedia(text: String, media: List<MediaInput>, provider: RemoteProvider): JsonElement {
             if (media.isEmpty()) return JsonPrimitive(text)
             return buildJsonArray {
                 add(buildJsonObject {
@@ -347,6 +368,9 @@ class OpenRouterChatBackend(
                                 put("url", "data:${item.mimeType};base64,$encoded")
                             }
                         })
+                        item.isAudio && !provider.audioInput -> throw IllegalArgumentException(
+                            "${provider.label} does not take audio. Attach an image, or use OpenRouter with an audio model.",
+                        )
                         item.isAudio -> add(buildJsonObject {
                             put("type", "input_audio")
                             putJsonObject("input_audio") {
@@ -372,7 +396,7 @@ class OpenRouterChatBackend(
         }
 
         /** Non-2xx replies: one short line, with the key removed in case a reply echoes it. */
-        private fun httpFailure(status: Int, body: String, key: String): String {
+        private fun httpFailure(label: String, status: Int, body: String, key: String): String {
             val message = runCatching {
                 Json.parseToJsonElement(body).jsonObject["error"]?.jsonObject
                     ?.get("message")?.jsonPrimitive?.contentOrNull
@@ -382,13 +406,57 @@ class OpenRouterChatBackend(
                 404 -> "Check the chat model id in Settings."
                 else -> "Try again later."
             }
-            return "OpenRouter returned HTTP $status. $hint " + scrubbed(message, key)
+            return "$label returned HTTP $status. $hint " + scrubbed(message, key)
         }
 
         private fun scrubbed(text: String, key: String): String {
             val cleaned = if (key.isBlank()) text else text.replace(key, "[key]")
             return cleaned.replace(Regex("\\s+"), " ").trim().take(HTTP_ERROR_CHARS)
         }
+
+        /**
+         * The model ids the provider lists, for the Models page. Sorted, de-duplicated and
+         * capped. Accepts both the `{"data": [...]}` shape and a bare array (some providers
+         * use a bare array), and strips Gemini's `models/` prefix. Throws IOException on a
+         * failed reply, with the status in the message; the key is never in it.
+         */
+        fun fetchModelIds(endpoint: RemoteEndpoint): List<String> {
+            val connection = openRemoteConnection("GET", "${endpoint.base}/models", endpoint.key, endpoint.base)
+            try {
+                connection.setRequestProperty("Accept", "application/json")
+                val status = connection.responseCode
+                if (status !in 200..299) {
+                    throw IOException("${endpoint.provider.label} returned HTTP $status")
+                }
+                val body = connection.inputStream.use { readCapped(it) }
+                val root = Json.parseToJsonElement(String(body, Charsets.UTF_8))
+                val items = (root as? JsonObject)?.get("data") ?: root
+                return (items as? JsonArray).orEmpty()
+                    .mapNotNull { element ->
+                        when (element) {
+                            is JsonObject -> element["id"]?.jsonPrimitive?.contentOrNull
+                            is JsonPrimitive -> element.contentOrNull
+                            else -> null
+                        }
+                    }
+                    .map { it.removePrefix("models/").trim() }
+                    .filter { it.isNotEmpty() && it.length <= 200 }
+                    .distinct()
+                    .sorted()
+                    .take(MAX_LISTED_MODELS)
+            } finally {
+                connection.disconnect()
+            }
+        }
+
+        private const val MAX_LISTED_MODELS = 500
+
+        /**
+         * Android refuses plain http to an address its network security config does not allow.
+         * The platform says so in the exception text, which is the only way to tell it apart.
+         */
+        private fun isCleartextBlocked(e: IOException): Boolean =
+            e.message?.contains("cleartext", ignoreCase = true) == true
 
         /** An error body is a few hundred bytes. One read of at most 16 KB is enough, and avoids readNBytes (API 33); see io.readUpTo. */
         private fun readSmall(input: InputStream): String {
