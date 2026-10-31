@@ -91,6 +91,27 @@ import dev.localintelligence.core.compaction.RetainedHistory
  */
 private const val TERMINATE_MARKER = "You have made no progress"
 
+/**
+ * The tools a native-format conversation lists, in this order, when they exist.
+ *
+ * WHY A FIXED SET: the listed tools sit in the prompt's cached prefix. Measured on
+ * a Samsung A05s with LFM3-1.7B: a list that differed per conversation prefilled
+ * 842 new tokens (81 s) on the first message, against 33-38 s before; with the same
+ * list every time, a new chat prefills only its own user turn. These eight are the
+ * everyday tools, about 1,250 tokens of schema together. The picker's other picks
+ * are described in the turn and are callable (see [planNativeTurnTools]).
+ */
+val NATIVE_CORE_TOOLS: List<String> = listOf(
+    "device.battery",
+    "timer.set",
+    "alarm.create",
+    "message.draft",
+    "web.search",
+    "web.fetch",
+    "calendar.search",
+    "location.get",
+)
+
 class AgentController(
     private val model: ModelBackend,
     private val parser: ActionParser,
@@ -611,7 +632,7 @@ class AgentController(
             // to keep in sync - it is the same call with the callback attached.
             // What the model may call: the listed tools plus any it found with
             // tools.find, which the prompt does not list (their descriptions are
-            // in the lookup's result).
+            // in the lookup's result). With tool lookup on, every enabled tool.
             val callable = withDiscovered(visible)
             val request = buildRequest(visible, callable)
             // StreamingModelBackend is a separate, OPTIONAL interface, so the
@@ -1263,14 +1284,15 @@ class AgentController(
      */
     private fun planTurnTools(): List<AgentTool> {
         val all = tools.all()
-        // With tool lookup on, the prompt lists a few tools and tools.find.
-        val cap = if (config.toolLookup) minOf(LOOKUP_LISTED, config.maxVisibleTools) else config.maxVisibleTools
-        val wanted = try {
-            toolSelector.select(task, sessions.currentKeywords(), all, cap)
-        } catch (t: Throwable) {
-            all.take(cap)
-        }
         val byName = all.associateBy { it.definition.name }
+        // With tool lookup on the model decides, so nothing is picked for it here: the list is the
+        // core tools and tools.find, and the model loads the rest itself (see [ToolFinder]).
+        if (config.toolLookup) return planLookupTurnTools(byName)
+        val wanted = try {
+            toolSelector.select(task, sessions.currentKeywords(), all, config.maxVisibleTools)
+        } catch (t: Throwable) {
+            all.take(config.maxVisibleTools)
+        }
         val kept = sessions.epochTools.filter { it in byName }
         if (useNativeToolFormat) return planNativeTurnTools(wanted, all, byName)
         val mustHave = mustHaveTools(byName)
@@ -1289,6 +1311,25 @@ class AgentController(
             log("tools described in this turn instead of the list: ${extra.joinToString { it.definition.name }}")
         }
         return extra
+    }
+
+    /**
+     * Tool lookup on: the list is [nativeCoreTools] in every conversation and nothing is
+     * described per turn. The same set in every conversation keeps the cached prefix the same,
+     * and the model asks for any other tool through tools.find, whose listing names them all.
+     *
+     * WHY NO WORD-MATCHED PICKS: the match only ever showed the model the tools a word happened
+     * to hit, and the model never learnt the others existed. The listing does that instead.
+     */
+    private fun planLookupTurnTools(byName: Map<String, AgentTool>): List<AgentTool> {
+        val core = nativeCoreTools(byName)
+        if (core != sessions.epochTools.toList()) {
+            log("tool list set (lookup core): ${core.joinToString()} (the prompt is prefilled from the tool list on)")
+            sessions.epochTools.clear()
+            sessions.epochTools += core
+            sessions.discoveredTools.clear()
+        }
+        return emptyList()
     }
 
     /**
@@ -1400,8 +1441,22 @@ class AgentController(
         return request(prompt, visible, callable)
     }
 
-    /** [visible] plus the tools found with tools.find this conversation, if they still exist. */
+    /**
+     * [visible] plus the tools found with tools.find this conversation, if they still exist.
+     * With tool lookup on: [visible] plus every other enabled tool.
+     *
+     * WHY EVERY TOOL WITH LOOKUP: the model reads a name in tools.find's listing and calls it
+     * straight away. Measured with LFM3-1.7B: "turn on the flashlight" called phone.flashlight
+     * by name, and with only the loaded tools callable the call grammar turned it into
+     * device.battery. The prompt still lists only the core tools, so its cached start is the
+     * same; the grammar holds each tool's argument schema, so a direct call still gets its
+     * arguments right, and every call still goes through the validator and the risk policy.
+     */
     private fun withDiscovered(visible: List<AgentTool>): List<AgentTool> {
+        if (config.toolLookup) {
+            val listed = visible.map { it.definition.name }.toSet()
+            return visible + tools.all().filter { it.definition.name !in listed }
+        }
         if (sessions.discoveredTools.isEmpty()) return visible
         val listed = visible.map { it.definition.name }.toSet()
         val byName = tools.all().associateBy { it.definition.name }
@@ -1924,27 +1979,6 @@ class AgentController(
         const val COMPACT_AT = 0.65
 
         /**
-         * The tools a native-format conversation lists, in this order, when they exist.
-         *
-         * WHY A FIXED SET: the listed tools sit in the prompt's cached prefix. Measured on
-         * a Samsung A05s with LFM3-1.7B: a list that differed per conversation prefilled
-         * 842 new tokens (81 s) on the first message, against 33-38 s before; with the same
-         * list every time, a new chat prefills only its own user turn. These eight are the
-         * everyday tools, about 1,250 tokens of schema together. The picker's other picks
-         * are described in the turn and are callable (see [planNativeTurnTools]).
-         */
-        val NATIVE_CORE_TOOLS: List<String> = listOf(
-            "device.battery",
-            "timer.set",
-            "alarm.create",
-            "message.draft",
-            "web.search",
-            "web.fetch",
-            "calendar.search",
-            "location.get",
-        )
-
-        /**
          * The task the prefix warm-up places in its placeholder turn. Any text works: only the
          * system prompt and tool list are kept, and the turn is never shown.
          */
@@ -1964,9 +1998,6 @@ class AgentController(
 
         /** How much of a memory's start identifies it in an earlier turn. */
         const val MEMORY_MATCH_CHARS = 80
-
-        /** Tools the prompt lists when the model looks up the rest (plus the lookup tool itself). */
-        const val LOOKUP_LISTED = 3
 
         /** Between messages, compact ahead when the prompt is past this share of the turn limit. */
         const val IDLE_COMPACT_AT = 0.8

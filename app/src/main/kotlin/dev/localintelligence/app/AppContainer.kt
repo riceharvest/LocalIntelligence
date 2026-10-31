@@ -62,6 +62,7 @@ import dev.localintelligence.core.settings.autoAcceptTiers
 import dev.localintelligence.core.settings.samplingParams
 import dev.localintelligence.core.agent.AgentController
 import dev.localintelligence.core.agent.LoopDetector
+import dev.localintelligence.core.agent.NATIVE_CORE_TOOLS
 import dev.localintelligence.core.agent.Session
 import dev.localintelligence.core.agent.SessionStore
 import dev.localintelligence.core.agent.ToolCallValidatorGate
@@ -1577,10 +1578,18 @@ class AppContainer(private val context: Context) {
         val pluginTools = pluginSet.tools().filter { tool ->
             !tool.definition.name.startsWith(SANDBOX_TOOL_PREFIX) || model === remoteChatBackend || model === chatGptBackend
         }
-        // With "Let the model look up tools" on, tools.find searches the same
-        // enabled tools the run may call.
+        // With "Let the model look up tools" on, tools.find lists the same enabled tools the run
+        // may call, except the core set the prompt always lists, and loads them by name or query.
+        // The window sizes that listing.
         val finder = if (config.toolLookup) {
-            ToolFinder(SimpleToolRegistry(pluginTools, catalogue = emptyList()), LexicalToolSelector(), session)
+            ToolFinder(
+                SimpleToolRegistry(pluginTools, catalogue = emptyList()),
+                LexicalToolSelector(),
+                session,
+                coreNames = NATIVE_CORE_TOOLS,
+                contextLength = model.capabilities.contextLength,
+                log = { line -> android.util.Log.i("LocalAgent", line) },
+            )
         } else {
             null
         }

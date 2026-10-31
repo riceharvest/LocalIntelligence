@@ -29,8 +29,11 @@ data class AgentConfig(
     /** The only tool output the model ever sees. */
     val observationBudgetChars: Int = ObservationTruncator.DEFAULT_BUDGET_CHARS,
     /**
-     * The prompt lists a few tools and `tools.find`, and the model looks up the
-     * rest (see ToolFinder). Off: the prompt lists [maxVisibleTools] tools.
+     * The prompt lists the core tools and `tools.find`, whose description lists every
+     * other tool, and the model loads the rest itself (see ToolFinder). Off: the
+     * prompt lists [maxVisibleTools] tools picked for the task by word match.
+     * The app's default is on (CoreSettings.TOOL_LOOKUP); this default stays off so a
+     * controller built without settings keeps the old behaviour.
      */
     val toolLookup: Boolean = false,
 )
