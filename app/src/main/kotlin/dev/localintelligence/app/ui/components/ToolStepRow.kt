@@ -44,14 +44,19 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -767,6 +772,27 @@ private val toolVerbs: Map<String, ToolVerb> = mapOf(
     "image.generate" to ToolVerb("Creating image", "Created image", "create an image"),
     "video.generate" to ToolVerb("Creating video", "Started video", "create a video"),
     "video.status" to ToolVerb("Checking video", "Checked video", "check the video"),
+    "contacts.add" to ToolVerb("Adding contact", "Added contact", "add a contact"),
+    "phone.dial" to ToolVerb("Opening the dialer", "Opened the dialer", "open the dialer"),
+    "phone.flashlight" to ToolVerb("Switching the flashlight", "Switched the flashlight", "switch the flashlight"),
+    "phone.media" to ToolVerb("Controlling media", "Controlled media", "control the playing media"),
+    "phone.volume" to ToolVerb("Changing volume", "Changed volume", "change the volume"),
+    "maps.navigate" to ToolVerb("Starting directions", "Started directions", "start directions"),
+    "maps.show" to ToolVerb("Showing on the map", "Showed on the map", "show a place on the map"),
+    "places.search" to ToolVerb("Finding a place", "Found a place", "find a place"),
+    "weather.get" to ToolVerb("Checking the weather", "Checked the weather", "check the weather"),
+    "wiki.search" to ToolVerb("Searching Wikipedia", "Searched Wikipedia", "search Wikipedia"),
+    "email.search" to ToolVerb("Searching email", "Searched email", "search your email"),
+    "email.read" to ToolVerb("Reading email", "Read email", "read an email"),
+    "email.send" to ToolVerb("Sending email", "Sent email", "send an email"),
+    "home.devices" to ToolVerb("Finding home devices", "Found home devices", "find home devices"),
+    "home.control" to ToolVerb("Controlling a home device", "Controlled a home device", "control a home device"),
+    "home.secure" to ToolVerb("Changing a lock or door", "Changed a lock or door", "change a lock or door"),
+    "sandbox.run" to ToolVerb("Running a command", "Ran a command", "run a command on your cloud computer"),
+    "sandbox.read_file" to ToolVerb("Reading a cloud file", "Read a cloud file", "read a file on your cloud computer"),
+    "sandbox.write_file" to ToolVerb("Writing a cloud file", "Wrote a cloud file", "write a file on your cloud computer"),
+    "browser.task" to ToolVerb("Browsing for you", "Browsed for you", "browse the web for you"),
+    "browser.status" to ToolVerb("Checking the browser task", "Checked the browser task", "check the browser task"),
 )
 
 private fun verbFor(toolName: String): ToolVerb = toolVerbs[toolName] ?: run {
@@ -802,6 +828,12 @@ private fun markFor(toolName: String): ImageVector =
         "documents" -> Icons.Filled.Description
         "history" -> Icons.Filled.History
         "image", "video" -> Icons.Filled.Image
+        "phone" -> Icons.Filled.Phone
+        "maps", "places" -> Icons.Filled.Map
+        "weather" -> Icons.Filled.WbSunny
+        "wiki", "browser" -> Icons.Filled.Public
+        "home" -> Icons.Filled.Home
+        "sandbox" -> Icons.Filled.Terminal
         else -> Icons.Filled.Build
     }
 
