@@ -816,7 +816,8 @@ private fun StarterPanel(
     onCancel: () -> Unit,
     onOpenModels: () -> Unit,
 ) {
-    val name = assistantName.trim().ifEmpty { "the assistant" }
+    // It opens the sentence, so a capital: "the assistant runs on your phone" with no name set.
+    val name = assistantName.trim().ifEmpty { "the assistant" }.replaceFirstChar { it.uppercase() }
     when (starter) {
         is SetupState.Idle -> {
             Text(

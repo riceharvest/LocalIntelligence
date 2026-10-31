@@ -37,10 +37,12 @@ import dev.localintelligence.core.tool.CancellationSignal
 import dev.localintelligence.core.tool.ObservationStore
 import dev.localintelligence.core.tool.ToolFinder
 import dev.localintelligence.core.tool.ObservationTruncator
+import dev.localintelligence.core.tool.PhoneNumbers
 import dev.localintelligence.core.tool.ToolContext
 import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolRegistry
 import dev.localintelligence.core.tool.ToolResult
+import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.ToolRequest
 import dev.localintelligence.core.tool.ToolSelector
 import kotlinx.coroutines.CancellationException
@@ -769,6 +771,24 @@ class AgentController(
             return null
         }
 
+        // A call or a text goes only to a number the user wrote or a tool returned
+        // (see PhoneNumbers). Refused before the policy, so the user is never asked to
+        // approve a number nobody gave, and as a refusal the model can act on.
+        ungroundedNumber(tool, action.arguments)?.let { number ->
+            trace += StepTrace(
+                step, StepTrace.Kind.TOOL_CALL, "refused ${action.name}: number not from the user or a tool",
+                success = false,
+                toolName = action.name,
+            )
+            log("guard: ${action.name} refused, its number is not in the conversation")
+            metrics?.recordToolCall(action.name, action.arguments, executed = false)
+            sessions.observe(
+                "${action.name} did not run: $number is not a number the user gave or a tool returned. " +
+                    "Look it up with contacts.search, or ask the user for it.",
+            )
+            return null
+        }
+
         // Counted the moment the call is well-formed, before any gate decides
         // its fate. Counting only executed calls would make "the model tried
         // fourteen times" invisible, which is the failure this metric exists
@@ -1439,6 +1459,19 @@ class AgentController(
         lastPrompt = prompt
         lastVisible = visible
         return request(prompt, visible, callable)
+    }
+
+    /**
+     * The first argument of a call or text that is a phone number nobody in the conversation
+     * gave, or null. Only communication tools: a number elsewhere (a timer, a search) reaches no one.
+     */
+    private fun ungroundedNumber(tool: AgentTool, arguments: ToolArgs): String? {
+        if (tool.definition.risk != ToolRisk.EXTERNAL_COMMUNICATION) return null
+        return arguments.values.firstNotNullOfOrNull { value ->
+            val text = (value as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+            val key = text?.let(PhoneNumbers::keyOfWhole)
+            text.takeIf { key != null && key !in sessions.groundedNumbers }
+        }
     }
 
     /**
