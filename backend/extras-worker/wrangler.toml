@@ -1,0 +1,31 @@
+# Cloudflare Worker config for the Extras backend.
+#
+# Deliberately has NO account_id and NO secrets. The owner's Cloudflare account is
+# picked at `wrangler login` time, and every secret is set with `wrangler secret put`
+# (see README.md). Plain, non-secret settings live under [vars] below.
+
+name = "localintelligence-extras"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "localintelligence-extras"
+# TODO(owner): replace with the database_id printed by `wrangler d1 create localintelligence-extras`.
+# Deploy fails until this is set to the real id.
+database_id = "TODO-OWNER-D1-DATABASE-ID"
+
+[vars]
+# The Android applicationId. Requests for any other package are refused.
+PACKAGE_NAME = "dev.localintelligence.app"
+# The only Play subscription product this Worker provisions for.
+PRODUCT_ID = "extras_monthly"
+# Chat model handed to the phone. Same suggested id the app uses for OpenRouter.
+DEFAULT_MODEL = "google/gemini-2.5-flash"
+# Per-customer OpenRouter key: monthly USD cap, reset monthly by OpenRouter (limit_reset: monthly).
+# TODO(owner): confirm the cap; the research note assumes 3.50.
+OPENROUTER_MONTHLY_LIMIT_USD = "3.50"
+# Per-customer Exa key: requests per second, and budget in cents for the team's billing period.
+# TODO(owner): confirm both; these are not in the research note.
+EXA_RATE_LIMIT_RPS = "5"
+EXA_BUDGET_CENTS = "150"
