@@ -95,9 +95,6 @@ private class HomeDevicesTool(private val server: () -> HomeServer?) : AgentTool
             try {
                 val query = textArg(args, "query")?.take(80)
                 val domain = textArg(args, "domain")?.lowercase()
-                if (query == null && domain == null) {
-                    return@withContext invalid(tool, "needs a query, a domain, or both", "query or domain")
-                }
                 if (domain != null && !DOMAIN_WORD.matches(domain)) {
                     return@withContext invalid(tool, "needs domain as one word, such as light or climate", "domain")
                 }
@@ -115,7 +112,10 @@ private class HomeDevicesTool(private val server: () -> HomeServer?) : AgentTool
                     val wordsMatch = words.all { word -> word in haystack(entity) }
                     (domain == null || id.startsWith("$domain.")) && wordsMatch
                 }
-                val wanted = listOfNotNull(query?.let { "'$it'" }, domain?.let { "type $it" }).joinToString(" ")
+                // With neither argument this lists the first devices, so a model can see what exists.
+                val wanted = listOfNotNull(query?.let { "'$it'" }, domain?.let { "type $it" })
+                    .joinToString(" ")
+                    .ifEmpty { "any device" }
                 if (matches.isEmpty()) {
                     return@withContext ToolResult(
                         success = true,
