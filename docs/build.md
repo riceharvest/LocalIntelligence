@@ -202,3 +202,35 @@ a library reaches by name needs one, so a new by-name lookup needs a new rule.
 
 **Status.** UNVERIFIED on a phone: the signed outputs have not been installed or run on a
 device, and the Play upload has not been made.
+
+---
+
+## 8. The Play build without texts and call log (`-PplayNoSms=true`)
+
+The `play` flavor declares `READ_SMS`, `SEND_SMS` and `READ_CALL_LOG` (the default
+assistant declaration in [docs/roadmap.md](roadmap.md), "Before public release"). A fallback
+build leaves them out, for the case where Google refuses that declaration:
+
+```bash
+./gradlew :app:bundlePlayRelease -PplayNoSms=true
+```
+
+- Default is `false`. Without the property the play build is unchanged.
+- It applies only to the `play` flavor. `full` never reads the property.
+- `app/build.gradle.kts` replaces the play source set's manifest file with the overlay through
+  `manifest.srcFile`. It does that only because `app/src/play/AndroidManifest.xml` does not exist.
+  If a worker adds that file, the flag would silently drop its entries, so the overlay must then be
+  merged by other means. Keep this in mind before adding a play manifest.
+- The overlay `app/src/playNoSms/AndroidManifest.xml` removes `READ_SMS`, `SEND_SMS`,
+  `RECEIVE_SMS` and `READ_CALL_LOG` from the merged manifest with `tools:node="remove"`.
+  `RECEIVE_SMS` is not declared by the app today, so its line changes nothing.
+- The `sms.search`, `sms.send` and `calls.recent` tools stay registered, and each one returns
+  "not in this build" before it asks for the default-assistant role or a permission. The
+  Permissions screen hides the three texts and call-log rows.
+- `sms.send` still asks for confirmation before it runs, so in this build the person can
+  confirm a send that then reports that the build lacks it.
+
+**Status.** Compiled with `-PplayNoSms=true` and without it; both compiled with no errors. The
+merged play manifest from the build intermediates (`app/build/intermediates/merged_manifests/playDebug`)
+had no `READ_SMS`, `SEND_SMS` or `READ_CALL_LOG` with the flag, and had them without it. Nothing was
+run on a device.

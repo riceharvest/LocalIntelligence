@@ -1550,7 +1550,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeChatResult(JNIEnv
         return nullptr;
     }
     const common_chat_msg & msg = nc->session->msg();
-    std::string out = "{\"content\":" + json_quote(cut_at_stop(msg.content, nc->stops)) + ",\"tool_calls\":[";
+    // The thought llama.cpp split out of the reply (the DEEPSEEK reasoning format). It is
+    // never put in the content, so the Kotlin side reads it from here, not from the text.
+    std::string out = "{\"content\":" + json_quote(cut_at_stop(msg.content, nc->stops)) +
+                      ",\"reasoning\":" + json_quote(msg.reasoning_content) + ",\"tool_calls\":[";
     for (size_t i = 0; i < msg.tool_calls.size(); ++i) {
         if (i > 0) out += ",";
         out += "{\"name\":" + json_quote(msg.tool_calls[i].name) +

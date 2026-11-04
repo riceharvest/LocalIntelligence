@@ -75,6 +75,16 @@ interface SessionStore {
     suspend fun appendMessage(sessionId: Long, message: ChatMessage)
     suspend fun messages(sessionId: Long): List<ChatMessage>
     suspend fun clear()
+
+    /** The text of the newest stored user turn, or null. Used to check a retry or edit is for the turn the chat shows. */
+    suspend fun lastUserText(sessionId: Long): String? = null
+
+    /**
+     * Deletes the newest stored user turn and every row after it. Without this a retried turn
+     * would come back on the next launch above its replacement. Stores that cannot delete keep the
+     * default, and the caller then refuses to replace a turn.
+     */
+    suspend fun dropLastTurn(sessionId: Long): Boolean = false
 }
 
 /** In-memory store. Default for tests and for the first vertical slice. */

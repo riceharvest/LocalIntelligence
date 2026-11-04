@@ -66,6 +66,7 @@ import dev.localintelligence.app.describeLoadFailure
 import dev.localintelligence.app.speedtest.SpeedTestButton
 import dev.localintelligence.app.speedtest.SpeedTestResultBlock
 import dev.localintelligence.app.speedtest.SpeedTestRunner
+import dev.localintelligence.core.hub.FitGate
 import dev.localintelligence.core.hub.formatBytes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -592,6 +593,24 @@ private fun ImportErrorBanner(message: String, onDismiss: () -> Unit) {
     }
 }
 
+/**
+ * One word for how [totalBytes] sits against this phone's usable RAM: "Too big", "Tight"
+ * or "Fits". Built only from the figures the row already has: [fits] is
+ * `fitsOnDevice`, and the headroom goes through the verdict bands core already defines
+ * (`FitGate.MarginBand`), so this screen adds no estimate of its own. A model that fits
+ * with less than the band's comfortable headroom is "Tight", since its margin is inside
+ * the estimate's measured error.
+ */
+private fun fitLabel(totalBytes: Long, fits: Boolean): String {
+    if (!fits) return "Too big"
+    val usable = RamEstimate.usableDeviceBytes()
+    val headroom = if (totalBytes <= 0L) 0.0 else (usable - totalBytes).toDouble() / totalBytes.toDouble()
+    return when (FitGate.MarginBand.of(headroom)) {
+        FitGate.MarginBand.CONFIDENT -> "Fits"
+        FitGate.MarginBand.TIGHT, FitGate.MarginBand.MARGINAL -> "Tight"
+    }
+}
+
 @Composable
 private fun ModelRow(
     technical: Boolean,
@@ -622,6 +641,7 @@ private fun ModelRow(
     // is why it is still shown — as its own line, labelled, below.
     val totalBytes = model.estimate.totalBytes(loadContext)
     val fits = model.fitsOnDevice(loadContext)
+    val fitWord = fitLabel(totalBytes, fits)
 
     // The model in use gets its own container colour, so the row that answers the chat
     // is the one that stands out.
@@ -687,14 +707,9 @@ private fun ModelRow(
             }
 
             if (!technical) {
-                // One line: the size and whether the phone can run it. A model that does
-                // not fit says so in the card below instead.
+                // One line: the size and the fit word for this phone.
                 Text(
-                    text = if (fits) {
-                        "${formatBytes(model.fileSizeBytes)} · Fits this phone"
-                    } else {
-                        formatBytes(model.fileSizeBytes)
-                    },
+                    text = "${formatBytes(model.fileSizeBytes)} · $fitWord",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             } else {
@@ -706,6 +721,7 @@ private fun ModelRow(
                 FactLine("On disk (measured)", formatBytes(model.fileSizeBytes))
                 FactLine("Weights, estimated", formatBytes(model.estimate.weightBytes))
                 FactLine("RAM at load (estimated)", formatBytes(totalBytes))
+                FactLine("Fit", fitWord)
                 // A LiteRT-LM file does not expose its KV geometry, so the line is
                 // omitted rather than shown as 0 B, which would read as a claim.
                 model.estimate.kvBytes(loadContext)?.let { kv ->

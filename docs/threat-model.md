@@ -255,7 +255,54 @@ Defences (docs/adr/0003, `RiskPolicy` step 2c):
 that app until the run ends or the user stops it, unless the tap hits a labelled control.
 Banking and password-manager apps are not blocked automatically; the user can block apps.
 
-### T11. Local OpenAI-style server — opt-in, loopback only, token-gated
+### T11. Other apps start scheduled tasks — opt-in, off by default, token-gated
+
+Any app that holds the token can send the broadcast `dev.localintelligence.action.RUN_TASK`
+with extras `task_id` and `token`, and the app runs that existing scheduled task now
+(`RunTaskReceiver`). The receiver is exported, because Tasker and adb must reach it. It does
+nothing unless "Let other apps start my scheduled tasks" is on, a Technical-mode setting that
+is off by default and that Simple mode always reads as off. Turning it on generates the token.
+
+The token is 32 random bytes, stored encrypted like the API keys, and compared in constant
+time. It is shown in full only on the Scheduled tasks screen in Technical mode. Regenerating it
+revokes the old one at once. A missing or wrong token, the toggle off, or an unknown id is
+refused with one log line that holds no token and no id.
+
+What a token holder can do:
+
+- Start any enabled task by id, as often as it likes, as an unattended run. The prompt is the
+  one the user wrote. The caller sends no free text, cannot edit a task and cannot create one.
+- Cause that task's side effects without the user present. Those are the task's own tools, so
+  a task that sends messages or reads files does those things on the caller's trigger.
+- Get no output back. The result goes to the task's row in the Scheduled tasks list, which no
+  other app can read.
+- Spend battery and CPU by repeating triggers.
+- Start a one-time task that has not fired yet. The triggered run does not change the schedule,
+  so that task also runs at its own time, and the user is not warned.
+
+What still applies, because the run is unattended, the same as a scheduled one:
+
+- Approvals are declined. A tool that needs confirmation is skipped, unless "Also in scheduled
+  tasks" is on, in which case the approval choices apply as they do for scheduled runs.
+- No attachments are taken from the chat queue.
+- Screen control never runs in an unattended run (T10).
+- `RunGate` refuses a second run while one is in flight, so triggers cannot stack.
+- On Android 12 and newer the system can refuse the background start. That is recorded on the
+  task's row, which points the user to the Background access screen.
+
+Decisions:
+
+- Paused tasks and one-time tasks that have already fired are refused. A pause means "do not
+  run this", and a token holder does not override it.
+- Task ids are `task-` plus 8 random hex characters, about 32 bits. They are not secrets, and the
+  token is what protects the trigger.
+
+**Stated gap:** the token is one shared secret for the whole app, with no per-task scope and no
+rate limit. Whoever holds it can run every task the user has, until the user regenerates it. The
+token is also visible to the user in the Tasker or adb command they paste, which is the point.
+This entry describes the code; the receiver has not been run on a device.
+
+### T12. Local OpenAI-style server — opt-in, loopback only, token-gated
 
 Off by default and Technical mode only (`LocalServerPlugin`). With it on, the app listens on
 `127.0.0.1` only (never `0.0.0.0`) and answers `GET /v1/models` and `POST /v1/chat/completions`
