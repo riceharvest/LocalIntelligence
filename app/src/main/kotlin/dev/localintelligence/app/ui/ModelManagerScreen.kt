@@ -498,7 +498,7 @@ fun ModelManagerScreen(
                     ModelRow(
                         technical = technical,
                         model = model,
-                        shownName = if (technical) model.displayName else listedModelName(model, models),
+                        shownName = if (technical) technicalModelName(model.displayName) else listedModelName(model, models),
                         loadContext = contextLengthFor(model),
                         onDelete = { pendingDelete = model },
                         speedTest = speedTest,
@@ -527,7 +527,7 @@ fun ModelManagerScreen(
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = {
-                val name = if (technical) target.displayName else listedModelName(target, models)
+                val name = if (technical) technicalModelName(target.displayName) else listedModelName(target, models)
                 Text(
                     if (isOwnFile(target)) "Delete $name?" else "Remove $name from the list?",
                 )
@@ -1029,6 +1029,30 @@ private fun ByteArray.matchesAt(offset: Int, prefix: ByteArray): Boolean {
 /** The model file extensions the app imports. Only these are stripped from a name. */
 private val MODEL_EXTENSIONS = listOf(".gguf", ".litertlm")
 
+/** Where a model's name ends in a quant or a build marker: "-Q4_K_M", "_Google_Tensor_G5", "_NPU_Uncompiled", "-gpu". */
+private val VARIANT_SUFFIX = Regex(
+    "[-_.](i?q\\d|qad|bf16|f16|f32)|_google_tensor_g\\d|_npu_uncompiled|-gpu\\b",
+    RegexOption.IGNORE_CASE,
+)
+
+/**
+ * The name a local model's row shows in Technical mode: the file as the app saved it, without the
+ * `owner__repo__` prefix a Hub download gets and without its model extension. "owner__repo__gemma-4-E2B-it_Google_Tensor_G5.litertlm"
+ * becomes "gemma-4-E2B-it_Google_Tensor_G5". A name with no prefix or extension (a GGUF's `general.name`)
+ * comes back unchanged.
+ *
+ * WHY this is display only: the stored displayName is matched on elsewhere, so it is never rewritten.
+ */
+internal fun technicalModelName(fileName: String): String {
+    // A downloaded file is saved as `owner__repo__file` (GgufQuant.localFileName); the file part names the model.
+    val leaf = fileName.substringAfterLast("__").ifEmpty { fileName }
+    val base = MODEL_EXTENSIONS
+        .firstOrNull { leaf.endsWith(it, ignoreCase = true) }
+        ?.let { leaf.dropLast(it.length) }
+        ?: leaf
+    return base.ifEmpty { fileName }
+}
+
 /**
  * A readable name for Simple mode: the file name without its model extension, quant suffix
  * and separators. Both "LFM3-1.7B-QAD-Q4_0.gguf" (a file name) and "LFM3 1.7B" (a GGUF's own
@@ -1036,17 +1060,14 @@ private val MODEL_EXTENSIONS = listOf(".gguf", ".litertlm")
  *
  * WHY only known extensions: the displayName is usually the GGUF's `general.name`, and cutting
  * at the last dot turned "LFM3 1.7B" into "LFM3 1".
+ *
+ * WHY the Tensor, uncompiled and `-gpu` suffixes are cut too: a Hub LiteRT-LM file is named for its
+ * build, and Simple mode reads "gemma 4 E2B it", not the build's name.
  */
 internal fun friendlyModelName(fileName: String): String {
-    // A downloaded file is saved as `owner__repo__file` (GgufQuant.localFileName); the file part names the model.
-    val leaf = fileName.substringAfterLast("__").ifEmpty { fileName }
-    val base = MODEL_EXTENSIONS
-        .firstOrNull { leaf.endsWith(it, ignoreCase = true) }
-        ?.let { leaf.dropLast(it.length) }
-        ?: leaf
-    val stem = base.ifEmpty { fileName }
-    // Everything from the first quant token on is dropped ("-Q4_K_M", "-QAD-Q4_0", "-IQ3_XS").
-    val cut = Regex("[-_.](i?q\\d|qad|bf16|f16|f32)", RegexOption.IGNORE_CASE).find(stem)?.range?.first
+    val stem = technicalModelName(fileName)
+    // Everything from the first quant token or build suffix on is dropped ("-Q4_K_M", "_Google_Tensor_G5", "-gpu").
+    val cut = VARIANT_SUFFIX.find(stem)?.range?.first
     val name = (if (cut != null && cut > 0) stem.substring(0, cut) else stem)
         .replace('-', ' ').replace('_', ' ').trim()
     return name.ifBlank { fileName }

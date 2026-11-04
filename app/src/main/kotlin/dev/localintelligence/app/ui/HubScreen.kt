@@ -40,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
@@ -57,6 +58,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.core.hub.DownloadProgress
 import dev.localintelligence.core.hub.HubError
 import dev.localintelligence.core.hub.HubGgufFile
+import dev.localintelligence.core.hub.LiteRtFit
+import dev.localintelligence.core.hub.liteRtFits
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.core.hub.formatBytes
 import java.util.Locale
@@ -125,13 +128,26 @@ fun HubScreen(
             )
         },
     ) { padding ->
+    val nonGguf = state.nonGgufFiles
+    // WHY the fit is computed here, from the names, and not stored in the state: the list is the
+    // repository's own files, and the phone's generation is fixed for the session.
+    val fits = remember(nonGguf, viewModel.deviceTensorGeneration) {
+        liteRtFits(nonGguf.map { it.fileName }, viewModel.deviceTensorGeneration)
+    }
+    val hiddenCount = fits.count { it == LiteRtFit.Hidden }
+    // Default off, and reset when a different repository is listed. Not persisted.
+    var showAllLiteRt by rememberSaveable(nonGguf.firstOrNull()?.repo?.id.orEmpty()) { mutableStateOf(false) }
+    // Recommended first; sortedBy is stable, so the rest keep the size order from the repository.
+    val shown = nonGguf.indices
+        .filter { showAllLiteRt || fits[it] != LiteRtFit.Hidden }
+        .sortedBy { if (fits[it] == LiteRtFit.Recommended) 0 else 1 }
     LazyColumn(
         modifier = Modifier.fillMaxWidth().padding(padding).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (!restricted) item {
             OutlinedTextField(
-                value = state.repoInput,
+                value = viewModel.repoText,
                 onValueChange = viewModel::onRepoInputChanged,
                 label = { Text("Search models") },
                 placeholder = { Text(if (technical) "qwen3 0.6b, gemma, LiquidAI/LFM3…" else "Model name, e.g. Gemma") },
@@ -350,7 +366,6 @@ fun HubScreen(
         // is worse than no row, so these get their own block: the real file
         // name, the real byte size (a fact about the server's bytes, not a
         // memory estimate), and the reason the app cannot fetch it.
-        val nonGguf = state.nonGgufFiles
         state.nonGgufNotice?.takeIf { technical }?.let { notice ->
             item {
                 Card(
@@ -364,15 +379,25 @@ fun HubScreen(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
-                            text = "LiteRT-LM models in this repository (${nonGguf.size})",
+                            text = "LiteRT-LM models in this repository (${shown.size})",
                             style = MaterialTheme.typography.titleSmall,
                         )
-                        // The size is `lfs.size` — the payload size HF reports
-                        // for the blob. It is a file size and nothing more; it is
-                        // never combined with a context length or a tensor
-                        // count to produce a memory figure, because there is no
-                        // arithmetic in this app for that format.
-                        nonGguf.forEach { file ->
+                        if (shown.isEmpty()) {
+                            Text(
+                                text = "None of these run on this phone.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        shown.forEach { index ->
+                            val file = nonGguf[index]
+                            val fit = fits[index]
+                            if (fit == LiteRtFit.Recommended) {
+                                Text(
+                                    text = "Recommended for this phone",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
                             Text(
                                 text = if (file.sizeBytes > 0) {
                                     "${formatBytes(file.sizeBytes)} — ${file.fileName}"
@@ -388,6 +413,13 @@ fun HubScreen(
                             file.npuLabel?.let { label ->
                                 Text(text = label, style = MaterialTheme.typography.bodySmall)
                             }
+                            if (fit == LiteRtFit.Hidden) {
+                                Text(
+                                    text = "Does not run on this phone.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             // Only a `.litertlm` gets the action. A `.task` is
                             // listed for information, and a zero size is never
                             // offered because the downloader's size check would
@@ -399,6 +431,11 @@ fun HubScreen(
                                 ) {
                                     Text("Download (${formatBytes(file.sizeBytes)})")
                                 }
+                            }
+                        }
+                        if (hiddenCount > 0) {
+                            TextButton(onClick = { showAllLiteRt = !showAllLiteRt }) {
+                                Text(if (showAllLiteRt) "Hide files this phone cannot run" else "Show all ${nonGguf.size} files")
                             }
                         }
                         Text(

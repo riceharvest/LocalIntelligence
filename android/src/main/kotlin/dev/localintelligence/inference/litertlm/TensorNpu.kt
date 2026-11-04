@@ -80,6 +80,14 @@ internal object TensorNpu {
 }
 
 /**
+ * This phone's Google Tensor generation for the model screens, or null when it has none.
+ *
+ * The one public door into [TensorNpu]: `:app` shows which Hub builds run here, and must not copy
+ * the SOC check, so the answer comes from the same code the backend's own gate uses.
+ */
+fun tensorGenerationOfThisPhone(): Int? = TensorNpu.deviceGeneration()
+
+/**
  * Remembers engine loads that never returned.
  *
  * A broken NPU or GPU runtime can abort the process (SIGABRT, SIGSEGV) instead of
