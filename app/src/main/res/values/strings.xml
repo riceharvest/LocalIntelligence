@@ -660,4 +660,8 @@
     <string name="memory_block_remembered">Remembered: %1$s</string>
     <string name="memory_block_cleared">The memory block was cleared.</string>
     <string name="memory_block_undo">Undo</string>
+    <!-- Repeat offer: after the same request has been made three times, offer to save it as a skill. -->
+    <string name="repeat_offer_question">Save this as a skill?</string>
+    <string name="repeat_offer_save">Save</string>
+    <string name="repeat_offer_not_now">Not now</string>
 </resources>

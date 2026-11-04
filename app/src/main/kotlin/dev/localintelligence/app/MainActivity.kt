@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.android.skills.SkillSettings
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
 import android.content.Context
@@ -298,6 +299,10 @@ class MainActivity : FragmentActivity() {
                                 toolCallsAutoCollapse = container.settings[CoreSettings.TOOL_CALLS_AUTO_COLLAPSE],
                                 // The same store the agent writes through, so Undo acts on its ledger.
                                 memoryBlock = container.memoryBlockStore,
+                                // "Save this as a skill?" for a repeated request: its switch, and the "not now" record.
+                                repeatOfferOn = container.settings[SkillSettings.REPEAT_OFFER],
+                                repeatDeclined = { key -> container.settings[SkillSettings.declined(key)] },
+                                onDeclineRepeat = { key -> container.settings.set(SkillSettings.declined(key), true) },
                                 // "Save as skill" writes the raw skill format, with tool ids in
                                 // its steps: a Technical tool. Simple users write skills on the
                                 // Skills screen's form.

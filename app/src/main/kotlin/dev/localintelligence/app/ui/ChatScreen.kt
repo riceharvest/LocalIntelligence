@@ -85,6 +85,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.android.skills.SkillRepository
+import dev.localintelligence.core.skill.SkillDraft
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.RunOutcome
 import dev.localintelligence.app.RunState
@@ -153,6 +154,12 @@ fun ChatScreen(
     memoryBlock: SettingsMemoryBlockStore? = null,
     /** The skills store. Null hides "Save as skill", for hosts that have no store. */
     skills: SkillRepository? = null,
+    /** Whether the "Save this as a skill?" offer for a repeated request is on (its Technical switch). */
+    repeatOfferOn: Boolean = false,
+    /** Whether the user has said "not now" to the offer with this key, from an earlier session. */
+    repeatDeclined: (String) -> Boolean = { false },
+    /** Records that the offer with this key is done: "not now", or saved. It is not offered again. */
+    onDeclineRepeat: (String) -> Unit = {},
     /** The name from Settings, used in the empty chat's first line. Blank: no name. */
     assistantName: String = "",
     /** The model Simple mode recommends, offered on the empty chat when there is no model. */
@@ -177,6 +184,26 @@ fun ChatScreen(
     // "Save as skill" draft for the answer on screen, if the run used 2+ tools.
     // Shown in SkillEditorDialog; nothing is written until the user taps Save.
     val skillDraft = remember(messages) { saveAsSkillDraft(messages) }
+    // The repeat offer for the answer on screen, hidden once the user answers it.
+    val repeatContext = LocalContext.current
+    val repeatOffer = remember(messages, repeatOfferOn) {
+        if (skills != null && repeatOfferOn) repeatOfferFor(messages) else null
+    }
+    var repeatAnswered by rememberSaveable { mutableStateOf<String?>(null) }
+    val visibleOffer = repeatOffer?.takeIf { it.candidate.key != repeatAnswered && !repeatDeclined(it.candidate.key) }
+    fun acceptRepeat(offer: RepeatOffer) {
+        val store = skills ?: return
+        val text = SkillDraft.render(offer.candidate.request, offer.steps, offer.candidate.tools.toSet())
+        when (val saved = store.save(text)) {
+            is SkillRepository.SaveResult.Saved -> {
+                repeatAnswered = offer.candidate.key
+                onDeclineRepeat(offer.candidate.key)
+                Toast.makeText(repeatContext, repeatContext.getString(R.string.skill_saved), Toast.LENGTH_SHORT).show()
+            }
+            is SkillRepository.SaveResult.Refused ->
+                Toast.makeText(repeatContext, saved.reason, Toast.LENGTH_LONG).show()
+        }
+    }
     var editingSkill by rememberSaveable { mutableStateOf<String?>(null) }
     editingSkill?.let { draft ->
         val store = skills
@@ -525,23 +552,35 @@ fun ChatScreen(
                                 null
                             },
                         )
-                        is ChatMessage.Assistant -> AssistantBubble(
-                            text = message.text,
-                            thought = message.thought,
-                            speaking = speakingText == message.text,
-                            onSpeak = { viewModel.toggleSpeak(message.text) },
-                            onReport = { reportingReply = message.text },
-                            onRetry = if (canRetry && message === messages.getOrNull(lastAnswerIndex)) {
-                                { viewModel.retryLast() }
-                            } else {
-                                null
-                            },
-                            onSaveAsSkill = if (skills != null && skillDraft != null && message === messages.last()) {
-                                { editingSkill = skillDraft }
-                            } else {
-                                null
-                            },
-                        )
+                        is ChatMessage.Assistant -> Column {
+                            AssistantBubble(
+                                text = message.text,
+                                thought = message.thought,
+                                speaking = speakingText == message.text,
+                                onSpeak = { viewModel.toggleSpeak(message.text) },
+                                onReport = { reportingReply = message.text },
+                                onRetry = if (canRetry && message === messages.getOrNull(lastAnswerIndex)) {
+                                    { viewModel.retryLast() }
+                                } else {
+                                    null
+                                },
+                                onSaveAsSkill = if (skills != null && skillDraft != null && message === messages.last()) {
+                                    { editingSkill = skillDraft }
+                                } else {
+                                    null
+                                },
+                            )
+                            val offer = visibleOffer
+                            if (offer != null && message === messages.last()) {
+                                RepeatOfferRow(
+                                    onSave = { acceptRepeat(offer) },
+                                    onNotNow = {
+                                        repeatAnswered = offer.candidate.key
+                                        onDeclineRepeat(offer.candidate.key)
+                                    },
+                                )
+                            }
+                        }
                         is ChatMessage.Notice -> NoticeLine(message.text)
                         is ChatMessage.Transcript -> TranscriptCard(message) { viewModel.saveTranscript(it) }
                         is ChatMessage.Approval -> ApprovalRow(message)
@@ -1283,4 +1322,21 @@ private fun memoryRowFor(
         undoable = store.canUndo(id),
         onUndo = { store.undo(id) },
     )
+}
+
+/** "Save this as a skill?" under the answer to a request the user has made three times. */
+@Composable
+private fun RepeatOfferRow(onSave: () -> Unit, onNotNow: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            stringResource(R.string.repeat_offer_question),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onNotNow) { Text(stringResource(R.string.repeat_offer_not_now)) }
+        TextButton(onClick = onSave) { Text(stringResource(R.string.repeat_offer_save)) }
+    }
 }

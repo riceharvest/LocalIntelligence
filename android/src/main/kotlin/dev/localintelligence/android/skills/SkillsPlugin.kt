@@ -32,6 +32,33 @@ object SkillSettings {
     )
 
     /**
+     * Off switch for the "Save this as a skill?" offer. Technical only: Simple users get the offer.
+     * Not `simple`, so a Simple-mode read returns the default, which is on.
+     */
+    val REPEAT_OFFER = SettingDef.Toggle(
+        key = "skills.repeat_offer",
+        title = "Offer to save repeated requests",
+        help = "After you ask for the same thing the same way three times, offer to save it as a skill. " +
+            "Matching runs on the phone; nothing is sent anywhere.",
+        section = SettingSection.PLUGINS,
+        default = true,
+    )
+
+    /**
+     * The "not now" record for one repeated request, keyed by [RepeatDetector.keyFor]. Dynamic, so it
+     * is not listed on the settings screen. `simple = true`, so a declined request stays declined in
+     * Simple mode too.
+     */
+    fun declined(candidateKey: String): SettingDef.Toggle = SettingDef.Toggle(
+        key = "skill.repeat.$candidateKey.declined",
+        title = candidateKey,
+        help = "Do not offer to save this repeated request.",
+        section = SettingSection.PLUGINS,
+        default = false,
+        simple = true,
+    )
+
+    /**
      * One switch per installed skill, keyed by its folder. Built on demand, so
      * the screen and the plugin read the same key. `simple = true`, because a
      * switched-off skill must stay off in Simple mode too; a non-simple row
@@ -59,7 +86,11 @@ class SkillsPlugin(private val repository: SkillRepository) : AgentPlugin {
     override val id: String = "skills"
     override val title: String = "Skills"
     override val summary: String = "Step-by-step instructions you saved. Used when a request matches one."
-    override val settings: List<SettingDef<*>> = listOf(SkillSettings.MAX_PER_STEP, SkillSettings.CHAR_BUDGET)
+    override val settings: List<SettingDef<*>> = listOf(
+        SkillSettings.MAX_PER_STEP,
+        SkillSettings.CHAR_BUDGET,
+        SkillSettings.REPEAT_OFFER,
+    )
 
     override fun hooks(settings: SettingsReader): PluginHooks? {
         val enabled: List<Skill> = repository.list()
