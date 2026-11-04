@@ -296,6 +296,8 @@ class MainActivity : FragmentActivity() {
                                 // Read here, where the screen is built, and passed down
                                 // as a plain Boolean: the screen never touches prefs.
                                 toolCallsAutoCollapse = container.settings[CoreSettings.TOOL_CALLS_AUTO_COLLAPSE],
+                                // The same store the agent writes through, so Undo acts on its ledger.
+                                memoryBlock = container.memoryBlockStore,
                                 // "Save as skill" writes the raw skill format, with tool ids in
                                 // its steps: a Technical tool. Simple users write skills on the
                                 // Skills screen's form.

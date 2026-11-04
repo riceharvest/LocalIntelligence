@@ -101,7 +101,9 @@ import dev.localintelligence.app.ui.components.PendingToolRow
 import dev.localintelligence.app.ui.components.RunningToolRow
 import dev.localintelligence.app.ui.components.SentAttachments
 import dev.localintelligence.app.ui.components.ToolCallGroup
+import dev.localintelligence.app.ui.components.MemoryRow
 import dev.localintelligence.app.ui.components.ToolStepRow
+import dev.localintelligence.app.settings.SettingsMemoryBlockStore
 import dev.localintelligence.app.ui.components.TranscriptEntry
 import dev.localintelligence.app.ui.components.clipLength
 import dev.localintelligence.app.ui.components.groupToolCalls
@@ -144,6 +146,11 @@ fun ChatScreen(
      * preferences and the default matches the setting's own default.
      */
     toolCallsAutoCollapse: Boolean = true,
+    /**
+     * The memory block, for the "Remembered: ..." line and Undo under a call that wrote it. Null
+     * hides both, for a host with no block.
+     */
+    memoryBlock: SettingsMemoryBlockStore? = null,
     /** The skills store. Null hides "Save as skill", for hosts that have no store. */
     skills: SkillRepository? = null,
     /** The name from Settings, used in the empty chat's first line. Blank: no name. */
@@ -218,6 +225,8 @@ fun ChatScreen(
     // Retry and Edit both act on the last turn, so they are offered only there. A turn with
     // pictures or a voice clip cannot be sent again: the media bytes are not kept.
     val lastUserIndex = messages.indexOfLast { it is ChatMessage.User }
+    // Read here so the memory rows redraw after an Undo, which bumps the store's revision.
+    val memoryRevision = memoryBlock?.revision?.collectAsStateWithLifecycle()?.value ?: 0
     val lastAnswerIndex = messages.indexOfLast { it is ChatMessage.Assistant }
     val lastUserReplayable = (messages.getOrNull(lastUserIndex) as? ChatMessage.User)?.attached?.isEmpty() == true
     val canRetry = !busy && lastUserReplayable && lastAnswerIndex > lastUserIndex &&
@@ -536,10 +545,15 @@ fun ChatScreen(
                         is ChatMessage.Notice -> NoticeLine(message.text)
                         is ChatMessage.Transcript -> TranscriptCard(message) { viewModel.saveTranscript(it) }
                         is ChatMessage.Approval -> ApprovalRow(message)
-                        is ChatMessage.ToolStep -> ToolStepRow(message, animate)
+                        is ChatMessage.ToolStep -> ToolStepRow(
+                            message, animate, memory = memoryRowFor(message, memoryBlock, memoryRevision),
+                        )
                     }
                     is TranscriptEntry.Group -> if (entry.steps.size == 1) {
-                        ToolStepRow(entry.steps.first(), animate)
+                        ToolStepRow(
+                            entry.steps.first(), animate,
+                            memory = memoryRowFor(entry.steps.first(), memoryBlock, memoryRevision),
+                        )
                     } else {
                         // Live only while it is the last thing in the transcript
                         // and the run is still going; an approval pending row is
@@ -1249,4 +1263,24 @@ private fun formatElapsed(seconds: Int): String = when {
     seconds < 60 -> "${seconds}s"
     seconds < 3600 -> "%dm %02ds".format(seconds / 60, seconds % 60)
     else -> "%dh %02dm".format(seconds / 3600, (seconds % 3600) / 60)
+}
+
+/**
+ * The memory line for a call that wrote the memory block, or null for every other call. The
+ * revision is read by the caller so that a change or an Undo redraws the row.
+ */
+private fun memoryRowFor(
+    step: ChatMessage.ToolStep,
+    store: SettingsMemoryBlockStore?,
+    @Suppress("UNUSED_PARAMETER") revision: Int,
+): MemoryRow? {
+    val id = step.changeId ?: return null
+    if (store == null) return null
+    val note = store.noteOf(id) ?: return null
+    return MemoryRow(
+        note = note,
+        cleared = note.isEmpty(),
+        undoable = store.canUndo(id),
+        onUndo = { store.undo(id) },
+    )
 }

@@ -15,6 +15,7 @@ threat model does not apply.
 |---|---|---|
 | Conversation history | Room `sessions` DB | High — may contain personal detail |
 | Long-term memory | Room `memories` DB | High — extracted from conversations |
+| Memory block | Settings row `memory.block.text` | High — written by the agent on request, visible and reversible |
 | Files, contacts, calendar | Android OS, via tools | High |
 | Model weights | App storage | Low — freely redistributable |
 | HF API token | Android Keystore | High — never in a DB or a log |
@@ -52,6 +53,16 @@ Mitigations in place:
   reads only user turns.
 - Credentials are excluded from automatic memory entirely, so an injected
   "remember that my password is X" cannot persist.
+- **Memory block writes (2026-11-04).** The agent may edit the memory block
+  through `memory.update_block`. The rule changed, and this is why: the block is
+  visible and editable in Settings, so a write is not a hidden persistence path.
+  The chat row and Undo the owner asked for are NOT built yet, so today a write is
+  visible only in Settings (see docs/architecture.md section 14).
+  The write is blocked, not confirmed, in any conversation that has read text
+  from outside the phone (`RiskPolicy`, `untrustedRead`), unless the user's own
+  message asks for it. Confirmation alone would not do: a user who clicks through
+  a prompt would carry a page's text into the block. Extraction by a separate
+  model pass stays banned.
 
 **Known limits.** All of this is instruction- and structure-level, not
 sandboxing. There is no capability system: a model that is talked into calling

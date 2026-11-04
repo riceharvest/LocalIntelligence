@@ -735,6 +735,7 @@ class ChatViewModel(
                         // defaulted this to `true`, so a call the policy had
                         // refused rendered in the colour of a success.
                         success = observation?.success ?: false,
+                        changeId = observation?.changeId,
                     )
                     base += 1
                 }
@@ -1567,6 +1568,8 @@ sealed interface ChatMessage {
         val detail: String,
         val durationMs: Long,
         val success: Boolean,
+        /** The memory-block change this call made, when it wrote the block: the row offers Undo for it. */
+        val changeId: Long? = null,
     ) : ChatMessage {
         /**
          * Fills in the result that arrived after this row was drawn.
@@ -1579,6 +1582,7 @@ sealed interface ChatMessage {
             observation = observation.detail,
             durationMs = observation.durationMs,
             success = observation.success,
+            changeId = observation.changeId ?: changeId,
         )
     }
 

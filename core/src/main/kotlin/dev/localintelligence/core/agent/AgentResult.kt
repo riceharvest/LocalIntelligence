@@ -70,6 +70,12 @@ data class StepTrace(
      * Null on every other kind and when the model did not think.
      */
     val thought: String? = null,
+    /**
+     * The memory-block change an OBSERVATION made, from the tool's result data (`change_id`), or null.
+     * The chat row uses it to offer Undo on exactly that change. Null on every other kind and for
+     * every tool that did not write the block.
+     */
+    val changeId: Long? = null,
 ) {
     enum class Kind { GENERATION, TOOL_CALL, OBSERVATION, MALFORMED, COMPACTION }
 }
