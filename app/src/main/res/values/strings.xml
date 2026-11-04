@@ -604,6 +604,15 @@
     <string name="turn_on">Turn on</string>
 
     <!-- BackgroundAccessActivity.kt -->
+    <string name="background_notifications_title">Notification access</string>
+    <string name="background_notifications_enables">Read and reply to notifications when you ask.</string>
+    <string name="background_notifications_does_not_enable">It does not let the app run anything by itself, and it is not needed for scheduled tasks, alarms, or chat.</string>
+    <string name="background_notifications_consequence">The assistant cannot read notifications. It says so and stops, rather than telling you your phone is quiet. Everything else works exactly as before.</string>
+    <string name="background_alarms_title">Alarms and reminders</string>
+    <string name="background_alarms_enables">Set alarms and run tasks at an exact time.</string>
+    <string name="background_alarms_does_not_enable">It does not let the app read notifications, and it is not needed to chat.</string>
+    <string name="background_alarms_consequence">Scheduled tasks and alarms can\'t be set. Chatting, models and every other tool are unaffected. A task you try to schedule will say Android refused rather than quietly never run.</string>
+    <string name="simple_background_alarms_consequence">Scheduled tasks and alarms can\'t be set. Chatting and everything else are unaffected. A task you try to schedule will say Android refused rather than quietly never run.</string>
     <string name="offer_these_when_i_need_them">Offer these when I need them</string>
     <string name="turn_off_in_settings">Turn off in Settings</string>
     <string name="ask_me_again">Ask me again</string>
@@ -657,6 +666,12 @@
     <string name="didn_t_2">"Didn\'t "</string>
 
     <!-- AppLockSettingsRow.kt -->
+    <string name="type_it_again">Type it again</string>
+    <string name="current_pin">Current PIN</string>
+    <string name="pin_use_4_to_12_digits">Use 4 to 12 digits.</string>
+    <string name="pins_do_not_match">The two PINs do not match.</string>
+    <string name="pin_keystore_refused_lock_off">The phone\'s keystore refused to store the PIN. The lock is still off.</string>
+    <string name="pin_too_many_wrong_wait">Too many wrong PINs. Wait %1$d seconds.</string>
     <string name="n_4_to_12_digits_if_you_forget_it_the_2">4 to 12 digits. If you forget it, the only way back is to clear the app\'s data.</string>
 
     <!-- ChatGptRows.kt -->
