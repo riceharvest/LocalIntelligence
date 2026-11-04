@@ -43,7 +43,10 @@ export ANDROID_HOME=${ANDROID_HOME:-$HOME/Android/Sdk}
 # One Gradle build at a time on this machine: every build takes the same lock (override with LI_GRADLE_LOCK).
 GRADLE_WRAP=(flock "${LI_GRADLE_LOCK:-/tmp/li-gradle.lock}" systemd-run --user --scope -q -p MemoryMax=6G -p CPUQuota=400% nice -n 10)
 "${GRADLE_WRAP[@]}" ./gradlew :android:externalNativeBuildRelease --max-workers=2 --no-daemon -q
-"${GRADLE_WRAP[@]}" ./gradlew :app:assemblePlayRelease :app:assembleFullRelease :app:bundlePlayRelease --max-workers=2 --no-daemon -q
+# One R8 run per Gradle invocation: two R8 runs side by side were OOM-killed in the 6 GB scope.
+# Only the Play AAB is built for Play (Play installs from the bundle; no Play APK is needed).
+"${GRADLE_WRAP[@]}" ./gradlew :app:bundlePlayRelease --max-workers=2 --no-daemon -q
+"${GRADLE_WRAP[@]}" ./gradlew :app:assembleFullRelease --max-workers=2 --no-daemon -q
 
 AAB=app/build/outputs/bundle/playRelease/app-play-release.aab
 APK=app/build/outputs/apk/full/release/app-full-release.apk
