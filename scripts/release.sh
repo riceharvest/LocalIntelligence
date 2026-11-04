@@ -40,7 +40,8 @@ export JAVA_HOME=${JAVA_HOME:-$HOME/.local/share/jdks/jdk-21.0.13+9}
 export ANDROID_HOME=${ANDROID_HOME:-$HOME/Android/Sdk}
 # Two steps, one at a time, each under the 6 GB limit. The llama.cpp Release native compile is the
 # memory peak; the R8 step after it reuses those native outputs. A single combined run was OOM-killed.
-GRADLE_WRAP=(flock /tmp/claude-1000/li-gradle.lock systemd-run --user --scope -q -p MemoryMax=6G -p CPUQuota=400% nice -n 10)
+# One Gradle build at a time on this machine: every build takes the same lock (override with LI_GRADLE_LOCK).
+GRADLE_WRAP=(flock "${LI_GRADLE_LOCK:-/tmp/li-gradle.lock}" systemd-run --user --scope -q -p MemoryMax=6G -p CPUQuota=400% nice -n 10)
 "${GRADLE_WRAP[@]}" ./gradlew :android:externalNativeBuildRelease --max-workers=2 --no-daemon -q
 "${GRADLE_WRAP[@]}" ./gradlew :app:assemblePlayRelease :app:assembleFullRelease :app:bundlePlayRelease --max-workers=2 --no-daemon -q
 
