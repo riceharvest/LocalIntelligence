@@ -419,11 +419,13 @@ or `ChatViewModel`; a search of the source, not a device check):
       it is a manual step in the release script).
 [ ] Target API: already 36. New apps and updates must target API 36 from 2026-08-31
       [https://developer.android.com/google/play/requirements/target-sdk].
-[ ] Privacy policy at a public URL (enable GitHub Pages for docs/), developer name and
+[?] Privacy policy at a public URL (enable GitHub Pages for docs/), developer name and
       contact filled in, the same name as the Play listing. Link it from Settings, About
       (no link exists in the app today; grep of app/src found none) and from the Play listing.
       Play needs it for the Data safety form even when nothing is collected
       [https://support.google.com/googleplay/android-developer/answer/10787469].
+      Done 2026-11-04: live at https://riceharvest.github.io/LocalIntelligence/privacy.html
+      (developer darioo, contact by GitHub issue) [#267]; Settings row "Privacy policy" [#268].
 [ ] Play developer account and closed testing. For a personal account created after
       2023-11-13: at least 12 testers opted in continuously for 14 days, then "Apply for
       production" with a description of the test; review takes about 7 days. The
@@ -456,16 +458,21 @@ or `ChatViewModel`; a search of the source, not a device check):
       [https://support.google.com/googleplay/android-developer/answer/9866151].
       Also: content rating questionnaire, target audience (not directed at children, as
       the privacy page says), ads: none, contact email, category.
-[ ] Generative AI policy. Apps with a chatbot as a central feature must not generate
+[?] Generative AI policy. Apps with a chatbot as a central feature must not generate
       offensive content [https://support.google.com/googleplay/android-developer/answer/14094294].
       The app downloads any Hugging Face GGUF, including uncensored ones. Owner's decision
       (2026-11-04): in the Play build, Simple mode offers only the recommended models; the
-      open Hub search stays in Technical mode. The full build is unchanged. Not built yet.
-[ ] In-app report for AI replies. "Apps that generate content using AI must contain
+      open Hub search stays in Technical mode. The full build is unchanged. Built, enforced in
+      HubViewModel [#269]; the local-file import is not restricted.
+[?] In-app report for AI replies. "Apps that generate content using AI must contain
       in-app user reporting or flagging features", reaching the developer without leaving
       the app [https://support.google.com/googleplay/android-developer/answer/13985936].
       There is no backend before Extras, so a "Report this reply" action on each reply
       opens a prefilled email or GitHub issue (reply text only with the user's OK).
+      Built differently [#268]: a mail or browser hand-off leaves the app, so a Flag action
+      on each reply POSTs the report in-app to the owner's Google Form (no backend). Data
+      safety must declare it: user-initiated, optional reports (reason, note, model name,
+      app version, reply text when ticked), kept at most 12 months.
 [ ] Full build release. Signed APK on GitHub Releases, a tag, a SHA-256 file and release
       notes. There are no GitHub Releases yet (checked 2026-11-04).
 [ ] Android developer verification for the full build. Apps installed outside Play must
@@ -524,10 +531,11 @@ or `ChatViewModel`; a search of the source, not a device check):
 ### What the owner has to do for v1.0
 
 ```
-[ ] Play Console developer account (fee, identity), and choose the developer name
+[x] Play Console developer account (personal, "darioo", 2026-11-04); still to do in the
+      Console: identity, phone and Android device verification
 [ ] recruit 12 closed testers and keep them opted in 14 days
-[ ] privacy page: developer name and contact email
-[ ] decide the Play-build model policy (see Generative AI policy)
+[x] privacy page: developer name and contact (GitHub issues) [#267]
+[x] decide the Play-build model policy (see Generative AI policy)
 [ ] Android Developer Console account for the full build; read the fee and ID rules
 [ ] create and back up the two signing keys
 [ ] screenshots, icon and feature graphic approval; content rating answers
