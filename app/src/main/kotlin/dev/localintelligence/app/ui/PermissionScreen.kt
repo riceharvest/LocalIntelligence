@@ -2,6 +2,8 @@ package dev.localintelligence.app.ui
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
+import android.os.Environment
+import dev.localintelligence.app.BuildConfig
 import dev.localintelligence.app.LocalIntelligenceApp
 import dev.localintelligence.core.settings.SettingsMode
 import dev.localintelligence.core.settings.mode
@@ -381,6 +383,12 @@ private val NOTIFICATIONS = PlatformRequirement(
         "notifications on for this app.",
 )
 
+private val ALL_FILES = PlatformRequirement(
+    permission = null,
+    capability = "All files access",
+    grantInstructions = "Settings > Apps > Special app access > All files access > LocalIntelligence, and turn it on.",
+)
+
 /**
  * Every capability the shipped tools can be refused, in the order a person
  * should meet them: things Android will prompt for, then things only a Settings
@@ -500,6 +508,29 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
     }
 
     // ---- Only a system screen can grant these. ----
+    if (BuildConfig.FULL_BUILD) {
+        add(
+            PermissionEntry(
+                requirement = ALL_FILES,
+                title = "All files",
+                why = "Lets the assistant find and read files anywhere on the phone.",
+                grant = Grant.Screen { context ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        openSettings(
+                            context,
+                            Intent(
+                                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                android.net.Uri.parse("package:${context.packageName}"),
+                            ),
+                        ) || openSettings(context, Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                    } else {
+                        openAppSettings(context)
+                        true
+                    }
+                },
+            ),
+        )
+    }
     add(
         PermissionEntry(
             requirement = ToolPermissions.NOTIFICATION_LISTENER,
@@ -752,6 +783,7 @@ private fun statusOf(
 private fun probeSatisfied(context: Context, entry: PermissionEntry): Boolean {
     val permission = entry.requirement.permission
     return when (entry.requirement) {
+        ALL_FILES -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
         ToolPermissions.NOTIFICATION_LISTENER -> LocalNotificationListenerService.isGranted(context)
         ToolPermissions.EXACT_ALARM -> TaskAlarmScheduler.canScheduleExactAlarms(context)
 
