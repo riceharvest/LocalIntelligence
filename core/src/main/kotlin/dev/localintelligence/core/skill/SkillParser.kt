@@ -66,14 +66,20 @@ object SkillParser {
             return Parsed.Rejected("The name must contain at least one letter or digit.")
         }
         val body = lines.drop(close + 1).joinToString("\n").trim()
-        return Parsed.Ok(Skill(name = name, description = description, body = body))
+        // One line, space-separated, as the Claude Code docs write it. A YAML list is not read
+        // here: a dropped list would silently lift the restriction the author wrote.
+        val allowed = values["allowed-tools"].orEmpty().split(Regex("\\s+")).filter { it.isNotEmpty() }.toSet()
+        return Parsed.Ok(Skill(name = name, description = description, body = body, allowedTools = allowed))
     }
 
     /** The canonical text for [skill]: what the editor shows and what is written to disk. */
-    fun render(name: String, description: String, body: String): String = buildString {
+    fun render(name: String, description: String, body: String, allowedTools: Set<String> = emptySet()): String = buildString {
         append("---\n")
         append("name: ").append(quote(name)).append('\n')
         append("description: ").append(quote(description)).append('\n')
+        if (allowedTools.isNotEmpty()) {
+            append("allowed-tools: ").append(quote(allowedTools.sorted().joinToString(" "))).append('\n')
+        }
         append("---\n\n")
         append(body.trim()).append('\n')
     }
