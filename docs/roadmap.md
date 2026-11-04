@@ -9,7 +9,7 @@ box says so rather than staying green.
 
 ## Status in one paragraph
 
-**Update 2026-11-04:** the v1 scope is set. See "Before public release (v1.0)" and "After v1" below. The paragraph that follows is the older status and still holds: no device observation exists.
+**Update 2026-11-04 (later):** the v1 list and most of "After v1" were built in one day and merged as #274 to #297, compile only. None of it has run on a device. `[?]` below means written and merged, not verified. The owner's plan: finish everything, including "Beyond parity" below, then one full pass on the emulator. See "Before public release (v1.0)", "After v1" and "Beyond parity". The paragraph that follows is the older status and still holds: no device observation exists.
 
 The agent loop, the tool registry, the llama.cpp backend, the LiteRT-LM backend,
 Room persistence, the Hugging Face download, and the Compose UI are all written
@@ -397,10 +397,9 @@ regenerate, retry, edit or fork of a reply, and no reasoning display, in `ChatSc
 or `ChatViewModel`; a search of the source, not a device check):
 
 ```
-[ ] retry / regenerate the last reply, and edit the last message   (AnythingLLM, PocketPal)
-[ ] show the model's reasoning, folded                             (AnythingLLM, Off Grid)
-[ ] per-model "will it fit" badge in the model list                (AnythingLLM)  RAM-fit
-      estimate exists [#73]; a one-word badge in the list is the gap
+[?] retry / regenerate the last reply, and edit the last message   (AnythingLLM, PocketPal)  [#287]
+[?] show the model's reasoning, folded                             (AnythingLLM, Off Grid)  [#287]
+[?] per-model "will it fit" badge in the model list                (AnythingLLM)  [#287]
 ```
 
 ### Must
@@ -409,15 +408,15 @@ or `ChatViewModel`; a search of the source, not a device check):
 [ ] Device pass. The vertical slice, then the Model test plan, on the Pixel 10 Pro,
       using the RELEASE builds (minified), not debug. R8 breaking JNI or reflection is a
       classic crash that a debug run never shows. Both flavors.
-[ ] Release signing. No signing config exists in app/build.gradle.kts today. Make an
+[?] Release signing, built [#271, #272]; owner: back up ~/LI-keys. Old text: no signing config exists in app/build.gradle.kts today. Make an
       upload key for the Play build (Play App Signing) and a separate key for the
       full build (ADR 0002). Back both up; losing the full key strands every installed copy.
       Produce an AAB for Play. versionCode is 1 and versionName 0.1.0 today.
-[ ] Run .github/scripts/check-16k-alignment.sh on the release AAB/APK before each upload
+[?] scripts/release.sh runs it [#271]. Run .github/scripts/check-16k-alignment.sh on the release AAB/APK before each upload
       (Play needs 16 KB alignment for apps targeting Android 15+; the script exists
       (commit 1861abf) but no workflow runs it, and the roadmap rule is no CI workflows, so
       it is a manual step in the release script).
-[ ] Target API: already 36. New apps and updates must target API 36 from 2026-08-31
+[x] Target API: already 36. New apps and updates must target API 36 from 2026-08-31
       [https://developer.android.com/google/play/requirements/target-sdk].
 [?] Privacy policy at a public URL (enable GitHub Pages for docs/), developer name and
       contact filled in, the same name as the Play listing. Link it from Settings, About
@@ -433,26 +432,26 @@ or `ChatViewModel`; a search of the source, not a device check):
       [https://support.google.com/googleplay/android-developer/answer/14151465].
       This is the longest wait (about 3 weeks). Start the closed test as soon as one
       release build passes the device pass; it can run beside the Model test plan.
-[ ] Data safety form. Required even for an app that collects nothing. On-device
+[?] Data safety form: draft in docs/play/data-safety.md, with items marked OPEN [#281, #296]; the owner submits. Required even for an app that collects nothing. On-device
       processing is not collection; data sent to a provider the user turned on is
       (declare it, with the user-initiated exemptions read from the same page). The
       form covers the Play build as shipped, so decide first whether Extras and the
       Billing library count while Extras is hidden.
-[ ] SMS and call log declaration. READ_SMS, SEND_SMS, READ_CALL_LOG are restricted; the
+[?] SMS and call log declaration: draft in docs/play/declarations.md; the Play build keeps these tools out of unattended runs and has a -PplayNoSms fallback [#281, #296]; the owner submits. READ_SMS, SEND_SMS, READ_CALL_LOG are restricted; the
       default Assistant handler is a permitted use, subject to Play review, and needs the
       Permissions Declaration Form
       [https://support.google.com/googleplay/android-developer/answer/10208820].
       The app asks for them only while it holds the assistant role (ADR 0002). Give the
       reviewers steps to set it as default assistant. Keep a fallback: a Play build
       without these permissions, if the form is refused.
-[ ] Foreground service declarations (Android 14+): one per type used (dataSync,
+[?] Foreground service declarations: draft and video scripts in docs/play/declarations.md [#281]; the owner films and submits. (Android 14+): one per type used (dataSync,
       microphone; check shortService), each with the functionality, the impact of being
       interrupted, and a video of the user starting it in the app. Automatic or
       background behavior does not count as the video
       [https://support.google.com/googleplay/android-developer/answer/13392821].
       The wake word service is the one to film: switch it on in Settings, then show the
       notification.
-[ ] Store listing. Icon 512x512 PNG, feature graphic 1024x500, at least 2 screenshots
+[?] Store listing text: draft in docs/play/listing.md [#281]; graphics are the owner's. Icon 512x512 PNG, feature graphic 1024x500, at least 2 screenshots
       (4 at 1080 px or more are needed for large-format recommendations), short description
       80 characters at most
       [https://support.google.com/googleplay/android-developer/answer/9866151].
@@ -485,7 +484,7 @@ or `ChatViewModel`; a search of the source, not a device check):
       [https://developer.android.com/developer-verification]. Fees and documents are not
       on that page; the owner has to read the Guides and FAQ.
 [?] Screen control for the full build with the ADR 0003 guards                        [#265]
-[ ] A plain disclosure and consent screen before the Accessibility service is switched
+[?] [#278] A plain disclosure and consent screen before the Accessibility service is switched
       on (what it reads, that it acts only after approval, never unattended).
       Play's accessibility rule bans autonomous action, so this stays out of the Play build
       [https://support.google.com/googleplay/android-developer/answer/10964491].
@@ -497,32 +496,32 @@ or `ChatViewModel`; a search of the source, not a device check):
 [ ] First-run check on a clean install, both flavors: Simple mode, one tap, first
       answer, with no key. Time it from install; record it as the first number in
       docs/measurements.md.
-[ ] Crash and ANR handling without third-party analytics. On Play installs Android
+[?] [#282] Crash and ANR handling without third-party analytics. On Play installs Android
       vitals already reports crashes to the owner with no SDK. For the full build, and
       for hangs: an uncaught-exception handler that writes a local file, and a Settings
       button "Share last crash report" through the Android share sheet, filled from
       ApplicationExitInfo (API 30+). Nothing is sent unless the user shares it. No such
       handler exists today (grep).
-[ ] Update path for the full build. Document Obtainium or manual download in the README for
+[?] [#283] Update path for the full build. Document Obtainium or manual download in the README for
       v1. An in-app "Check for updates" button, asking first, is v1.1.
-[ ] Accessibility of the app's own UI: TalkBack pass on Chat, Models, Settings and the
+[?] [#293, by reading the code; no TalkBack run] Accessibility of the app's own UI: TalkBack pass on Chat, Models, Settings and the
       approval card; 17 of 68 `contentDescription` in app/src are null, check each is
       decorative; touch targets of 48 dp; large font scale. Play's pre-launch report
       (runs on the closed-test upload) will also flag these.
-[ ] Move user-visible strings out of Kotlin into resources. strings.xml has 4 entries
+[?] [#297, the rest in progress] Move user-visible strings out of Kotlin into resources. strings.xml has 4 entries
       and the source has 178 `Text("...")` calls. English-only is acceptable for v1; doing
       the move now is cheap and every later string makes it dearer.
-[ ] Dutch UI is not a v1 blocker. Nothing in Play's rules requires a translated UI, and
-      the Model test plan has no Dutch task. Do the Dutch store listing (text only) at
-      launch, the Dutch UI in v1.1. How well LFM3-1.7B answers in Dutch is unmeasured:
-      add three Dutch tasks to the Model test plan.
-[ ] Retry/regenerate, edit last message, folded reasoning, fit badge (see gaps above).
+[ ] All major languages at release (owner, 2026-11-04): 21 with English: es, pt-BR, fr, de, it, nl, pl,
+      ru, uk, tr, ar, hi, bn, id, vi, th, ja, ko, zh-CN, zh-TW. Includes settings labels, right-to-left
+      layout, per-app language and the Play listing. Translations are AI-written, so testers review
+      them. How well LFM3 answers in each language is unmeasured: add tasks to the Model test plan.
+[?] Retry/regenerate, edit last message, folded reasoning, fit badge [#287].
 [ ] Confirm which Android permissions need a Play declaration: SCHEDULE_EXACT_ALARM,
       PACKAGE_USAGE_STATS, WRITE_SETTINGS, ACCESS_NOTIFICATION_POLICY and notification
       access. Google's list
       [https://support.google.com/googleplay/android-developer/answer/9888170] does not
       name the last four, so check Policy status after the first upload.
-[ ] Full build onboarding for sideloaders: Android may block enabling an Accessibility
+[?] [#278; the steps are unverified on a device] Full build onboarding for sideloaders: Android may block enabling an Accessibility
       service for an app installed from outside a store until "Allow restricted
       settings" is turned on in App info. Not verified here; check on the Pixel and put
       the steps in the screen-control setup screen.
@@ -537,7 +536,7 @@ or `ChatViewModel`; a search of the source, not a device check):
 [x] privacy page: developer name and contact (GitHub issues) [#267]
 [x] decide the Play-build model policy (see Generative AI policy)
 [ ] Android Developer Console account for the full build; read the fee and ID rules
-[ ] create and back up the two signing keys
+[?] signing keys created in ~/LI-keys; the owner backs them up offline
 [ ] screenshots, icon and feature graphic approval; content rating answers
 [ ] run the device pass and film the two declaration videos (wake word, assistant role)
 ```
@@ -554,19 +553,19 @@ owner to-dos are kept apart. Effort is a guess, not a measurement.
 Engineering:
 
 ```
-[ ] Dutch UI (needs the string move from "Before public release")
-[ ] "Check for updates" in the full build: a button, asks first, reads the GitHub
+[-] Dutch UI: replaced by all major languages, see "Should"
+[?] [#283] "Check for updates" in the full build: a button, asks first, reads the GitHub
       Releases API; no background check
-[ ] Local crash report share, if not done for v1
-[ ] Per-model load policy and eject, from Off Grid's Lean / Balanced / Aggressive
+[?] [#282] Local crash report share
+[?] [#288] Model eject and a Lean or Balanced memory policy
 [ ] Fixes from the Play pre-launch report and the closed test
-[ ] Intent and Tasker triggers for scheduled tasks, from Operit's workflows. Small:
+[?] [#285, token-gated; unverified with Tasker] Intent and Tasker triggers for scheduled tasks, from Operit's workflows. Small:
       a broadcast receiver that starts an unattended run
-[ ] Audio file transcription, from Edge Gallery's Audio Scribe, with LFM3-Audio from the
+[?] [#286; not yet a foreground run, so a long file can be killed in the background] Audio file transcription, from Edge Gallery's Audio Scribe, with LFM3-Audio from the
       Model test plan if it passes
 ```
 
-Needs from the owner: Dutch review of the translation; which fixes first.
+Needs from the owner: which fixes first.
 
 ### v1.2: Extras go-live
 
@@ -574,9 +573,9 @@ The to-dos are already listed under "Extras" above; they stay the source of trut
 Added here:
 
 ```
-[ ] Pub/Sub OIDC check, the default model id and monthly limits, the rename of the
-      "Use the cloud model for chat" switch (engineering)
-[ ] Data safety form update: Extras sends the Play purchase token and an install id to
+[?] [#279] Pub/Sub OIDC check and the switch rename; the owner sets the two new variables
+[ ] the default model id and monthly limits
+[?] [#279, privacy page only] Data safety form update: Extras sends the Play purchase token and an install id to
       our server. Update privacy.html and the form together.
 ```
 
@@ -588,15 +587,15 @@ is measured.
 ### v1.3: speed and depth
 
 ```
-[ ] Speculative or multi-token-prediction decoding where llama.cpp supports it. Edge
+[ ] Built on w/specdecode, NOT merged: it reworks the decode loop every reply uses and needs a run first. Speculative or multi-token-prediction decoding where llama.cpp supports it. Edge
       Gallery 1.0.13 added Gemma 4 MTP for faster decoding (APKMirror notes). Measure
       decode tokens/s before and after with the in-app speed test; keep it only if it wins.
-[ ] Image search by text over the photo library (Edge Gallery "Instant Media Search"
+[?] [#290, full build, captions from a loaded vision model] Image search by text over the photo library (Edge Gallery "Instant Media Search"
       with EmbeddingGemma 2 is the same family; image embeddings are a different
       model, so this is medium effort)
-[ ] Personas ("Pals" in PocketPal, personas in Off Grid Pro): an About-you variant per chat
-[ ] More document types (DOCX, EPUB) next to PDF/txt/md/csv, from ToolNeuron
-[ ] App lock with a PIN or biometrics (ToolNeuron)
+[?] [#284] Personas ("Pals" in PocketPal, personas in Off Grid Pro): an About-you variant per chat
+[?] [#280] More document types (DOCX, EPUB) next to PDF/txt/md/csv, from ToolNeuron
+[?] [#292, #294] App lock with a PIN or biometrics (ToolNeuron)
 ```
 
 Needs from the owner: a second phone class (Snapdragon) before any Hexagon work.
@@ -606,14 +605,92 @@ Needs from the owner: a second phone class (Snapdragon) before any Hexagon work.
 ```
 [ ] Qualcomm Hexagon NPU path (PocketPal and Off Grid ship one; Off Grid calls it
       experimental, Q4_0 and Q8_0 only). Needs a Snapdragon test phone.
-[ ] A local OpenAI-style server so other apps on the phone use the loaded model
-      (ToolNeuron). Needs a threat-model entry (T-number) first.
-[ ] Pairing and sync with a desktop or home server (AnythingLLM Desktop)
+[?] [#289, threat-model T12] A local OpenAI-style server so other apps on the phone use the loaded model (ToolNeuron)
+[-] Pairing and sync: replaced by "Your own private cloud" in "Beyond parity"
 [ ] Screen control hardening in the full build, from the first real-world reports
 ```
 
 Still not chased, unchanged from above: Linux terminal, Shizuku, on-device image
 generation, multi-character group chat, visual workflow builder.
+
+---
+
+## Beyond parity
+
+Written 2026-11-04. The owner: "we need to do better than the competitors, not just copy". So parity is a short list
+and the bets come first. Each bet says why others cannot quickly match it. Nothing here is measured yet.
+
+### Bets
+
+```
+[ ] B1. The agent that finishes. Small models lose the thread over 5 to 10 steps. A set of runtime aids, built now and measured
+      together in the final test pass; any that does not help is removed then:
+      - todo list owned by the runtime, updated by one tool, re-injected each step (Hermes todo_tool)
+      - text repetition guard: abort a looping reply early (Hermes repetition_guard)
+      - deterministic prune: dedupe identical tool results, shrink old ones (Hermes context_compressor_prune)
+      - argument coercion in one place before rejecting (today per tool)
+      - answer check: a number or name in the answer must exist in a tool result, or the model is told once
+      - a resumable run: a killed run continues from its last step
+      - fresh-context subtask that returns only a summary. Conflicts with docs/architecture.md section 2: owner decision
+      Moat: built on our grammar, tiers and observation store; chat-first apps have none of those.
+[ ] B2. Your whole phone, answerable. A private on-device index of notifications, messages, calendar, contacts, files
+      and photo captions, with answers that cite the source and open it. Incremental, on charger, deletable per source.
+      The Play build indexes only what its permissions allow.  Moat: cloud assistants would need this data on their servers.
+[ ] B3. Your own private cloud. Over Tailscale only, checked by Tailscale identity:
+      - attach to the agents already running on your desktop: same live thread, native chat view, approvals as one keystroke
+      - a thin bridge with four operations (list, read, send, wait), herdr first, tmux as a second backend, so herdr is not a lock-in
+      - done and needs-you notifications through a self-hosted push (ntfy), no Firebase, no polling
+      - hard questions routed to your own desktop model, with your permission
+      - later, an owner decision: desktop agents using the phone's tools
+      Offline: read the cached thread and queue messages. Full build first; Play rules unchecked.
+      Moat: nobody we checked connects both ways with live threads.
+[ ] B4. Published proof. A public score per model and phone from the eval suite, and the app picks your model from
+      measured results.  Moat: nobody publishes this. It holds us to the same standard. Needs real devices for the phone half.
+[ ] B5. It learns you, locally. A task you repeat becomes a saved skill, with your approval. Skills can scope the tools the
+      model sees while they run (2 instead of 6). An always-visible memory block the agent edits, with a size limit: section 14 bans
+      model-based extraction, so this is an owner decision.  Moat: needs loop, skills and memory in one app, on the phone.
+```
+
+### Parity, quick
+
+Checked against the code on 2026-11-04. Already present, so not listed: scheduled tasks, chat export (Markdown, JSON, PDF), sharing into the app, document search, reasoning control.
+
+```
+[ ] find LM Studio, Ollama and llama.cpp on the LAN, and offer them in Simple mode (custom endpoint exists in Technical)  AnythingLLM, Off Grid #211
+[ ] keep the screen awake while generating, optional                                     Off Grid #378
+[ ] live speed and memory per reply, folded, Technical mode                              Edge Gallery, MNN
+[ ] audio transcription as a real foreground run                                         follow-up to #286
+[ ] photo results open the photo from chat                                               follow-up to #290
+[ ] hands-free loop: wake word, continuous voice, interrupt; check what we have first    Operit, MNN, PocketPal #945
+[ ] pick a vision model's mmproj by hand; check the import path                          PocketPal #841
+```
+
+### Runtime and platform
+
+From each project's own release notes, read 2026-11-04. All speedups are unmeasured on our hardware.
+
+```
+[ ] llama.cpp v0.9.0 (b12110) over our b11988: Gemma 4 prefill graph work, Gemma 4 speculative decoding, LFM3 tensor split,
+      Nemotron 3.5 Transcribe (offline speech, 40 languages). JNI rebase; mtmd.h changed. Then re-judge w/specdecode.
+[ ] LiteRT-LM 0.19.0 over our 0.17.1: GPU logit masking for constrained decoding, multi-token decoding. Breaking C API 1.0.
+      Check the Tensor NPU runtime pair before bumping.
+[ ] Android 17, before target API 37: declare FEATURE_NEURAL_PROCESSING_UNIT or the NPU path is blocked; handle the new per-app
+      memory limit (exit reason MemoryLimiter:AnonSwap) with a clear message; re-check background audio for spoken replies.
+[ ] Gemini Nano through ML Kit's Prompt API as a no-download option on supported phones. Beta, and the model is out of our control.
+[ ] AppFunctions: expose our tools to system agents. Experimental, and the caller side is restricted, so read the rules first.
+[ ] Read the 2026 Play AI policy pages. The research found only third-party coverage.
+```
+
+### Watching, not planned
+
+KV800 (the owner's research, about 800 bytes per token against about 12.5 KB here today) is a base model only and may never ship post-RL (owner, 2026-11-04).
+Nothing depends on it. Revisit only if a chat model exists, and even then a phone CPU run decides.
+
+### Order, and the first real test
+
+B1 and the parity list go first, then the runtime bumps, then B2, B3, B5 and B4. The owner's rule: no testing until everything is built.
+When everything is built: one full pass on the emulator with scripts/devicectl.sh. What an emulator cannot show stays on the real-phone list: NPU, heat, microphone,
+biometrics, right-to-left review by a reader, and real speed.
 
 ---
 
