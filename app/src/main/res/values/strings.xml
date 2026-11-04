@@ -1622,4 +1622,5 @@
     <string name="notif_working_request">Working on your request…</string>
     <string name="telegram_busy_reply">The phone is already running a task. Send it again when that one has finished.</string>
     <string name="chat_answer_cut_short">Answer cut short.</string>
+    <string name="document_search_model">Document search model</string>
 </resources>

@@ -79,7 +79,7 @@ class EmbeddingSetup(
     /** Retries or starts the download. A no-op unless the state is Idle or Failed. */
     fun start() {
         if (!claim()) return
-        running = transfers.launch("Document search model") { attempt() }
+        running = transfers.launch(context.getString(R.string.document_search_model)) { attempt() }
     }
 
     /** Cancels the in-flight download, keeping any .part file for resume. */
