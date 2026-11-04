@@ -70,8 +70,32 @@ data class StepTrace(
      * Null on every other kind and when the model did not think.
      */
     val thought: String? = null,
+    /**
+     * The speed of this generation, on a GENERATION row, from the backend's own counts and timers.
+     * Shown folded under the reply in Technical mode. Null on every other kind.
+     */
+    val speed: ReplySpeed? = null,
 ) {
     enum class Kind { GENERATION, TOOL_CALL, OBSERVATION, MALFORMED, COMPACTION }
+}
+
+/**
+ * One generation's token counts and timers, as the backend reported them. [prefillMs] is the
+ * prompt time: on the remote backends it is the time to the first token, and on llama.cpp it is
+ * the native prefill. Rates are derived, never stored, so a zero timer shows as "no rate", not
+ * as a number invented from nothing.
+ */
+data class ReplySpeed(
+    val promptTokens: Int,
+    val completionTokens: Int,
+    val prefillMs: Long,
+    val decodeMs: Long,
+) {
+    /** Prompt tokens per second, or null when the prefill timer is zero. */
+    val prefillTokensPerSecond: Double? get() = if (prefillMs > 0 && promptTokens > 0) promptTokens * 1000.0 / prefillMs else null
+
+    /** Generated tokens per second, or null when the decode timer is zero. */
+    val decodeTokensPerSecond: Double? get() = if (decodeMs > 0 && completionTokens > 0) completionTokens * 1000.0 / decodeMs else null
 }
 
 /**

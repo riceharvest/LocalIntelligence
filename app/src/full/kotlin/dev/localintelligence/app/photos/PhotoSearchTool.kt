@@ -2,6 +2,7 @@ package dev.localintelligence.app.photos
 
 import dev.localintelligence.android.tools.device.ArgCoerce
 import dev.localintelligence.android.tools.device.ArgResult
+import dev.localintelligence.app.photos.PhotoSearchHits
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.SettingDef
@@ -85,6 +86,8 @@ class PhotoSearchTool(
             observation = "Photo search is not available in this build.",
             error = ToolError.Unavailable("photo search not present"),
         )
+        // Cleared before the search, so a search that fails or finds nothing shows no old thumbnails.
+        PhotoSearchHits.latest = emptyList()
         val found = try {
             if (search.count() == 0) {
                 return ToolResult(
@@ -110,10 +113,12 @@ class PhotoSearchTool(
                 observation = "No indexed photo matches \"$query\". Say so, and do not guess what the photos show.",
             )
         }
+        PhotoSearchHits.latest = found.map { it.uri }
         return ToolResult(
             success = true,
-            observation = "Indexed photos for \"$query\", best match first (captions only):\n" +
-                found.joinToString("\n") { "- ${it.replace(Regex("\\s+"), " ").trim()}" },
+            observation = "Indexed photos for \"$query\", best match first (captions only). " +
+                "The user sees these photos as thumbnails under your answer:\n" +
+                found.joinToString("\n") { "- ${it.caption.replace(Regex("\\s+"), " ").trim()}" },
         )
     }
 

@@ -656,4 +656,24 @@
     <string name="use_pin">Use PIN</string>
     <string name="persona_delete_title">Delete \"%1$s\"?</string>
     <string name="persona_char_count">%1$s / %2$d</string>
+    <!-- Parity pass: Technical speed line under a reply, and "not available" for a rate that cannot be computed. -->
+    <string name="reply_speed_line">Prefill %1$s tok/s · first token %2$d ms · decode %3$s tok/s</string>
+    <string name="reply_speed_not_available">n/a</string>
+    <!-- Parity pass: the foreground notification while an audio file is transcribed. -->
+    <string name="transcribing_audio_file">Transcribing an audio file</string>
+    <string name="transcription_channel_name">Audio transcription</string>
+    <!-- Parity pass: content description of a photo thumbnail from photos.search. -->
+    <string name="photo_from_your_search">Photo from your search</string>
+    <!-- Parity pass: Find model servers on this Wi-Fi (Models page). -->
+    <string name="lan_find_title">Models on this network</string>
+    <string name="lan_find_explain">Looks for LM Studio, Ollama and llama.cpp on your Wi-Fi, only when you tap Find. Messages then go to that computer, not to this phone.</string>
+    <string name="lan_find_button">Find</string>
+    <string name="lan_finding">Looking on this network…</string>
+    <string name="lan_find_failed">Could not look on this network. %1$s</string>
+    <string name="lan_none_found">No model server answered on this Wi-Fi. It must be on, on this network, and listening on its usual port.</string>
+    <string name="lan_server_line">%1$s on %2$s</string>
+    <string name="lan_server_model">Model: %1$s</string>
+    <string name="lan_no_model_listed">none listed</string>
+    <string name="lan_messages_go_there">Messages go to that computer, on your own network.</string>
+    <string name="lan_forget">Forget the server found on this network</string>
 </resources>

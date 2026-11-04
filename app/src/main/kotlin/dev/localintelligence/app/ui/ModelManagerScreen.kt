@@ -59,6 +59,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.android.cloud.LanModelServer
 import dev.localintelligence.android.cloud.RemoteChatOffer
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.ModelImporter
@@ -164,6 +165,14 @@ fun ModelManagerScreen(
     onListRemoteModels: (suspend () -> List<String>)? = null,
     /** Saves the picked model id for the remote provider. */
     onPickRemoteModel: ((String) -> Unit)? = null,
+    /** Looks for model servers on this Wi-Fi, on tap only. Null hides the Find card. */
+    onFindLanServers: (suspend () -> List<LanModelServer>)? = null,
+    /** Makes a found server the chat model. Returns false when it lists no model. */
+    onUseLanServer: (suspend (LanModelServer) -> Boolean)? = null,
+    /** True while a found server is the chat model; Forget is then offered. */
+    lanServerActive: Boolean = false,
+    /** Clears the found server. */
+    onForgetLanServer: (() -> Unit)? = null,
     /** The ChatGPT entry (sign in, model picker, use). Null hides it. */
     chatGptCard: (@Composable () -> Unit)? = null,
     /**
@@ -469,6 +478,17 @@ fun ModelManagerScreen(
             ) {
                 if (chatGptCard != null) {
                     item(key = "chatgpt") { chatGptCard() }
+                }
+                if (onFindLanServers != null && onUseLanServer != null) {
+                    item(key = "lan-find") {
+                        LanServersCard(
+                            active = lanServerActive,
+                            enabled = !busy,
+                            onFind = onFindLanServers,
+                            onUse = onUseLanServer,
+                            onForget = onForgetLanServer,
+                        )
+                    }
                 }
                 if (remoteChatOffer != null && onUseRemoteChat != null) {
                     item(key = "remote-chat") {
@@ -813,6 +833,104 @@ private fun ModelRow(
             // is unloaded, labelled with the date, so it is not lost.
             if (technical && speedTest != null) {
                 SpeedTestSection(model = model, runner = speedTest, isLoaded = isLoaded)
+            }
+        }
+    }
+}
+
+/**
+ * Finds model servers on this Wi-Fi. Nothing is searched until Find is tapped, and a found server is
+ * shown as a plain row with its address and the sentence that messages go to that computer. Use makes
+ * it the chat model through the custom endpoint path; Forget clears it.
+ */
+@Composable
+private fun LanServersCard(
+    active: Boolean,
+    enabled: Boolean,
+    onFind: suspend () -> List<LanModelServer>,
+    onUse: suspend (LanModelServer) -> Boolean,
+    onForget: (() -> Unit)?,
+) {
+    val scope = rememberCoroutineScope()
+    var searching by remember { mutableStateOf(false) }
+    var found by remember { mutableStateOf<List<LanModelServer>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.lan_find_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = stringResource(R.string.lan_find_explain),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (active && onForget != null) {
+                TextButton(onClick = onForget, enabled = enabled) { Text(stringResource(R.string.lan_forget)) }
+            }
+            TextButton(
+                enabled = enabled && !searching,
+                onClick = {
+                    searching = true
+                    error = null
+                    found = null
+                    scope.launch {
+                        runCatching { onFind() }
+                            .onSuccess { found = it }
+                            .onFailure { error = it.message.orEmpty().take(120) }
+                        searching = false
+                    }
+                },
+            ) { Text(if (searching) stringResource(R.string.lan_finding) else stringResource(R.string.lan_find_button)) }
+            error?.let {
+                Text(
+                    text = stringResource(R.string.lan_find_failed, it),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            found?.let { servers ->
+                if (servers.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.lan_none_found),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                servers.forEach { server ->
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = stringResource(R.string.lan_server_line, server.name, server.address),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = stringResource(R.string.lan_server_model, server.models.firstOrNull() ?: stringResource(R.string.lan_no_model_listed)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = stringResource(R.string.lan_messages_go_there),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (server.models.isNotEmpty()) {
+                            TextButton(
+                                enabled = enabled,
+                                onClick = {
+                                    scope.launch {
+                                        runCatching { onUse(server) }
+                                        found = null
+                                    }
+                                },
+                            ) { Text(stringResource(R.string.use)) }
+                        }
+                    }
+                }
             }
         }
     }

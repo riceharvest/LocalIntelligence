@@ -31,6 +31,8 @@ import dev.localintelligence.app.media.ShownAttachment
 import dev.localintelligence.app.media.VoiceClipRecorder
 import dev.localintelligence.app.notice
 import dev.localintelligence.app.speech.Speaker
+import dev.localintelligence.app.photos.PhotoSearchHits
+import dev.localintelligence.core.agent.ReplySpeed
 import dev.localintelligence.core.agent.StepTrace
 import dev.localintelligence.core.context.GenerationProse
 import dev.localintelligence.core.model.ChatMessage as CoreChatMessage
@@ -136,6 +138,11 @@ class ChatViewModel(
     private val reportSender: ReplyReportSender? = null,
     /** The model that transcribes: the one resident now. Null in a host with no model. */
     private val transcriptionModel: () -> ModelBackend? = { null },
+    /**
+     * Keeps the process alive while a transcription runs: true when it starts, false when it ends.
+     * The host passes [dev.localintelligence.app.TranscriptionService]; a bare view model does nothing.
+     */
+    private val transcriptionForeground: (Boolean) -> Unit = {},
     /** Decodes a picked audio file into 30 s PCM chunks. Host-supplied because it needs a Context. */
     private val decodeAudio: suspend (String, suspend (ByteArray) -> Boolean) -> Unit = { _, _ -> },
     /** Where a saved transcript goes. Null in a host without the document store. */
@@ -639,6 +646,9 @@ class ChatViewModel(
 
         val generations = steps.filter { it.kind == StepTrace.Kind.GENERATION }
         val lastGeneration = generations.lastOrNull()
+        // Only a run whose photo search succeeded shows thumbnails; the holder is cleared by every search.
+        val searchedPhotos = steps.any { it.kind == StepTrace.Kind.TOOL_CALL && it.toolName == "photos.search" && it.success }
+        val shownPhotos = if (searchedPhotos) PhotoSearchHits.latest else emptyList()
 
         // Built purely, then assigned once: `StateFlow.update` may run its block
         // more than once, so nothing here may have a side effect.
@@ -697,7 +707,10 @@ class ChatViewModel(
                     }
 
                     narrationPlacements += entry to (baseSize + base)
-                    additions += ChatMessage.Assistant(text, entry.thought)
+                    additions += ChatMessage.Assistant(
+                        text, entry.thought, entry.speed,
+                        photos = if (isFinal) shownPhotos else emptyList(),
+                    )
                     base += 1
                 }
 
@@ -1171,6 +1184,7 @@ class ChatViewModel(
         transcribeStopped = false
         transcribingWith = backend
         _transcribing.value = true
+        transcriptionForeground(true)
         _notice.value = null
         val text = StringBuilder()
         var row = ChatMessage.Transcript(TRANSCRIPT_TITLE, "", running = true)
@@ -1206,6 +1220,7 @@ class ChatViewModel(
             } finally {
                 transcribingWith = null
                 _transcribing.value = false
+                transcriptionForeground(false)
                 redraw(running = false)
                 failure?.let { showNotice(it) }
             }
@@ -1358,6 +1373,7 @@ class ChatViewModel(
         private val readPicture: (String) -> PendingAttachment? = { null },
         private val reportSender: ReplyReportSender? = null,
         private val transcriptionModel: () -> ModelBackend? = { null },
+        private val transcriptionForeground: (Boolean) -> Unit = {},
         private val decodeAudio: suspend (String, suspend (ByteArray) -> Boolean) -> Unit = { _, _ -> },
         private val documents: DocumentStore? = null,
     ) : ViewModelProvider.Factory {
@@ -1386,6 +1402,7 @@ class ChatViewModel(
                 readPicture = readPicture,
                 reportSender = reportSender,
                 transcriptionModel = transcriptionModel,
+                transcriptionForeground = transcriptionForeground,
                 decodeAudio = decodeAudio,
                 documents = documents,
             ) as T
@@ -1532,8 +1549,16 @@ sealed interface ChatMessage {
     /**
      * A finished answer. [thought] is the model's reasoning for it, when the model thought
      * and the reply carried it; shown folded above the answer and never sent back to the model.
+     * [speed] is the generation's own counts and timers, shown in Technical mode only and only for
+     * replies made in this session (a reloaded transcript has none).
      */
-    data class Assistant(val text: String, val thought: String? = null) : ChatMessage
+    data class Assistant(
+        val text: String,
+        val thought: String? = null,
+        val speed: ReplySpeed? = null,
+        /** Photo URIs a `photos.search` in this run found, shown as thumbnails under the final answer. */
+        val photos: List<String> = emptyList(),
+    ) : ChatMessage
     data class Notice(val text: String) : ChatMessage
 
     /**

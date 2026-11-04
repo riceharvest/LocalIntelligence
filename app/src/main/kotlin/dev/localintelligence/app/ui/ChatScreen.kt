@@ -70,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
@@ -94,6 +95,7 @@ import dev.localintelligence.app.isActive
 import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.ShownAttachment
 import dev.localintelligence.app.settings.SuggestedModel
+import dev.localintelligence.core.agent.ReplySpeed
 import dev.localintelligence.app.ui.components.ApprovalRow
 import dev.localintelligence.app.ui.components.ChatComposer
 import dev.localintelligence.app.ui.components.MarkdownText
@@ -144,6 +146,13 @@ fun ChatScreen(
      * preferences and the default matches the setting's own default.
      */
     toolCallsAutoCollapse: Boolean = true,
+    /**
+     * Keeps the screen on while a run is in flight (the setting, read by the host). Off by
+     * default; the flag is set only for the length of a run and cleared when it ends.
+     */
+    keepScreenAwake: Boolean = false,
+    /** Technical mode: each reply shows its speed line (prefill, first token, decode). */
+    technical: Boolean = false,
     /** The skills store. Null hides "Save as skill", for hosts that have no store. */
     skills: SkillRepository? = null,
     /** The name from Settings, used in the empty chat's first line. Blank: no name. */
@@ -214,6 +223,13 @@ fun ChatScreen(
     // local instead of resting on a coincidence in another file.
     val transcribing by viewModel.transcribing.collectAsStateWithLifecycle()
     val busy = runState.isActive || transcribing
+    // The view's keep-screen-on flag is the window flag FLAG_KEEP_SCREEN_ON, set for this
+    // composition's run only. It is cleared when the run ends or the screen leaves composition.
+    val view = LocalView.current
+    DisposableEffect(keepScreenAwake && busy) {
+        view.keepScreenOn = keepScreenAwake && busy
+        onDispose { view.keepScreenOn = false }
+    }
     val blocked = modelState.blockingReason()
     // Retry and Edit both act on the last turn, so they are offered only there. A turn with
     // pictures or a voice clip cannot be sent again: the media bytes are not kept.
@@ -519,6 +535,8 @@ fun ChatScreen(
                         is ChatMessage.Assistant -> AssistantBubble(
                             text = message.text,
                             thought = message.thought,
+                            speed = if (technical) message.speed else null,
+                            photos = message.photos,
                             speaking = speakingText == message.text,
                             onSpeak = { viewModel.toggleSpeak(message.text) },
                             onReport = { reportingReply = message.text },
@@ -647,6 +665,8 @@ private fun UserBubble(text: String, attached: List<ShownAttachment>, onEdit: ((
 private fun AssistantBubble(
     text: String,
     thought: String?,
+    speed: ReplySpeed? = null,
+    photos: List<String> = emptyList(),
     speaking: Boolean,
     onSpeak: () -> Unit,
     onReport: () -> Unit,
@@ -659,6 +679,15 @@ private fun AssistantBubble(
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
         if (thought != null) ThoughtRow(thought)
         SelectionContainer { MarkdownText(text) }
+        if (photos.isNotEmpty()) PhotoHitsRow(photos)
+        if (speed != null) {
+            Text(
+                text = replySpeedLine(speed),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+            )
+        }
         // One traversal group: TalkBack moves through the reply's actions together, in order.
         Row(
             modifier = Modifier.semantics { isTraversalGroup = true },
@@ -714,6 +743,18 @@ private fun AssistantBubble(
  * The model's reasoning for an answer, folded: a single line that opens to the text. Folded
  * by default so the answer is what the eye lands on; the thought is there for anyone who asks.
  */
+/**
+ * The Technical speed line under a reply: prefill rate, first-token time, decode rate. A rate
+ * whose timer or count is zero reads as "n/a", never as a figure made up from nothing.
+ */
+@Composable
+private fun replySpeedLine(speed: ReplySpeed): String {
+    val na = stringResource(R.string.reply_speed_not_available)
+    val prefill = speed.prefillTokensPerSecond?.let { "%.1f".format(it) } ?: na
+    val decode = speed.decodeTokensPerSecond?.let { "%.1f".format(it) } ?: na
+    return stringResource(R.string.reply_speed_line, prefill, speed.prefillMs, decode)
+}
+
 @Composable
 private fun ThoughtRow(thought: String) {
     var expanded by rememberSaveable { mutableStateOf(false) }

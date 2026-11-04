@@ -51,6 +51,7 @@ import dev.localintelligence.android.documents.DEFAULT_EMBEDDING_REPO
 import dev.localintelligence.android.documents.EMBEDDING_DOWNLOAD_DISMISSED
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
 import dev.localintelligence.android.cloud.generatedMediaDir
+import dev.localintelligence.android.cloud.RemoteProviderSettings
 import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.media.AudioFileDecoder
 import dev.localintelligence.app.media.LiveDictation
@@ -169,6 +170,10 @@ class MainActivity : FragmentActivity() {
                             reportSender = ReplyReportSender(BuildConfig.REPORT_FORM_URL, BuildConfig.REPORT_FORM_ENTRY),
                             // Transcription reads the resident model and saves to the Documents store.
                             transcriptionModel = { container.residentBackend() },
+                            // A foreground service keeps the process up while a long recording is transcribed.
+                            transcriptionForeground = { on ->
+                                if (on) TranscriptionService.start(applicationContext) else TranscriptionService.stop(applicationContext)
+                            },
                             decodeAudio = { uri, onChunk -> AudioFileDecoder.decode(applicationContext, Uri.parse(uri), onChunk) },
                             documents = container.documents,
                         )
@@ -296,6 +301,8 @@ class MainActivity : FragmentActivity() {
                                 // Read here, where the screen is built, and passed down
                                 // as a plain Boolean: the screen never touches prefs.
                                 toolCallsAutoCollapse = container.settings[CoreSettings.TOOL_CALLS_AUTO_COLLAPSE],
+                                keepScreenAwake = container.settings[CoreSettings.KEEP_SCREEN_AWAKE],
+                                technical = technical,
                                 // "Save as skill" writes the raw skill format, with tool ids in
                                 // its steps: a Technical tool. Simple users write skills on the
                                 // Skills screen's form.
@@ -381,6 +388,12 @@ class MainActivity : FragmentActivity() {
                                 withContext(Dispatchers.IO) { container.listRemoteModels() }
                             },
                             onPickRemoteModel = { model -> container.setRemoteChatModel(model) },
+                            onFindLanServers = { container.findLanModelServers() },
+                            onUseLanServer = { server -> container.useLanModelServer(server) },
+                            lanServerActive = remember(settingsVersion) {
+                                container.settings[RemoteProviderSettings.LAN_BASE_URL].isNotBlank()
+                            },
+                            onForgetLanServer = { container.forgetLanModelServer() },
                             chatGptCard = { ChatGptModelCard(container) },
                             onUseModel = { model ->
                                 withContext(Dispatchers.IO) { container.loadModel(model) }

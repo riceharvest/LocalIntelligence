@@ -178,6 +178,14 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Keeps an audio transcription running while the app is in the background. Started and
+             stopped by TranscriptionService.start and stop around one run. The type must match
+             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC in TranscriptionService. -->
+        <service
+            android:name=".TranscriptionService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- Keeps a model download running while the app is in the background. Started by
              HubTransfers when a download starts and stopped when it ends. The type must match
              ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC in DownloadService. -->
