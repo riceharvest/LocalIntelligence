@@ -28,6 +28,7 @@ import dev.localintelligence.android.documents.DocumentStore
 import dev.localintelligence.android.documents.DocumentsPlugin
 import dev.localintelligence.android.documents.DOCUMENT_EMBEDDING_MODEL
 import dev.localintelligence.android.documents.DOCUMENT_SEARCH_MODE
+import dev.localintelligence.android.documents.EMBEDDING_DOWNLOAD_DISMISSED
 import dev.localintelligence.android.documents.SEARCH_MODE_HYBRID
 import dev.localintelligence.android.gateway.telegram.TelegramPlugin
 import dev.localintelligence.android.mcp.McpPlugin
@@ -1804,6 +1805,26 @@ class AppContainer(private val context: Context) {
     }
 
     /**
+     * Manages downloading the document search model with one tap, progress, and resume.
+     */
+    val embeddingSetup: EmbeddingSetup by lazy {
+        EmbeddingSetup(
+            scope = appScope,
+            client = hubClient,
+            downloader = hubDownloader,
+            budget = hubBudget,
+            tokenSource = hubTokenSource,
+            transfers = hubTransfers,
+            isModelReady = { documentModelFile() != null },
+            adopt = { file -> adoptDownloaded(file) },
+            onModelReady = {
+                settings.set(EMBEDDING_DOWNLOAD_DISMISSED, true)
+            },
+            settingsChanges = settings.changes,
+        )
+    }
+
+    /**
      * Adopts a freshly downloaded file into the app's model list.
      *
      * This is the composition root's job because all three steps need the
@@ -1816,6 +1837,8 @@ class AppContainer(private val context: Context) {
         // The embedding model is not a chat model. Loading it as one would replace the chat
         // model with a model that cannot write replies, so it is only kept for document search.
         if (isDocumentModelName(file.name)) {
+            embeddingSetup.checkReady()
+            settings.set(EMBEDDING_DOWNLOAD_DISMISSED, true)
             return@withContext DownloadedModelRegistrar.Registered("Saved as the document search model.", chatReady = false)
         }
         val uri = android.net.Uri.fromFile(file)
