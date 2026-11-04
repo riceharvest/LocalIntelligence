@@ -100,6 +100,7 @@ object ChatExporter {
             is ChatMessage.User -> Row("user", message.text, null, null)
             is ChatMessage.Assistant -> Row("assistant", message.text, null, null)
             is ChatMessage.Notice -> Row("notice", message.text, null, null)
+            is ChatMessage.Transcript -> Row("transcript", message.text, null, null)
             is ChatMessage.ToolStep -> Row(
                 role = "tool",
                 text = message.observation ?: message.detail,
