@@ -274,7 +274,7 @@ Open:
       background, so after a reboot listening resumes when the app is next opened   [#263]
 [?] `play` and `full` product flavors (full: own package id `.full`, side by side)    [#259]
 [?] all-files access in the full build (`MANAGE_EXTERNAL_STORAGE`)                   [#261]
-[ ] full build: screen control through Accessibility (docs/adr/0002, 0003). IN PROGRESS.
+[?] full build: screen control through Accessibility (docs/adr/0002, 0003)            [#265]
 [?] privacy policy draft in `docs/privacy.html`                                      [#260]
 [ ] privacy policy hosted at a public URL (GitHub Pages is not enabled yet, checked
       2026-11-04) with the developer name and contact filled in
@@ -426,7 +426,8 @@ or `ChatViewModel`; a search of the source, not a device check):
       [https://support.google.com/googleplay/android-developer/answer/10787469].
 [ ] Play developer account and closed testing. For a personal account created after
       2023-11-13: at least 12 testers opted in continuously for 14 days, then "Apply for
-      production" with a description of the test; review takes about 7 days
+      production" with a description of the test; review takes about 7 days. The
+      owner's account is personal (confirmed 2026-11-04), so this applies
       [https://support.google.com/googleplay/android-developer/answer/14151465].
       This is the longest wait (about 3 weeks). Start the closed test as soon as one
       release build passes the device pass; it can run beside the Model test plan.
@@ -457,9 +458,9 @@ or `ChatViewModel`; a search of the source, not a device check):
       the privacy page says), ads: none, contact email, category.
 [ ] Generative AI policy. Apps with a chatbot as a central feature must not generate
       offensive content [https://support.google.com/googleplay/android-developer/answer/14094294].
-      The app downloads any Hugging Face GGUF, including uncensored ones. Decision for the
-      owner: in the Play build, does Simple mode offer only the recommended models, and does
-      the Hub stay in Technical mode?
+      The app downloads any Hugging Face GGUF, including uncensored ones. Owner's decision
+      (2026-11-04): in the Play build, Simple mode offers only the recommended models; the
+      open Hub search stays in Technical mode. The full build is unchanged. Not built yet.
 [ ] In-app report for AI replies. "Apps that generate content using AI must contain
       in-app user reporting or flagging features", reaching the developer without leaving
       the app [https://support.google.com/googleplay/android-developer/answer/13985936].
@@ -476,8 +477,9 @@ or `ChatViewModel`; a search of the source, not a device check):
       without ID or fee
       [https://developer.android.com/developer-verification]. Fees and documents are not
       on that page; the owner has to read the Guides and FAQ.
-[ ] Screen control finished for the full build with the ADR 0003 guards, and its
-      Accessibility prominent disclosure and consent screen in place. (In progress.)
+[?] Screen control for the full build with the ADR 0003 guards                        [#265]
+[ ] A plain disclosure and consent screen before the Accessibility service is switched
+      on (what it reads, that it acts only after approval, never unattended).
       Play's accessibility rule bans autonomous action, so this stays out of the Play build
       [https://support.google.com/googleplay/android-developer/answer/10964491].
 ```
