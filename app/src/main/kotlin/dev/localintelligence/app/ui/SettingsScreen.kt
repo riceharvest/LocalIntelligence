@@ -103,6 +103,7 @@ import dev.localintelligence.app.WakeWordService
 import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.openAssistantSettings
 import dev.localintelligence.app.settings.SettingsStore
+import dev.localintelligence.app.update.UpdateCheckRow
 import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.app.speedtest.SpeedTestButton
 import dev.localintelligence.app.speedtest.SpeedTestResultBlock
@@ -274,6 +275,8 @@ fun SettingsScreen(
                 // Both modes: the policy describes the app, and a Simple user has the same data.
                 Card(modifier = Modifier.fillMaxWidth()) {
                     NavRow(Icons.Filled.Info, "Privacy policy") { openUrl(context, PRIVACY_POLICY_URL) }
+                    // Full build only; the Play build's stub draws nothing. Both modes, like the privacy row.
+                    UpdateCheckRow()
                 }
             }
         }
