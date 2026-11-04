@@ -99,9 +99,21 @@ class RiskPolicy(
         displayTarget: String? = null,
         requestedByMessage: Boolean = true,
         screen: ScreenScope? = null,
+        untrustedRead: Boolean = false,
     ): Decision {
         val gated = evaluateGates(definition, args, displayTarget, screen)
-        val decision = if (!requestedByMessage && isGuarded(definition) && definition.risk != ToolRisk.SCREEN_CONTROL) {
+        // Memory writes in a run that read outside text (a web page, a fetched file, an MCP
+        // server) need the user's own request. Refused, not confirmed: a confirmation the
+        // user clicks through is how a page would get its text into the memory block.
+        val decision = if (untrustedRead && definition.name in MEMORY_WRITES && !requestedByMessage) {
+            decide(
+                definition, args, PolicyOutcome.BLOCK, PolicyRule.NOT_REQUESTED,
+                "${definition.name} writes the memory block, and this conversation read text from outside " +
+                    "the phone. The block changes only when your own message asks for it.",
+            )
+        } else if (!requestedByMessage && isGuarded(definition) &&
+            definition.risk != ToolRisk.SCREEN_CONTROL && definition.name !in NOT_REQUESTED_EXEMPT
+        ) {
             notRequested(definition, args, gated)
         } else {
             autoAccepted(definition, gated) ?: gated
@@ -666,8 +678,22 @@ class RiskPolicy(
  */
 private val PRIVATE_READS = setOf("location.get")
 
+/**
+ * Tools that write the memory block. Guarded even though the tier is REVERSIBLE, so a call
+ * the message did not ask for is confirmed, and in a run that read outside text it is refused
+ * (see [evaluate]). Keep the name in step with `MemoryBlock` and the catalogue.
+ */
+private val MEMORY_WRITES = setOf("memory.update_block")
+
+/**
+ * Tools the not-requested guard does not confirm. `task.delegate` only starts a child run: every call
+ * the child makes is still judged on its own against the user's message, so confirming the start would
+ * ask the same question twice. The child's calls are the barrier, not the start.
+ */
+private val NOT_REQUESTED_EXEMPT = setOf("task.delegate")
+
 private fun isGuarded(definition: ToolDefinition): Boolean =
-    definition.risk != ToolRisk.READ_ONLY || definition.name in PRIVATE_READS
+    definition.risk != ToolRisk.READ_ONLY || definition.name in PRIVATE_READS || definition.name in MEMORY_WRITES
 
 private val AUTO_ACCEPTABLE_RULES = setOf(
     PolicyRule.RISK_TIER,

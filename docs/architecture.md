@@ -100,6 +100,24 @@ Consequences:
 If you find yourself wanting to `import android.*` in `:core`, the design is wrong.
 Push the platform out to a function type or an interface owned by `:core` instead.
 
+**Subtasks (added 2026-11-04, owner's decision).** The model may hand one self-contained job to a
+child run with `task.delegate`. This was ruled out before, because a second agent loop is a second
+set of state to get wrong on a phone. It is allowed now under these limits, all in `:core`:
+
+- One child at a time, on the same resident model, with a fresh session and a 6-step cap.
+  No nesting: the child's registry drops `task.delegate` and the loop refuses it again.
+- The child shares the parent's `RiskPolicy`. Its calls are judged against the user's own
+  message, never the goal the model wrote, so a child cannot gain a tool or a permission the
+  parent did not have. A child's confirmation goes to the user as a normal card.
+- Only the child's answer, capped at 600 characters, returns to the parent's context. The
+  child's steps are shown to the user in a folded row and never enter the parent's prompt.
+- After a child runs, the parent's prefix is re-prefilled through the existing `warmPrefix`
+  path. That path only does work in the native tool format; elsewhere the next step pays it.
+  The cost is unmeasured.
+
+The subtask is a tool call, so it uses the one output channel the model already has. The
+threat model is T13 in `docs/threat-model.md`.
+
 ---
 
 ## 3. Dependency graph
@@ -161,7 +179,8 @@ sealed interface AgentAction {
 ```
 
 Not `thought`. Not `plan`. Not `critique`. Not `confidence`. Not `reflection`.
-Not `subagent_request`. Not `state_mutation`.
+Not `subagent_request`: a subtask is the `task.delegate` tool call (section 2), not a new
+output kind. Not `state_mutation`.
 
 Reasoning stays inside the model. Everything the runtime must reason about is handled
 deterministically in Kotlin.
@@ -409,6 +428,21 @@ you" profile** (`memory.profile`), a text the user writes (1,375 characters at
 most) that goes into the system prompt; and **`history.search`**
 (`memory.history`), a read-only tool over earlier messages in Room. Documents
 (`documents.search`, BM25 over the user's files) are separate from memory.
+
+**The memory block (owner decision, 2026-11-04).** One text of at most 1,000
+characters (`MemoryBlock.TEXT`, a settings row, `memory.block.text`), shown to the model
+in every session as a line of the system prompt. The agent edits it through one tool,
+`memory.update_block` (REVERSIBLE; `add`, `replace` or `clear`), which is the only
+model-driven write to memory. Why the rule changed: the block is visible and editable
+in Settings, so nothing in it is hidden from the user. A write in a conversation that
+has read text from outside the phone (any NETWORK-origin observation still in the
+session) is refused unless the user's own message asks for it (`RiskPolicy`,
+`untrustedRead`). Confirmation alone is not enough for that case, because a
+clicked-through prompt would carry page text into the block.
+
+**Not built yet:** the chat row ("Remembered: ...") and its Undo, which the owner asked
+for. Until they exist, a change is visible only in Settings. Undo needs the previous text
+kept per change, and the row needs a ChatScreen hook; both are open.
 
 **Do not build model-based memory extraction.** No per-interaction classifier, no
 summarising model, no deduplication model, no consolidation pass. That is a lot of

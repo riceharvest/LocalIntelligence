@@ -51,6 +51,7 @@ import dev.localintelligence.app.settings.ContextChoice
 import dev.localintelligence.app.settings.ContextLength
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.execution.ScheduledRunReporter
+import dev.localintelligence.app.settings.SettingsMemoryBlockStore
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.ComputeChoice
 import dev.localintelligence.app.settings.SimpleSetup
@@ -257,6 +258,12 @@ class AppContainer(private val context: Context) {
 
     val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
 
+    /**
+     * The memory block. One instance: its undo ledger lives in it, and the chat rows read it.
+     * Passed to the tool family, so the agent and the chat share the same ledger.
+     */
+    val memoryBlockStore: SettingsMemoryBlockStore by lazy { SettingsMemoryBlockStore(settings) }
+
     /** The app lock, one for the process. Created at app start so it sees every activity from the first one. */
     val appLock: dev.localintelligence.app.security.AppLock by lazy {
         dev.localintelligence.app.security.AppLock(context, settings)
@@ -292,7 +299,7 @@ class AppContainer(private val context: Context) {
     val scriptRepository: ScriptPluginRepository by lazy { ScriptPluginRepository(File(context.filesDir, "plugins")) }
 
     private val builtInPlugins: List<AgentPlugin> by lazy {
-        val families = androidToolPlugins(context, settings, session.todos)
+        val families = androidToolPlugins(context, settings, session.todos, memoryBlockStore)
         val flavor = FlavorPlugins.plugins(context, settings)
         val cloud = openRouterPlugin
         val sandbox = sandboxPlugin
