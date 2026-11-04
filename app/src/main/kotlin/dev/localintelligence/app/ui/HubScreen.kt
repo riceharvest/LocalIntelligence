@@ -661,11 +661,11 @@ private fun RecommendedModelCard(option: SimpleSetup.RecommendedModel, onDownloa
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (!option.fitsThisPhone) {
+            option.note?.let { note ->
                 Text(
-                    "Too big for this phone.",
+                    note,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Button(onClick = onDownload, modifier = Modifier.padding(top = 4.dp)) { Text("Download") }

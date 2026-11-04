@@ -205,8 +205,12 @@ object SimpleSetup {
         else -> LFM2_5_230M
     }
 
-    /** A model Simple mode may offer, and whether this phone's RAM is enough for it. */
-    data class RecommendedModel(val model: SuggestedModel, val fitsThisPhone: Boolean)
+    /**
+     * A model Simple mode may offer. [fitsThisPhone] orders the list; [note] is the one line the
+     * card adds about this phone, or null. A model that does not fit gets its real cut-off as a
+     * note, never a "too big" claim: the 4B is recommended from 12 GB, and is not refused below it.
+     */
+    data class RecommendedModel(val model: SuggestedModel, val fitsThisPhone: Boolean, val note: String?)
 
     /**
      * Every model the Play build's Simple mode may download. The phone's suggestion comes first,
@@ -218,9 +222,17 @@ object SimpleSetup {
         val suggestion = suggestedModel(facts)
         val ram = facts.totalRamBytes
         return listOf(
-            RecommendedModel(LFM3_1_7B, fitsThisPhone = ram >= LFM3_MIN_RAM),
-            RecommendedModel(LFM2_5_230M, fitsThisPhone = true),
-            RecommendedModel(SPARK_4B, fitsThisPhone = ram >= SPARK_MIN_RAM),
+            RecommendedModel(
+                LFM3_1_7B,
+                fitsThisPhone = ram >= LFM3_MIN_RAM,
+                note = if (ram >= LFM3_MIN_RAM) null else "Too big for this phone.",
+            ),
+            RecommendedModel(LFM2_5_230M, fitsThisPhone = true, note = null),
+            RecommendedModel(
+                SPARK_4B,
+                fitsThisPhone = ram >= SPARK_MIN_RAM,
+                note = if (ram >= SPARK_MIN_RAM) null else "Best on phones with 12 GB or more.",
+            ),
         ).sortedWith(
             compareBy<RecommendedModel> { it.model.repo != suggestion.repo || it.model.file != suggestion.file }
                 .thenBy { !it.fitsThisPhone },

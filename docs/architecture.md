@@ -644,7 +644,8 @@ that let people download arbitrary models. Simple mode shows those models as
 cards and no search. Technical mode, and the full build in both modes, keep
 the open search. The rule is enforced in `HubViewModel`, not only in the screen:
 a search, a popular list, a free-text submit, a prefill, a quant selection or a
-download of any other repository or file is refused before any network call.
+download of any other repository or file is refused before any network call. The one extra file a listed model brings is
+its photo projector, which comes from the same repository.
 Importing a model file the user already has on the phone is not a download and
 is not limited.
 
