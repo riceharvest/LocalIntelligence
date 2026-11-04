@@ -36,6 +36,9 @@ private const val CAPTION_PROMPT =
     "Describe this photo in one short plain sentence: the main subject, the place, and any " +
         "text you can read. No preamble."
 
+/** One photo a search found: its MediaStore URI and the caption that matched. */
+data class PhotoHit(val uri: String, val caption: String)
+
 /** What one caption attempt produced. */
 sealed interface Described {
     data class Caption(val text: String) : Described
@@ -160,11 +163,11 @@ class PhotoSearchIndex(
     suspend fun clear(): Int = withContext(Dispatchers.IO) { dao().clear() }
 
     /**
-     * The captions of the best [limit] photos for [query], best first. Hybrid when the
-     * embedding model is present and every row has a vector from that same model; otherwise
-     * keyword only, through the same BM25 index Documents uses.
+     * The best [limit] photos for [query], best first, each with its URI so the answer can show
+     * it. Hybrid when the embedding model is present and every row has a vector from that same
+     * model; otherwise keyword only, through the same BM25 index Documents uses.
      */
-    suspend fun search(query: String, limit: Int): List<String> = withContext(Dispatchers.IO) {
+    suspend fun search(query: String, limit: Int): List<PhotoHit> = withContext(Dispatchers.IO) {
         val rows = dao().all()
         if (rows.isEmpty() || limit <= 0) return@withContext emptyList()
         val index = DocumentIndex.build(rows.map { IndexedDocument(it.uri, "photo", it.caption) })
@@ -184,7 +187,8 @@ class PhotoSearchIndex(
         } else {
             index.search(query, limit)
         }
-        passages.map { it.text }
+        // The document id is the photo's URI (see the IndexedDocument above).
+        passages.map { PhotoHit(uri = it.docId, caption = it.text) }
     }
 
     /**

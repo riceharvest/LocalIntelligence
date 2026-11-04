@@ -21,6 +21,9 @@ import dev.localintelligence.android.cloud.ChatGptPlugin
 import dev.localintelligence.android.cloud.ChatGptSignIn
 import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.android.cloud.ExtrasSettings
+import dev.localintelligence.android.cloud.LanModelScan
+import dev.localintelligence.android.cloud.LanModelServer
+import dev.localintelligence.android.cloud.RemoteProviderSettings
 import dev.localintelligence.android.cloud.OpenRouterChatBackend
 import dev.localintelligence.android.cloud.RemoteChatOffer
 import dev.localintelligence.android.cloud.RemoteProviders
@@ -1245,6 +1248,31 @@ class AppContainer(private val context: Context) {
     /** Saves the chat model id for the chosen provider. Chosen from the list or typed. */
     fun setRemoteChatModel(model: String) {
         settings.set(OpenRouterSettings.CHAT_MODEL, model.trim())
+    }
+
+    /**
+     * Looks for model servers on this phone's Wi-Fi. Called only from the Find button on the Models
+     * page: nothing scans in the background.
+     */
+    suspend fun findLanModelServers(): List<LanModelServer> = withContext(Dispatchers.IO) { LanModelScan.scan() }
+
+    /**
+     * Makes [server] the chat model, using its first listed model id, and turns the remote chat
+     * option on. Returns false when the server lists no model. Like [useRemoteChat], the choice is
+     * not kept across a restart.
+     */
+    suspend fun useLanModelServer(server: LanModelServer): Boolean = readinessLock.withLock {
+        val model = server.models.firstOrNull() ?: return@withLock false
+        settings.set(RemoteProviderSettings.LAN_BASE_URL, server.baseUrl)
+        settings.set(RemoteProviderSettings.LAN_MODEL, model)
+        settings.setPluginEnabled(openRouterPlugin, true)
+        useRemoteChatLocked()
+    }
+
+    /** Clears the found server, so remote chat goes back to the chosen provider. */
+    fun forgetLanModelServer() {
+        settings.set(RemoteProviderSettings.LAN_BASE_URL, "")
+        settings.set(RemoteProviderSettings.LAN_MODEL, "")
     }
 
     /**
