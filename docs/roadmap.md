@@ -459,8 +459,12 @@ or `ChatViewModel`; a search of the source, not a device check):
       offensive content [https://support.google.com/googleplay/android-developer/answer/14094294].
       The app downloads any Hugging Face GGUF, including uncensored ones. Decision for the
       owner: in the Play build, does Simple mode offer only the recommended models, and does
-      the Hub stay in Technical mode? I did not find an in-app reporting rule on that page;
-      verify in Play Console before submitting.
+      the Hub stay in Technical mode?
+[ ] In-app report for AI replies. "Apps that generate content using AI must contain
+      in-app user reporting or flagging features", reaching the developer without leaving
+      the app [https://support.google.com/googleplay/android-developer/answer/13985936].
+      There is no backend before Extras, so a "Report this reply" action on each reply
+      opens a prefilled email or GitHub issue (reply text only with the user's OK).
 [ ] Full build release. Signed APK on GitHub Releases, a tag, a SHA-256 file and release
       notes. There are no GitHub Releases yet (checked 2026-11-04).
 [ ] Android developer verification for the full build. Apps installed outside Play must
