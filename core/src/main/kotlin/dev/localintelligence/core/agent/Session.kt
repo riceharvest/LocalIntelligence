@@ -207,6 +207,12 @@ class Session(
     var workingSummary: CompactedState? = null
 
     /**
+     * The task checklist of this conversation (see [TodoList]). Not in [messages], so no
+     * fold or trim can remove it, and not persisted: a restored conversation starts without one.
+     */
+    val todos: TodoList = TodoList()
+
+    /**
      * Records the task as a new opening user turn.
      *
      * WHY NOT IDEMPOTENT ANY MORE: this used to add the turn only if the
@@ -407,6 +413,7 @@ class Session(
         messages.clear()
         pruneIdentities()
         workingSummary = null
+        todos.clear()
         epochTools.clear()
         discoveredTools.clear()
         groundedNumbers.clear()
@@ -466,6 +473,8 @@ class Session(
         val adopted = bounded.subList(firstQuestion, bounded.size)
         messages.clear()
         messages += adopted
+        // The list belonged to the conversation it was written in, and is not stored with it.
+        todos.clear()
         appendedCount = adopted.size
         groundedNumbers.clear()
         adopted.forEach(::ground)

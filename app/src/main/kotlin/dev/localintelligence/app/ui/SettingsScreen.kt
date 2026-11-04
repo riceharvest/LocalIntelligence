@@ -105,6 +105,7 @@ import dev.localintelligence.android.gateway.telegram.TelegramSettings
 import dev.localintelligence.android.mcp.McpSettings
 import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.android.tools.OBSERVATIONS_FAMILY_ID
+import dev.localintelligence.android.tools.TODO_FAMILY_ID
 import dev.localintelligence.app.LocalIntelligenceApp
 import dev.localintelligence.app.WakeWordService
 import dev.localintelligence.app.export.ChatExporter
@@ -271,7 +272,7 @@ fun SettingsScreen(
                     }
                     // Script plugins have their own screen, with the same switch, so they are not repeated here.
                     // Saved results are always on: every long tool result's preview names their tool.
-                    plugins.filterNot { it is ScriptPlugin || it.id == OBSERVATIONS_FAMILY_ID }.forEach { plugin ->
+                    plugins.filterNot { it is ScriptPlugin || it.id == OBSERVATIONS_FAMILY_ID || it.id == TODO_FAMILY_ID }.forEach { plugin ->
                         SwitchRow(
                             title = plugin.title,
                             help = plugin.summary,

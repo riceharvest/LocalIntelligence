@@ -290,7 +290,7 @@ class AppContainer(private val context: Context) {
     val scriptRepository: ScriptPluginRepository by lazy { ScriptPluginRepository(File(context.filesDir, "plugins")) }
 
     private val builtInPlugins: List<AgentPlugin> by lazy {
-        val families = androidToolPlugins(context, settings)
+        val families = androidToolPlugins(context, settings, session.todos)
         val flavor = FlavorPlugins.plugins(context, settings)
         val cloud = openRouterPlugin
         val sandbox = sandboxPlugin

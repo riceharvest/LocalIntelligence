@@ -1637,6 +1637,43 @@ object V0ToolCatalogue {
             ),
             requiredPermission = null,
         ),
+        // ------------------------------------------------------------- todo
+        // The task checklist. The runtime holds the list and puts it back into each prompt
+        // (see TodoList); the call only replaces it. REVERSIBLE and LOCAL: it changes nothing
+        // outside the conversation, and the observation echoes no text.
+        ToolDefinition(
+            name = "todo.update",
+            description = "Keeps the checklist of a multi-step task. Send the whole list each time.",
+            category = "todo",
+            schema = objSchema(required = listOf("items")) {
+                putJsonObject("items") {
+                    put("type", "array")
+                    put("maxItems", 12)
+                    put("description", "The whole list, in order.")
+                    putJsonObject("items") {
+                        put("type", "object")
+                        putJsonObject("properties") {
+                            putJsonObject("text") {
+                                put("type", "string")
+                                put("description", "What to do, in a few words.")
+                            }
+                            putJsonObject("status") {
+                                put("type", "string")
+                                putJsonArray("enum") {
+                                    add("pending"); add("in_progress"); add("done"); add("cancelled")
+                                }
+                            }
+                        }
+                        putJsonArray("required") { add("text"); add("status") }
+                    }
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("todo", "to do", "checklist", "task list", "steps", "progress", "plan"),
+            requiredPermission = null,
+        ),
+
         // -------------------------------------------------------- observations
         // Reads back the full text of a long tool result the model saw as a preview.
         // NETWORK origin: the stored text is whatever a tool returned, web pages included.
