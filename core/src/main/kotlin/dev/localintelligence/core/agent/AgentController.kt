@@ -32,6 +32,7 @@ import dev.localintelligence.core.policy.Decision
 import dev.localintelligence.core.policy.PolicyOutcome
 import dev.localintelligence.core.policy.PolicyRule
 import dev.localintelligence.core.policy.RiskPolicy
+import dev.localintelligence.core.policy.ScreenScope
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.CancellationSignal
 import dev.localintelligence.core.tool.ObservationStore
@@ -305,6 +306,11 @@ class AgentController(
      * stopped, failed or waits on an approval.
      */
     private val afterAnswer: ((AgentController) -> Unit)? = null,
+    /**
+     * True when the model answering this run is a remote provider, so what a screen tool reads
+     * leaves the phone with the request (docs/threat-model.md T10). A screen confirmation says so.
+     */
+    private val screenTextLeavesPhone: Boolean = false,
 ) {
     /**
      * Run state. It outlives a single call because
@@ -368,6 +374,11 @@ class AgentController(
         val tool: AgentTool,
         val args: ToolArgs,
         val step: Int,
+        /**
+         * The app a screen call acts in, as it was shown to the person. Carried so an approval
+         * of rule g can record the per-app grant for exactly that app. Null for other tools.
+         */
+        val screen: ScreenScope? = null,
         /**
          * WHY the session is carried here and not recomputed: the approval the
          * user grants is a capability bound to the exact arguments they were
@@ -565,6 +576,11 @@ class AgentController(
                             // destructive quota even though it never went through
                             // `recordExecuted` as an automatic call.
                             riskPolicy.recordConfirmed(call.tool.definition.risk)
+                            // Rule g only: the person approved this app for the request. A guarded
+                            // control's approval covers that one tap and grants nothing further.
+                            if (session.rule == PolicyRule.SCREEN_APP_NOT_GRANTED) {
+                                call.screen?.let { riskPolicy.grantScreen(it.packageName) }
+                            }
                             early = execute(call.copy(args = claimed, userConfirmed = true))
                         }
                     }
@@ -813,9 +829,26 @@ class AgentController(
         // the message needs no tool (measured: "What is 17 times 23?" set a real timer). A tool
         // whose name or tags the message does not mention is one the user did not ask for.
         val requested = ToolRequest.asksFor(task, tool.definition)
+        // Screen tools resolve the index against the live screen. The result is the app and the
+        // control the policy judges, and it is kept with the parked call so an approval records the
+        // grant for the app the person was shown.
+        val screen = if (tool.definition.risk == ToolRisk.SCREEN_CONTROL) {
+            tool.screenScope(action.arguments)
+        } else {
+            null
+        }
         val decision = riskPolicy.evaluate(
             tool.definition, action.arguments, tool.describeTarget(action.arguments), requested,
-        )
+            screen = screen,
+        ).let { d ->
+            // The confirmation card says so when a remote model answers: the screen text it reads
+            // goes to that provider. Only the sentence changes, never the outcome.
+            if (screenTextLeavesPhone && d.risk == ToolRisk.SCREEN_CONTROL && d.outcome == PolicyOutcome.REQUIRE_CONFIRMATION) {
+                d.copy(justification = d.justification + " The text on that screen goes to the remote model that answers this request.")
+            } else {
+                d
+            }
+        }
         if (decision.rule == PolicyRule.NOT_REQUESTED) {
             log("guard: ${action.name} not asked for by the message, confirming first")
         }
@@ -880,6 +913,7 @@ class AgentController(
                         args = action.arguments,
                         step = step,
                         session = session,
+                        screen = screen,
                     )
                     // NO trace entry here on purpose. A TOOL_CALL entry means
                     // "this call was dispatched", and a parked call was not

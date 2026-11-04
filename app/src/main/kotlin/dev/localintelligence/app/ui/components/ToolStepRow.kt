@@ -263,6 +263,7 @@ private fun RiskLine(risk: ToolRisk) {
         ToolRisk.DESTRUCTIVE -> "This can't be undone." to true
         ToolRisk.EXTERNAL_COMMUNICATION -> "This sends something to someone else." to false
         ToolRisk.NETWORK_EGRESS -> "This contacts a website. Only allow sites you recognise." to false
+        ToolRisk.SCREEN_CONTROL -> "This reads or acts in another app's screen. Only allow apps you recognise." to false
         else -> "This needs your OK." to false
     }
     Text(

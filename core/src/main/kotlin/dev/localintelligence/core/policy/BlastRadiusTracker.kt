@@ -48,11 +48,29 @@ class BlastRadiusTracker(
         if (risk == ToolRisk.DESTRUCTIVE) destructiveCount += 1
     }
 
-    /** Clears all counters. Call at the start of every task. */
+    /**
+     * Apps the user approved for screen control in this task, by package name.
+     *
+     * WHY per run and not per process: the approval is "let the assistant use <App> for this
+     * request", and a grant that outlived the request would let a later message act in an app
+     * the user approved for something else. Cleared with the other counters in [reset].
+     */
+    private val grantedScreenPackages: MutableSet<String> = mutableSetOf()
+
+    /** Records that the user approved screen control in [packageName] for this task. */
+    fun grantScreen(packageName: String) {
+        grantedScreenPackages += packageName
+    }
+
+    /** True when the user approved screen control in [packageName] for this task. */
+    fun screenGranted(packageName: String): Boolean = packageName in grantedScreenPackages
+
+    /** Clears all counters and screen grants. Call at the start of every task. */
     fun reset() {
         actionCount = 0
         destructiveCount = 0
         confirmedCount = 0
+        grantedScreenPackages.clear()
     }
 
     /**

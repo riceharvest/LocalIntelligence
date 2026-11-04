@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.app.screen.ScreenRun
 import dev.localintelligence.app.media.PendingAttachments
 import dev.localintelligence.core.agent.AgentController
 import dev.localintelligence.core.agent.AgentResult
@@ -122,6 +123,8 @@ class AgentViewModel(
             controller = it
             if (cancelRequested) it.cancel()
         }
+        // The Stop overlay of screen control (full build) ends this run exactly as the Stop button does.
+        ScreenRun.setStopHandler { cancel() }
         val media = queuedMedia
         queuedMedia = emptyList()
         job = scope.launch { runAndPublish(runner) { runner.run(task, media) } }
@@ -287,10 +290,14 @@ class AgentViewModel(
                 sinks.trace.value = runner.traceSnapshot
             }
             publish(result)
+            // The Stop overlay stays up while the run waits for an approval, and goes when it is over.
+            if (result !is AgentResult.AwaitingConfirmation) ScreenRun.end()
         } catch (e: CancellationException) {
+            ScreenRun.end()
             publishCancelled()
             throw e
         } catch (t: Throwable) {
+            ScreenRun.end()
             // `guarded` already converts an exception into `Stop`, so reaching
             // here means something outside the controller's own try block
             // failed. Publishing a terminal state is still better than leaking

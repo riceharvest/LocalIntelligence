@@ -3,4 +3,6 @@
     <!-- Distinct from the Play build's label so the two launcher icons are told apart when
          installed side by side (docs/adr/0002-play-and-full-builds.md). -->
     <string name="app_name">LocalIntelligence Full</string>
+    <string name="screen_control_service_label">LocalIntelligence screen control</string>
+    <string name="screen_control_service_description">Lets the assistant read the app on screen and tap, type or scroll in apps you approve. Nothing is done in an app until you approve it for a request.</string>
 </resources>

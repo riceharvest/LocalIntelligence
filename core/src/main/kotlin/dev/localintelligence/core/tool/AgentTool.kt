@@ -3,6 +3,7 @@ package dev.localintelligence.core.tool
 import kotlinx.serialization.json.JsonObject
 import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
+import dev.localintelligence.core.policy.ScreenScope
 
 /**
  * Risk classification. The RUNTIME decides what needs confirmation — never the
@@ -35,13 +36,26 @@ enum class ToolRisk {
      * `REQUIRE_CONFIRMATION` below any config value.
      */
     NETWORK_EGRESS,
+
+    /**
+     * Reads or acts on another app's screen through the Accessibility service (full build only).
+     *
+     * WHY A TIER OF ITS OWN, NOT PRIVILEGED: PRIVILEGED is hard-blocked and can never be
+     * confirmed, and that is right for root or device admin. Screen control is a
+     * deliberate, user-enabled capability, so it gets a tier the policy can ask about:
+     * one approval per app per run, and never auto-accepted. Reading another app's screen
+     * is as sensitive as acting in it, so every `screen.*` tool carries this tier, reads
+     * included. The rules are in `RiskPolicy` (docs/adr/0003-screen-control-approval-per-app.md).
+     */
+    SCREEN_CONTROL,
     PRIVILEGED,
     ;
 
     val requiresConfirmation: Boolean
         get() = this == DESTRUCTIVE ||
             this == EXTERNAL_COMMUNICATION ||
-            this == NETWORK_EGRESS
+            this == NETWORK_EGRESS ||
+            this == SCREEN_CONTROL
 }
 
 data class ToolDefinition(
@@ -149,4 +163,15 @@ interface AgentTool {
      * change anything. Null keeps the policy's own wording.
      */
     suspend fun describeTarget(args: ToolArgs): String? = null
+
+    /**
+     * The app and control a screen tool would act on, resolved on the live screen, or null.
+     *
+     * WHY this exists: the policy judges a screen call by WHICH app it touches and whether
+     * the control is a guarded one (send, pay, delete...). Those facts are only on the
+     * screen, not in the arguments, which hold an index. Called at plan time, before the
+     * policy decides, and it must change nothing. Null means the index did not resolve,
+     * and the policy then refuses the call and asks the model to read the screen again.
+     */
+    suspend fun screenScope(args: ToolArgs): ScreenScope? = null
 }
