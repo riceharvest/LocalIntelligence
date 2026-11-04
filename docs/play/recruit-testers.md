@@ -1,7 +1,7 @@
 # Message to recruit 12 closed testers (draft)
 
 Play needs 12 testers opted in for 14 days before production (docs/roadmap.md, "Play developer
-account and closed testing"). Send this in person or by message. Do not send it to a list of
+account and closed testing"; rule: https://support.google.com/googleplay/android-developer/answer/14151465). Send this in person or by message. Do not send it to a list of
 strangers. Replace the bracketed parts before sending. Nothing is sent by this file.
 
 ---

@@ -23,24 +23,44 @@ UNCONFIRMED.
 | `READ_CALL_LOG` | `calls.recent` | List recent calls when the person asks. |
 
 Every call first checks that LocalIntelligence holds the default digital assistant role
-(`DefaultAssistant.refusalUnlessHeld`, android/.../tools/messages/MessageTools.kt). The
-Permissions screen shows these three rows only while the role is held
-(`needsAssistantRole`, app/.../ui/PermissionScreen.kt). Without the role nothing is read or sent.
+(`DefaultAssistant.refusalUnlessHeld`, android/.../tools/messages/MessageTools.kt), then the runtime
+permission. Without the role nothing is read or sent.
+
+The Permissions screen lists the three rows in every build that declares them. Without the role,
+a row reads "Off", says "Only the default assistant app can use this", and offers only "Set as
+default assistant" (`statusOf`, `NEEDS_ASSISTANT_ROLE`, app/.../ui/PermissionScreen.kt). The
+Allow button appears only once the role is held (`PermissionStatus.canAsk`).
+
+**Where the tools run (read from code, not yet run):** the role check is not the only gate.
+Scheduled runs and Telegram-started runs (`ExecutionService`, `replyChat` or `scheduledTaskId`)
+run with `background = true` and `declineApprovals = true`. Those runs keep every tool except
+screen control (`AppContainer.kt`, `pluginTools`). `sms.search` and `calls.recent` are
+`READ_ONLY`, and `RiskPolicy` asks for confirmation only for guarded tools, so both run without
+asking. `sms.send` needs confirmation, and an unattended run declines it (`AgentViewModel.kt`,
+the `declineApprovals` loop). Nothing in the code passes `requestedByMessage = false`, so the
+"not requested by the message" guard is not wired.
 
 ### Declaration text (for the form)
 
-> LocalIntelligence is an on-device AI assistant that a person can choose as the phone's default
-> digital assistant app. Only while it holds that role, and only for a request the person makes,
-> it can search the texts on the phone, list recent calls, or send one text message. Sending always
-> asks the person to confirm the recipient and the text first. Texts and call entries are shown to
-> the person. They leave the phone only if the person has turned on a remote model provider and the
-> request includes them, and then they go to that provider. The developer does not receive texts or
-> call history. The app does not run these tools in the background.
+**DO NOT SUBMIT this text as it stands.** It describes the behaviour the owner wants, and the
+code does not yet do it. The owner must first choose one of these:
 
-**UNCONFIRMED before submitting:** the last sentence. Scheduled tasks run agent runs
-(`ExecutionService`, `ScheduledTaskFireReceiver`). The code has not been checked for whether a
-scheduled run can call `sms.search` or `calls.recent`. If it can, delete that sentence, or stop
-those tools in scheduled runs.
+- (a) Keep the tools in scheduled and Telegram runs. Then the text below stands, with the last two
+  sentences as written.
+- (b) Leave `sms.search`, `sms.send` and `calls.recent` out of unattended runs. That is a code change
+  in `AppContainer.kt` (`pluginTools`, where screen control is already filtered out for `background`).
+  Then delete the "scheduled" and "Telegram" sentences below.
+
+> LocalIntelligence is an on-device AI assistant that a person can choose as the phone's default
+> digital assistant app. Only while it holds that role, it can search the texts on the phone, list
+> recent calls, or send one text message. Sending always asks the person to confirm the recipient
+> and the text first, and an unattended run cannot send. Texts and call entries are shown to the
+> person. They leave the phone in these cases only: a remote model provider the person turned on
+> receives them as part of a request; or a private Telegram chat the person linked receives the
+> assistant's reply to a request from that chat. The developer does not receive texts or call
+> history. Scheduled tasks that the person has set up can also search texts and read the call log
+> without asking each time, and their answers are kept on the phone unless a remote model or a linked
+> Telegram chat receives them.
 
 ### Steps for the reviewers to set the default assistant
 
@@ -52,8 +72,8 @@ those tools in scheduled runs.
    path is Settings, then Apps, then Default apps, then Digital assistant app. **UNCONFIRMED** on the
    Pixel 10 Pro and on the Play review phone.
 4. Choose LocalIntelligence. Return to the app.
-5. Open the Permissions screen. The rows "Texts, reading", "Texts, sending" and "Call history"
-   now show a Grant button.
+5. Open the Permissions screen. Before step 3 the rows "Texts, reading", "Texts, sending" and
+   "Call history" read "Off" with a "Set as default assistant" button. After step 3 they show "Allow".
 6. Grant the three rows. Ask: "Did anyone text me today?" (texts search). Ask: "Who called me
    recently?" (call log). Ask: "Text 0600000000 saying hello" (send). Check that the app asks for
    confirmation before it sends.
@@ -81,10 +101,10 @@ Foreground service types in the merged manifest, one row per service (types from
 | `WakeWordService` | `microphone` | Listens for the wake phrase while the wake word setting is on. Audio is read in memory and discarded (WakeWordService.kt KDoc). | "Hey ..." stops working until the service starts again. | **Yes**, script 1. |
 
 **Check before submitting:**
-- `ChatGptSignInService` lists `shortService` in the manifest. The manifest does not declare
-  `FOREGROUND_SERVICE_SHORT_SERVICE`. Whether Android needs that permission for the short type is
-  **UNCONFIRMED** here. Check it on a device with API 35 and on the Play policy page. If it is
-  needed, add it to the manifest. If it is not, leave it.
+- `ChatGptSignInService` lists `shortService` in the manifest. Check whether the `shortService`
+  type needs any type-specific permission. **UNCONFIRMED** here; neither the manifest nor the
+  Play page in docs/roadmap.md was read for it. Check on a device with API 35 and on the Play
+  policy page before deciding anything.
 - The manifest declares `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` and
   `FOREGROUND_SERVICE_MICROPHONE`. It does not declare a short-service permission.
 - Each service's type must match its `startForeground` call. The manifest comments say so; a
@@ -136,6 +156,6 @@ background behaviour as the video (docs/roadmap.md), so the person starts each s
 
 ## 4. Content of the form, for the owner
 
-- The app does not sell or share data beyond what docs/data-safety.md lists.
+- The app does not sell or share data beyond what docs/play/data-safety.md lists.
 - The app asks for these permissions only when a tool needs them (Android runtime prompts, or
   Settings switches for special access).

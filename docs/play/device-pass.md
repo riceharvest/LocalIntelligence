@@ -74,7 +74,7 @@ Use the steps in docs/play/declarations.md, section 1 and script 2.
 - [ ] ChatGPT sign-in on API 35 and up, with the browser in front: the sign-in completes. Note the
       service type that ran. **Check** the `shortService` question in docs/play/declarations.md.
 
-## 8. Privacy statements that the code may contradict (docs/data-safety.md, OPEN)
+## 8. Privacy statements that the code may contradict (docs/play/data-safety.md, OPEN)
 
 - [ ] Weather with no place named: does the request carry the phone's coordinates? The privacy page
       says it carries "the place name or search words" only. Check the request on the device.

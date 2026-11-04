@@ -35,8 +35,8 @@ On-device reads are listed where they matter for the reviewer, not as collection
 | Approximate location | On device by default. **OPEN** as above when weather runs without a place. | `location.get` returns the fix to the model, which can then send it to a remote model if one is on. | Yes; permission asked on use | `ACCESS_COARSE_LOCATION` in the manifest. |
 | Contacts | Only through a remote model's conversation | `contacts.search` / `contacts.get` results appear in the chat. | Yes; permission asked on use | `READ_CONTACTS`. |
 | Calendar | Only through a remote model's conversation | `calendar.search` / `calendar.create` | Yes; permission asked on use | `READ_CALENDAR`, `WRITE_CALENDAR`. |
-| Texts (SMS) | Only through a remote model's conversation. Sending a text leaves the phone to the recipient through the carrier. | `sms.search` reads; `sms.send` sends after confirmation. | Yes; default assistant role plus permission | `READ_SMS`, `SEND_SMS`. |
-| Call log | Only through a remote model's conversation | `calls.recent` | Yes; default assistant role plus permission | `READ_CALL_LOG`. |
+| Texts (SMS) | **Yes, in three ways.** (1) To a remote model, if one is on, as part of a request. (2) To the person's linked Telegram chat, when a message from that chat asked for it and the assistant's reply includes it. (3) Not to the developer. Sending a text leaves the phone to the recipient through the carrier, after the person confirms. | `sms.search` is `READ_ONLY`, so it runs without a confirmation; scheduled and Telegram-started runs keep it (AppContainer.kt `pluginTools`, `declineApprovals` in ExecutionService.kt). `sms.send` always asks, and an unattended run declines it. | Yes; default assistant role plus permission | `READ_SMS`, `SEND_SMS`. Code read, not run. Owner decision: see "Texts and call log: owner decision" below. |
+| Call log | **Yes, in the same three ways as texts.** Scheduled and Telegram-started runs can read it without asking. | `calls.recent` is `READ_ONLY`. | Yes; default assistant role plus permission | `READ_CALL_LOG`. Same owner decision as texts. |
 | Notifications | Only through a remote model's conversation | `notifications.list`, `.reply`, `.dismiss`; needs notification access | Yes | `LocalNotificationListenerService`. |
 | Installed apps list | On device; a remote model sees it only if the tool result is sent. | `apps.list` | Yes | Package visibility only (`<queries>` in the manifest), no permission. |
 | Files the person picks | Only through a remote model's conversation | `files.*` through the document picker | Yes | Play build: `READ_EXTERNAL_STORAGE` only up to API 32 (manifest). |
@@ -52,6 +52,20 @@ On-device reads are listed where they matter for the reviewer, not as collection
 | Model downloads | **Yes**, a file request to Hugging Face | Download file requests only | Yes; the person picks the model | docs/hf-hub-download.md. |
 | Image or video generation (OpenRouter) | **Yes**, the prompt | openrouter.ai | Yes; OpenRouter plugin on, with a key | README. |
 | Extras (paid subscription, Play Billing) | **No, in the build as shipped.** The Extras row is hidden and no billing call runs when `EXTRAS_BACKEND_URL` is empty. | `ExtrasBilling.enabled` is false; `checkAtStart()` runs only when enabled (AppContainer.kt, ExtrasBilling.kt). | Yes | See "Extras and Billing" below. |
+
+## Texts and call log: owner decision (before any submission)
+
+Scheduled runs and Telegram-started runs keep `sms.search` and `calls.recent`, and both are
+read-only, so they run without a confirmation. Their results can leave the phone through a
+linked Telegram chat, which the Play declaration and this form must say. Two options:
+
+- (a) Keep the behaviour. Declare it, as written in docs/play/declarations.md, with scheduled and
+  Telegram use named.
+- (b) Remove `sms.search` and `calls.recent` from unattended runs. Code change in
+  `app/.../AppContainer.kt` (`pluginTools`), beside the screen-control filter. Then declare
+  only the chat-initiated use.
+
+The drafts above describe the current code. They do not decide this.
 
 ## Extras and Billing (owner decision)
 
@@ -75,5 +89,7 @@ On-device reads are listed where they matter for the reviewer, not as collection
 ## Reviewer notes to paste if the form asks
 
 - Reports are the only data the developer receives, and only when the person sends one.
-- All other data stays on the phone, or goes to a service the person turned on and set up.
+- Other data stays on the phone, or goes to a service the person turned on and set up. Texts and
+  call-log results are an exception to "stays on the phone" when a Telegram chat or a remote model
+  receives them; see the owner decision above.
 - Sending texts always asks first (`sms.send` is never auto-accepted; DEFAULT_NEVER_AUTO_ACCEPT in core/.../policy/PolicyConfig.kt).
