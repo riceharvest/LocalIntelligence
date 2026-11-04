@@ -2,7 +2,20 @@ package dev.localintelligence.core.metrics
 
 import dev.localintelligence.core.agent.StepTrace
 import dev.localintelligence.core.model.GenerationResult
+import dev.localintelligence.core.model.StopReason
 import dev.localintelligence.core.model.ToolArgs
+
+/**
+ * One generation as the backend reported it. Zero means "not reported", which is
+ * how [GenerationResult] defaults its fields; it is never a measured zero.
+ */
+data class GenerationRecord(
+    val promptTokens: Int,
+    val completionTokens: Int,
+    val prefillMs: Long,
+    val decodeMs: Long,
+    val stopReason: StopReason,
+)
 
 /**
  * Accumulates one run's metrics while it happens, and hands back a [RunMetrics].
@@ -31,6 +44,7 @@ class RunRecorder(
 ) {
     private val stepTimings = mutableListOf<StepTiming>()
     private val attempted = mutableListOf<ToolCallKey>()
+    private val generationLog = mutableListOf<GenerationRecord>()
 
     private var step: Int = 0
     private var phaseStartedAt: Long = time.nanoTime()
@@ -58,6 +72,13 @@ class RunRecorder(
      * estimated count would quietly change the secondary metric's denominator.
      */
     fun recordGeneration(result: GenerationResult) {
+        generationLog += GenerationRecord(
+            promptTokens = result.promptTokens,
+            completionTokens = result.completionTokens,
+            prefillMs = result.prefillMs,
+            decodeMs = result.decodeMs,
+            stopReason = result.stopReason,
+        )
         inputTokens += result.promptTokens
         outputTokens += result.completionTokens
         prefillMs += result.prefillMs
@@ -107,6 +128,15 @@ class RunRecorder(
 
     /** The [ToolCallKey]s this run attempted, in order. Diagnostics for a bad run. */
     fun attemptedCalls(): List<ToolCallKey> = attempted.toList()
+
+    /**
+     * Every generation this run made, in order, as the backend reported it.
+     *
+     * WHY a list next to the totals: the totals cannot say which generation was
+     * slow, and the debug run report (`DONE`) needs one row per generation. Zero
+     * in a field means the backend did not report that number.
+     */
+    fun generations(): List<GenerationRecord> = generationLog.toList()
 
     /**
      * Freezes the run, and files the result where the self-check screen can

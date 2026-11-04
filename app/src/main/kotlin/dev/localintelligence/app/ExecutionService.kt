@@ -347,6 +347,9 @@ class ExecutionService : Service() {
             newController = {
                 container.newController(
                     background = unattended,
+                    // Debug builds only: one recorder per run, so the run report has per-generation
+                    // numbers. Release: null, the controller records nothing, as before.
+                    metrics = DebugPorts.current?.newRunRecorder(),
                     // Streaming, wired at last. Every layer below already existed -
                     // generateStreaming on the backend, the per-token JNI callback,
                     // RunSinks.streamingText, appendStreamToken - and the loop called the

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only. This manifest is merged into the debug variants and nothing else. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Installs the debug port before the first screen opens, so the chat is attached in time. Not exported. -->
+        <provider
+            android:name=".debug.DebugPortInstaller"
+            android:authorities="${applicationId}.debugport"
+            android:exported="false" />
+
+        <!-- The adb control channel. DUMP is held by the adb shell, not by other apps. -->
+        <receiver
+            android:name=".debug.DebugControl"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="dev.localintelligence.debug.CMD" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>

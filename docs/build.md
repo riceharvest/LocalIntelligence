@@ -202,3 +202,32 @@ a library reaches by name needs one, so a new by-name lookup needs a new rule.
 
 **Status.** UNVERIFIED on a phone: the signed outputs have not been installed or run on a
 device, and the Play upload has not been made.
+
+## 8. Driving a debug build from adb
+
+A debug build has a control channel, so a test can be a text command and a text answer with
+real numbers, instead of screenshots and taps. It is compiled into debug builds only:
+`app/src/debug` (manifest, receiver, and the content provider that installs the port) is not part
+of any release source set, and `scripts/devicectl.sh` answers with an error against a release install.
+
+```
+scripts/devicectl.sh state                       # mode, model in use, running, pending approval, messages
+scripts/devicectl.sh send "what is the battery level"
+scripts/devicectl.sh ask "what is the battery level" 300   # send, then block until the run's DONE line
+scripts/devicectl.sh newchat                     # New chat, no dialog; refused while a run is active
+scripts/devicectl.sh models                      # installed models, file name, in use
+scripts/devicectl.sh usemodel <file name>        # Use button; the outcome is a LOADED line in logcat
+scripts/devicectl.sh mode technical
+scripts/devicectl.sh approve allow               # the same call as the Allow button; RiskPolicy still stages the call
+scripts/devicectl.sh transcript                  # last 30 visible rows
+```
+
+Raw form, for the flavor you want: `adb shell am broadcast -n dev.localintelligence.app/.debug.DebugControl
+-a dev.localintelligence.debug.CMD --es cmd state --es arg ""`. For the full flavor, set `LI_PKG=dev.localintelligence.app.full`.
+
+Every run ends with one `LIControl` line at INFO, `DONE {json}`: `outcome` (answer, failed, step_limit,
+cancelled), `answer` (capped at 3,000 characters, with `answerCut`), `total_ms`, `tools` (name, success, ms;
+ms is null for a call the runtime refused), and `generations` (per generation: `promptTokens`, `decodeTokens`,
+`decodeTokPerS`, `prefillMs`, and `stop`). Values the run did not measure are null. Today that means
+`tokensReused`, `prefillTokPerS` and `firstTokenMs` are always null, because the metrics do not carry them.
+`ask` clears the whole logcat buffer before it sends, because logcat has no per-tag clear.
