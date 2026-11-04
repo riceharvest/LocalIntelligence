@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 6,
-    "identityHash": "4444619ecc9c50e66a3112066b40323a",
+    "identityHash": "ee280e507890ecb554df43699ace9fb0",
     "entities": [
       {
         "tableName": "sessions",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `created_at` INTEGER NOT NULL, `last_active_at` INTEGER NOT NULL, `title` TEXT, `persona_id` INTEGER, `run_in_flight` INTEGER NOT NULL DEFAULT 0, `todo_json` TEXT)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `created_at` INTEGER NOT NULL, `last_active_at` INTEGER NOT NULL, `title` TEXT, `persona_id` INTEGER)",
         "fields": [
           {
             "fieldPath": "id",
@@ -35,18 +35,6 @@
             "fieldPath": "personaId",
             "columnName": "persona_id",
             "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "runInFlight",
-            "columnName": "run_in_flight",
-            "affinity": "INTEGER",
-            "notNull": true,
-            "defaultValue": "0"
-          },
-          {
-            "fieldPath": "todoJson",
-            "columnName": "todo_json",
-            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -389,6 +377,78 @@
         }
       },
       {
+        "tableName": "desktop_text",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`target` TEXT NOT NULL, `text` TEXT NOT NULL, `state_seq` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`target`))",
+        "fields": [
+          {
+            "fieldPath": "target",
+            "columnName": "target",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stateSeq",
+            "columnName": "state_seq",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "target"
+          ]
+        }
+      },
+      {
+        "tableName": "desktop_outbox",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `target` TEXT NOT NULL, `text` TEXT NOT NULL, `created_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "target",
+            "columnName": "target",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
         "tableName": "phone_index",
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `source` TEXT NOT NULL, `source_key` TEXT NOT NULL, `title` TEXT NOT NULL, `text` TEXT NOT NULL, `when_at` INTEGER NOT NULL, `indexed_at` INTEGER NOT NULL)",
         "fields": [
@@ -457,7 +517,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '4444619ecc9c50e66a3112066b40323a')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ee280e507890ecb554df43699ace9fb0')"
     ]
   }
 }
