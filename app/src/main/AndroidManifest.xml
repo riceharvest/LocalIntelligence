@@ -192,6 +192,13 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Serves the loaded model on 127.0.0.1 while the Local server plugin is on, behind a bearer token.
+             Started and stopped by LocalServerService.sync; the type matches its startForeground call. -->
+        <service
+            android:name=".LocalServerService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- Keeps the app alive while the browser is open for ChatGPT sign-in. Started and stopped
              by ChatGptSignInService's callers; the types match its startForeground call. -->
         <service

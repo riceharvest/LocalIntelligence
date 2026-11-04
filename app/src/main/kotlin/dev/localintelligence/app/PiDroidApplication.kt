@@ -44,6 +44,12 @@ class LocalIntelligenceApp : Application() {
         // wanted. The first value also covers a launch, so a phone that had it on reconnects when the app opens.
         gatewayScope.launch {
             container.settings.changes
+                .map { LocalServerService.enabledInTechnical(container) }
+                .distinctUntilChanged()
+                .collect { LocalServerService.sync(this@LocalIntelligenceApp, container) }
+        }
+        gatewayScope.launch {
+            container.settings.changes
                 .map { TelegramService.wanted(container) }
                 .distinctUntilChanged()
                 .collect { TelegramService.sync(this@LocalIntelligenceApp, container) }
