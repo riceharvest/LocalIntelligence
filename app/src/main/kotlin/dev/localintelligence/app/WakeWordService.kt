@@ -1,6 +1,7 @@
 package dev.localintelligence.app
 
 import android.Manifest
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -105,6 +106,7 @@ class WakeWordService : Service() {
 
         val phrase = activePhrase(container)
         if (!startForegroundNow(phrase)) {
+            postResumeNotification(this)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -422,6 +424,14 @@ class WakeWordService : Service() {
                 cancelResumeAndDetectionNotifications(appContext)
                 return
             }
+            // Android 14+ refuses a microphone foreground service created from the background,
+            // and a service that was started but cannot call startForeground crashes the app.
+            // So start only when a screen of ours is in front, or when the system bound our
+            // VoiceInteractionService (that app is exempt); otherwise ask the user with a tap.
+            if (!canStartMicrophoneServiceNow(appContext)) {
+                postResumeNotification(appContext)
+                return
+            }
             try {
                 ContextCompat.startForegroundService(appContext, intent)
                 cancelResumeNotification(appContext)
@@ -439,6 +449,13 @@ class WakeWordService : Service() {
          *   `microphone` foreground service from `BOOT_COMPLETED`, so we post a
          *   `"Tap to resume listening"` notification instead.
          */
+        private fun canStartMicrophoneServiceNow(context: Context): Boolean {
+            val state = ActivityManager.RunningAppProcessInfo()
+            ActivityManager.getMyMemoryState(state)
+            val inFront = state.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+            return inFront || (isDefaultAssistant(context) && AssistantInteractionService.isReady())
+        }
+
         fun onBootOrPackageReplaced(context: Context, container: AppContainer) {
             val appContext = context.applicationContext
             if (!wanted(appContext, container)) return

@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -51,6 +52,9 @@ class LocalIntelligenceApp : Application() {
             container.settings.changes
                 .map { container.settings[CoreSettings.WAKE_WORD] to WakeWordService.activePhrase(container) }
                 .distinctUntilChanged()
+                // Only real changes: the process also starts in the background (alarms,
+                // boot), where the screens and the voice service do the starting.
+                .drop(1)
                 .collect { WakeWordService.sync(this@LocalIntelligenceApp, container) }
         }
     }
