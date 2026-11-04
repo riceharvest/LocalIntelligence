@@ -535,7 +535,7 @@ private fun ExportRow(onExport: (ChatExporter.Format) -> Unit) {
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             ChatExporter.Format.entries.forEach { format ->
                 DropdownMenuItem(
-                    text = { Text(format.label) },
+                    text = { Text(stringResource(format.labelRes)) },
                     onClick = {
                         open = false
                         onExport(format)

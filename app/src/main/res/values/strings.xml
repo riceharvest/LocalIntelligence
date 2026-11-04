@@ -1510,4 +1510,7 @@
     <string name="local_server_timeout_error">Android stopped the local server after its six-hour background limit. Switch it off and on to restart it.</string>
     <string name="local_server_notification_text">Other apps on this phone can use the model. Switch the local server off in Settings to stop.</string>
     <string name="local_server_start_refused">Android would not start the local server in the background. Open LocalIntelligence to start it.</string>
+    <string name="export_format_markdown">Export as Markdown</string>
+    <string name="export_format_json">Export as JSON</string>
+    <string name="export_format_pdf">Export as PDF</string>
 </resources>
