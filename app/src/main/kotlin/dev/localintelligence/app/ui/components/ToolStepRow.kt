@@ -124,7 +124,16 @@ fun ToolStepRow(
     step: ChatMessage.ToolStep,
     animate: Boolean,
     modifier: Modifier = Modifier,
+    /** The memory line for a call that wrote the memory block, or null for every other call. */
+    memory: MemoryRow? = null,
 ) {
+    if (memory != null) {
+        Column(modifier = modifier) {
+            MemoryLine(memory)
+            ToolStepRow(step, animate)
+        }
+        return
+    }
     val state = stateOf(step)
     // Every row starts folded: its title already says whether it worked, and
     // the raw input and output are one tap away for whoever wants them.
@@ -928,4 +937,38 @@ fun ApprovalRow(
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier.fillMaxWidth().padding(vertical = 2.dp, horizontal = 4.dp),
     )
+}
+
+/**
+ * The memory-block change a call made, as the chat row shows it: the note kept, and an Undo while
+ * the block still holds what the change wrote.
+ */
+data class MemoryRow(
+    val note: String,
+    val cleared: Boolean,
+    val undoable: Boolean,
+    val onUndo: () -> Unit,
+)
+
+/**
+ * "Remembered: <note>" with Undo. Shown above the call's own row, so the visible change is what
+ * the user reads first. Only shown for a change the chat still knows about; an Undo that is no
+ * longer possible is not offered.
+ */
+@Composable
+private fun MemoryLine(row: MemoryRow) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = if (row.cleared) stringResource(R.string.memory_block_cleared)
+            else stringResource(R.string.memory_block_remembered, row.note),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f),
+        )
+        if (row.undoable) {
+            TextButton(onClick = row.onUndo) { Text(stringResource(R.string.memory_block_undo)) }
+        }
+    }
 }

@@ -735,6 +735,7 @@ class ChatViewModel(
                         // defaulted this to `true`, so a call the policy had
                         // refused rendered in the colour of a success.
                         success = observation?.success ?: false,
+                        changeId = observation?.changeId,
                         subSteps = entry.children
                             .filter { it.kind == StepTrace.Kind.TOOL_CALL }
                             .map { it.detail.take(SUBSTEP_CHARS) },
@@ -1573,6 +1574,8 @@ sealed interface ChatMessage {
         val detail: String,
         val durationMs: Long,
         val success: Boolean,
+        /** The memory-block change this call made, when it wrote the block: the row offers Undo for it. */
+        val changeId: Long? = null,
         /** For `task.delegate`: one line per tool call the subtask made, shown folded under the row. Empty otherwise. */
         val subSteps: List<String> = emptyList(),
     ) : ChatMessage {
@@ -1587,6 +1590,7 @@ sealed interface ChatMessage {
             observation = observation.detail,
             durationMs = observation.durationMs,
             success = observation.success,
+            changeId = observation.changeId ?: changeId,
         )
     }
 

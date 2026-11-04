@@ -15,7 +15,7 @@ object SkillDraft {
     private const val MAX_ARGS = 300
     private const val NAME_WORDS = 6
 
-    fun render(task: String, steps: List<DraftStep>): String {
+    fun render(task: String, steps: List<DraftStep>, allowedTools: Set<String> = emptySet()): String {
         val description = oneLine(task, MAX_DESCRIPTION)
         val body = buildString {
             append("# ").append(description).append('\n').append('\n')
@@ -30,7 +30,7 @@ object SkillDraft {
                 }
             }
         }
-        return SkillParser.render(nameFor(task), description, body)
+        return SkillParser.render(nameFor(task), description, body, allowedTools)
     }
 
     /** The first few words of the task, as a folder-safe name. Never empty. */
