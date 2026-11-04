@@ -64,6 +64,12 @@ data class StepTrace(
     // Null on every other kind, which is what a reader checks.
     val toolName: String? = null,
     val toolArgs: String? = null,
+    /**
+     * The model's thought before this step, on a GENERATION row, when it thought. Shown
+     * folded under the answer; never part of [detail] and never sent back to the model.
+     * Null on every other kind and when the model did not think.
+     */
+    val thought: String? = null,
 ) {
     enum class Kind { GENERATION, TOOL_CALL, OBSERVATION, MALFORMED, COMPACTION }
 }

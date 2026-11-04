@@ -268,6 +268,15 @@ class ChatViewModel(
      */
     private val narratedRows = java.util.IdentityHashMap<StepTrace, Int>()
 
+    /**
+     * Steps of a run the user replaced (retry or edit). The trace sink still holds that run's
+     * steps until the new run publishes, and renderTrace would draw them again as new rows.
+     */
+    private val retiredSteps: MutableSet<StepTrace> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
+
+    /** True between Edit and the Send that replaces the last user message. */
+    private var editingLast = false
+
     /** Whether [seedRestored] has run. Guarded by [transcriptLock]. */
     private var transcriptSeeded = false
 
@@ -620,6 +629,7 @@ class ChatViewModel(
         val baseSize = synchronized(transcriptLock) { _messages.value.size }
 
         for (entry in steps) {
+            if (entry in retiredSteps) continue
             when (entry.kind) {
                 StepTrace.Kind.GENERATION -> {
                     val isFinal = entry === lastGeneration
@@ -664,7 +674,7 @@ class ChatViewModel(
                     }
 
                     narrationPlacements += entry to (baseSize + base)
-                    additions += ChatMessage.Assistant(text)
+                    additions += ChatMessage.Assistant(text, entry.thought)
                     base += 1
                 }
 
@@ -739,7 +749,8 @@ class ChatViewModel(
                     if (row !is ChatMessage.Assistant) continue
                     if (row.text == text) continue
                     val target = copy ?: list.toMutableList().also { copy = it }
-                    target[index] = ChatMessage.Assistant(text)
+                    // A copy, not a new row: the thought drawn with the clipped text must survive the fix.
+                    target[index] = row.copy(text = text)
                 }
                 copy ?: list
             }
@@ -892,6 +903,7 @@ class ChatViewModel(
 
     fun onInputChange(value: String) {
         _input.value = value
+        if (value.isBlank()) editingLast = false
     }
 
     /** The loaded model's capabilities, read now. The composer asks this to decide what it can attach. */
@@ -899,14 +911,44 @@ class ChatViewModel(
 
     fun send() {
         val typed = _input.value.trim()
+        // An edit that was emptied is no longer an edit; a later Send is a new message.
+        if (typed.isEmpty()) editingLast = false
         if (!canSubmit(hasText = typed.isNotEmpty())) {
             refuseQueued()
             return
         }
         _input.value = ""
         speaker?.stop()
-        dispatch(typed)
+        val replaced = if (editingLast) lastUserRow()?.text else null
+        editingLast = false
+        dispatch(typed, replacing = replaced)
     }
+
+    /**
+     * Sends the last user message again, with the reply it got removed. Offered on the last
+     * finished reply only, and not for a message with pictures or a voice clip, whose bytes are
+     * no longer held.
+     */
+    fun retryLast() {
+        val last = lastUserRow() ?: return
+        if (last.attached.isNotEmpty() || !canSubmit(hasText = true)) return
+        speaker?.stop()
+        dispatch(last.text, replacing = last.text)
+    }
+
+    /**
+     * Puts the last user message back in the box to be changed. Nothing is removed until Send, so
+     * leaving the box (or emptying it) keeps the conversation as it was.
+     */
+    fun editLast() {
+        val last = lastUserRow() ?: return
+        if (last.attached.isNotEmpty() || !canSubmit(hasText = true)) return
+        _input.value = last.text
+        editingLast = true
+        showNotice("Change the message and send it. It replaces the last one.")
+    }
+
+    private fun lastUserRow(): ChatMessage.User? = _messages.value.lastOrNull { it is ChatMessage.User } as? ChatMessage.User
 
     /**
      * Puts text handed to the app from outside (a share, or "Ask" from another
@@ -974,15 +1016,32 @@ class ChatViewModel(
      * That includes an assistant screen capture, which the assistant queued
      * before forwarding its text here.
      */
-    private fun dispatch(typed: String) {
+    private fun dispatch(typed: String, replacing: String? = null) {
         attachmentQueue.add(_attachments.value)
         _attachments.value = emptyList()
         _notice.value = null
         _handsFree.update { if (it.notice == null) it else it.copy(notice = null) }
         val shown = attachmentQueue.snapshot().map { it.shown }
+        if (replacing != null) dropLastTurnRows()
         _messages.update { it + ChatMessage.User(typed, shown) }
         // ExecutionService refuses a blank task, so media alone still needs words to run on.
-        gateway.start(typed.ifEmpty { DEFAULT_MEDIA_TASK })
+        gateway.start(typed.ifEmpty { DEFAULT_MEDIA_TASK }, replacing)
+    }
+
+    /**
+     * Removes the last user row and every row after it, for a retry or an edit. The steps of the
+     * run they came from are retired, so renderTrace does not draw them again, and the row indices
+     * recorded for them are dropped with them.
+     */
+    private fun dropLastTurnRows() {
+        synchronized(transcriptLock) {
+            val list = _messages.value
+            val index = list.indexOfLast { it is ChatMessage.User }
+            if (index >= 0) _messages.value = list.subList(0, index).toList()
+            retiredSteps.addAll(gateway.trace.value)
+            toolRows.clear()
+            narratedRows.clear()
+        }
     }
 
     /**
@@ -1447,7 +1506,11 @@ sealed interface ChatMessage {
      * voice clip, never the bytes the model read.
      */
     data class User(val text: String, val attached: List<ShownAttachment> = emptyList()) : ChatMessage
-    data class Assistant(val text: String) : ChatMessage
+    /**
+     * A finished answer. [thought] is the model's reasoning for it, when the model thought
+     * and the reply carried it; shown folded above the answer and never sent back to the model.
+     */
+    data class Assistant(val text: String, val thought: String? = null) : ChatMessage
     data class Notice(val text: String) : ChatMessage
 
     /**
