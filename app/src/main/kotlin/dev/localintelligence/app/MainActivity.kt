@@ -172,6 +172,8 @@ class MainActivity : FragmentActivity() {
                         )
                     },
                 )
+                // Debug builds only: lets the control channel act on this screen's chat. Release: no-op.
+                LaunchedEffect(chat) { DebugPorts.current?.chatCreated(chat) }
                 // Survives rotation: held in the application-scoped AppContainer.
                 // The model list is a UI concern: `:android` has no model table,
                 // and adding one is a schema change that belongs with the database,

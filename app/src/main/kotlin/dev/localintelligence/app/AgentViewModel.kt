@@ -406,6 +406,10 @@ class AgentViewModel(
         // A tool that is still "running" cannot be running once the run has a
         // result: either it finished, and the trace says so, or it was never run.
         sinks.runningTool.value = null
+        // Debug builds only: the run report. Not for AwaitingConfirmation, which is not the end of a run.
+        if (result !is AgentResult.AwaitingConfirmation) {
+            DebugPorts.current?.runEnded(result, sinks.trace.value, controller?.lastRunMetrics)
+        }
     }
 
     companion object {
