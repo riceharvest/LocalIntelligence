@@ -2,6 +2,7 @@ package dev.localintelligence.inference.litertlm
 
 import android.content.Context
 import dev.localintelligence.android.inference.LlamaComputeSource
+import dev.localintelligence.android.inference.GeminiNanoBackend
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.core.model.AcceleratorPreference
@@ -120,6 +121,13 @@ class ModelBackendRouter(
                 null -> throw BackendRoutingException(refusal(file))
             }
         }
+
+    /**
+     * Gemini Nano. It has no file, so there is nothing to route: the Models screen picks it
+     * from its own row. It is built here, beside the other two, so there is still exactly one
+     * place a backend is constructed. The container keeps the instance and decides residency.
+     */
+    fun geminiNano(): GeminiNanoBackend = GeminiNanoBackend()
 
     private fun llamaBackend(): ModelBackend =
         LlamaCppBackend(importer, computeSource = llamaCompute, prefixCacheDir = llamaPrefixCache)

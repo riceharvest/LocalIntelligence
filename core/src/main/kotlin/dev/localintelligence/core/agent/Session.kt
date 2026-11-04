@@ -285,6 +285,14 @@ class Session(
     val epochTools: MutableList<String> = mutableListOf()
 
     /**
+     * The tools the active run may list or call, set at the start of each run from
+     * [PluginHooks.toolScope]: a scoped skill's tools, or null for every enabled tool. While it is
+     * set, the controller's prompt lists only these plus the core tools, and tools.find lists and
+     * loads only these. The epoch list above is left alone, so an unscoped run gets its usual list back.
+     */
+    var toolScope: Set<String>? = null
+
+    /**
      * Tools the model found with `tools.find`: callable though the system prompt
      * does not list them (their descriptions are in the lookup's result).
      * At a compaction, only the ones whose lookup result was folded away are dropped

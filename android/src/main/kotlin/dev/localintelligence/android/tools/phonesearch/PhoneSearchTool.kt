@@ -51,6 +51,8 @@ class PhoneSearchTool(
         checkNotNull(V0ToolCatalogue.byName("phone.search")) { "phone.search missing from catalogue" }
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
+        // Cleared first, so an early return or a failed search leaves no rows from an earlier search.
+        PhoneSearchLinks.latest = emptyList()
         if (context.signal.isCancelled()) {
             return ToolResult(
                 success = false,
@@ -114,6 +116,10 @@ class PhoneSearchTool(
                 success = true,
                 observation = "No item on this phone matches \"$query\". Say so, and do not guess." + texts,
             )
+        }
+        // The rows are built off the caller's thread too: a text's address is one read per hit.
+        PhoneSearchLinks.latest = withContext(Dispatchers.IO) {
+            hits.mapNotNull { hit -> phoneSearchLink(app, settings, hit) }
         }
         val zone = ZoneId.systemDefault()
         return ToolResult(

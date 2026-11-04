@@ -634,6 +634,7 @@ order:
 
 | Hook | Where the loop calls it | What it can do |
 |---|---|---|
+| `toolScope` | once per run, before the tool list is built | narrow the tools the prompt and the grammar list (see 18c) |
 | `contextForStep` | building each request | add lines to the system prompt |
 | `beforeTool` | after validation, before the risk policy | deny the call with a reason |
 | `afterTool` | after the tool returns, before truncation | rewrite the observation |
@@ -732,6 +733,25 @@ Android 14+ forbids starting a `microphone` foreground service from `BOOT_COMPLE
 the app posts a `"Tap to resume listening"` notification instead.
 
 **Storage modes.** The app operates in two storage modes corresponding to the two distribution builds (docs/adr/0002-play-and-full-builds.md). The Google Play build uses scoped storage and the Storage Access Framework (SAF): files are accessed via `content://` URIs granted through the system file picker or Downloads inserts. The sideloaded `full` build declares `MANAGE_EXTERNAL_STORAGE` ("All files access"): when `Environment.isExternalStorageManager()` is granted, file tools accept plain absolute paths under `Environment.getExternalStorageDirectory()` (refusing traversal segments, escaping symlinks, and `Android/data`/`Android/obb`), returning filesystem paths next to `content://` URIs while ensuring any path outside app storage still triggers RiskPolicy step 4 confirmation.
+
+## 18c. Skill scope and repeat offers
+
+**Skill scope.** A `SKILL.md` with `allowed-tools:` restricts the run while the skill is matched.
+`PluginHooks.toolScope(task)` is asked once at the start of each run, before the tool list is built.
+The skills plugin returns the union of the matched skills' tools, or null when any matched skill names
+none, since that skill may need a tool the others do not name. The controller then lists only those
+tools plus the core tools (the saved-result reader, `tools.find` and the controller's own core list),
+and the grammar allows only the same set. `tools.find` lists and loads only those too. The session's
+tool list is not rewritten for a scoped run, so the next unscoped message gets the list it had. The
+`beforeTool` refusal stays as a backstop. A scoped run pays one prompt prefill, since the listed tools
+are in the cached prefix.
+
+**Repeat offers.** After the same request has been answered the same way three times, the chat offers
+one line, "Save this as a skill?" (`RepeatDetector`, `REQUESTS = 3`). A request matches when at least half
+its meaningful words are shared, and the runs use the same tools, each successful, with at least two
+tools. The match is lexical and on the phone, with no model call. It reads only the chat transcript,
+not other conversations. "Not now" is recorded per request key, so the offer does not come back for it.
+The setting is `skills.repeat_offer`.
 
 ## 19. Rules for every change
 

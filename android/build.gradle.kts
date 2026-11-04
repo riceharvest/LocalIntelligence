@@ -157,6 +157,8 @@ dependencies {
     // Only the Tensor dispatch .so. Not transitive: a second LiteRT runtime next
     // to the one inside litertlm-android is exactly the version mismatch to avoid.
     implementation(libs.litert.npu.google.tensor) { isTransitive = false }
+    // Gemini Nano (on-device, AICore). The only ML Kit dependency; see GeminiNanoBackend.
+    implementation(libs.genai.prompt)
 
     // PDF text extraction for the Documents plugin (PDFTextStripper). Init: DocumentImport.
     implementation(libs.pdfbox.android)

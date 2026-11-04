@@ -1305,6 +1305,8 @@
     <string name="memory_block_remembered">Remembered: %1$s</string>
     <string name="memory_block_cleared">The memory block was cleared.</string>
     <string name="memory_block_undo">Undo</string>
+    <!-- A run stopped because the reply kept repeating the same text. -->
+    <string name="chat_repetition_stopped">The reply kept repeating itself, so I stopped it. Try asking again.</string>
     <!-- Repeat offer: after the same request has been made three times, offer to save it as a skill. -->
     <string name="repeat_offer_question">Save this as a skill?</string>
     <string name="repeat_offer_save">Save</string>
@@ -1379,4 +1381,15 @@
     <string name="plain_verb_find_present">Looking for a way to help</string>
     <string name="plain_verb_find_past">Looked for a way to help</string>
     <string name="plain_verb_find_base">look for a way to help</string>
+
+    <!-- Gemini Nano row on the Models screen (beta, Technical mode only). -->
+    <string name="gemini_nano_title">Gemini Nano (beta)</string>
+    <string name="gemini_nano_summary">Google’s model, run on this phone by Android’s AI core. The system stores it, not this app. Text only.</string>
+    <string name="gemini_nano_download">Download</string>
+    <string name="gemini_nano_downloading">Downloading. This can take a while.</string>
+    <string name="gemini_nano_use">Use Gemini Nano</string>
+    <string name="gemini_nano_in_use">Gemini Nano is answering. Pick another model to switch back.</string>
+    <string name="gemini_nano_download_failed">The download did not finish. Try again later.</string>
+    <string name="gemini_nano_not_ready">Gemini Nano is not ready on this phone yet.</string>
+    <string name="gemini_nano_ready">Gemini Nano (beta)</string>
 </resources>

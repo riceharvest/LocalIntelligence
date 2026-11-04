@@ -61,6 +61,7 @@ import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.app.ui.AppLockScreen
 import dev.localintelligence.app.ui.ChatGptModelCard
+import dev.localintelligence.app.ui.GeminiNanoCard
 import dev.localintelligence.app.ui.ChatGptSettingsCard
 import dev.localintelligence.app.ui.ChatMessage
 import dev.localintelligence.app.ui.ChatScreen
@@ -382,12 +383,20 @@ class MainActivity : FragmentActivity() {
                         val settingsVersion by container.settings.changes.collectAsStateWithLifecycle()
                         val remoteOffer = remember(settingsVersion) { container.remoteChatOfferOrNull() }
                         val modelScope = rememberCoroutineScope()
+                        // Gemini Nano is Technical only while it is beta. Its row checks AICore
+                        // when it is composed, and hides itself on a phone without it.
+                        val geminiNanoRow: (@Composable () -> Unit)? =
+                            if (container.settings.mode == SettingsMode.TECHNICAL) {
+                                { GeminiNanoCard(container) }
+                            } else {
+                                null
+                            }
                         ModelManagerScreen(
                             technical = remember(settingsVersion) { container.settings.mode == SettingsMode.TECHNICAL },
                             models = models,
                             contextLengthFor = container::contextLengthFor,
                             speedTest = container.speedTest,
-                            loadedModelUri = if (modelState is ModelAvailability.Ready && !container.remoteChatActive && !container.chatGptActive) {
+                            loadedModelUri = if (modelState is ModelAvailability.Ready && !container.remoteChatActive && !container.chatGptActive && !container.geminiNanoActive) {
                                 container.selectedModel?.uri?.toString()
                             } else {
                                 null
@@ -408,6 +417,7 @@ class MainActivity : FragmentActivity() {
                             },
                             onForgetLanServer = { container.forgetLanModelServer() },
                             chatGptCard = { ChatGptModelCard(container) },
+                            geminiNanoCard = geminiNanoRow,
                             onUseModel = { model ->
                                 withContext(Dispatchers.IO) { container.loadModel(model) }
                             },

@@ -27,7 +27,8 @@ import kotlinx.serialization.json.putJsonObject
  *
  * The listing sits in the native tool list, which is a cached prompt prefix, so
  * it must be byte-stable: it is built from the enabled tools, the core list and
- * the context length alone, sorted, and never from the conversation.
+ * the context length alone, sorted, and never from the conversation. The one exception is a
+ * skill scope, which narrows the enabled tools to the scope for that run.
  */
 class ToolFinder(
     private val registry: ToolRegistry,
@@ -44,10 +45,18 @@ class ToolFinder(
     private val log: (String) -> Unit = {},
 ) : AgentTool {
     /**
-     * Built on first use and kept for this finder. A finder is made per run, and its
-     * inputs do not change within one, so the text stays the same for the conversation.
+     * Built on first use and kept for each skill scope (see [Session.toolScope]). Unscoped, the
+     * text is the same for the conversation, which keeps the prompt prefix cached. It is read at
+     * registry construction, before a run sets its scope, so the cache must not be fixed at the first read.
      */
-    override val definition: ToolDefinition by lazy { listing() }
+    override val definition: ToolDefinition
+        get() {
+            val scope = session.toolScope
+            listingCache?.takeIf { it.first == scope }?.let { return it.second }
+            return listing().also { listingCache = scope to it }
+        }
+
+    @Volatile private var listingCache: Pair<Set<String>?, ToolDefinition>? = null
 
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult {
         val names = when (val raw = args["names"]) {
@@ -65,7 +74,7 @@ class ToolFinder(
             )
         }
         val known = session.epochTools.toSet() + session.discoveredTools + NAME
-        val candidates = registry.all().filter { it.definition.name !in known }
+        val candidates = visibleTools().filter { it.definition.name !in known }
         // The selector ranks tools but does not cut off: it returns the best three
         // even when none overlaps the query. And its words include "for", "the" and
         // the like, which most descriptions share, so a query with no real match
@@ -90,7 +99,7 @@ class ToolFinder(
     private fun loadNamed(asked: List<String>): ToolResult {
         val distinct = asked.distinct()
         val capped = distinct.take(MAX_NAMED)
-        val byName = registry.all().associateBy { it.definition.name }
+        val byName = visibleTools().associateBy { it.definition.name }
         val known = session.epochTools.toSet() + session.discoveredTools + NAME
         val found = capped.mapNotNull { byName[it]?.definition }
         val missing = capped.filter { it !in byName }
@@ -122,8 +131,18 @@ class ToolFinder(
      * per tool, name and a short description. Tier 2 is names only, and the floor whenever
      * the names fit under the 4000-token cap. Tier 3 is a count per category, only past that.
      */
+    /**
+     * The registry's tools this run may list or load. Under a skill scope (see [Session.toolScope])
+     * that is the scope's tools plus the core names, so the model never learns of a tool the skill
+     * forbids. Unscoped, every registered tool.
+     */
+    private fun visibleTools(): List<AgentTool> {
+        val scope = session.toolScope ?: return registry.all()
+        return registry.all().filter { it.definition.name in scope || it.definition.name in coreNames || it.definition.name == NAME }
+    }
+
     private fun listing(): ToolDefinition {
-        val deferred = registry.all().map { it.definition }
+        val deferred = visibleTools().map { it.definition }
             .filter { it.name != NAME && it.name != ObservationStore.READ_TOOL && it.name !in coreNames }
             .sortedWith(compareBy({ it.category }, { it.name }))
         val window = contextLength.takeIf { it > 0 } ?: FALLBACK_CONTEXT

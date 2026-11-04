@@ -15,6 +15,9 @@ import dev.localintelligence.app.AgentGateway
 import dev.localintelligence.app.BuildConfig
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.ModelAvailabilityHolder
+import dev.localintelligence.app.R
+import dev.localintelligence.android.tools.phonesearch.PhoneSearchLink
+import dev.localintelligence.android.tools.phonesearch.PhoneSearchLinks
 import dev.localintelligence.app.RunOutcome
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.RunningTool
@@ -32,6 +35,7 @@ import dev.localintelligence.app.media.VoiceClipRecorder
 import dev.localintelligence.app.notice
 import dev.localintelligence.app.speech.Speaker
 import dev.localintelligence.app.photos.PhotoSearchHits
+import dev.localintelligence.core.agent.REPETITION_STOP_REASON
 import dev.localintelligence.core.agent.ReplySpeed
 import dev.localintelligence.core.agent.StepTrace
 import dev.localintelligence.core.context.GenerationProse
@@ -573,7 +577,12 @@ class ChatViewModel(
                 false
             }
             is RunOutcome.Failed -> {
-                stopHandsFree("Hands-free stopped: something went wrong with the answer.")
+                val reason = if (outcome.reason == REPETITION_STOP_REASON) {
+                    "Hands-free stopped: the reply kept repeating itself."
+                } else {
+                    "Hands-free stopped: something went wrong with the answer."
+                }
+                stopHandsFree(reason)
                 false
             }
         }
@@ -663,6 +672,9 @@ class ChatViewModel(
         // Only a run whose photo search succeeded shows thumbnails; the holder is cleared by every search.
         val searchedPhotos = steps.any { it.kind == StepTrace.Kind.TOOL_CALL && it.toolName == "photos.search" && it.success }
         val shownPhotos = if (searchedPhotos) PhotoSearchHits.latest else emptyList()
+        // The same for phone.search: its rows open the items it found, under the final answer only.
+        val searchedPhone = steps.any { it.kind == StepTrace.Kind.TOOL_CALL && it.toolName == "phone.search" && it.success }
+        val shownPhoneLinks = if (searchedPhone) PhoneSearchLinks.latest else emptyList()
 
         // Built purely, then assigned once: `StateFlow.update` may run its block
         // more than once, so nothing here may have a side effect.
@@ -724,6 +736,7 @@ class ChatViewModel(
                     additions += ChatMessage.Assistant(
                         text, entry.thought, entry.speed,
                         photos = if (isFinal) shownPhotos else emptyList(),
+                        phoneLinks = if (isFinal) shownPhoneLinks else emptyList(),
                     )
                     base += 1
                 }
@@ -850,7 +863,9 @@ class ChatViewModel(
             is RunOutcome.Cancelled -> if (hasPartialText) CANCELLED_MID_ANSWER else outcome.transcriptLine(plainFailure)
             else -> outcome.transcriptLine(plainFailure)
         }
-        appendRows(listOf(ChatMessage.Notice(notice)))
+        // A repetition stop is not a failure to explain: say what happened, in the app's own words.
+        val repeated = outcome is RunOutcome.Failed && outcome.reason == REPETITION_STOP_REASON
+        appendRows(listOf(if (repeated) ChatMessage.Notice(REPEATED_STOP_TEXT, R.string.chat_repetition_stopped) else ChatMessage.Notice(notice)))
     }
 
     /**
@@ -1586,8 +1601,14 @@ sealed interface ChatMessage {
         val speed: ReplySpeed? = null,
         /** Photo URIs a `photos.search` in this run found, shown as thumbnails under the final answer. */
         val photos: List<String> = emptyList(),
+        /** Rows a `phone.search` in this run found, each opening its item, shown under the final answer. */
+        val phoneLinks: List<PhoneSearchLink> = emptyList(),
     ) : ChatMessage
-    data class Notice(val text: String) : ChatMessage
+    /**
+     * [text] is the English fallback (it is what the export writes). [textRes], when set, is the string
+     * the chat shows instead, so a notice can be translated.
+     */
+    data class Notice(val text: String, val textRes: Int? = null) : ChatMessage
 
     /**
      * A transcript of a picked audio file. [text] grows while [running] is true, one chunk
@@ -1680,6 +1701,9 @@ internal fun RunOutcome.transcriptLine(plainFailure: (String) -> String? = { nul
     RunOutcome.Cancelled -> "Stopped."
     is RunOutcome.Answer -> notice
 }
+
+/** The English text of a repetition stop, for the export. The chat shows the string resource instead. */
+private const val REPEATED_STOP_TEXT = "The reply kept repeating itself, so I stopped it. Try asking again."
 
 /** The start of the runtime's reason when the prompt no longer fits the context window. */
 private const val CONTEXT_TOO_SMALL = "context window too small"

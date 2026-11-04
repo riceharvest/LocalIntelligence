@@ -86,6 +86,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.android.skills.SkillRepository
+import dev.localintelligence.android.tools.phonesearch.PhoneSearchLink
 import dev.localintelligence.core.skill.SkillDraft
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.SimpleWording
@@ -585,6 +586,7 @@ fun ChatScreen(
                                 thought = message.thought,
                                 speed = if (technical) message.speed else null,
                                 photos = message.photos,
+                                phoneLinks = message.phoneLinks,
                                 speaking = speakingText == message.text,
                                 onSpeak = { viewModel.toggleSpeak(message.text) },
                                 onReport = { reportingReply = message.text },
@@ -611,7 +613,7 @@ fun ChatScreen(
                                 )
                             }
                         }
-                        is ChatMessage.Notice -> NoticeLine(message.text)
+                        is ChatMessage.Notice -> NoticeLine(message.textRes?.let { stringResource(it) } ?: message.text)
                         is ChatMessage.Transcript -> TranscriptCard(message) { viewModel.saveTranscript(it) }
                         is ChatMessage.Approval -> ApprovalRow(message)
                         is ChatMessage.ToolStep -> ToolStepRow(
@@ -732,6 +734,7 @@ private fun AssistantBubble(
     thought: String?,
     speed: ReplySpeed? = null,
     photos: List<String> = emptyList(),
+    phoneLinks: List<PhoneSearchLink> = emptyList(),
     speaking: Boolean,
     onSpeak: () -> Unit,
     onReport: () -> Unit,
@@ -747,6 +750,7 @@ private fun AssistantBubble(
         if (thought != null) ThoughtRow(thought)
         SelectionContainer { MarkdownText(text) }
         if (photos.isNotEmpty()) PhotoHitsRow(photos)
+        if (phoneLinks.isNotEmpty()) PhoneHitsRow(phoneLinks)
         if (speed != null && !simple) {
             Text(
                 text = replySpeedLine(speed),

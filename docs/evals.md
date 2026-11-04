@@ -1,51 +1,54 @@
 # Evals
 
-## There is no eval suite in this repository
+## The eval suite and its runner
 
-This file used to describe a 50-task suite, an eval runner, and a
-`./gradlew :core:evals` task. **None of that exists.** It was deleted, along
-with the rest of the test sources, at the owner's explicit instruction.
+The suite is the task list in `evals/tasks.jsonl` (one JSON task per line, 72 tasks). Its runner is
+`scripts/run-evals.py`. It writes one result file per model, device and app build, under
+`docs/scores/results/`.
 
-Verified against the current tree:
+Each task has `turns`, `needs`, a `fixture` flag and `checks`. The check types are `call`, `any_call`,
+`only`, `forbid`, `no_calls`, `answer` and `answer_min_chars`. The runner computes every verdict itself: `pass`, `fail` or `unverified`.
+A check the runner cannot decide from what it observed is `unverified`, never a pass.
 
-```
-$ ls core/src/
-main
-$ ls android/src/
-main
-$ find . -path ./.git -prune -o -type d \( -name test -o -name androidTest \) -print
-./app/src/androidTest          # DeviceModelProbe.kt — a manual probe, not a suite
+There are two runners, and the result file says which one made it (`runner`):
 
-$ grep -rn 'evals' core/build.gradle.kts build.gradle.kts
-(no matches — there is no :core:evals task)
+- `device-app`: the real app on a phone, driven by `scripts/devicectl.sh` (debug build only). This is
+  the measurement that counts for the phone. Only device rows are bundled into the app
+  (`docs/scores/build_scores.py --bundle`).
+- `desktop-app-loop`: the app's own agent loop on a desktop llama-server, through a harness you supply
+  with `--desktop-cmd`. The runner does not drive a model itself. A Python loop is not the app's loop,
+  so it would measure something else.
 
-$ find . -name 'FakeModelBackend*' -o -name 'ScriptedTool*'
-(no matches)
-```
-
-So these commands do not work and are not aspirational:
+Usage, as the runner's header gives it:
 
 ```bash
-./gradlew :core:test     # no test sources; there is nothing to run
-./gradlew :core:evals    # the task does not exist
+scripts/run-evals.py --target device --serial SERIAL --model-repo LiquidAI/LFM3-1.7B-GGUF \
+    --model-file LFM3-1.7B-QAD-Q4_0.gguf --repeats 3
+scripts/run-evals.py --target desktop --model-id LFM3-1.7B-QAD-Q4_0 --desktop-cmd \
+    "python3 /path/to/harness.py --tasks {tasks} --seed {seed} --only {task_ids}" --seeds 1,2,3 \
+    --server-pid 1234
+scripts/run-evals.py ... --dry-run    # validate the tasks and print the plan, run nothing
 ```
 
-If you find a document quoting a test count, a pass rate, or a coverage figure,
-it is stale. The reason for the deletion is recorded in `core/build.gradle.kts`:
+Results are keyed by (task id, repeat or seed). A rerun with the same output file skips every run
+already recorded. `--fresh` discards the file first. `--only` takes comma-separated task ids.
 
-> The agent eval suite lived in `core/src/test` and ran against fakes, not the
-> real loop and a real model. It reported 50/50 for a harness that could not
-> fail, and the app it "verified" could not answer a single question.
+The desktop harness prints one JSON object per line, one per run, with `task_id`, `seed`, `calls`,
+`answer`, the step and token counts, the timings and `error`. A null means "not measured".
 
-That is a fair criticism of the old harness. It is not an argument for
-reinstating it.
+Device answer checks on fixture tasks are `unverified`, because the phone's tools return real data, not
+the fixtures the desktop harness uses.
+
+The older "no suite" text was about a fake-backed harness that was deleted. It does not describe the
+current `evals/` and `scripts/run-evals.py`.
 
 ---
 
 ## What replaced it
 
-Verification is a **human running a real model on a real device**. There is no
-automated proxy for that, and the project has decided not to pretend otherwise.
+Verification is a **human running a real model on a real device**. The runner above
+automates the task list, but the verdict that counts for the phone is a run on real hardware,
+and the project has decided not to pretend that an emulator or a fake is one.
 
 The instrumentation that makes a manual run measurable *does* exist, in
 `core/metrics/`: `RunMetrics`, `RunAggregate`, `RunComparison`, `MetricsJson`.
@@ -161,9 +164,9 @@ input_tokens  output_tokens  prefill_ms  decode_tok_s  total_ms  peak_ram
 
 > If a feature does not move a number here, it does not ship.
 
-**This rule currently has no instrument, and that is a known, accepted gap.**
-Every metric above is unmeasured. Until someone runs the task list on real
-hardware, the project cannot answer whether a given change helped.
+**No run on real hardware is recorded yet.** `docs/scores/results/` is empty, so every
+metric above is unmeasured. The runner exists; until someone runs the task list on a
+device, the project cannot answer whether a given change helped.
 
 That is the honest state. It is also an argument for finishing the measurement
 work, not for inventing numbers or for restoring a fake-backed harness that

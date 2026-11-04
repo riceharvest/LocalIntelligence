@@ -402,7 +402,7 @@ gave, or it reads outside its own goal and steers the parent with the answer.
   child, so a plugin that counts runs counts the user's turn once.
 - Nothing is measured yet: the child's cost on a phone, and whether a 6-step child can finish a job at all.
 
-### T15. My desktop bridge — full build, opt-in, Tailscale-identity-checked
+### T14. My desktop bridge — full build, opt-in, Tailscale-identity-checked
 
 `desktop-bridge/desklink.py` runs on the user's own computer, bound to 127.0.0.1 and published only by
 `tailscale serve`. The phone's My desktop screen (full build only) lists the coding agents there, shows
