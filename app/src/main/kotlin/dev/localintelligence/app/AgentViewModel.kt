@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import android.content.Context
 import dev.localintelligence.app.screen.ScreenRun
 import dev.localintelligence.app.media.PendingAttachments
 import dev.localintelligence.core.agent.AgentController
@@ -40,6 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * So one of these is one run, and [ExecutionService] builds a fresh one per task.
  */
 class AgentViewModel(
+    private val context: Context,
     private val newController: () -> AgentController,
     private val scope: CoroutineScope,
     private val sinks: RunSinks = RunSinks(),
@@ -106,7 +108,7 @@ class AgentViewModel(
         // on top of the turn the user asked to replace.
         if (replacing != null) {
             attachments?.clear()
-            publish(AgentResult.Stop(reason = "Replacing a message needs the assistant service.", trace = emptyList()))
+            publish(AgentResult.Stop(reason = context.getString(R.string.run_replace_needs_service), trace = emptyList()))
             return
         }
         takeQueuedMedia()
@@ -201,7 +203,7 @@ class AgentViewModel(
                 publishCancelled()
                 throw e
             } catch (t: Throwable) {
-                ModelAvailability.Failed(describeLoadFailure(t))
+                ModelAvailability.Failed(describeLoadFailure(context, t))
             }
             // Before the blocking reason, so a load that failed after the STOP cannot replace
             // the cancelled outcome with its own failure.
@@ -210,7 +212,7 @@ class AgentViewModel(
                 answerStopBeforeRun()
                 return@launch
             }
-            val blocked = readiness.blockingReason()
+            val blocked = readiness.blockingReason(context)
             if (blocked != null) {
                 // The run never starts, so what was taken for it is dropped with it.
                 queuedMedia = emptyList()
@@ -514,13 +516,12 @@ sealed interface RunState {
      * happening. `LoadingModel` gets real words because the wait is long enough
      * that a bare spinner reads as a hang.
      */
-    val progressLabel: String?
-        get() = when (this) {
-            Idle, is Finished -> null
-            LoadingModel -> "Getting the model ready…"
-            Running -> null
-            is AwaitingApproval -> "Waiting for your approval."
-        }
+    fun progressLabel(context: Context): String? = when (this) {
+        Idle, is Finished -> null
+        LoadingModel -> context.getString(R.string.model_getting_ready)
+        Running -> null
+        is AwaitingApproval -> context.getString(R.string.run_waiting_approval)
+    }
 
     /** The loop is running. [AgentGateway.cancel] is the only way out. */
     data object Running : RunState
@@ -592,10 +593,9 @@ val RunState.isActive: Boolean
     get() = !isTerminal
 
 /** One line for the transcript notice. */
-val RunOutcome.notice: String
-    get() = when (this) {
-        is RunOutcome.Answer -> "Done."
-        is RunOutcome.Failed -> reason
-        RunOutcome.StepLimitReached -> "Stopped: the agent used all of its steps."
-        RunOutcome.Cancelled -> "Stopped at your request."
-    }
+fun RunOutcome.notice(context: Context): String = when (this) {
+    is RunOutcome.Answer -> context.getString(R.string.run_done)
+    is RunOutcome.Failed -> reason
+    RunOutcome.StepLimitReached -> context.getString(R.string.run_step_limit_stopped)
+    RunOutcome.Cancelled -> context.getString(R.string.run_stopped_at_request)
+}

@@ -184,7 +184,7 @@ class LocalServerService : Service() {
          */
         fun sync(context: Context, container: AppContainer) {
             if (enabledInTechnical(container) && !container.settings.isSecretSet(LocalServerSettings.TOKEN)) {
-                regenerateToken(container.settings)
+                regenerateToken(context, container.settings)
             }
             val intent = Intent(context, LocalServerService::class.java)
             if (!wanted(container)) {
@@ -205,12 +205,12 @@ class LocalServerService : Service() {
          * Makes a new token from 32 random bytes, stores it encrypted, and keeps it in memory for the
          * panel to show once. The old token stops working on the next request.
          */
-        fun regenerateToken(store: SettingsStore): String? {
+        fun regenerateToken(context: Context, store: SettingsStore): String? {
             val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
             val token = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
             if (!store.setSecret(LocalServerSettings.TOKEN, token)) {
                 LocalServerReveal.token = null
-                store.set(LocalServerSettings.LAST_ERROR, "Could not store the access token. Try again.")
+                store.set(LocalServerSettings.LAST_ERROR, context.getString(R.string.local_server_token_store_failed))
                 return null
             }
             LocalServerReveal.token = token

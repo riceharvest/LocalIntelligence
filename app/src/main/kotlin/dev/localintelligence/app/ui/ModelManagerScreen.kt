@@ -284,7 +284,7 @@ fun ModelManagerScreen(
                     }
                     if (copied != null) {
                         runCatching { onImport(Uri.fromFile(copied)) }
-                            .onFailure { importError = describeLoadFailure(it) }
+                            .onFailure { importError = describeLoadFailure(context, it) }
                     }
                 }
                 // `onImport` performs the header read and reports its own
@@ -294,7 +294,7 @@ fun ModelManagerScreen(
                 // on forever.
                 ModelContainer.GGUF, ModelContainer.UNKNOWN ->
                     runCatching { onImport(uri) }
-                        .onFailure { importError = describeLoadFailure(it) }
+                        .onFailure { importError = describeLoadFailure(context, it) }
             }
             busy = false
         }
@@ -345,7 +345,7 @@ fun ModelManagerScreen(
                                         importError = null
                                         scope.launch {
                                             runCatching { scan() }
-                                                .onFailure { importError = describeLoadFailure(it) }
+                                                .onFailure { importError = describeLoadFailure(context, it) }
                                                 .onSuccess {
                                                     scanNotice = context.getString(R.string.scan_notice)
                                                 }
@@ -508,7 +508,7 @@ fun ModelManagerScreen(
                                 scanNotice = null
                                 scope.launch {
                                     runCatching { onUseRemoteChat() }
-                                        .onFailure { importError = describeLoadFailure(it) }
+                                        .onFailure { importError = describeLoadFailure(context, it) }
                                     busy = false
                                 }
                             },
@@ -549,7 +549,7 @@ fun ModelManagerScreen(
                                 scanNotice = null
                                 scope.launch {
                                     val outcome = runCatching { use(model) }
-                                        .getOrElse { ModelAvailability.Failed(describeLoadFailure(it)) }
+                                        .getOrElse { ModelAvailability.Failed(describeLoadFailure(context, it)) }
                                     if (outcome is ModelAvailability.Failed) importError = outcome.reason
                                     busy = false
                                 }

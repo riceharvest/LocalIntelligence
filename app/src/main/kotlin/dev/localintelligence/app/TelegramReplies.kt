@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import android.content.Context
 import dev.localintelligence.android.gateway.telegram.TelegramApi
 import dev.localintelligence.android.gateway.telegram.TelegramSettings
 import dev.localintelligence.android.gateway.telegram.splitForTelegram
@@ -46,6 +47,7 @@ internal object TelegramReplies {
      * else reuses the sentence the scheduled-task result already uses, without its machine prefix.
      */
     fun outcomeText(
+        context: Context,
         outcome: RunOutcome,
         trace: List<StepTrace>,
         readiness: ModelAvailability?,
@@ -54,7 +56,7 @@ internal object TelegramReplies {
         val body = when (outcome) {
             is RunOutcome.Answer -> outcome.text.trim()
             else -> ScheduledRunReporter.notificationBody(
-                ScheduledRunReporter.describe(outcome, trace, readiness),
+                ScheduledRunReporter.describe(context, outcome, trace, readiness),
             )
         }
         return if (approvalDeclined) {

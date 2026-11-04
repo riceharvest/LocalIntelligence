@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -19,6 +20,7 @@ import dev.localintelligence.app.R
 import dev.localintelligence.android.tools.phonesearch.PhoneSearchLink
 import dev.localintelligence.android.tools.phonesearch.PhoneSearchLinks
 import dev.localintelligence.app.RunOutcome
+import dev.localintelligence.app.notice
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.RunningTool
 import dev.localintelligence.app.blockingReason
@@ -32,7 +34,6 @@ import dev.localintelligence.app.media.PendingAttachment
 import dev.localintelligence.app.media.PendingAttachments
 import dev.localintelligence.app.media.ShownAttachment
 import dev.localintelligence.app.media.VoiceClipRecorder
-import dev.localintelligence.app.notice
 import dev.localintelligence.app.speech.Speaker
 import dev.localintelligence.app.photos.PhotoSearchHits
 import dev.localintelligence.core.agent.REPETITION_STOP_REASON
@@ -88,6 +89,7 @@ import kotlinx.coroutines.launch
  */
 class ChatViewModel(
     private val gateway: AgentGateway,
+    private val context: Context,
     /**
      * Overrides the scope. Production passes nothing and gets [viewModelScope].
      *
@@ -371,7 +373,7 @@ class ChatViewModel(
      * state machine about *why* it is disabled — the two drifting apart is how a
      * user ends up with a greyed-out button and no explanation.
      */
-    val blockedReason: String? get() = modelAvailability.current.blockingReason()
+    val blockedReason: String? get() = modelAvailability.current.blockingReason(context)
 
     /**
      * The confirmation currently staged by the runtime, or null.
@@ -417,7 +419,7 @@ class ChatViewModel(
                 // A tool needs a human. Hands-free mode cannot answer by voice, so it stops.
                 // The run itself waits, untouched, for the Allow or Deny on screen.
                 if (state is RunState.AwaitingApproval && _handsFree.value.phase != HandsFreePhase.Off) {
-                    stopHandsFree("Hands-free turned off. Tap Allow or Don't allow, then start it again.")
+                    stopHandsFree(context.getString(R.string.chat_handsfree_off))
                 }
 
                 if (state !is RunState.Finished) return@collect
@@ -454,7 +456,7 @@ class ChatViewModel(
     fun startHandsFree(initialPrompt: String? = null) {
         if (_handsFree.value.phase != HandsFreePhase.Off) return
         if (speaker == null) {
-            _handsFree.value = HandsFreeState(notice = "Hands-free isn't available on this phone.")
+            _handsFree.value = HandsFreeState(notice = context.getString(R.string.chat_handsfree_unavailable))
             return
         }
         blockedReason?.let { reason ->
@@ -462,7 +464,7 @@ class ChatViewModel(
             return
         }
         if (!gateway.runState.value.isTerminal) {
-            _handsFree.value = HandsFreeState(notice = "Wait for the current answer, then start hands-free.")
+            _handsFree.value = HandsFreeState(notice = context.getString(R.string.chat_handsfree_wait))
             return
         }
         emptyListens = 0
@@ -499,7 +501,7 @@ class ChatViewModel(
         val started = voice.startUntilPause(handsFreeSilence()) { wav, seconds ->
             scope.launch { handsFreeClip(wav, seconds) }
         }
-        if (!started) stopHandsFree("The microphone is not available. Check that the app may record audio.")
+        if (!started) stopHandsFree(context.getString(R.string.chat_mic_unavailable))
     }
 
     /** Text-only model: the recognizer decides when speech ends, and its words are sent. */
@@ -510,7 +512,7 @@ class ChatViewModel(
             onText = { setInput(it) },
             onEnd = { spoken, error -> handsFreeWords(spoken, error) },
         ) ?: false
-        if (!started) stopHandsFree("Speech recognition is not available on this phone.")
+        if (!started) stopHandsFree(context.getString(R.string.chat_speech_unavailable))
     }
 
     private fun handsFreeClip(wav: ByteArray?, seconds: Int) {
@@ -526,7 +528,7 @@ class ChatViewModel(
         if (_handsFree.value.phase != HandsFreePhase.Listening) return
         when {
             error != null && error !in SILENT_LISTEN_ERRORS ->
-                stopHandsFree("Hands-free stopped: speech recognition had a problem.")
+                stopHandsFree(context.getString(R.string.chat_handsfree_speech_problem))
             spoken == null -> emptyListen()
             else -> sendHandsFree(typed = _input.value.trim(), clip = null)
         }
@@ -538,7 +540,7 @@ class ChatViewModel(
         if (clip != null) _attachments.update { it + clip }
         if (!canSubmit(hasText = typed.isNotEmpty())) {
             clip?.let { heard -> _attachments.update { current -> current.filterNot { it === heard } } }
-            stopHandsFree(blockedReason ?: "Hands-free stopped: that message couldn't be sent.")
+            stopHandsFree(blockedReason ?: context.getString(R.string.chat_handsfree_send_failed))
             return
         }
         _handsFree.value = HandsFreeState(HandsFreePhase.Thinking)
@@ -552,7 +554,7 @@ class ChatViewModel(
      */
     private fun emptyListen() {
         emptyListens++
-        if (emptyListens >= 2) stopHandsFree("Hands-free stopped: nothing heard.")
+        if (emptyListens >= 2) stopHandsFree(context.getString(R.string.chat_handsfree_nothing_heard))
         else relistenSoon()
     }
 
@@ -573,14 +575,14 @@ class ChatViewModel(
                 false
             }
             RunOutcome.StepLimitReached -> {
-                stopHandsFree("Hands-free stopped: the assistant couldn't finish that request.")
+                stopHandsFree(context.getString(R.string.chat_handsfree_step_limit))
                 false
             }
             is RunOutcome.Failed -> {
                 val reason = if (outcome.reason == REPETITION_STOP_REASON) {
-                    "Hands-free stopped: the reply kept repeating itself."
+                    context.getString(R.string.chat_handsfree_repeating)
                 } else {
-                    "Hands-free stopped: something went wrong with the answer."
+                    context.getString(R.string.chat_handsfree_wrong)
                 }
                 stopHandsFree(reason)
                 false
@@ -596,7 +598,7 @@ class ChatViewModel(
     private fun speakForHandsFree(text: String) {
         val tts = speaker
         if (tts == null) {
-            stopHandsFree("Hands-free isn't available on this phone.")
+            stopHandsFree(context.getString(R.string.chat_handsfree_unavailable))
             return
         }
         _handsFree.value = HandsFreeState(HandsFreePhase.Speaking)
@@ -852,7 +854,7 @@ class ChatViewModel(
             // takes an unterminated respond as the answer, so without this the
             // user gets a clipped sentence with nothing marking it as clipped.
             if (lastGeneration != null && !lastGeneration.success) {
-                appendRows(listOf(ChatMessage.Notice(TRUNCATED_AT_LIMIT)))
+                appendRows(listOf(ChatMessage.Notice(context.getString(R.string.chat_answer_cut_short))))
             }
             return
         }
@@ -860,8 +862,8 @@ class ChatViewModel(
         // "The text above" is only true when some text was drawn above the notice.
         val hasPartialText = lastGeneration != null && GenerationProse.display(lastGeneration.detail).isNotBlank()
         val notice = when (outcome) {
-            is RunOutcome.Cancelled -> if (hasPartialText) CANCELLED_MID_ANSWER else outcome.transcriptLine(plainFailure)
-            else -> outcome.transcriptLine(plainFailure)
+            is RunOutcome.Cancelled -> if (hasPartialText) context.getString(R.string.chat_stopped) else outcome.transcriptLine(context, plainFailure)
+            else -> outcome.transcriptLine(context, plainFailure)
         }
         // A repetition stop is not a failure to explain: say what happened, in the app's own words.
         val repeated = outcome is RunOutcome.Failed && outcome.reason == REPETITION_STOP_REASON
@@ -1014,7 +1016,7 @@ class ChatViewModel(
         if (last.attached.isNotEmpty() || !canSubmit(hasText = true)) return
         setInput(last.text)
         editingLast = true
-        showNotice("Change the message and send it. It replaces the last one.")
+        showNotice(context.getString(R.string.chat_edit_replace))
     }
 
     private fun lastUserRow(): ChatMessage.User? = _messages.value.lastOrNull { it is ChatMessage.User } as? ChatMessage.User
@@ -1032,7 +1034,7 @@ class ChatViewModel(
         if (shared.isEmpty()) return
         val typed = _input.value
         setInput(if (typed.isBlank()) shared else "$typed\n\n$shared")
-        showNotice("Shared text is in the message box. Tap Send to ask.")
+        showNotice(context.getString(R.string.chat_shared_text))
     }
 
     /**
@@ -1046,7 +1048,7 @@ class ChatViewModel(
             refuseQueued()
             if (_input.value.isBlank()) {
                 setInput(text.trim())
-                showNotice("Your message is ready. Tap Send when the assistant is free.")
+                showNotice(context.getString(R.string.chat_message_ready))
             }
             return
         }
@@ -1121,13 +1123,13 @@ class ChatViewModel(
      */
     fun attachPicture(uri: String) {
         if (pictureCount() >= MAX_PICTURES_PER_MESSAGE) {
-            showNotice("A message can carry up to $MAX_PICTURES_PER_MESSAGE photos.")
+            showNotice(context.getString(R.string.chat_photo_limit, MAX_PICTURES_PER_MESSAGE))
             return
         }
         scope.launch {
             val item = decodePicture(uri)
             if (item == null) {
-                showNotice("That file could not be read as a picture.")
+                showNotice(context.getString(R.string.chat_not_picture))
                 return@launch
             }
             addPicture(item)
@@ -1163,12 +1165,12 @@ class ChatViewModel(
     fun startVoiceClip() {
         if (isBusy) return
         if (_attachments.value.any { it.shown is ShownAttachment.Voice }) {
-            showNotice("A message can carry one voice clip. Remove it to record another.")
+            showNotice(context.getString(R.string.chat_one_voice))
             return
         }
         _notice.value = null
         if (!voice.start()) {
-            showNotice("The microphone is not available. Check that the app may record audio.")
+            showNotice(context.getString(R.string.chat_mic_unavailable))
         }
     }
 
@@ -1197,10 +1199,10 @@ class ChatViewModel(
     /** Simple mode's plain sentence for [raw], or [raw] itself in Technical mode. */
     private fun plainText(raw: String): String = plainFailure(raw) ?: raw
 
-    private fun plainNoAudio(): String = plainText(NO_AUDIO_MODEL)
+    private fun plainNoAudio(): String = plainText(context.getString(R.string.chat_no_audio_model))
 
     fun transcribeBlockedReason(): String? {
-        modelAvailability.current.blockingReason()?.let { return it }
+        modelAvailability.current.blockingReason(context)?.let { return it }
         return if (transcriptionModel()?.capabilities?.supportsAudioInput == true) null else plainNoAudio()
     }
 
@@ -1214,7 +1216,7 @@ class ChatViewModel(
      */
     fun transcribe(uri: String) {
         if (isBusy) {
-            showNotice("Finish the current run first.")
+            showNotice(context.getString(R.string.chat_finish_run_first))
             return
         }
         transcribeBlockedReason()?.let { showNotice(it); return }
@@ -1244,7 +1246,7 @@ class ChatViewModel(
                         redraw(running = true)
                     }
                     if (result.stopReason == StopReason.ERROR) {
-                        failure = plainText("The model could not transcribe a part of the file.")
+                        failure = plainText(context.getString(R.string.chat_transcribe_part_failed))
                         return@decodeAudio false
                     }
                     !transcribeStopped
@@ -1252,9 +1254,9 @@ class ChatViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IllegalArgumentException) {
-                failure = plainText(e.message ?: "This file could not be transcribed.")
+                failure = plainText(e.message ?: context.getString(R.string.chat_transcribe_failed))
             } catch (e: Exception) {
-                failure = "This file could not be read."
+                failure = context.getString(R.string.chat_file_not_read)
             } finally {
                 transcribingWith = null
                 _transcribing.value = false
@@ -1292,13 +1294,13 @@ class ChatViewModel(
      * model may load here, which takes seconds, so the save runs off the main thread.
      */
     fun saveTranscript(text: String) {
-        val store = documents ?: return showNotice("Documents are not available here.")
+        val store = documents ?: return showNotice(context.getString(R.string.chat_docs_unavailable))
         if (text.isBlank()) return
         scope.launch {
             val saved = withContext(Dispatchers.IO) {
                 runCatching { store.add(TRANSCRIPT_TITLE, text.take(DocumentStore.MAX_STORED_CHARS)) }
             }
-            showNotice(if (saved.isSuccess) "Saved to Documents." else "The transcript could not be saved.")
+            showNotice(if (saved.isSuccess) context.getString(R.string.chat_saved_documents) else context.getString(R.string.chat_transcript_not_saved))
         }
     }
 
@@ -1401,6 +1403,7 @@ class ChatViewModel(
 
     class Factory(
         private val gateway: AgentGateway,
+        private val context: Context,
         private val modelAvailability: ModelAvailabilityHolder = ModelAvailabilityHolder(),
         private val attachmentQueue: PendingAttachments = PendingAttachments(),
         private val capabilities: () -> ModelCapabilities = { ModelCapabilities.UNKNOWN },
@@ -1430,6 +1433,7 @@ class ChatViewModel(
             }
             return ChatViewModel(
                 gateway,
+                context = context,
                 modelAvailability = modelAvailability,
                 attachmentQueue = attachmentQueue,
                 capabilities = capabilities,
@@ -1531,11 +1535,6 @@ private const val TRANSCRIBE_PROMPT = "Transcribe this audio exactly as it was s
 /** Upper bound on the text one 30 s chunk can produce. Speech at normal pace fits well inside it. */
 private const val TRANSCRIBE_MAX_TOKENS = 1024
 
-/** Why the loaded model cannot transcribe. Same audio-projector wording as AgentController, with the family to download. */
-private const val NO_AUDIO_MODEL =
-    "The loaded model cannot hear audio. Load LFM3-Audio with its audio projector " +
-        "(an mmproj file next to it in the models folder)."
-
 /** Key of the content URIs of the queued pictures in [SavedStateHandle]. */
 private const val PICTURE_URIS_KEY = "pictureUris"
 
@@ -1562,17 +1561,8 @@ data class HandsFreeState(val phase: HandsFreePhase = HandsFreePhase.Off, val no
  * its ending. Without this line the user has no way to tell that from a
  * complete thought.
  */
-private const val TRUNCATED_AT_LIMIT = "Answer cut short."
 
 private const val NOTICE_SHOWN_MS = 4_000L
-
-/**
- * Said under the partial text of a run the user stopped.
- *
- * The words above are the model's, kept rather than discarded, and this is what
- * stops them reading as a finished answer.
- */
-private const val CANCELLED_MID_ANSWER = "Stopped."
 
 /**
  * One row of the transcript. A flat list, not a tree: the runtime is a loop.
@@ -1688,18 +1678,18 @@ sealed interface ChatMessage {
  * same text, and the trace screen renders it verbatim. So the chat states what
  * happened and where the detail is, and the developer still gets the original.
  */
-internal fun RunOutcome.transcriptLine(plainFailure: (String) -> String? = { null }): String = when (this) {
+internal fun RunOutcome.transcriptLine(context: Context, plainFailure: (String) -> String? = { null }): String = when (this) {
     // The runtime's reason ("no valid action in 3 attempts", an exception name)
     // is for the Trace screen, which keeps it. The chat says what the user can do.
     // Simple mode (plainFailure returns a sentence) never shows the raw reason or "model".
     is RunOutcome.Failed -> plainFailure(reason) ?: if (reason.contains(CONTEXT_TOO_SMALL, ignoreCase = true)) {
-        "That is too long for this model. Try a shorter message."
+        context.getString(R.string.chat_too_long_short)
     } else {
-        "Something went wrong. Try again."
+        context.getString(R.string.plain_something_went_wrong)
     }
-    RunOutcome.StepLimitReached -> "I couldn't finish that. Try asking for one thing at a time."
-    RunOutcome.Cancelled -> "Stopped."
-    is RunOutcome.Answer -> notice
+    RunOutcome.StepLimitReached -> context.getString(R.string.chat_couldnt_finish)
+    RunOutcome.Cancelled -> context.getString(R.string.chat_stopped)
+    is RunOutcome.Answer -> notice(context)
 }
 
 /** The English text of a repetition stop, for the export. The chat shows the string resource instead. */

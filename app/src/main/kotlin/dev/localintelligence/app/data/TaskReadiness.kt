@@ -2,6 +2,7 @@ package dev.localintelligence.app.data
 
 import android.Manifest
 import android.content.Context
+import dev.localintelligence.app.R
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -43,64 +44,69 @@ data class TaskReadiness(
     val notificationsAllowed: Boolean,
     val batterySaverOn: Boolean,
     val exactAlarmsAllowed: Boolean,
+    /** Everything that stops a run, worst first. Built by [readinessBlockers] from the facts above. */
+    val blockers: List<TaskBlocker>,
 ) {
-    /**
-     * Everything that stops a run, worst first.
-     *
-     * Ordered by what the user is most likely to be able to fix without leaving
-     * the app: no model is a three-tap fix, notification access is a Settings
-     * detour, battery saver is a Settings toggle, and exact-alarm access is the
-     * one an OEM may have revoked without the user ever knowing.
-     */
-    val blockers: List<TaskBlocker> = buildList {
-        // Reuse, not reimplement: `blockingReason()` is the single wording for
-        // "the model would not load" in this app, and a scheduled task showing
-        // a different sentence for the same failure is exactly the drift this
-        // type exists to prevent.
-        if (!hasModel || modelAvailability is ModelAvailability.Failed) {
-            modelAvailability.blockingReason()?.let { reason ->
-                add(
-                    TaskBlocker.NoModel(
-                        message = reason,
-                        action = TaskAction.OpenModels,
-                    ),
-                )
-            }
-        }
-        if (!notificationsAllowed) {
+    /** True when a run started right now would genuinely happen. */
+    val canRun: Boolean get() = blockers.isEmpty()
+}
+
+/**
+ * Everything that stops a scheduled run, worst first. See [TaskReadiness.blockers].
+ *
+ * Ordered by what the user is most likely to be able to fix without leaving
+ * the app: no model is a three-tap fix, notification access is a Settings
+ * detour, battery saver is a Settings toggle, and exact-alarm access is the
+ * one an OEM may have revoked without the user ever knowing.
+ */
+private fun readinessBlockers(
+    context: Context,
+    modelAvailability: ModelAvailability,
+    hasModel: Boolean,
+    notificationsAllowed: Boolean,
+    batterySaverOn: Boolean,
+    exactAlarmsAllowed: Boolean,
+): List<TaskBlocker> = buildList {
+    // Reuse, not reimplement: `blockingReason()` is the single wording for
+    // "the model would not load" in this app, and a scheduled task showing
+    // a different sentence for the same failure is exactly the drift this
+    // type exists to prevent.
+    if (!hasModel || modelAvailability is ModelAvailability.Failed) {
+        modelAvailability.blockingReason(context)?.let { reason ->
             add(
-                TaskBlocker.NoNotifications(
-                    message = "Android will not let this app show notifications, so a " +
-                        "scheduled task would finish without ever telling you it ran.",
-                    action = TaskAction.OpenNotificationAccess,
-                ),
-            )
-        }
-        if (batterySaverOn) {
-            add(
-                TaskBlocker.BatterySaver(
-                    message = "Battery saver is on. It restricts what this app can do in " +
-                        "the background, so a scheduled task may be delayed or dropped. " +
-                        "The alarm itself will still fire.",
-                    action = TaskAction.OpenBatterySettings,
-                ),
-            )
-        }
-        if (!exactAlarmsAllowed) {
-            add(
-                TaskBlocker.NoExactAlarms(
-                    message = "Android is not letting this app schedule exact alarms, so a " +
-                        "task cannot be set for a specific time. Turn on \"Alarms and " +
-                        "reminders\" for this app in system settings.",
-                    action = TaskAction.OpenExactAlarmSettings,
+                TaskBlocker.NoModel(
+                    message = reason,
+                    action = TaskAction.OpenModels,
                 ),
             )
         }
     }
-
-    /** True when a run started right now would genuinely happen. */
-    val canRun: Boolean get() = blockers.isEmpty()
+    if (!notificationsAllowed) {
+        add(
+            TaskBlocker.NoNotifications(
+                message = context.getString(R.string.readiness_notifications_blocked),
+                action = TaskAction.OpenNotificationAccess,
+            ),
+        )
+    }
+    if (batterySaverOn) {
+        add(
+            TaskBlocker.BatterySaver(
+                message = context.getString(R.string.readiness_battery_saver),
+                action = TaskAction.OpenBatterySettings,
+            ),
+        )
+    }
+    if (!exactAlarmsAllowed) {
+        add(
+            TaskBlocker.NoExactAlarms(
+                message = context.getString(R.string.readiness_exact_alarms_blocked),
+                action = TaskAction.OpenExactAlarmSettings,
+            ),
+        )
+    }
 }
+
 
 /** One thing standing in the way, with the settings screen that resolves it. */
 sealed interface TaskBlocker {
@@ -140,13 +146,20 @@ fun readTaskReadiness(
     context: Context,
     modelAvailability: ModelAvailability,
     hasSelectedModel: Boolean,
-): TaskReadiness = TaskReadiness(
-    modelAvailability = modelAvailability,
-    hasModel = modelAvailability.canRun || hasSelectedModel,
-    notificationsAllowed = areNotificationsAllowed(context),
-    batterySaverOn = isBatterySaverOn(context),
-    exactAlarmsAllowed = TaskAlarmScheduler.canScheduleExactAlarms(context),
-)
+): TaskReadiness {
+    val hasModel = modelAvailability.canRun || hasSelectedModel
+    val notificationsAllowed = areNotificationsAllowed(context)
+    val batterySaverOn = isBatterySaverOn(context)
+    val exactAlarmsAllowed = TaskAlarmScheduler.canScheduleExactAlarms(context)
+    return TaskReadiness(
+        modelAvailability = modelAvailability,
+        hasModel = hasModel,
+        notificationsAllowed = notificationsAllowed,
+        batterySaverOn = batterySaverOn,
+        exactAlarmsAllowed = exactAlarmsAllowed,
+        blockers = readinessBlockers(context, modelAvailability, hasModel, notificationsAllowed, batterySaverOn, exactAlarmsAllowed),
+    )
+}
 
 /**
  * Whether the app may post notifications.

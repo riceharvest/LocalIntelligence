@@ -162,6 +162,7 @@ class MainActivity : FragmentActivity() {
                     factory = remember(gateway, container) {
                         ChatViewModel.Factory(
                             gateway = gateway,
+                            context = applicationContext,
                             modelAvailability = container.modelAvailability,
                             attachmentQueue = container.pendingAttachments,
                             capabilities = { container.residentBackend().capabilities },
