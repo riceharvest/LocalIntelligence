@@ -1564,6 +1564,8 @@ class AppContainer(private val context: Context) {
         onToolStart: ((name: String, args: String) -> Unit)? = null,
         /** A tool has returned and the trace now holds it. Forwarded to the controller. */
         onToolDone: ((List<dev.localintelligence.core.agent.StepTrace>) -> Unit)? = null,
+        /** A generation was rejected and the model is asked again. Forwarded to the controller. */
+        onGenerationRejected: (() -> Unit)? = null,
         /** A scheduled or background run: nobody is there to approve anything. */
         background: Boolean = false,
     ): AgentController {
@@ -1618,6 +1620,7 @@ class AppContainer(private val context: Context) {
         onToken = onToken,
         onToolStart = onToolStart,
         onToolDone = onToolDone,
+        onGenerationRejected = onGenerationRejected,
         log = { line -> android.util.Log.i("LocalAgent", line) },
         observationStore = observationStore,
         // Between messages, compact ahead and prefill while the answer is read.

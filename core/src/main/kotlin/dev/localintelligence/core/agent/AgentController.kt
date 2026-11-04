@@ -292,6 +292,12 @@ class AgentController(
      * is drawn twice: the transcript is identity-keyed.
      */
     private val onToolDone: ((List<StepTrace>) -> Unit)? = null,
+    /**
+     * Invoked when the loop rejects a generation and asks the model again. The
+     * rejected words were streamed to [onToken] already, so the app clears its live
+     * bubble here; the rejected reply is never drawn as an answer.
+     */
+    private val onGenerationRejected: (() -> Unit)? = null,
     /** One line per context decision (tool set change, compaction), for the device log. */
     private val log: (String) -> Unit = {},
     /**
@@ -324,6 +330,12 @@ class AgentController(
     private var media: List<MediaInput> = emptyList()
     private var step: Int = 0
     private var malformedStreak: Int = 0
+
+    /** Whether this run saved a tool result under an `obs#` handle (see [truncate]). Reset per run. */
+    private var savedObservation: Boolean = false
+
+    /** Whether this run already sent the model back once for naming an internal id. Reset per run. */
+    private var handleRetried: Boolean = false
     private var pending: PendingCall? = null
 
     /**
@@ -425,6 +437,8 @@ class AgentController(
         unreadableMedia()?.let { return@measured Stop(it, trace.toList()) }
         step = 0
         malformedStreak = 0
+        savedObservation = false
+        handleRetried = false
         pending = null
         // The session is NOT cleared here, and this is load-bearing.
         //
@@ -677,21 +691,6 @@ class AgentController(
             metrics?.recordGeneration(generation)
             metrics?.endPhase(StepTrace.Kind.GENERATION, generation.stopReason == StopReason.COMPLETED)
             val completed = generation.stopReason == StopReason.COMPLETED
-            trace += StepTrace(
-                step, StepTrace.Kind.GENERATION,
-                // An unfinished generation is kept whole: it is bounded by the output limit,
-                // and it is the partial answer the user was reading when they stopped.
-                if (completed) generation.text.take(TRACE_DETAIL_CHARS) else generation.text,
-                generation.prefillMs + generation.decodeMs, completed,
-            )
-
-            when (generation.stopReason) {
-                StopReason.CANCELLED -> return AgentResult.Cancelled
-                StopReason.ERROR -> return Stop("model failed: ${generation.text.take(120)}", trace.toList())
-                else -> Unit
-            }
-            // A Stop that landed before the generation began is not reported as CANCELLED.
-            if (cancelled) return AgentResult.Cancelled
 
             // A tool call the output limit cut before its closing tag is not run:
             // its arguments are whatever fragment the limit left. The model is told
@@ -707,8 +706,51 @@ class AgentController(
                     generation.text,
                 )
             } else {
-                parsedAction
+                bareAnswer(parsedAction, generation.text, completed)
             }
+
+            // The verdict on this reply is decided BEFORE its trace row is written, because
+            // the row says whether the words were accepted. A row for a rejected reply is
+            // not drawn as an answer (ChatViewModel.renderTrace), so a reply the loop asks
+            // the model to redo never stays on screen. A stopped generation is not judged:
+            // it returns below, and its row is kept as the partial answer it was.
+            val stopped = generation.stopReason == StopReason.CANCELLED ||
+                generation.stopReason == StopReason.ERROR
+            val idRetry = !stopped && !handleRetried && savedObservation &&
+                parsed is ActionParseResult.Parsed &&
+                (parsed.action as? AgentAction.Respond)?.text?.let(INTERNAL_HANDLE_RE::containsMatchIn) == true
+            val rejection: String? = when {
+                stopped -> null
+                parsed is ActionParseResult.Malformed -> parsed.reason
+                idRetry -> "the reply names an internal id"
+                else -> null
+            }
+            trace += StepTrace(
+                step, StepTrace.Kind.GENERATION,
+                // An unfinished generation is kept whole: it is bounded by the output limit,
+                // and it is the partial answer the user was reading when they stopped.
+                if (completed) generation.text.take(TRACE_DETAIL_CHARS) else generation.text,
+                generation.prefillMs + generation.decodeMs, completed && rejection == null,
+            )
+
+            when (generation.stopReason) {
+                StopReason.CANCELLED -> return AgentResult.Cancelled
+                StopReason.ERROR -> return Stop("model failed: ${generation.text.take(120)}", trace.toList())
+                else -> Unit
+            }
+            // A Stop that landed before the generation began is not reported as CANCELLED.
+            if (cancelled) return AgentResult.Cancelled
+
+            if (rejection != null) {
+                log("rejected the reply at step $step: $rejection")
+                try {
+                    onGenerationRejected?.invoke()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (ignored: Throwable) {
+                }
+            }
+
             when (parsed) {
                 is ActionParseResult.Malformed -> {
                     malformedStreak += 1
@@ -724,13 +766,24 @@ class AgentController(
                 is ActionParseResult.Parsed -> {
                     malformedStreak = 0
                     when (val action = parsed.action) {
-                        is AgentAction.Respond -> {
-                            sessions.appendAssistant(action.text, rendered = generation.text)
+                        is AgentAction.Respond -> if (idRetry) {
+                            // Once per run: the model is told, and its reply is not
+                            // recorded, so the next reply is judged on its own.
+                            handleRetried = true
+                            sessions.observe(HANDLE_CORRECTION)
+                        } else {
+                            val text = if (savedObservation && INTERNAL_HANDLE_RE.containsMatchIn(action.text)) {
+                                log("reply still named an internal id after one retry; removed those sentences")
+                                scrubHandles(action.text)
+                            } else {
+                                action.text
+                            }
+                            sessions.appendAssistant(text, rendered = generation.text)
                             // The one place a turn is offered to durable memory.
                             // See [rememberTurn] for why it is here and nowhere
                             // else.
                             rememberTurn()
-                            return AgentResult.Success(action.text, trace.toList())
+                            return AgentResult.Success(text, trace.toList())
                         }
 
                         is AgentAction.CallTool -> {
@@ -1655,6 +1708,38 @@ class AgentController(
     private fun actionHint(visible: List<AgentTool>): String =
         GrammarBuilder.hint(visible.map { it.definition })
 
+    /**
+     * A reply with no action tag at all, taken as the answer when the backend cannot
+     * enforce the action grammar.
+     *
+     * WHY: with no grammar (LiteRT-LM, which refuses one) nothing stops a model from
+     * answering in a bare sentence, and a greeting answered that way was rejected and
+     * asked again, so the user got two replies for one message. A plain sentence with no
+     * markup is the answer the model meant; it is taken once, and no second generation runs.
+     * Gated on the grammar so a grammar backend (llama.cpp) is judged exactly as before.
+     * Text that could be a tool call (any `<` or `{`), a cut generation, and a sentence that
+     * announces an action it has not taken ("let me check") stay Malformed.
+     */
+    private fun bareAnswer(parsed: ActionParseResult, text: String, completed: Boolean): ActionParseResult {
+        if (parsed !is ActionParseResult.Malformed || !completed || model.capabilities.supportsGrammar) return parsed
+        val answer = text.trim()
+        if (answer.isEmpty() || answer.any { it == '<' || it == '{' }) return parsed
+        if (BARE_ACTION_INTENT_RE.containsMatchIn(answer)) return parsed
+        return ActionParseResult.Parsed(AgentAction.Respond(answer))
+    }
+
+    /**
+     * [text] with every sentence that names an internal handle removed. Nothing left
+     * gives [HANDLE_FALLBACK], so the user is told the truth instead of an empty answer.
+     */
+    private fun scrubHandles(text: String): String {
+        val kept = text.split(Regex("(?<=[.!?])\\s+"))
+            .filterNot { INTERNAL_HANDLE_RE.containsMatchIn(it) }
+            .joinToString(" ")
+            .trim()
+        return kept.ifEmpty { HANDLE_FALLBACK }
+    }
+
     private fun truncate(toolName: String, observation: String): String {
         val budget = config.observationBudgetChars
         // Saved whole and previewed (start, end, handle), unless this is the
@@ -1664,6 +1749,7 @@ class AgentController(
         if (observation.length > budget && store != null && toolName != ObservationStore.READ_TOOL) {
             val id = runCatching { store.put(toolName, observation) }.getOrNull()
             if (id != null) {
+                savedObservation = true
                 log("saved $toolName result ${observation.length} chars as obs#$id; the model gets a ${budget}-char preview")
                 return ObservationTruncator.preview(observation, budget, id)
             }
@@ -2111,6 +2197,31 @@ class AgentController(
         /** Characters per token for the observation budget, which is set in characters. */
         const val CHARS_PER_TOKEN = 4
         const val TRACE_DETAIL_CHARS = 512
+
+        /**
+         * Internal handles a reply must not show the user: `obs#41`, `observation id`,
+         * `observations.read`. The model reads a saved result with `observations.read`;
+         * the user never sees its id.
+         */
+        val INTERNAL_HANDLE_RE = Regex("obs#\\d+|observation\\s*(id|#)|observations\\.read", RegexOption.IGNORE_CASE)
+
+        /**
+         * Words that announce an action instead of answering. See [bareAnswer]. Matched anywhere,
+         * so "Sure, let me check" counts too: a false match costs one hidden retry, while a miss
+         * ends the run on a promise.
+         */
+        val BARE_ACTION_INTENT_RE = Regex(
+            "\\b(let me|i['’]ll|i will|i am going|i['’]m going|one moment)\\b|^(checking|looking)",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** The one-time note to the model when a reply names an internal id. */
+        const val HANDLE_CORRECTION = "Your reply named an internal id, which the user must never see. " +
+            "Read the saved result with observations.read and the id from its obs# line, for the rest of " +
+            "the page, or answer from what you already have. Do not mention ids or observations to the user."
+
+        /** What the user is told when, after the one retry, nothing of the reply is left to show. */
+        const val HANDLE_FALLBACK = "I couldn't read far enough into that page."
         const val LINE_CHARS = 200
         const val TRUNCATOR_MIN_SAFE_BUDGET = 64
 
