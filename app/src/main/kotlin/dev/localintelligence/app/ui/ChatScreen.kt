@@ -156,6 +156,7 @@ fun ChatScreen(
     keepScreenAwake: Boolean = false,
     /** Technical mode: each reply shows its speed line (prefill, first token, decode). */
     technical: Boolean = false,
+    /**
      * The memory block, for the "Remembered: ..." line and Undo under a call that wrote it. Null
      * hides both, for a host with no block.
      */
