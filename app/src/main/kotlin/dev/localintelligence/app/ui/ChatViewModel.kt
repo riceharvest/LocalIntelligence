@@ -351,7 +351,7 @@ class ChatViewModel(
      * Turns hands-free mode on: listen, send what was said, wait for the answer, speak it,
      * listen again. Starts only from an idle chat; the screen asks for the microphone first.
      */
-    fun startHandsFree() {
+    fun startHandsFree(initialPrompt: String? = null) {
         if (_handsFree.value.phase != HandsFreePhase.Off) return
         if (speaker == null) {
             _handsFree.value = HandsFreeState(notice = "Hands-free isn't available on this phone.")
@@ -366,7 +366,11 @@ class ChatViewModel(
             return
         }
         emptyListens = 0
-        startListening()
+        if (!initialPrompt.isNullOrBlank()) {
+            sendHandsFree(typed = initialPrompt.trim(), clip = null)
+        } else {
+            startListening()
+        }
     }
 
     /**

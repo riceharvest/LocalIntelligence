@@ -49,6 +49,7 @@
          and the type-specific one, or startForegroundService throws. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <!-- Voice input: a clip for a model that reads audio, or live dictation into the
          composer for one that does not. Requested at first use from the mic button,
@@ -197,6 +198,13 @@
             android:name=".ChatGptSignInService"
             android:exported="false"
             android:foregroundServiceType="dataSync|shortService" />
+
+        <!-- Open-vocabulary wake word spotting while voice.wake_word is on.
+             Uses ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE. -->
+        <service
+            android:name=".WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <!-- Shares a chat export. Only cacheDir/exports is covered (see
              res/xml/export_paths.xml), and the grant is per share, so no other

@@ -152,6 +152,16 @@ object CoreSettings {
         "Hands-free mode: how long a pause ends your turn, in seconds.",
         SettingSection.VOICE, default = 1.2f, min = 0.6f, max = 3f, step = 0.1f, applies = SettingApplies.NOW,
     )
+    val WAKE_WORD = Toggle(
+        "voice.wake_word", "Wake word",
+        "Listen for “Hey …” and open the assistant hands-free",
+        SettingSection.VOICE, default = false, applies = SettingApplies.NOW,
+    )
+    val WAKE_PHRASE = SettingDef.Text(
+        "voice.wake_phrase", "Wake phrase",
+        "What to listen for. Leave empty for “Hey <assistant name>”, or “Hey assistant” when the name is empty.",
+        SettingSection.VOICE, default = "", maxLength = 40, applies = SettingApplies.NOW,
+    )
 
     // ---- model -------------------------------------------------------------
 
@@ -336,7 +346,7 @@ object CoreSettings {
         MODE, ASSISTANT_NAME, THEME_COLOR, APPEARANCE,
         AUTO_ACCEPT_DESTRUCTIVE, AUTO_ACCEPT_EXTERNAL, AUTO_ACCEPT_NETWORK, AUTO_ACCEPT_IN_BACKGROUND,
         TOOL_CALLS_AUTO_COLLAPSE,
-        READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE,
+        READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE, WAKE_WORD, WAKE_PHRASE,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
         COMPUTE, GPU_LAYERS, CONTEXT_LENGTH, KV_CACHE_TYPE,
         SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE, NATIVE_TOOL_FORMAT, THINKING_BUDGET, HF_READ_TOKEN,

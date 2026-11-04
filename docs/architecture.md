@@ -641,6 +641,19 @@ storage, bare-link messages and blocks always ask. Scheduled runs use it only
 when "Also in scheduled tasks" is on. The permission check now runs after the
 confirmation gates; before, a tool declaring a permission skipped them.
 
+**Wake word** (`:core` `voice/WakePhraseTokens.kt`, `:android` `voice/WakeWordSpotter.kt`,
+`:app` `WakeWordService.kt`). Open-vocabulary keyword spotting runs through
+`sherpa-onnx` v2.0.1 using the bundled int8 Zipformer GigaSpeech 3.3M transducer
+model (`assets/kws/`). Rather than pulling a native SentencePiece library,
+`WakePhraseTokens` in `:core` normalises the wake phrase (defaulting to
+`"Hey <assistant name>"` or `"Hey assistant"`), strips diacritics, and segments
+each word with Viterbi over the 500-piece score table in `kws-pieces.tsv`.
+`WakeWordService` is a `microphone` foreground service started from the UI when
+`voice.wake_word` is switched on. After a reboot, `AssistantInteractionService.onReady()`
+starts it again when the app is the phone's default assistant; otherwise, because
+Android 14+ forbids starting a `microphone` foreground service from `BOOT_COMPLETED`,
+the app posts a `"Tap to resume listening"` notification instead.
+
 **Storage modes.** The app operates in two storage modes corresponding to the two distribution builds (docs/adr/0002-play-and-full-builds.md). The Google Play build uses scoped storage and the Storage Access Framework (SAF): files are accessed via `content://` URIs granted through the system file picker or Downloads inserts. The sideloaded `full` build declares `MANAGE_EXTERNAL_STORAGE` ("All files access"): when `Environment.isExternalStorageManager()` is granted, file tools accept plain absolute paths under `Environment.getExternalStorageDirectory()` (refusing traversal segments, escaping symlinks, and `Android/data`/`Android/obb`), returning filesystem paths next to `content://` URIs while ensuring any path outside app storage still triggers RiskPolicy step 4 confirmation.
 
 ## 19. Rules for every change

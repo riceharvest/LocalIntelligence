@@ -17,4 +17,5 @@ kotlin {
 dependencies {
     api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.serialization.json)
+    testImplementation("junit:junit:4.13.2")
 }
