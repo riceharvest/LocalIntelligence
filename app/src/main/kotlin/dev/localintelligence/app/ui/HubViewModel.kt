@@ -330,9 +330,22 @@ class HubViewModel(
      * leaves the foreground, and this screen follows it through [HubTransfers.transfer].
      */
     private val transfers: HubTransfers,
+    /**
+     * True in the Play build's Simple mode: the Hub offers only the models [allowed] names. Read
+     * live on every use, because the mode can change while this screen is open.
+     */
+    private val restricted: () -> Boolean = { false },
+    /** Whether a download of [repo] / [file] is allowed while [restricted]. Match on both. */
+    private val allowed: (repo: String, file: String) -> Boolean = { _, _ -> true },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HubUiState())
+
+    /**
+     * The restriction as the last [onRestrictionChanged] saw it. Declared above [init] on purpose:
+     * `init` starts a search, and that search reads the restriction.
+     */
+    private var restrictionSeen: Boolean = restricted()
 
     /**
      * Header probes already read for the listing on screen, by file. A probe is up
@@ -438,6 +451,8 @@ class HubViewModel(
      * owner/name", and cancel the search that was about to answer.
      */
     fun submit() {
+        // Simple mode in the Play build has no search: a typed name makes no network call.
+        if (restricted()) return
         val input = _state.value.repoInput.trim()
         if (HubRepoId.parse(input) is HubRepoId.Result.Valid) {
             resolve()
@@ -449,6 +464,14 @@ class HubViewModel(
 
     private fun runSearch(query: String, delayMs: Long, openSingle: Boolean = false) {
         searchJob?.cancel()
+        // Restricted: no search and no popular list, so nothing here is shown or fetched.
+        if (restricted()) {
+            _searching.value = false
+            _searchResults.value = emptyList()
+            _showingPopular.value = false
+            _searchNote.value = null
+            return
+        }
         if (query.isEmpty()) {
             // Before typing: the models that run well on a phone, not the hub's
             // most downloaded overall (those are 9B-35B, or audio and music models).
@@ -487,6 +510,7 @@ class HubViewModel(
 
     /** A suggestion was tapped: it becomes the input and its files are listed. */
     fun pickSearchHit(hit: HuggingFaceClient.HubSearchHitPublic) {
+        if (restricted()) return
         _state.update { it.copy(repoInput = hit.repoId.id) }
         resolve()
     }
@@ -523,6 +547,12 @@ class HubViewModel(
                 // for and never to a later resolve the user types by hand.
                 val wantedFile = pendingPrefill
                 pendingPrefill = null
+                // Restricted: a repository is listed only for an allowed file, and the refusal
+                // comes before any request, so nothing is fetched for a model Simple mode does not offer.
+                if (restricted() && wantedFile?.let { allowed(parsed.repoId.id, it) } != true) {
+                    _state.update { it.copy(error = OTHER_MODELS_MESSAGE) }
+                    return
+                }
                 // WHY EVERY DOWNLOAD FIELD IS CLEARED HERE: `resolve` is also
                 // how the user gets from a finished download to a different
                 // repo. The previous version only touched `loading` and
@@ -554,7 +584,12 @@ class HubViewModel(
                     // was replaced. Stop here, so its error is never written over the new one.
                     ensureActive()
                     result.onSuccess { files ->
+                        // Read again here: the restriction can change while the listing is out.
+                        // Restricted, only the allowed file is kept, so the quant rows, the guess
+                        // and "Show all versions" can only ever show that file.
+                        val limited = restricted()
                         val loadable = client.loadableFiles(files)
+                            .filter { !limited || allowed(parsed.repoId.id, it.path.pathInRepo) }
                         val guess = client.chooseBestFitting(
                             candidates = loadable,
                             contextLength = contextLength(),
@@ -576,7 +611,8 @@ class HubViewModel(
                         // quant rows. It is one extra request on a screen where
                         // the user has already pressed List files, and it is
                         // best-effort: a null result changes nothing.
-                        val nonGguf = listNonGgufSiblings(parsed.repoId)
+                        // Restricted: no request for LiteRT-LM siblings either, since none is allowed.
+                        val nonGguf = if (limited) emptyList() else listNonGgufSiblings(parsed.repoId)
                         _state.update {
                             it.copy(
                                 loading = false,
@@ -642,9 +678,53 @@ class HubViewModel(
      * preselect a file.
      */
     fun prefill(repo: String, fileName: String) {
+        if (restricted() && !allowed(repo, fileName)) {
+            pendingPrefill = null
+            _state.update { it.copy(error = OTHER_MODELS_MESSAGE) }
+            return
+        }
         pendingPrefill = fileName
         _state.update { it.copy(repoInput = repo) }
         resolve()
+    }
+
+    /**
+     * Called when the Simple/Technical mode may have changed. The screen calls it whenever its
+     * restriction flag changes, and this checks against the last value seen, so a rotation (which
+     * re-runs the effect) does nothing.
+     *
+     * Turning the restriction on drops any search results, and drops a listed repository when it
+     * holds a file that is not allowed. A download already running is left alone: it is what the
+     * user chose, and its file was allowed when it started. Turning it off brings back the popular list.
+     */
+    fun onRestrictionChanged() {
+        val now = restricted()
+        if (now == restrictionSeen) return
+        restrictionSeen = now
+        if (!now) {
+            runSearch("", delayMs = 0)
+            return
+        }
+        searchJob?.cancel()
+        _searching.value = false
+        _searchResults.value = emptyList()
+        _showingPopular.value = false
+        _searchNote.value = null
+        val s = _state.value
+        if (s.downloading) return
+        val listingAllowed = s.nonGgufFiles.isEmpty() &&
+            s.files.all { allowed(it.repo.id, it.path.pathInRepo) } &&
+            (s.selected == null || allowed(s.selected.repo.id, s.selected.path.pathInRepo))
+        if (!listingAllowed) {
+            _state.update {
+                it.copy(
+                    files = emptyList(), nonGgufFiles = emptyList(), selected = null, recommended = null,
+                    plan = null, exactFit = false, alreadyOnDevice = false, projector = null,
+                    error = null, progress = null, registeredNote = null, registeredReady = false,
+                    partialBytesKept = 0,
+                )
+            }
+        }
     }
 
     /**
@@ -656,6 +736,10 @@ class HubViewModel(
 
     /** Selects a specific quant and recomputes the plan for it. */
     fun select(file: HubGgufFile) {
+        if (restricted() && !allowed(file.repo.id, file.path.pathInRepo)) {
+            _state.update { it.copy(error = OTHER_MODELS_MESSAGE) }
+            return
+        }
         selectJob?.cancel()
         selectJob = viewModelScope.launch {
             val planned = planFor(file)
@@ -852,6 +936,11 @@ class HubViewModel(
         val file = current.selected ?: return
         val plan = current.plan ?: return
         if (plan.reject != null) return
+        // The projector that follows is from this same repository, so one check covers both files.
+        if (restricted() && !allowed(file.repo.id, file.path.pathInRepo)) {
+            _state.update { it.copy(error = OTHER_MODELS_MESSAGE) }
+            return
+        }
         // A quant tap still probing must not change the selection under this download.
         selectJob?.cancel()
 
@@ -988,6 +1077,10 @@ class HubViewModel(
      */
     fun startNonGgufDownload(file: NonGgufModelFile) {
         if (file.sizeBytes <= 0L) return
+        if (restricted() && !allowed(file.repo.id, file.path.pathInRepo)) {
+            _state.update { it.copy(error = OTHER_MODELS_MESSAGE) }
+            return
+        }
         val hubFile = file.toHubFile()
         selectJob?.cancel()
         _state.value.downloadJob?.cancel()
@@ -1175,6 +1268,9 @@ class HubViewModel(
     companion object {
         /** What the Hub says when a download is on disk and listed but did not load. */
         const val COULD_NOT_START = "Downloaded, but it couldn't start. Try a smaller version."
+
+        /** What a Play build's Simple mode says when asked for a model it does not offer. */
+        const val OTHER_MODELS_MESSAGE = "Other models are in Technical mode (Settings)."
 
         /**
          * Only the fallback when no resolver is wired: 4096, the context the app's

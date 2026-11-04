@@ -1787,7 +1787,16 @@ class AppContainer(private val context: Context) {
         contextLengthFor = ::hubContextLength,
         kvCacheType = ::hubKvCacheType,
         transfers = hubTransfers,
+        restricted = ::hubRestricted,
+        allowed = { repo, file -> SimpleSetup.allowsDownload(deviceFacts, repo, file) },
     )
+
+    /**
+     * True when the Hub offers only the recommended models: the Play build in Simple mode.
+     * The full build and Technical mode keep the open search. Read live, so a mode change in
+     * Settings applies at once. The policy reason is in docs/architecture.md section 18b.
+     */
+    fun hubRestricted(): Boolean = !BuildConfig.FULL_BUILD && settings.mode != SettingsMode.TECHNICAL
 
     /**
      * The n_ctx a Hub download is priced at: the same function, with the same inputs, the model

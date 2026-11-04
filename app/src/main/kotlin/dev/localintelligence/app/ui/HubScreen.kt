@@ -36,6 +36,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +57,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.core.hub.DownloadProgress
 import dev.localintelligence.core.hub.HubError
 import dev.localintelligence.core.hub.HubGgufFile
+import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.core.hub.formatBytes
 import java.util.Locale
 
@@ -87,7 +89,17 @@ fun HubScreen(
     onOpenModels: () -> Unit = {},
     /** True in Technical mode; Simple shows the verdict and the recommended file only. */
     technical: Boolean = false,
+    /**
+     * True in the Play build's Simple mode: no search, only [recommended] offered. Passed in
+     * from the mode, which the Activity re-reads on every settings change, as [technical] is.
+     */
+    restricted: Boolean = false,
+    /** The models a restricted screen offers as cards, the phone's suggestion first. */
+    recommended: List<SimpleSetup.RecommendedModel> = emptyList(),
 ) {
+    // The ViewModel re-checks the restriction against what it last saw, so this is safe on every
+    // composition and on rotation; it is what drops a listing the new mode does not allow.
+    LaunchedEffect(restricted) { viewModel.onRestrictionChanged() }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val suggestions by viewModel.searchResults.collectAsStateWithLifecycle()
     val searching by viewModel.searching.collectAsStateWithLifecycle()
@@ -117,7 +129,7 @@ fun HubScreen(
         modifier = Modifier.fillMaxWidth().padding(padding).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
+        if (!restricted) item {
             OutlinedTextField(
                 value = state.repoInput,
                 onValueChange = viewModel::onRepoInputChanged,
@@ -133,7 +145,7 @@ fun HubScreen(
             )
         }
 
-        if (searching && !state.downloading) {
+        if (searching && !state.downloading && !restricted) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -142,14 +154,14 @@ fun HubScreen(
             }
         }
         searchNote?.let { note ->
-            if (!state.downloading) {
+            if (!state.downloading && !restricted) {
                 item { Text(note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
 
         // Matches for what is typed so far (or, before typing, the most downloaded
         // models), most downloaded first. A tap lists that repo's files.
-        if (suggestions.isNotEmpty() && !state.downloading && state.files.isEmpty()) {
+        if (suggestions.isNotEmpty() && !state.downloading && state.files.isEmpty() && !restricted) {
             if (showingPopular) {
                 item { Text("Good on phones", style = MaterialTheme.typography.labelLarge) }
             }
@@ -174,7 +186,7 @@ fun HubScreen(
 
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
+                if (!restricted) Button(
                     onClick = viewModel::submit,
                     enabled = !state.loading && !state.downloading,
                 ) {
@@ -201,6 +213,21 @@ fun HubScreen(
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
+        }
+
+        // Play build, Simple mode: the recommended models as cards, and nothing else to search.
+        // Shown only while no model is listed, loading or downloading, so the screen shows one thing.
+        if (restricted && !state.loading && state.selected == null && !state.downloading && state.progress == null) {
+            items(recommended, key = { it.model.repo + "/" + it.model.file }) { option ->
+                RecommendedModelCard(option = option, onDownload = { viewModel.prefill(option.model.repo, option.model.file) })
+            }
+            item {
+                Text(
+                    "Other models: switch to Technical mode in Settings.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -397,7 +424,7 @@ fun HubScreen(
             item { Text(if (technical) "Available files" else "Versions", style = MaterialTheme.typography.titleSmall) }
             // Simple: the recommended file (and whatever is selected), with the rest behind a button.
             val recommended = state.recommended
-            val collapse = !technical && !showAllVersions && recommended != null
+            val collapse = !technical && !restricted && !showAllVersions && recommended != null
             val shown = if (collapse) {
                 state.files.filter { it == recommended || it.fileName == state.selected?.fileName }
             } else {
@@ -546,6 +573,8 @@ fun HubScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
+                // Restricted: the cards above are the whole screen, so no search prompt is added.
+                restricted && selected == null -> Unit
                 selected == null -> {
                     // The idle state. This used to render nothing at all: a
                     // fresh screen was a text field, a button, and 24 dp of
@@ -606,6 +635,41 @@ fun HubScreen(
         }
         item { Spacer(Modifier.height(24.dp)) }
     }
+    }
+}
+
+/**
+ * One model the Play build's Simple mode offers, with its size and its reason.
+ *
+ * ## Why Download only lists the file
+ *
+ * The button runs the same prefill the Settings suggestion card runs: the file is listed and
+ * selected, then its size, verdict and the existing download button come next. Nothing is
+ * fetched by the tap itself, so the user always sees the fit verdict before any bytes move.
+ */
+@Composable
+private fun RecommendedModelCard(option: SimpleSetup.RecommendedModel, onDownload: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(option.model.name, style = MaterialTheme.typography.titleMedium)
+            Text(
+                "${formatBytes(option.model.sizeBytes)} download",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                option.model.reason,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            option.note?.let { note ->
+                Text(
+                    note,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Button(onClick = onDownload, modifier = Modifier.padding(top = 4.dp)) { Text("Download") }
+        }
     }
 }
 
