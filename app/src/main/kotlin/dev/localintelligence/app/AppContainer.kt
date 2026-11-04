@@ -146,7 +146,7 @@ import kotlinx.coroutines.sync.withLock
  * for a global.
  */
 /** Tools a Play build offers only to a run the person started in the app. See `pluginTools`. */
-private val PLAY_ATTENDED_ONLY_TOOLS = setOf("sms.search", "sms.send", "calls.recent")
+private val PLAY_ATTENDED_ONLY_TOOLS = setOf("sms.search", "sms.send", "calls.recent", "phone.search")
 
 class AppContainer(private val context: Context) {
 
@@ -290,7 +290,7 @@ class AppContainer(private val context: Context) {
     val scriptRepository: ScriptPluginRepository by lazy { ScriptPluginRepository(File(context.filesDir, "plugins")) }
 
     private val builtInPlugins: List<AgentPlugin> by lazy {
-        val families = androidToolPlugins(context, settings)
+        val families = androidToolPlugins(context, settings, session.todos)
         val flavor = FlavorPlugins.plugins(context, settings)
         val cloud = openRouterPlugin
         val sandbox = sandboxPlugin
@@ -637,6 +637,7 @@ class AppContainer(private val context: Context) {
         if (history.isEmpty()) return
         val adopted = session.restore(history)
         settleInterruptedMark(store, id, history, adopted)
+        restoreTodos(store, id)
         // Everything restored is already on disk, so the writer must not
         // re-append it. With identity-based writing the equivalent is marking
         // those exact message objects as already written, rather than setting a
@@ -897,6 +898,7 @@ class AppContainer(private val context: Context) {
     fun persistRunEnd() {
         val pending = snapshotPendingMessages()
         if (pending.isNotEmpty()) launchWrite(pending)
+        saveTodos()
         // Any terminal state ends the run, Stop included, so the mark comes off with it.
         clearRunInFlight()
     }
@@ -909,6 +911,37 @@ class AppContainer(private val context: Context) {
     fun persistProgress() {
         val pending = snapshotPendingMessages()
         if (pending.isNotEmpty()) launchWrite(pending)
+        saveTodos()
+    }
+
+    /**
+     * Saves the task checklist with the session row. It is encoded here, on the caller's thread,
+     * so the write sees the list as it was at this step.
+     */
+    private fun saveTodos() {
+        val store = sessionStore ?: return
+        val id = pinnedSessionId ?: return
+        val json = session.todos.encode()
+        appScope.launch {
+            try {
+                withContext(Dispatchers.IO) { store.setTodos(id, json) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                android.util.Log.w(TAG, "Could not save the task list.", t)
+            }
+        }
+    }
+
+    /** Puts the saved task checklist back into the session, with the turns it belongs to. */
+    private suspend fun restoreTodos(store: SessionStore, id: Long) {
+        try {
+            session.todos.restore(withContext(Dispatchers.IO) { store.todos(id) })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "Could not read the task list.", t)
+        }
     }
 
     /**

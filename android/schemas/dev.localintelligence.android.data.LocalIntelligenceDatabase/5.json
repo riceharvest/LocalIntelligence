@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 5,
-    "identityHash": "c8e8291a21485b37ea4ca967cb2877d0",
+    "identityHash": "12a32a7768203daa21407bff3f1da99c",
     "entities": [
       {
         "tableName": "sessions",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `created_at` INTEGER NOT NULL, `last_active_at` INTEGER NOT NULL, `title` TEXT, `persona_id` INTEGER, `run_in_flight` INTEGER NOT NULL DEFAULT 0)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `created_at` INTEGER NOT NULL, `last_active_at` INTEGER NOT NULL, `title` TEXT, `persona_id` INTEGER)",
         "fields": [
           {
             "fieldPath": "id",
@@ -35,13 +35,6 @@
             "fieldPath": "personaId",
             "columnName": "persona_id",
             "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "runInFlight",
-            "columnName": "run_in_flight",
-            "affinity": "INTEGER",
-            "notNull": true,
-            "defaultValue": "0"
           }
         ],
         "primaryKey": {
@@ -382,11 +375,77 @@
             "id"
           ]
         }
+      },
+      {
+        "tableName": "phone_index",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `source` TEXT NOT NULL, `source_key` TEXT NOT NULL, `title` TEXT NOT NULL, `text` TEXT NOT NULL, `when_at` INTEGER NOT NULL, `indexed_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceKey",
+            "columnName": "source_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "whenAt",
+            "columnName": "when_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "indexedAt",
+            "columnName": "indexed_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_phone_index_source_source_key",
+            "unique": true,
+            "columnNames": [
+              "source",
+              "source_key"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_phone_index_source_source_key` ON `${TABLE_NAME}` (`source`, `source_key`)"
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c8e8291a21485b37ea4ca967cb2877d0')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '12a32a7768203daa21407bff3f1da99c')"
     ]
   }
 }

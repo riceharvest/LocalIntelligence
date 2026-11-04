@@ -218,6 +218,7 @@ account. Nothing is sent before then. The shared rules are enforced in code:
 | Email (`email.*`) | Technical mode and an app password (Gmail, iCloud, Fastmail or custom) | TLS only. Connections open per call, with no background sync. `email.send` asks, and the card shows to, subject and full body. Mail text is fenced. |
 | Home Assistant (`home.*`) | Technical mode, the user's address and token | `home.secure` (lock and cover) is `DESTRUCTIVE`. Alarm panels are refused. Loopback and link-local addresses are refused in both schemes. |
 | Texts and call log (`sms.*`, `calls.recent`) | The app is the default assistant (`RoleManager.ROLE_ASSISTANT`), checked on every call | Reads are only for the default assistant, and the permission dialogs are withheld until the role is held. `sms.send` and `phone.call` ask. Texts are fenced. |
+| Search my phone (`phone.search`, table `phone_index`) | Each source is a Settings switch, off by default. Texts also need the default assistant role, checked on every read. Unattended Play runs do not get the tool at all (`PLAY_ATTENDED_ONLY_TOOLS`). The charger refresh reads texts only in the full build. | The index is in the app's own database and sends nothing. Contact names only, never numbers. Notifications are kept only from when the switch is on. Results are fenced as network text. Deleting a source removes its rows, and a refresh drops rows for items that no longer exist on the phone. A cloud chat model that answers the run receives the matches, as with any tool result. |
 | Search providers (`web.search`) | Technical mode and the user's key for Brave, Tavily or Exa, or the user's SearXNG address | A provider error is reported as an error. The search does not fall back to another provider, because the user chose where the query goes. |
 | Remote chat presets | Technical mode and the key for each provider | The conversation goes only to the endpoint the user chose. OpenRouter-only request fields are sent only to OpenRouter. Model lists come from that provider's `GET /models`. |
 | Extras (Play subscription) | A Play purchase. Not offered until the Extras server is deployed (`EXTRAS_BACKEND_URL`) | The Extras server sees the Play purchase token and a random install id. It stores only SHA-256 hashes of tokens and install ids, and AES-GCM encrypts provider keys. Provider keys carry monthly limits. The app sends only over https. A paused, ended or refunded subscription disables the keys. |
@@ -230,6 +231,10 @@ account. Nothing is sent before then. The shared rules are enforced in code:
   deletes them yet.
 - The text-only address check in T2 applies to every host in this table, including the
   user's own Daytona, SSH and custom endpoints. Nothing resolves DNS at validation time.
+- Search my phone is keyword search only (BM25). The embedding model is not used, so a question
+  worded differently from a text or file is not found. Notifications are kept as the phone shows
+  them, so a one-time code in a notification is in the index until it is deleted or aged out
+  (2000 items per source). The charger refresh has not been run on a phone.
 - The Telegram, sandbox, browser, email, Home Assistant and Extras paths have not been run
   against their live services. No key has been used against a real account yet.
 

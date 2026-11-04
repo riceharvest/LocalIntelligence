@@ -70,6 +70,12 @@ data class StepTrace(
      * Null on every other kind and when the model did not think.
      */
     val thought: String? = null,
+    /**
+     * The call's arguments as JSON, exactly as the model sent them, on a TOOL_CALL row. Null
+     * elsewhere. The eval runner (scripts/run-evals.py) checks arguments against this; the
+     * display string in [toolArgs] is lossy (40-character values, six keys) and cannot be checked.
+     */
+    val toolArgsJson: String? = null,
 ) {
     enum class Kind { GENERATION, TOOL_CALL, OBSERVATION, MALFORMED, COMPACTION }
 }

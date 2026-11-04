@@ -72,6 +72,15 @@ class RoomSessionStore(
         sessionDao.runInFlight(sessionId) ?: false
     }
 
+    override suspend fun setTodos(sessionId: Long, json: String?) = withContext(ioDispatcher) {
+        sessionDao.setTodoJson(sessionId, json)
+        Unit
+    }
+
+    override suspend fun todos(sessionId: Long): String? = withContext(ioDispatcher) {
+        sessionDao.todoJson(sessionId)
+    }
+
     /**
      * Wipes sessions, messages and summaries. Memories are deliberately NOT cleared:
      * a cleared conversation history is not the same request as "forget everything I
