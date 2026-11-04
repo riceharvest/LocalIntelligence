@@ -271,6 +271,9 @@ fun SettingsScreen(
                     }
                 }
 
+                // Shows only while a crash report is on the phone.
+                CrashReportRow()
+
                 // Both modes: the policy describes the app, and a Simple user has the same data.
                 Card(modifier = Modifier.fillMaxWidth()) {
                     NavRow(Icons.Filled.Info, "Privacy policy") { openUrl(context, PRIVACY_POLICY_URL) }
