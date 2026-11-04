@@ -347,9 +347,12 @@ object LlamaBridge {
 
     /**
      * Parses the wire format from `nativeTakeResult`:
-     * `stop|prompt|completion|prefillMs|decodeMs|error|<text>`.
+     * `stop|prompt|completion|prefillMs|decodeMs|reused|firstTokenMs|error|<text>`.
      *
-     * Split on the first six separators only, so a newline or pipe inside the
+     * `reused` and `firstTokenMs` are -1 when native did not reach that point (a failure
+     * before the prompt was evaluated, or before a token was sampled); they parse to null.
+     *
+     * Split on the first eight separators only, so a newline or pipe inside the
      * generated text survives intact.
      */
     internal fun parseOutcome(raw: String): GenerationOutcome {
@@ -370,6 +373,8 @@ object LlamaBridge {
         val completionTokens = next().toIntOrNull() ?: 0
         val prefillMs = next().toLongOrNull() ?: 0L
         val decodeMs = next().toLongOrNull() ?: 0L
+        val reusedTokens = next().toIntOrNull()?.takeIf { it >= 0 }
+        val firstTokenMs = next().toLongOrNull()?.takeIf { it >= 0L }
         val rawError = next()
         val error = rawError.ifEmpty { null }
         val text = if (idx <= raw.length) raw.substring(idx) else ""
@@ -380,6 +385,8 @@ object LlamaBridge {
             stopCode = stop,
             prefillMs = prefillMs,
             decodeMs = decodeMs,
+            reusedTokens = reusedTokens,
+            firstTokenMs = firstTokenMs,
             error = error,
         )
     }
@@ -469,6 +476,8 @@ data class GenerationOutcome(
     val stopCode: Int,
     val prefillMs: Long,
     val decodeMs: Long,
+    val reusedTokens: Int?,
+    val firstTokenMs: Long?,
     val error: String?,
 ) {
     companion object {

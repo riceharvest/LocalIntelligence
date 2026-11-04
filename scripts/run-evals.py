@@ -281,8 +281,10 @@ def record_from_done(d: dict) -> dict:
         "input_tokens": sum(g.get("promptTokens") or 0 for g in gens) if gens else None,
         "output_tokens": sum(g.get("decodeTokens") or 0 for g in gens) if gens else None,
         "prefill_ms": sum(g.get("prefillMs") or 0 for g in gens) if gens and any(g.get("prefillMs") for g in gens) else None,
+        "prefill_tok_s": _prefill_rate(gens),
         "decode_tok_s": _mean([g.get("decodeTokPerS") for g in gens or []]),
-        "first_token_ms": None,  # DebugControl always sends null: no time-to-first-token in the metrics.
+        # The run's first request is its first generation: the wait before the reply starts.
+        "first_token_ms": gens[0].get("firstTokenMs") if gens else None,
         "total_ms": d.get("total_ms"),
         "error": None,
         # Refused before execution: the call has no time and success is false.
@@ -301,6 +303,8 @@ def record_from_harness(d: dict) -> dict:
         "input_tokens": d.get("input_tokens"),
         "output_tokens": d.get("output_tokens"),
         "prefill_ms": d.get("prefill_ms"),
+        # The harness contract has no reused-token count, so its prefill rate is not measured.
+        "prefill_tok_s": None,
         "decode_tok_s": _rate(d.get("output_tokens"), d.get("decode_ms")),
         "first_token_ms": d.get("first_token_ms"),
         "total_ms": d.get("total_ms"),
@@ -318,6 +322,16 @@ def _rate(tokens, ms):
     if not tokens or not ms:
         return None
     return round(tokens * 1000.0 / ms, 2)
+
+
+def _prefill_rate(gens):
+    """Prompt tokens processed per second over the generations whose count AND timer were reported.
+
+    A generation without tokensPrefilled (a backend that cannot say how much it reused) is left out
+    of both sums, so the rate is never a whole-prompt figure divided by a timer that skipped it.
+    """
+    rows = [g for g in gens or [] if g.get("tokensPrefilled") is not None and g.get("prefillMs")]
+    return _rate(sum(g["tokensPrefilled"] for g in rows), sum(g["prefillMs"] for g in rows))
 
 
 def aggregate_turns(turns: list[dict]) -> dict:
@@ -349,7 +363,7 @@ def aggregate_turns(turns: list[dict]) -> dict:
         "input_tokens": total("input_tokens"),
         "output_tokens": total("output_tokens"),
         "prefill_ms": total("prefill_ms"),
-        "prefill_tok_s": None,  # Not measured: DebugControl cannot say how many prompt tokens were reused.
+        "prefill_tok_s": _mean([t.get("prefill_tok_s") for t in turns]),
         "first_token_ms": last.get("first_token_ms"),
         "decode_tok_s": _mean([t.get("decode_tok_s") for t in turns]),
         "total_ms": total("total_ms"),
@@ -449,6 +463,7 @@ def summarise(runs: list[dict], tasks: list[dict], repeats: list) -> dict:
         "median": {
             "decode_tok_s": med("decode_tok_s"),
             "prefill_ms": med("prefill_ms"),
+            "prefill_tok_s": med("prefill_tok_s"),
             "first_token_ms": med("first_token_ms"),
             "total_ms": med("total_ms"),
             "steps": med("steps"),
@@ -635,7 +650,7 @@ def _finish_run(task, repeat, seed, res, runner, peak_kb, seconds) -> dict:
         "input_tokens": m.get("input_tokens") if m else None,
         "output_tokens": m.get("output_tokens") if m else None,
         "prefill_ms": m.get("prefill_ms") if m else None,
-        "prefill_tok_s": None,
+        "prefill_tok_s": m.get("prefill_tok_s") if m else None,
         "first_token_ms": m.get("first_token_ms") if m else None,
         "decode_tok_s": m.get("decode_tok_s") if m else None,
         "total_ms": m.get("total_ms") if m else None,

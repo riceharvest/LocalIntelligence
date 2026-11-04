@@ -213,10 +213,42 @@ data class GenerationResult(
      * written into the model's history.
      */
     val thought: String? = null,
+    /**
+     * Prompt tokens restored from an earlier step instead of processed again. Null when the
+     * backend does not report it. Prefill rate is computed over the rest, so a backend that
+     * cannot say how much it reused gets no prefill rate, never one over the whole prompt.
+     */
+    val reusedTokens: Int? = null,
+    /**
+     * Milliseconds from the start of the request to the first generated token. Null when the
+     * backend does not report it. This is not [prefillMs]: on llama.cpp the prompt is processed
+     * before the first token is sampled, and the two differ by the time to sample it.
+     */
+    val firstTokenMs: Long? = null,
 ) {
     val decodeTokensPerSecond: Double
         get() = if (decodeMs > 0) completionTokens * 1000.0 / decodeMs else 0.0
+
+    /** Prompt tokens this generation actually processed, or null when reuse is not reported. */
+    val prefilledTokens: Int?
+        get() = prefilledTokensOf(promptTokens, reusedTokens)
+
+    /** Prefill tokens per second over the tokens processed, or null without a count and a timer. */
+    val prefillTokensPerSecond: Double?
+        get() = prefillRateOf(prefilledTokens, prefillMs)
 }
+
+/** Prompt tokens processed, the prompt minus the reused prefix. Null when reuse is unknown. */
+fun prefilledTokensOf(promptTokens: Int, reusedTokens: Int?): Int? =
+    reusedTokens?.let { (promptTokens - it).coerceAtLeast(0) }
+
+/**
+ * Prefill tokens per second, or null when either the count or the timer is missing. A zero
+ * count is no rate at all: a fully reused prompt processed nothing, and a rate of zero would
+ * read as a slow device.
+ */
+fun prefillRateOf(prefilledTokens: Int?, prefillMs: Long): Double? =
+    prefilledTokens?.takeIf { it > 0 && prefillMs > 0 }?.let { it * 1000.0 / prefillMs }
 
 enum class StopReason {
     COMPLETED,
