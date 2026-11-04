@@ -59,6 +59,14 @@ interface PluginHooks {
      */
     fun contextForStep(task: String): List<String> = emptyList()
 
+    /**
+     * The tool names this run may see, or null for every enabled tool. Asked once at the start of a
+     * run, before the prompt's tool list is built, so a scoped skill's prompt lists only its own tools
+     * (plus the core ones the controller always keeps). WHY NOT JUST [beforeTool]: a refused call still
+     * costs a turn and shows the small model a tool it was told not to use. [beforeTool] stays as the backstop.
+     */
+    fun toolScope(task: String): Set<String>? = null
+
     /** Before a validated tool call is judged by the risk policy. First [ToolGate.Deny] wins. */
     fun beforeTool(name: String, args: ToolArgs): ToolGate = ToolGate.Proceed
 
@@ -105,6 +113,12 @@ class PluginSet(
 
             override fun contextForStep(task: String): List<String> =
                 all.flatMap { h -> runCatching { h.contextForStep(task) }.getOrDefault(emptyList()) }
+
+            override fun toolScope(task: String): Set<String>? {
+                // Several scoping plugins together: the run may use the tools any of them allows.
+                val scopes = all.mapNotNull { h -> runCatching { h.toolScope(task) }.getOrNull() }
+                return if (scopes.isEmpty()) null else scopes.flatten().toSet()
+            }
 
             override fun beforeTool(name: String, args: ToolArgs): ToolGate {
                 for (h in all) {

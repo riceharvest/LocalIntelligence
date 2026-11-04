@@ -118,7 +118,7 @@ Full detail: [docs/architecture.md](docs/architecture.md).
 | [docs/tool-contract.md](docs/tool-contract.md) | The frozen tool contract. Implement, do not redesign. |
 | [docs/agent-loop.md](docs/agent-loop.md) | The loop, step by step, with failure paths. |
 | [docs/roadmap.md](docs/roadmap.md) | What is built, what is verified, what is deliberately not. |
-| [docs/evals.md](docs/evals.md) | Why there is no eval suite, and what is unmeasured. |
+| [docs/evals.md](docs/evals.md) | The eval task list (`evals/`), its runner (`scripts/run-evals.py`), and what is unmeasured. |
 | [docs/memory-model.md](docs/memory-model.md) | The RAM fit model: derivation, what is measured, and the device procedure. |
 | [docs/acceleration.md](docs/acceleration.md) | GPU/NPU reality on LiteRT-LM, including the Tensor NPU path. |
 | [docs/litertlm-backend.md](docs/litertlm-backend.md) | The second backend and why it cannot load a model yet. |

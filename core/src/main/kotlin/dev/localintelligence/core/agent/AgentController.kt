@@ -127,6 +127,12 @@ val NATIVE_CORE_TOOLS: List<String> = listOf(
     "todo.update",
 )
 
+/**
+ * How a run ends after a second repetition loop: the [AgentResult.Stop] reason. Public so the chat can
+ * recognise this stop and show its own plain sentence, not the generic failure.
+ */
+const val REPETITION_STOP_REASON = "The reply kept repeating the same text, so the answer was stopped."
+
 class AgentController(
     private val model: ModelBackend,
     private val parser: ActionParser,
@@ -510,6 +516,9 @@ class AgentController(
         handleRetried = false
         answerRetried = false
         pending = null
+        // A scoped skill narrows what this run lists and may call. Set per run, from the task, before
+        // the tool list is planned: the session is shared, so a scope left from an earlier run must not stay.
+        sessions.toolScope = hooks.toolScope(task)?.also { log("skill scope: ${it.sorted().joinToString()} plus the core tools") }
         // The session is NOT cleared here, and this is load-bearing.
         //
         // `sessions` is ONE long-lived conversation shared by every run (see
@@ -592,6 +601,8 @@ class AgentController(
      */
     private suspend fun settle(outcome: AgentResult): AgentResult {
         if (outcome !is AgentResult.AwaitingConfirmation) {
+            // The skill scope lasts for the run. A run paused for approval keeps it, so the resumed run is scoped too.
+            sessions.toolScope = null
             // Over the message cap, fold into the working state rather than drop
             // the oldest turns: a drop shifts every later token, so each message
             // after it would prefill the whole conversation again. The bound
@@ -874,7 +885,7 @@ class AgentController(
                     // Judged like a malformed reply, once. A second loop in the same run ends
                     // the answer with a plain message, because the model has already been told.
                     trace += StepTrace(step, StepTrace.Kind.MALFORMED, parsed.reason, success = false)
-                    if (repetitionStrikes > 0) return Stop(REPETITION_STOP, trace.toList())
+                    if (repetitionStrikes > 0) return Stop(REPETITION_STOP_REASON, trace.toList())
                     repetitionStrikes += 1
                     sessions.observe(
                         "That reply repeated the same text and was not used. Answer once, in fewer words. " +
@@ -1720,6 +1731,10 @@ class AgentController(
      * family switched off), when the prompt changes anyway.
      */
     private fun planTurnTools(): List<AgentTool> {
+        // A scoped run lists its scope's tools in full (see [selectTools]) and describes nothing extra.
+        // Planning here would rewrite the conversation's list from the scope, and the next unscoped
+        // run would inherit that narrower list.
+        if (sessions.toolScope != null) return emptyList()
         val all = tools.all()
         val byName = all.associateBy { it.definition.name }
         // With tool lookup on the model decides, so nothing is picked for it here: the list is the
@@ -1833,8 +1848,21 @@ class AgentController(
 
     /** The session's tool list, as it stands for this step. */
     private fun selectTools(): List<AgentTool> {
+        // A skill scope lists the scope's tools and the core tools from the registry. The session's list
+        // is not changed for it, so the next unscoped run still gets the list it had.
+        if (sessions.toolScope != null) return tools.all().filter { inScope(it.definition.name) }
         val byName = tools.all().associateBy { it.definition.name }
         return sessions.epochTools.mapNotNull { byName[it] }
+    }
+
+    /**
+     * Whether the active skill scope lets [name] be listed or called this run. With no scope every tool
+     * may be. The core tools (the controller's own list and tools.find) are never scoped out, or the
+     * model would be left unable to read a saved result or look a tool up.
+     */
+    private fun inScope(name: String): Boolean {
+        val scope = sessions.toolScope ?: return true
+        return name in scope || name in NATIVE_CORE_TOOLS || name == ObservationStore.READ_TOOL || name == ToolFinder.NAME
     }
 
     /** The turn lines that describe [extra] tools, so the model knows it may call them. */
@@ -1924,12 +1952,12 @@ class AgentController(
     private fun withDiscovered(visible: List<AgentTool>): List<AgentTool> {
         if (config.toolLookup) {
             val listed = visible.map { it.definition.name }.toSet()
-            return visible + tools.all().filter { it.definition.name !in listed }
+            return visible + tools.all().filter { it.definition.name !in listed && inScope(it.definition.name) }
         }
         if (sessions.discoveredTools.isEmpty()) return visible
         val listed = visible.map { it.definition.name }.toSet()
         val byName = tools.all().associateBy { it.definition.name }
-        return visible + sessions.discoveredTools.filter { it !in listed }.mapNotNull { byName[it] }
+        return visible + sessions.discoveredTools.filter { it !in listed && inScope(it) }.mapNotNull { byName[it] }
     }
 
     /**
@@ -2608,9 +2636,6 @@ class AgentController(
 
         /** Why a reply that looped is rejected. The model reads it in the correction, and the trace shows it. */
         const val REPETITION_REASON = "the reply repeated the same text over and over"
-
-        /** How a run ends after a second loop. The user sees a failed run with this reason. */
-        const val REPETITION_STOP = "The reply kept repeating the same text, so the answer was stopped."
 
         /** What the user is told when, after the one retry, nothing of the reply is left to show. */
         const val HANDLE_FALLBACK = "I couldn't read far enough into that page."
