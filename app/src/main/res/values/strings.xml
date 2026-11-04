@@ -648,6 +648,8 @@
 
     <!-- TelegramService.kt -->
     <string name="export_failed">Export failed</string>
+    <!-- Android 17 per-app memory limit. Plain words, one line; names the two things the person can change. -->
+    <string name="memory_limit_notice">Android stopped the app to free memory. Try a smaller model or a shorter context.</string>
     <string name="skill_saved">Skill saved</string>
     <string name="copied">Copied</string>
     <string name="finish_sign_in_in_your_browser">Finish sign-in in your browser, then come back.</string>
@@ -1235,4 +1237,100 @@
     <string name="tool_waiting_for_approval">Waiting for your approval</string>
     <string name="tool_you_allowed">You allowed: %1$s</string>
     <string name="tool_you_didnt_allow">You didn\'t allow: %1$s</string>
+    <!-- Parity pass: Technical speed line under a reply, and "not available" for a rate that cannot be computed. -->
+    <string name="reply_speed_line">Prefill %1$s tok/s · first token %2$d ms · decode %3$s tok/s</string>
+    <string name="reply_speed_not_available">n/a</string>
+    <!-- Parity pass: the foreground notification while an audio file is transcribed. -->
+    <string name="transcribing_audio_file">Transcribing an audio file</string>
+    <string name="transcription_channel_name">Audio transcription</string>
+    <!-- Parity pass: content description of a photo thumbnail from photos.search. -->
+    <string name="photo_from_your_search">Photo from your search</string>
+    <!-- Parity pass: Find model servers on this Wi-Fi (Models page). -->
+    <string name="lan_find_title">Models on this network</string>
+    <string name="lan_find_explain">Looks for LM Studio, Ollama and llama.cpp on your Wi-Fi, only when you tap Find. Messages then go to that computer, not to this phone.</string>
+    <string name="lan_find_button">Find</string>
+    <string name="lan_finding">Looking on this network…</string>
+    <string name="lan_find_failed">Could not look on this network. %1$s</string>
+    <string name="lan_none_found">No model server answered on this Wi-Fi. It must be on, on this network, and listening on its usual port.</string>
+    <string name="lan_server_line">%1$s on %2$s</string>
+    <string name="lan_server_model">Model: %1$s</string>
+    <string name="lan_no_model_listed">none listed</string>
+    <string name="lan_messages_go_there">Messages go to that computer, on your own network.</string>
+    <string name="lan_forget">Forget the server found on this network</string>
+    <!-- My desktop (full build). Appended at the end; translated later from this file. -->
+    <string name="desktop_title">My desktop</string>
+    <string name="desktop_settings_row">My desktop</string>
+    <string name="desktop_intro">Read and answer the coding agents running on your own computer, over your Tailscale network only.</string>
+    <string name="desktop_address_label">Desktop address (https)</string>
+    <string name="desktop_address_help">The https address that tailscale serve prints for your desktop bridge.</string>
+    <string name="desktop_save">Save address</string>
+    <string name="desktop_refresh">Refresh</string>
+    <string name="desktop_agents_title">Agents</string>
+    <string name="desktop_no_agents">No agents found. Start the bridge on your desktop, then refresh.</string>
+    <string name="desktop_not_set">Enter the desktop address first.</string>
+    <string name="desktop_invalid_address">The address must start with https:// and name a host.</string>
+    <string name="desktop_unreachable">The desktop did not answer. Showing what is saved on this phone.</string>
+    <string name="desktop_refused">The desktop refused that request.</string>
+    <string name="desktop_blocked">The agent is waiting for an answer. Reply on the desktop.</string>
+    <string name="desktop_stale">The agent changed. Read it again before you answer.</string>
+    <string name="desktop_not_found">That agent is no longer running.</string>
+    <string name="desktop_message_invalid">The message is empty or too long.</string>
+    <string name="desktop_queued">Saved. It will be sent when the desktop is back.</string>
+    <string name="desktop_queue_full">Too many messages are waiting. Wait for the desktop to answer.</string>
+    <string name="desktop_queue_sent">Sent the messages that were waiting.</string>
+    <string name="desktop_queued_count">%1$d message(s) waiting for the desktop</string>
+    <string name="desktop_live">Live</string>
+    <string name="desktop_cached">Saved on this phone, not live. Answers are off until the desktop is back.</string>
+    <string name="desktop_message_hint">Message the agent</string>
+    <string name="desktop_send">Send</string>
+    <string name="desktop_answer_title">Answer</string>
+    <string name="desktop_answer_help">Each button sends one key to the agent when you tap it.</string>
+    <string name="desktop_status_idle">Idle</string>
+    <string name="desktop_status_working">Working</string>
+    <string name="desktop_status_blocked">Waiting for an answer</string>
+    <string name="desktop_status_done">Done</string>
+    <string name="desktop_status_unknown">Status unknown</string>
+    <string name="desktop_key_enter">Enter</string>
+    <string name="desktop_key_esc">Esc</string>
+    <string name="desktop_key_up">Up</string>
+    <string name="desktop_key_down">Down</string>
+    <string name="desktop_ask_title">Ask my desktop</string>
+    <string name="desktop_ask_help">Uses the custom server address in Settings, the same as any remote model. Set your desktop model address there and turn the custom server on.</string>
+    <string name="desktop_open_settings">Open Settings</string>
+    <string name="desktop_queued_title">Queued, not yet sent</string>
+    <!-- Memory block: a line in the chat after the agent writes the block, and its Undo. -->
+    <string name="memory_block_remembered">Remembered: %1$s</string>
+    <string name="memory_block_cleared">The memory block was cleared.</string>
+    <string name="memory_block_undo">Undo</string>
+    <!-- Repeat offer: after the same request has been made three times, offer to save it as a skill. -->
+    <string name="repeat_offer_question">Save this as a skill?</string>
+    <string name="repeat_offer_save">Save</string>
+    <string name="repeat_offer_not_now">Not now</string>
+    <string name="subtask_steps_header">Steps the helper took</string>
+
+    <!-- Search my phone (Settings > Search my phone). Every source is off until switched on. -->
+    <string name="phone_search_title">Search my phone</string>
+    <string name="phone_search_intro">Find things on this phone by words: notifications, texts, calendar, contact names, text files in a folder you choose, and photo captions. Everything is off until you switch it on.</string>
+    <string name="phone_search_privacy">The index is kept on this phone, and the index itself sends nothing anywhere. If a cloud chat model is answering, the matches the assistant finds are sent to that model in the chat, as any tool result is.</string>
+    <string name="phone_search_charging_note">Texts, calendar, contact names and files are refreshed about every six hours, and only while the phone is charging. Notifications are recorded as they arrive.</string>
+    <string name="phone_search_notifications">Notifications</string>
+    <string name="phone_search_notifications_help">Keeps the notifications that arrive from now on. Notifications from before are not read.</string>
+    <string name="phone_search_messages">Texts</string>
+    <string name="phone_search_messages_help">Only while LocalIntelligence is the phone\'s default assistant app. Scheduled runs in the Play build never search texts.</string>
+    <string name="phone_search_calendar">Calendar</string>
+    <string name="phone_search_calendar_help">Events from 30 days ago to a year ahead.</string>
+    <string name="phone_search_contacts">Contact names</string>
+    <string name="phone_search_contacts_help">Names only. Phone numbers and addresses are never read.</string>
+    <string name="phone_search_files">Files in a folder</string>
+    <string name="phone_search_files_help">Text files in the folder you choose, including its subfolders. Large files are read in part.</string>
+    <string name="phone_search_photos">Photo captions</string>
+    <string name="phone_search_photos_help">The captions written by Photo search. Index your photos there first.</string>
+    <string name="phone_search_choose_folder">Choose folder</string>
+    <string name="phone_search_no_folder">No folder chosen yet.</string>
+    <string name="phone_search_folder_chosen">Folder chosen.</string>
+    <string name="phone_search_stored">%1$d stored</string>
+    <string name="phone_search_delete">Delete</string>
+    <string name="phone_search_index_now">Refresh now</string>
+    <string name="phone_search_index_done">Refreshed.</string>
+    <string name="phone_search_index_failed">The refresh failed. Try again later.</string>
 </resources>

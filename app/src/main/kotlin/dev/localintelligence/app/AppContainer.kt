@@ -7,6 +7,8 @@ import dev.localintelligence.android.data.lazyObservationStore
 import dev.localintelligence.core.tool.ObservationStore
 import android.content.Context
 import dev.localintelligence.android.data.LocalIntelligenceDatabase
+import dev.localintelligence.android.data.DesktopDao
+import dev.localintelligence.android.data.lazyDesktopDao
 import dev.localintelligence.android.data.lazyPhotoCaptionDao
 import dev.localintelligence.android.data.resilientMemoryStore
 import dev.localintelligence.android.inference.ImportedModel
@@ -19,6 +21,9 @@ import dev.localintelligence.android.cloud.ChatGptPlugin
 import dev.localintelligence.android.cloud.ChatGptSignIn
 import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.android.cloud.ExtrasSettings
+import dev.localintelligence.android.cloud.LanModelScan
+import dev.localintelligence.android.cloud.LanModelServer
+import dev.localintelligence.android.cloud.RemoteProviderSettings
 import dev.localintelligence.android.cloud.OpenRouterChatBackend
 import dev.localintelligence.android.cloud.RemoteChatOffer
 import dev.localintelligence.android.cloud.RemoteProviders
@@ -49,6 +54,7 @@ import dev.localintelligence.app.settings.ContextChoice
 import dev.localintelligence.app.settings.ContextLength
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.execution.ScheduledRunReporter
+import dev.localintelligence.app.settings.SettingsMemoryBlockStore
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.ComputeChoice
 import dev.localintelligence.app.settings.SimpleSetup
@@ -146,7 +152,7 @@ import kotlinx.coroutines.sync.withLock
  * for a global.
  */
 /** Tools a Play build offers only to a run the person started in the app. See `pluginTools`. */
-private val PLAY_ATTENDED_ONLY_TOOLS = setOf("sms.search", "sms.send", "calls.recent")
+private val PLAY_ATTENDED_ONLY_TOOLS = setOf("sms.search", "sms.send", "calls.recent", "phone.search")
 
 class AppContainer(private val context: Context) {
 
@@ -255,6 +261,12 @@ class AppContainer(private val context: Context) {
 
     val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
 
+    /**
+     * The memory block. One instance: its undo ledger lives in it, and the chat rows read it.
+     * Passed to the tool family, so the agent and the chat share the same ledger.
+     */
+    val memoryBlockStore: SettingsMemoryBlockStore by lazy { SettingsMemoryBlockStore(settings) }
+
     /** The app lock, one for the process. Created at app start so it sees every activity from the first one. */
     val appLock: dev.localintelligence.app.security.AppLock by lazy {
         dev.localintelligence.app.security.AppLock(context, settings)
@@ -290,7 +302,7 @@ class AppContainer(private val context: Context) {
     val scriptRepository: ScriptPluginRepository by lazy { ScriptPluginRepository(File(context.filesDir, "plugins")) }
 
     private val builtInPlugins: List<AgentPlugin> by lazy {
-        val families = androidToolPlugins(context, settings)
+        val families = androidToolPlugins(context, settings, session.todos, memoryBlockStore)
         val flavor = FlavorPlugins.plugins(context, settings)
         val cloud = openRouterPlugin
         val sandbox = sandboxPlugin
@@ -1129,6 +1141,31 @@ class AppContainer(private val context: Context) {
     }
 
     /**
+     * Looks for model servers on this phone's Wi-Fi. Called only from the Find button on the Models
+     * page: nothing scans in the background.
+     */
+    suspend fun findLanModelServers(): List<LanModelServer> = withContext(Dispatchers.IO) { LanModelScan.scan() }
+
+    /**
+     * Makes [server] the chat model, using its first listed model id, and turns the remote chat
+     * option on. Returns false when the server lists no model. Like [useRemoteChat], the choice is
+     * not kept across a restart.
+     */
+    suspend fun useLanModelServer(server: LanModelServer): Boolean = readinessLock.withLock {
+        val model = server.models.firstOrNull() ?: return@withLock false
+        settings.set(RemoteProviderSettings.LAN_BASE_URL, server.baseUrl)
+        settings.set(RemoteProviderSettings.LAN_MODEL, model)
+        settings.setPluginEnabled(openRouterPlugin, true)
+        useRemoteChatLocked()
+    }
+
+    /** Clears the found server, so remote chat goes back to the chosen provider. */
+    fun forgetLanModelServer() {
+        settings.set(RemoteProviderSettings.LAN_BASE_URL, "")
+        settings.set(RemoteProviderSettings.LAN_MODEL, "")
+    }
+
+    /**
      * Makes the remote chat model the resident backend, unloading whatever local model
      * was holding the memory. Returns false, changing nothing, when the option is off.
      *
@@ -1290,6 +1327,9 @@ class AppContainer(private val context: Context) {
      * out directly — see there for why a failure to open must not be fatal.
      */
     val database: LocalIntelligenceDatabase by lazy { LocalIntelligenceDatabase.build(context) }
+
+    /** The My desktop table (full build). Opened on first use, through the :android factory. */
+    val desktopDao: () -> DesktopDao = lazyDesktopDao(context)
 
     /**
      * Long tool results, saved whole so the model can read past the preview.

@@ -70,8 +70,52 @@ data class StepTrace(
      * Null on every other kind and when the model did not think.
      */
     val thought: String? = null,
+    /**
+     * The speed of this generation, on a GENERATION row, from the backend's own counts and timers.
+     * Shown folded under the reply in Technical mode. Null on every other kind.
+     */
+    val speed: ReplySpeed? = null,
+
+    /**
+     * The memory-block change an OBSERVATION made, from the tool's result data (`change_id`), or null.
+     * The chat row uses it to offer Undo on exactly that change. Null on every other kind and for
+     * every tool that did not write the block.
+     */
+    val changeId: Long? = null,
+
+    /**
+     * On a TOOL_CALL row for `task.delegate`: the subtask's own steps, folded under that row. Shown to
+     * the user only. The parent's model never sees them; it gets the subtask's capped answer.
+     */
+    val children: List<StepTrace> = emptyList(),
+
+    /**
+     * The call's arguments as JSON, exactly as the model sent them, on a TOOL_CALL row. Null
+     * elsewhere. The eval runner (scripts/run-evals.py) checks arguments against this; the
+     * display string in [toolArgs] is lossy (40-character values, six keys) and cannot be checked.
+     */
+    val toolArgsJson: String? = null,
 ) {
     enum class Kind { GENERATION, TOOL_CALL, OBSERVATION, MALFORMED, COMPACTION }
+}
+
+/**
+ * One generation's token counts and timers, as the backend reported them. [prefillMs] is the
+ * prompt time: on the remote backends it is the time to the first token, and on llama.cpp it is
+ * the native prefill. Rates are derived, never stored, so a zero timer shows as "no rate", not
+ * as a number invented from nothing.
+ */
+data class ReplySpeed(
+    val promptTokens: Int,
+    val completionTokens: Int,
+    val prefillMs: Long,
+    val decodeMs: Long,
+) {
+    /** Prompt tokens per second, or null when the prefill timer is zero. */
+    val prefillTokensPerSecond: Double? get() = if (prefillMs > 0 && promptTokens > 0) promptTokens * 1000.0 / prefillMs else null
+
+    /** Generated tokens per second, or null when the decode timer is zero. */
+    val decodeTokensPerSecond: Double? get() = if (decodeMs > 0 && completionTokens > 0) completionTokens * 1000.0 / decodeMs else null
 }
 
 /**

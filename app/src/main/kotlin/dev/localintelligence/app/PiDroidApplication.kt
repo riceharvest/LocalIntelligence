@@ -3,7 +3,9 @@ package dev.localintelligence.app
 import android.app.Activity
 import android.app.Application
 import android.os.Bundle
+import dev.localintelligence.android.phoneindex.PhoneIndexStore
 import dev.localintelligence.app.crash.CrashReports
+import dev.localintelligence.app.phoneindex.PhoneIndexJob
 import dev.localintelligence.core.settings.CoreSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,6 +72,16 @@ class LocalIntelligenceApp : Application() {
                 // boot), where the screens and the voice service do the starting.
                 .drop(1)
                 .collect { WakeWordService.sync(this@LocalIntelligenceApp, container) }
+        }
+        // Search my phone: the listener's recording flag and the charger refresh follow the switches.
+        // The listener can be bound before any screen opens, so the flag is set here, not in a screen.
+        gatewayScope.launch {
+            container.settings.changes.collect {
+                PhoneIndexStore.get(this@LocalIntelligenceApp).setNotificationsOn(
+                    container.settings[CoreSettings.PHONE_INDEX_NOTIFICATIONS],
+                )
+                PhoneIndexJob.sync(this@LocalIntelligenceApp, container.settings)
+            }
         }
         // Counts started screens for the Lean memory policy (AppContainer.leanEjectIfBackgrounded).
         // A rotation stops and starts the activity too, so the eject is skipped while it changes

@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.android.skills.SkillSettings
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
 import android.content.Context
@@ -51,6 +52,7 @@ import dev.localintelligence.android.documents.DEFAULT_EMBEDDING_REPO
 import dev.localintelligence.android.documents.EMBEDDING_DOWNLOAD_DISMISSED
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
 import dev.localintelligence.android.cloud.generatedMediaDir
+import dev.localintelligence.android.cloud.RemoteProviderSettings
 import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.media.AudioFileDecoder
 import dev.localintelligence.app.media.LiveDictation
@@ -64,6 +66,7 @@ import dev.localintelligence.app.ui.ChatMessage
 import dev.localintelligence.app.ui.ChatScreen
 import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.HandsFreePhase
+import dev.localintelligence.app.ui.DesktopScreen
 import dev.localintelligence.app.ui.DocumentsScreen
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import dev.localintelligence.android.report.ReplyReportSender
@@ -74,6 +77,8 @@ import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.ModelManagerScreen
 import dev.localintelligence.app.photos.PHOTO_SEARCH_PLUGIN_ID
 import dev.localintelligence.app.ui.PhotoSearchScreen
+import dev.localintelligence.app.ui.PhoneSearchScreen
+import dev.localintelligence.android.phoneindex.PhoneIndexStore
 import dev.localintelligence.app.ui.PersonasScreen
 import dev.localintelligence.app.ui.ScriptPluginsScreen
 import dev.localintelligence.app.ui.ExtrasScreen
@@ -169,6 +174,10 @@ class MainActivity : FragmentActivity() {
                             reportSender = ReplyReportSender(BuildConfig.REPORT_FORM_URL, BuildConfig.REPORT_FORM_ENTRY),
                             // Transcription reads the resident model and saves to the Documents store.
                             transcriptionModel = { container.residentBackend() },
+                            // A foreground service keeps the process up while a long recording is transcribed.
+                            transcriptionForeground = { on ->
+                                if (on) TranscriptionService.start(applicationContext) else TranscriptionService.stop(applicationContext)
+                            },
                             decodeAudio = { uri, onChunk -> AudioFileDecoder.decode(applicationContext, Uri.parse(uri), onChunk) },
                             documents = container.documents,
                         )
@@ -296,6 +305,14 @@ class MainActivity : FragmentActivity() {
                                 // Read here, where the screen is built, and passed down
                                 // as a plain Boolean: the screen never touches prefs.
                                 toolCallsAutoCollapse = container.settings[CoreSettings.TOOL_CALLS_AUTO_COLLAPSE],
+                                keepScreenAwake = container.settings[CoreSettings.KEEP_SCREEN_AWAKE],
+                                technical = technical,
+                                // The same store the agent writes through, so Undo acts on its ledger.
+                                memoryBlock = container.memoryBlockStore,
+                                // "Save this as a skill?" for a repeated request: its switch, and the "not now" record.
+                                repeatOfferOn = container.settings[SkillSettings.REPEAT_OFFER],
+                                repeatDeclined = { key -> container.settings[SkillSettings.declined(key)] },
+                                onDeclineRepeat = { key -> container.settings.set(SkillSettings.declined(key), true) },
                                 // "Save as skill" writes the raw skill format, with tool ids in
                                 // its steps: a Technical tool. Simple users write skills on the
                                 // Skills screen's form.
@@ -381,6 +398,12 @@ class MainActivity : FragmentActivity() {
                                 withContext(Dispatchers.IO) { container.listRemoteModels() }
                             },
                             onPickRemoteModel = { model -> container.setRemoteChatModel(model) },
+                            onFindLanServers = { container.findLanModelServers() },
+                            onUseLanServer = { server -> container.useLanModelServer(server) },
+                            lanServerActive = remember(settingsVersion) {
+                                container.settings[RemoteProviderSettings.LAN_BASE_URL].isNotBlank()
+                            },
+                            onForgetLanServer = { container.forgetLanModelServer() },
                             chatGptCard = { ChatGptModelCard(container) },
                             onUseModel = { model ->
                                 withContext(Dispatchers.IO) { container.loadModel(model) }
@@ -647,11 +670,17 @@ class MainActivity : FragmentActivity() {
                             generatedMedia = generatedMediaDir(applicationContext),
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
                             onOpenScripts = { nav.navigate(ROUTE_SCRIPTS) },
+                            onOpenDesktop = if (BuildConfig.FULL_BUILD) {
+                                { nav.navigate(ROUTE_DESKTOP) }
+                            } else {
+                                null
+                            },
                             onOpenPhotos = if (container.plugins.any { it.id == PHOTO_SEARCH_PLUGIN_ID }) {
                                 { nav.navigate(ROUTE_PHOTOS) }
                             } else {
                                 null
                             },
+                            onOpenPhoneSearch = { nav.navigate(ROUTE_PHONE_SEARCH) },
                             chatGptRow = { ChatGptSettingsCard(container) },
                             onOpenModels = { nav.navigate(ROUTE_MODELS) },
                             onOpenExtras = if (ExtrasBilling.enabled) {
@@ -742,6 +771,27 @@ class MainActivity : FragmentActivity() {
                         )
                     }
 
+                    composable(ROUTE_DESKTOP) {
+                        // Full build only: the Settings row that opens this route is hidden in the Play build.
+                        if (BuildConfig.FULL_BUILD) {
+                            DesktopScreen(
+                                settings = container.settings,
+                                dao = container.desktopDao(),
+                                onBack = { nav.popBackStack() },
+                                onOpenSettings = { nav.popBackStack() },
+                            )
+                        }
+                    }
+
+                    composable(ROUTE_PHONE_SEARCH) {
+                        PhoneSearchScreen(
+                            settings = container.settings,
+                            index = PhoneIndexStore.get(applicationContext),
+                            fullBuild = BuildConfig.FULL_BUILD,
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
                     composable(ROUTE_DOCUMENTS) {
                         val embeddingState by container.embeddingSetup.state.collectAsStateWithLifecycle()
                         DocumentsScreen(
@@ -816,6 +866,8 @@ class MainActivity : FragmentActivity() {
         const val ROUTE_EXTRAS = "extras"
         const val ROUTE_DOCUMENTS = "documents"
         const val ROUTE_PHOTOS = "photos"
+        const val ROUTE_DESKTOP = "desktop"
+        const val ROUTE_PHONE_SEARCH = "phone_search"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
         const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"

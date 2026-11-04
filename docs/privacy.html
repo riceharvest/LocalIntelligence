@@ -55,6 +55,11 @@ one exception is a report you choose to send, described below.</p>
       speech service, which may send the audio to that service's provider.</li>
   <li>Notifications (if you allow notification access), screen-time totals, the clipboard, and files
       you pick.</li>
+  <li>Search my phone, only for the sources you switch on in Settings: notifications from the time you
+      switch them on, texts (only while LocalIntelligence is your default assistant), calendar events,
+      contact names (never numbers or addresses), text files in a folder you choose, and the captions from
+      Photo search. The matches are stored in the app's own database on your phone. You can delete each
+      source there at any time.</li>
   <li>Full build only: the screen of other apps while you let the assistant control them, and all
       files on the phone if you grant "All files access".</li>
 </ul>
@@ -63,6 +68,9 @@ one exception is a report you choose to send, described below.</p>
 <p>Each of these is off until you use or turn it on. The service named receives what is listed and
 handles it under its own privacy policy.</p>
 <ul>
+  <li><strong>Search my phone</strong>: the index itself sends nothing anywhere. If a cloud chat model
+      is the one answering, the matches the assistant finds are sent to that model in that chat, the same
+      as any other tool result.</li>
   <li><strong>Reports you send</strong>: the reason, your note, the model name, the app version and,
       if you leave the box ticked, the reply text, go to the developer through Google Forms (Google's
       privacy policy applies). Nothing else from your chats is sent.</li>
@@ -80,6 +88,10 @@ handles it under its own privacy policy.</p>
       screen text in the full build, and attached images or audio.</li>
   <li><strong>Image and video generation</strong> through OpenRouter: the prompt.</li>
   <li><strong>Search with your own key</strong> (Brave, Tavily, Exa, or your SearXNG): the search words.</li>
+  <li><strong>My desktop</strong> (full build only, off until you enter an address): your messages and the
+      keys you tap go to the https address you set, which is your own computer over your Tailscale
+      network. Its text is saved on your phone so you can read it offline. Nothing goes to the developer
+      or any other server.</li>
   <li><strong>Connected services</strong> you set up: MCP servers (including Zapier and Composio), cloud
       sandboxes (Daytona, Vercel, your SSH server), the Browser Use cloud browser, your email provider,
       your Home Assistant, and Telegram for chats you link. Each receives the requests the assistant

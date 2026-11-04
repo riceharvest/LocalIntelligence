@@ -58,6 +58,12 @@
     <!-- App lock: the fingerprint or face option on the lock screen. The PIN works without it. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
+    <!-- Google Tensor and other NPUs. Android 17 blocks an app that targets API 37 and needs the NPU
+         unless it declares this; the name is android.hardware.npu (AOSP android17-release,
+         data/etc/android.hardware.npu.xml), the string behind PackageManager.FEATURE_NEURAL_PROCESSING_UNIT.
+         required=false: a device without an NPU still installs and runs on CPU or GPU. -->
+    <uses-feature android:name="android.hardware.npu" android:required="false" />
+
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -178,6 +184,14 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Keeps an audio transcription running while the app is in the background. Started and
+             stopped by TranscriptionService.start and stop around one run. The type must match
+             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC in TranscriptionService. -->
+        <service
+            android:name=".TranscriptionService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- Keeps a model download running while the app is in the background. Started by
              HubTransfers when a download starts and stopped when it ends. The type must match
              ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC in DownloadService. -->
@@ -214,6 +228,13 @@
             android:name=".WakeWordService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- Search my phone's charger refresh (PhoneIndexJob). JobScheduler binds it, so the system's
+             BIND_JOB_SERVICE permission keeps other apps out. Not exported. -->
+        <service
+            android:name=".phoneindex.PhoneIndexJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <!-- Shares a chat export. Only cacheDir/exports is covered (see
              res/xml/export_paths.xml), and the grant is per share, so no other
