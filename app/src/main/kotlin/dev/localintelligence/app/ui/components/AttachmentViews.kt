@@ -57,7 +57,8 @@ internal fun AttachmentChip(
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(horizontal = 8.dp),
             )
-            IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {
+            // 48dp: the platform touch target. At 40dp the remove target was too small to hit reliably.
+            IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Filled.Close, contentDescription = if (attachment.shown is ShownAttachment.Picture && pictureCount > 1) {
                         "Remove photo $pictureNumber"
                     } else {
@@ -122,7 +123,8 @@ private fun AttachmentPreview(shown: ShownAttachment, modifier: Modifier) {
             modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Filled.Mic, contentDescription = null)
+            // The only thing in this box, so it has to name itself.
+            Icon(Icons.Filled.Mic, contentDescription = "Voice message")
         }
     }
 }

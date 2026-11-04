@@ -1,5 +1,8 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -205,8 +208,28 @@ class ChatViewModel(
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
-    private val _input = MutableStateFlow(savedState.get<String>(DRAFT_KEY).orEmpty())
-    val input: StateFlow<String> = _input.asStateFlow()
+    /**
+     * The composer's text, read by the field itself.
+     *
+     * WHY this is Compose snapshot state and not only a StateFlow: the field gets its value through
+     * Compose, and a StateFlow reaches it a frame late. A fast typist's next key then lands on the old
+     * text and the field overwrites what was typed in between, which showed up as scrambled input in
+     * the Hub search box (see HubViewModel.repoText). Written first by [setInput], so the field always
+     * has the text the user just typed. [_input] stays as the copy the draft save reads.
+     */
+    var composerText by mutableStateOf(savedState.get<String>(DRAFT_KEY).orEmpty())
+        private set
+
+    private val _input = MutableStateFlow(composerText)
+
+    /**
+     * The one writer of the composer text. Every change (typing, dictation, a share, Edit, a send
+     * clearing the box) comes through here, so the snapshot state and the draft copy cannot disagree.
+     */
+    private fun setInput(value: String) {
+        composerText = value
+        _input.value = value
+    }
 
     init {
         // Read before the attachment mirror starts: its first write would replace the saved list.
@@ -459,7 +482,7 @@ class ChatViewModel(
         val started = dictation?.startHandsFree(
             current = _input.value,
             silenceMillis = (handsFreeSilence() * 1000).toLong(),
-            onText = { _input.value = it },
+            onText = { setInput(it) },
             onEnd = { spoken, error -> handsFreeWords(spoken, error) },
         ) ?: false
         if (!started) stopHandsFree("Speech recognition is not available on this phone.")
@@ -494,7 +517,7 @@ class ChatViewModel(
             return
         }
         _handsFree.value = HandsFreeState(HandsFreePhase.Thinking)
-        _input.value = ""
+        setInput("")
         dispatch(typed)
     }
 
@@ -902,7 +925,7 @@ class ChatViewModel(
     // ------------------------------------------------------------------- intents
 
     fun onInputChange(value: String) {
-        _input.value = value
+        setInput(value)
         if (value.isBlank()) editingLast = false
     }
 
@@ -917,7 +940,7 @@ class ChatViewModel(
             refuseQueued()
             return
         }
-        _input.value = ""
+        setInput("")
         speaker?.stop()
         val replaced = if (editingLast) lastUserRow()?.text else null
         editingLast = false
@@ -943,7 +966,7 @@ class ChatViewModel(
     fun editLast() {
         val last = lastUserRow() ?: return
         if (last.attached.isNotEmpty() || !canSubmit(hasText = true)) return
-        _input.value = last.text
+        setInput(last.text)
         editingLast = true
         showNotice("Change the message and send it. It replaces the last one.")
     }
@@ -962,7 +985,7 @@ class ChatViewModel(
         val shared = text.trim()
         if (shared.isEmpty()) return
         val typed = _input.value
-        _input.value = if (typed.isBlank()) shared else "$typed\n\n$shared"
+        setInput(if (typed.isBlank()) shared else "$typed\n\n$shared")
         showNotice("Shared text is in the message box. Tap Send to ask.")
     }
 
@@ -976,7 +999,7 @@ class ChatViewModel(
         if (!canSubmit(hasText = true)) {
             refuseQueued()
             if (_input.value.isBlank()) {
-                _input.value = text.trim()
+                setInput(text.trim())
                 showNotice("Your message is ready. Tap Send when the assistant is free.")
             }
             return

@@ -5,7 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -55,6 +55,7 @@ import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.encodePickedPicture
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.settings.SuggestedModel
+import dev.localintelligence.app.ui.AppLockScreen
 import dev.localintelligence.app.ui.ChatGptModelCard
 import dev.localintelligence.app.ui.ChatGptSettingsCard
 import dev.localintelligence.app.ui.ChatMessage
@@ -69,6 +70,8 @@ import dev.localintelligence.app.ui.components.SearchModelCard
 import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.ModelManagerScreen
+import dev.localintelligence.app.photos.PHOTO_SEARCH_PLUGIN_ID
+import dev.localintelligence.app.ui.PhotoSearchScreen
 import dev.localintelligence.app.ui.PersonasScreen
 import dev.localintelligence.app.ui.ScriptPluginsScreen
 import dev.localintelligence.app.ui.ExtrasScreen
@@ -109,7 +112,7 @@ import kotlinx.coroutines.withContext
  * without a first send. Any other load waits for a run or an explicit user action
  * ([dev.localintelligence.app.ui.ModelManagerScreen]).
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private var deliveredIntent by mutableStateOf<Intent?>(null)
 
@@ -177,6 +180,11 @@ class MainActivity : ComponentActivity() {
                 // not with this screen.
                 val models = container.models
                 val scope = rememberCoroutineScope()
+                // While the app lock is on, the lock screen replaces the app below (see the gate before NavHost).
+                val locked by container.appLock.locked.collectAsStateWithLifecycle()
+                // The recent-apps thumbnail follows the App lock switch: applied now, and again on every settings change.
+                val settingsVersion by container.settings.changes.collectAsStateWithLifecycle()
+                LaunchedEffect(settingsVersion) { container.appLock.protectRecents(this@MainActivity) }
 
                 // What the app had at its last exit comes back before the chat is
                 // read: the stored turns are shown, and the saved model is loaded so
@@ -198,7 +206,10 @@ class MainActivity : ComponentActivity() {
                 // A SEND intent arrives on cold start or warm via onNewIntent.
                 // Keyed on deliveredIntent so new arrivals re-run, and consumed
                 // once so recomposition or rotation does not repeat the action.
-                LaunchedEffect(deliveredIntent) {
+                LaunchedEffect(deliveredIntent, locked) {
+                    // Held while locked: a hands-free start or shared text waits for the PIN, and the key
+                    // changes on unlock, so this runs again then.
+                    if (locked) return@LaunchedEffect
                     val incoming = deliveredIntent ?: return@LaunchedEffect
                     if (incoming.getBooleanExtra(EXTRA_START_HANDS_FREE, false)) {
                         val prompt = incoming.getStringExtra(EXTRA_HANDS_FREE_PROMPT)
@@ -227,6 +238,13 @@ class MainActivity : ComponentActivity() {
                 // in the container, so popping the screen cancels its download
                 // with its ViewModel scope instead of leaving it running.
                 var hub: HubViewModel? = null
+
+                // Nothing below is composed while locked. The nav controller and the view models above survive,
+                // so the back stack is kept when the screen comes back.
+                if (locked) {
+                    AppLockScreen(appLock = container.appLock)
+                    return@LocalIntelligenceTheme
+                }
 
                 NavHost(navController = nav, startDestination = ROUTE_CHAT) {
                     composable(ROUTE_CHAT) {
@@ -289,6 +307,15 @@ class MainActivity : ComponentActivity() {
                                 starter = if (technical) null else starterState,
                                 onStartStarter = { container.starterSetup.start() },
                                 onCancelStarter = { container.starterSetup.cancel() },
+                                // The empty chat's persona choice. It starts the conversation the same way New chat does.
+                                loadPersonas = { container.personas() },
+                                // Waits for the saved chat to come back: a chat restored after a restart is not empty, and must not be cleared.
+                                onChoosePersona = { personaId ->
+                                    scope.launch {
+                                        container.launchRestore.await()
+                                        if (chat.messages.value.isEmpty()) container.startNewConversation(personaId)
+                                    }
+                                },
                             )
                             }
                         }
@@ -356,6 +383,7 @@ class MainActivity : ComponentActivity() {
                             onUseModel = { model ->
                                 withContext(Dispatchers.IO) { container.loadModel(model) }
                             },
+                            onEjectModel = { withContext(Dispatchers.IO) { container.ejectModel() } },
                             onImport = { uri ->
                                 // Suspending off the composition: the header read
                                 // is a few hundred bytes over SAF, which on a cloud
@@ -617,6 +645,11 @@ class MainActivity : ComponentActivity() {
                             generatedMedia = generatedMediaDir(applicationContext),
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
                             onOpenScripts = { nav.navigate(ROUTE_SCRIPTS) },
+                            onOpenPhotos = if (container.plugins.any { it.id == PHOTO_SEARCH_PLUGIN_ID }) {
+                                { nav.navigate(ROUTE_PHOTOS) }
+                            } else {
+                                null
+                            },
                             chatGptRow = { ChatGptSettingsCard(container) },
                             onOpenModels = { nav.navigate(ROUTE_MODELS) },
                             onOpenExtras = if (ExtrasBilling.enabled) {
@@ -696,6 +729,17 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    composable(ROUTE_PHOTOS) {
+                        // Read in composition so the model and the run state are current when the screen opens.
+                        val runState by chat.runState.collectAsStateWithLifecycle()
+                        PhotoSearchScreen(
+                            index = container.photoSearch,
+                            visionReady = container.localVisionBackend() != null,
+                            chatBusy = { runState.isActive },
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
                     composable(ROUTE_DOCUMENTS) {
                         val embeddingState by container.embeddingSetup.state.collectAsStateWithLifecycle()
                         DocumentsScreen(
@@ -769,6 +813,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_PERSONAS = "personas"
         const val ROUTE_EXTRAS = "extras"
         const val ROUTE_DOCUMENTS = "documents"
+        const val ROUTE_PHOTOS = "photos"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
         const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"

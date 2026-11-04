@@ -7,6 +7,7 @@ import dev.localintelligence.android.data.lazyObservationStore
 import dev.localintelligence.core.tool.ObservationStore
 import android.content.Context
 import dev.localintelligence.android.data.LocalIntelligenceDatabase
+import dev.localintelligence.android.data.lazyPhotoCaptionDao
 import dev.localintelligence.android.data.resilientMemoryStore
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
@@ -33,6 +34,7 @@ import dev.localintelligence.android.documents.DOCUMENT_EMBEDDING_MODEL
 import dev.localintelligence.android.documents.DOCUMENT_SEARCH_MODE
 import dev.localintelligence.android.documents.EMBEDDING_DOWNLOAD_DISMISSED
 import dev.localintelligence.android.documents.SEARCH_MODE_HYBRID
+import dev.localintelligence.android.gateway.localserver.LocalServerPlugin
 import dev.localintelligence.android.gateway.telegram.TelegramPlugin
 import dev.localintelligence.android.mcp.McpPlugin
 import dev.localintelligence.android.tools.home.HomeAssistantPlugin
@@ -83,6 +85,8 @@ import dev.localintelligence.core.memory.LexicalMemoryStore
 import dev.localintelligence.core.memory.ProfilePlugin
 import dev.localintelligence.android.inference.RamEstimate
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
+import dev.localintelligence.app.photos.PhotoSearchIndex
+import dev.localintelligence.app.photos.describePhoto
 import dev.localintelligence.app.speedtest.ComputeComparison
 import dev.localintelligence.app.speedtest.SpeedTestRunner
 import dev.localintelligence.app.speedtest.SpeedTestTarget
@@ -248,6 +252,11 @@ class AppContainer(private val context: Context) {
 
     val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
 
+    /** The app lock, one for the process. Created at app start so it sees every activity from the first one. */
+    val appLock: dev.localintelligence.app.security.AppLock by lazy {
+        dev.localintelligence.app.security.AppLock(context, settings)
+    }
+
     /** Reads replies aloud with the platform text-to-speech. The engine starts on first use. */
     val speaker: Speaker by lazy {
         Speaker(context, settings) {
@@ -302,7 +311,7 @@ class AppContainer(private val context: Context) {
         )
         val remote = McpPlugin(settings)
         families + flavor + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + sandbox + browser + remote + home +
-            email + telegramPlugin
+            email + telegramPlugin + localServerPlugin
     }
 
     /**
@@ -327,6 +336,35 @@ class AppContainer(private val context: Context) {
 
     /** The document search model on disk, or null. See [DocumentEmbedder.resolve]. */
     fun documentModelFile(): File? = DocumentEmbedder.resolve(modelsDir, settings[DOCUMENT_EMBEDDING_MODEL])
+
+    /**
+     * Photo search: captions the photos with the loaded local vision model and searches them. Full
+     * build only in use (the Photo search row and the photos.search tool are both gated on the plugin),
+     * but built lazily so the play build never touches it.
+     *
+     * WHY THE MODEL IS LOOKED UP PER CALL: the user may switch models between runs, and a run must use
+     * the model loaded at the moment of each caption, not the one loaded when the screen opened.
+     */
+    val photoSearch: PhotoSearchIndex by lazy {
+        PhotoSearchIndex(
+            appContext = context,
+            dao = lazyPhotoCaptionDao(context),
+            visionReady = { localVisionBackend() != null },
+            describe = { media -> describePhoto(localVisionBackend(), media) },
+            cancelDescribe = { residentBackend().cancel() },
+            embedder = { documentEmbedder.get() },
+        )
+    }
+
+    /**
+     * The loaded model when it is local and can read pictures, else null. A cloud chat model is refused
+     * here: a photo sent to it would leave the phone, which the Photo search promise rules out.
+     */
+    fun localVisionBackend(): ModelBackend? {
+        if (remoteChatActive || chatGptActive) return null
+        val backend = residentBackend()
+        return backend.takeIf { backend.capabilities.supportsVision }
+    }
 
     /**
      * True when a finished download is the document search model, by name: the setting's
@@ -979,6 +1017,12 @@ class AppContainer(private val context: Context) {
     /** Telegram as a remote keyboard for this phone. Off by default; see TelegramService. */
     val telegramPlugin: TelegramPlugin by lazy { TelegramPlugin() }
 
+    /** The local OpenAI-style server for other apps on this phone. Off by default; see LocalServerService. */
+    val localServerPlugin: LocalServerPlugin by lazy { LocalServerPlugin() }
+
+    /** The model side of that server. One instance, so the chat can see whether a request is generating. */
+    val localServer: LocalServerRuns by lazy { LocalServerRuns(this) }
+
     /**
      * The ChatGPT plugin: the sign-in account and the model choice. One instance for the plugin
      * list and the chat model, so the switch and the account cannot disagree.
@@ -1330,6 +1374,46 @@ class AppContainer(private val context: Context) {
      */
     suspend fun loadModel(model: ImportedModel): ModelAvailability =
         readinessLock.withLock { loadModelLocked(model) }
+
+    /**
+     * Unloads the resident local model and gives its memory back. The selection and the saved
+     * URI are kept, so the next run loads the model again (see [ensureModelReady]).
+     *
+     * Refused, returning false and changing nothing, while a run holds [runGate] (a run is
+     * decoding, or about to), or when the resident backend is the remote or ChatGPT chat, which
+     * holds no local memory. The gate is checked under [readinessLock]: a run claims the gate
+     * before it calls [ensureModelReady], so a run that starts after this check waits on the lock
+     * and loads the model itself.
+     */
+    suspend fun ejectModel(): Boolean = readinessLock.withLock {
+        if (runGate.isBusy) return@withLock false
+        val resident = loadedBackend ?: return@withLock false
+        if (resident === remoteChatBackend || resident === chatGptBackend) return@withLock false
+        stopIdleWork()
+        stopPrefixWork()
+        loadedBackend = null
+        runCatching { resident.unload() }
+        modelAvailability.set(ModelAvailability.Unloaded)
+        true
+    }
+
+    /**
+     * Started screens of the app, counted from the activity lifecycle by [LocalIntelligenceApp].
+     * Zero means the app is in the background, which is when the Lean policy frees the model.
+     */
+    @Volatile
+    var activitiesStarted: Int = 0
+
+    /**
+     * The Lean policy's background step. Called when the last screen stops and when a run ends:
+     * unloads the model when no screen is started and no run holds the gate. Balanced
+     * never unloads here. Runs on [appScope], so the caller does not wait for the free.
+     */
+    fun leanEjectIfBackgrounded() {
+        if (settings[CoreSettings.KEEP_IN_MEMORY] != CoreSettings.KEEP_LEAN) return
+        if (activitiesStarted > 0) return
+        appScope.launch(Dispatchers.IO) { ejectModel() }
+    }
 
     /** [loadModel] without the lock, for callers that already hold it. */
     private suspend fun loadModelLocked(model: ImportedModel): ModelAvailability {

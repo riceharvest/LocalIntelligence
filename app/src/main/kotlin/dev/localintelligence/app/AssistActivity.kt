@@ -3,7 +3,7 @@ package dev.localintelligence.app
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.PendingAttachment
 import dev.localintelligence.app.media.encodeBitmapPicture
+import dev.localintelligence.app.ui.AppLockScreen
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.core.settings.CoreSettings
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +58,7 @@ import kotlinx.coroutines.withContext
  * Reached from the session (see [AssistantSession]) and from the ASSIST intent.
  * Exported because the system starts it.
  */
-class AssistActivity : ComponentActivity() {
+class AssistActivity : FragmentActivity() {
 
     private var dictation: LiveDictation? = null
 
@@ -77,6 +78,15 @@ class AssistActivity : ComponentActivity() {
             .settings[CoreSettings.ASSISTANT_NAME].trim().ifBlank { "LocalIntelligence" }
         setContent {
             LocalIntelligenceTheme {
+                // The PIN comes before the overlay, so the hands-free listening and the screen capture
+                // in the overlay do not start until the app is unlocked.
+                val locked by container.appLock.locked.collectAsStateWithLifecycle()
+                val settingsVersion by container.settings.changes.collectAsStateWithLifecycle()
+                LaunchedEffect(settingsVersion) { container.appLock.protectRecents(this@AssistActivity) }
+                if (locked) {
+                    AppLockScreen(appLock = container.appLock)
+                    return@LocalIntelligenceTheme
+                }
                 AssistOverlay(
                     assistantName = assistantName,
                     screenshot = screenshot,

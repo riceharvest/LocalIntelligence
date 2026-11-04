@@ -1,6 +1,8 @@
 package dev.localintelligence.app
 
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
 import dev.localintelligence.app.crash.CrashReports
 import dev.localintelligence.core.settings.CoreSettings
 import kotlinx.coroutines.CoroutineScope
@@ -44,8 +46,16 @@ class LocalIntelligenceApp : Application() {
         CrashReports.install(this)
         CrashReports.importExitReasons(this)
         container = AppContainer(this)
+        // The app lock starts here, before any activity, so it counts every activity from the first one.
+        container.appLock
         // Telegram follows the settings: it starts when it becomes wanted and stops when it stops being
         // wanted. The first value also covers a launch, so a phone that had it on reconnects when the app opens.
+        gatewayScope.launch {
+            container.settings.changes
+                .map { LocalServerService.enabledInTechnical(container) }
+                .distinctUntilChanged()
+                .collect { LocalServerService.sync(this@LocalIntelligenceApp, container) }
+        }
         gatewayScope.launch {
             container.settings.changes
                 .map { TelegramService.wanted(container) }
@@ -61,5 +71,24 @@ class LocalIntelligenceApp : Application() {
                 .drop(1)
                 .collect { WakeWordService.sync(this@LocalIntelligenceApp, container) }
         }
+        // Counts started screens for the Lean memory policy (AppContainer.leanEjectIfBackgrounded).
+        // A rotation stops and starts the activity too, so the eject is skipped while it changes
+        // configuration: rotating must not free the model.
+        registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: Activity) {
+                container.activitiesStarted++
+            }
+
+            override fun onActivityStopped(activity: Activity) {
+                container.activitiesStarted = (container.activitiesStarted - 1).coerceAtLeast(0)
+                if (!activity.isChangingConfigurations) container.leanEjectIfBackgrounded()
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        })
     }
 }

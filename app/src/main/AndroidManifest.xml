@@ -55,6 +55,8 @@
          composer for one that does not. Requested at first use from the mic button,
          never at launch. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- App lock: the fingerprint or face option on the lock screen. The PIN works without it. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <queries>
         <intent>
@@ -189,6 +191,13 @@
              the type matches its startForeground call. -->
         <service
             android:name=".TelegramService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Serves the loaded model on 127.0.0.1 while the Local server plugin is on, behind a bearer token.
+             Started and stopped by LocalServerService.sync; the type matches its startForeground call. -->
+        <service
+            android:name=".LocalServerService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

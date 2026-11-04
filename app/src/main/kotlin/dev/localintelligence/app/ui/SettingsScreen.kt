@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
@@ -97,6 +98,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.localintelligence.android.cloud.clearGeneratedMedia
 import dev.localintelligence.android.cloud.generatedMediaBytes
+import dev.localintelligence.android.gateway.localserver.LocalServerSettings
 import dev.localintelligence.android.gateway.telegram.TelegramSettings
 import dev.localintelligence.android.mcp.McpSettings
 import dev.localintelligence.android.scripts.ScriptPlugin
@@ -158,6 +160,8 @@ fun SettingsScreen(
     onOpenDocuments: () -> Unit = {},
     /** Opens the script plugins screen. Defaulted, like [onOpenSkills]. */
     onOpenScripts: () -> Unit = {},
+    /** Opens the Photo search screen. Null hides the row: the row exists only in the full build. */
+    onOpenPhotos: (() -> Unit)? = null,
     /** The ChatGPT row, shown in Simple mode. Null hides it. */
     chatGptRow: (@Composable () -> Unit)? = null,
     /** The folder of generated images and videos, for the Storage row. Null hides the row. */
@@ -227,6 +231,7 @@ fun SettingsScreen(
                     NavRow(Icons.Filled.AutoAwesome, "Skills", onOpenSkills)
                     NavRow(Icons.Filled.Person, "Personas", onOpenPersonas)
                     NavRow(Icons.Filled.Description, "Documents", onOpenDocuments)
+                    onOpenPhotos?.let { NavRow(Icons.Filled.PhotoLibrary, "Photo search", it) }
                     NavRow(Icons.Filled.Schedule, "Scheduled tasks", onOpenSchedule)
                     onOpenExtras?.let { NavRow(Icons.Filled.Star, "Extras", it) }
                     NavRow(Icons.Filled.Lock, "Permissions") { openPermissionScreen(context) }
@@ -249,6 +254,8 @@ fun SettingsScreen(
                         if (def === McpSettings.urls[0]) McpAddServerRow(store)
                         // The Telegram block sits above its token row.
                         if (def === TelegramSettings.TOKEN) TelegramPanel(store)
+                        // The local server's address, Copy and Regenerate sit above its token row.
+                        if (def === LocalServerSettings.TOKEN) LocalServerPanel(store)
                         SettingRow(store, def, technical)
                     }
                     if (speedTestHere) speedTest?.let { SpeedTestRow(it) }
@@ -402,7 +409,7 @@ private fun NewChatRow(onNewChat: (Long?) -> Unit, loadPersonas: (suspend () -> 
 
 /** One persona in the New chat dialog: a radio button and its name, the whole line selects it. */
 @Composable
-private fun PersonaChoice(label: String, selected: Boolean, onSelect: () -> Unit) {
+internal fun PersonaChoice(label: String, selected: Boolean, onSelect: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -513,10 +520,10 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
         else -> null
     } else null
     when (def) {
-        is SettingDef.Toggle -> if (def === CoreSettings.WAKE_WORD) {
-            WakeWordToggleRow(store, def, help, note)
-        } else {
-            SwitchRow(def.title, help, store.stored(def), note = note) { store.set(def, it) }
+        is SettingDef.Toggle -> when {
+            def === CoreSettings.WAKE_WORD -> WakeWordToggleRow(store, def, help, note)
+            def === CoreSettings.APP_LOCK -> AppLockRow(store, def, help, note)
+            else -> SwitchRow(def.title, help, store.stored(def), note = note) { store.set(def, it) }
         }
         is SettingDef.Choice -> if (def === CoreSettings.THEME_COLOR) {
             ColorRow(store, def, help, note)

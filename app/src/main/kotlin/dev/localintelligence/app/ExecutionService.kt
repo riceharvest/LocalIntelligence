@@ -296,7 +296,13 @@ class ExecutionService : Service() {
         // A claim rather than a Mutex on purpose: a Mutex suspends the loser,
         // which turns "someone is already busy" into a silent queue. The user
         // is told instead.
-        val claim = container.runGate.tryClaim()
+        // A chat message typed in the app outranks the local server's request (LocalServerService.claimForChat);
+        // scheduled and Telegram runs take the plain claim and are refused while a request runs.
+        val claim = if (scheduledTaskId == null && replyChat == null) {
+            LocalServerService.claimForChat(container)
+        } else {
+            container.runGate.tryClaim()
+        }
         if (claim == null) {
             // A refused CHAT start leaves its queued attachments behind; they would ride on the next message.
             // A refused scheduled start never owned the chat's queue, so it must not clear it.
@@ -634,6 +640,9 @@ class ExecutionService : Service() {
         // calls this a second time.
         activeClaim?.close()
         activeClaim = null
+        // Lean policy: a run that ends with no screen open frees the model it loaded. Balanced
+        // does nothing here. Refused while another run holds the gate.
+        container.leanEjectIfBackgrounded()
     }
 
     private fun mainActivityIntent(): PendingIntent = PendingIntent.getActivity(

@@ -58,6 +58,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -69,6 +70,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -103,6 +105,7 @@ import dev.localintelligence.app.ui.components.clipLength
 import dev.localintelligence.app.ui.components.groupToolCalls
 import dev.localintelligence.app.ui.components.rememberMotionEnabled
 import dev.localintelligence.core.hub.formatBytes
+import dev.localintelligence.core.persona.Persona
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
@@ -151,6 +154,13 @@ fun ChatScreen(
     starter: SetupState? = null,
     onStartStarter: () -> Unit = {},
     onCancelStarter: () -> Unit = {},
+    /**
+     * Loads the saved personas. The empty chat offers the choice only when some exist, so with none the
+     * screen is unchanged. Null hides the choice.
+     */
+    loadPersonas: (suspend () -> List<Persona>)? = null,
+    /** Starts the chat with the persona picked on the empty chat (null for none). */
+    onChoosePersona: (Long?) -> Unit = {},
 ) {
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
@@ -192,7 +202,8 @@ fun ChatScreen(
     // What the live bubble shows. Everything below reads this, so the bubble,
     // its row in the count and the empty state cannot disagree about it.
     val streaming = remember(rawStreaming) { liveBubbleText(rawStreaming) }
-    val input by viewModel.input.collectAsStateWithLifecycle()
+    // Read straight from the view model's snapshot state, not a StateFlow, so the field never lags a key behind.
+    val input = viewModel.composerText
     val modelState by viewModel.modelState.collectAsStateWithLifecycle()
     // Derived from the collected `runState` rather than read from
     // `viewModel.isBusy`, which is a plain getter over `runState.value`. A
@@ -210,6 +221,12 @@ fun ChatScreen(
     val canRetry = !busy && lastUserReplayable && lastAnswerIndex > lastUserIndex &&
         (runState as? RunState.Finished)?.outcome is RunOutcome.Answer
     val canEdit = !busy && lastUserReplayable
+
+    // Read only while the chat is empty: the persona choice is offered there and nowhere else.
+    val chatEmpty = messages.isEmpty()
+    val personas by produceState(initialValue = emptyList<Persona>(), chatEmpty) {
+        value = if (chatEmpty && loadPersonas != null) loadPersonas() else emptyList()
+    }
 
     val listState = rememberLazyListState()
 
@@ -480,6 +497,8 @@ fun ChatScreen(
                         onStartStarter = onStartStarter,
                         onCancelStarter = onCancelStarter,
                         onExample = { text -> viewModel.send(text) },
+                        personas = personas,
+                        onChoosePersona = onChoosePersona,
                     )
                 }
             }
@@ -638,7 +657,11 @@ private fun AssistantBubble(
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
         if (thought != null) ThoughtRow(thought)
         SelectionContainer { MarkdownText(text) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // One traversal group: TalkBack moves through the reply's actions together, in order.
+        Row(
+            modifier = Modifier.semantics { isTraversalGroup = true },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             IconButton(onClick = {
                 clipboard.setText(AnnotatedString(text))
                 // Android 13+ shows its own clipboard confirmation.
@@ -885,6 +908,8 @@ private fun EmptyState(
     onStartStarter: () -> Unit,
     onCancelStarter: () -> Unit,
     onExample: (String) -> Unit,
+    personas: List<Persona>,
+    onChoosePersona: (Long?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Simple mode's first run replaces the Hub card while there is no model, and while a setup
@@ -908,6 +933,7 @@ private fun EmptyState(
                 onCancel = onCancelStarter,
                 onOpenModels = onOpenModels,
             )
+            EmptyPersonaRow(personas, onChoosePersona)
             return@Column
         }
         Text(
@@ -920,6 +946,7 @@ private fun EmptyState(
         if (starter != null && blockedReason == null) {
             ExampleChips(onExample)
         }
+        EmptyPersonaRow(personas, onChoosePersona)
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
         } else if (isMissingModel && suggestion != null) {
@@ -951,6 +978,41 @@ private fun EmptyState(
                 Text(if (isMissingModel) "Download a model" else "Choose another model")
             }
         }
+    }
+}
+
+/**
+ * The persona choice on the empty chat. The New chat row is hidden on an empty chat, so without this an
+ * empty chat could never get a persona. A plain text button, shown only when personas exist.
+ */
+@Composable
+private fun EmptyPersonaRow(personas: List<Persona>, onChoose: (Long?) -> Unit) {
+    if (personas.isEmpty()) return
+    var choosing by remember { mutableStateOf(false) }
+    TextButton(onClick = { choosing = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+        Text("Choose a persona")
+    }
+    if (choosing) {
+        var chosen by remember { mutableStateOf<Long?>(null) }
+        AlertDialog(
+            onDismissRequest = { choosing = false },
+            title = { Text("Choose a persona") },
+            text = {
+                Column {
+                    PersonaChoice("None", selected = chosen == null) { chosen = null }
+                    personas.forEach { persona ->
+                        PersonaChoice(persona.name, selected = chosen == persona.id) { chosen = persona.id }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    choosing = false
+                    onChoose(chosen)
+                }) { Text("Start") }
+            },
+            dismissButton = { TextButton(onClick = { choosing = false }) { Text("Cancel") } },
+        )
     }
 }
 

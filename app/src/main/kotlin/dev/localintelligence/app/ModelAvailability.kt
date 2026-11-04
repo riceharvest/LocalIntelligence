@@ -95,6 +95,13 @@ sealed interface ModelAvailability {
         val quantType: String? = null,
     ) : ModelAvailability
 
+    /**
+     * The model the user chose is selected but has been ejected from memory, or freed by the Lean
+     * policy. Not [None]: nothing was removed, so the chat must not say "add a model". The next run
+     * loads the selected model again (see AppContainer.ensureModelReady).
+     */
+    data object Unloaded : ModelAvailability
+
     /** True only when a run can actually produce tokens. */
     val canRun: Boolean get() = this is Ready
 }
@@ -178,4 +185,8 @@ internal fun ModelAvailability.blockingReason(): String? = when (this) {
     is ModelAvailability.Failed -> reason
 
     ModelAvailability.Loading -> "Getting the model ready…"
+
+    // Not a block: the selected model is loaded again by the next send, so the composer stays
+    // enabled. The readiness check in AgentViewModel runs after that load and sees Ready.
+    ModelAvailability.Unloaded -> null
 }
