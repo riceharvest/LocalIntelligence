@@ -641,6 +641,8 @@ storage, bare-link messages and blocks always ask. Scheduled runs use it only
 when "Also in scheduled tasks" is on. The permission check now runs after the
 confirmation gates; before, a tool declaring a permission skipped them.
 
+**Storage modes.** The app operates in two storage modes corresponding to the two distribution builds (docs/adr/0002-play-and-full-builds.md). The Google Play build uses scoped storage and the Storage Access Framework (SAF): files are accessed via `content://` URIs granted through the system file picker or Downloads inserts. The sideloaded `full` build declares `MANAGE_EXTERNAL_STORAGE` ("All files access"): when `Environment.isExternalStorageManager()` is granted, file tools accept plain absolute paths under `Environment.getExternalStorageDirectory()` (refusing traversal segments, escaping symlinks, and `Android/data`/`Android/obb`), returning filesystem paths next to `content://` URIs while ensuring any path outside app storage still triggers RiskPolicy step 4 confirmation.
+
 ## 19. Rules for every change
 
 ```
