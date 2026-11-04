@@ -648,6 +648,8 @@
 
     <!-- TelegramService.kt -->
     <string name="export_failed">Export failed</string>
+    <!-- Android 17 per-app memory limit. Plain words, one line; names the two things the person can change. -->
+    <string name="memory_limit_notice">Android stopped the app to free memory. Try a smaller model or a shorter context.</string>
     <string name="skill_saved">Skill saved</string>
     <string name="copied">Copied</string>
     <string name="finish_sign_in_in_your_browser">Finish sign-in in your browser, then come back.</string>
