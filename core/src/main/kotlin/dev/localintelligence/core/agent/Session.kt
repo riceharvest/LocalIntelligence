@@ -172,6 +172,13 @@ class Session(
      */
     val groundedNumbers: MutableSet<String> = LinkedHashSet()
 
+    /**
+     * Numbers and names the answer check accepts: [AnswerCheck.tokensIn] of every text
+     * [groundedNumbers] reads. Bounded like it, oldest first out, because a long page can
+     * hold thousands of them and the phone has no room for all.
+     */
+    val groundedTokens: MutableSet<String> = LinkedHashSet()
+
     /** What the user wrote (with this turn's memories) and what tools returned; never the model's own words. */
     private fun ground(message: ChatMessage) {
         val text = when (message) {
@@ -181,6 +188,24 @@ class Session(
         } ?: return
         groundedNumbers += PhoneNumbers.keysIn(text)
         while (groundedNumbers.size > MAX_GROUNDED_NUMBERS) groundedNumbers.remove(groundedNumbers.first())
+        groundedTokens += AnswerCheck.tokensIn(text)
+        while (groundedTokens.size > MAX_GROUNDED_TOKENS) groundedTokens.remove(groundedTokens.first())
+    }
+
+    /**
+     * Swaps [messages] at [index] for [replacement] and gives the new object the old one's
+     * identity, so the durable writer does not store the replacement as a new row.
+     *
+     * WHY: the store holds the full text and must keep it. A prune changes only what the model
+     * is shown; a restart reads the full rows back and prunes again if it needs to.
+     */
+    fun replaceKeepingIdentity(index: Int, replacement: ChatMessage) = locked {
+        // Assign the old identity first: a message never asked for one would otherwise look
+        // unwritten, and the replacement would be stored a second time.
+        val id = idOf(messages[index])
+        ids.remove(messages[index])
+        messages[index] = replacement
+        ids[replacement] = id
     }
 
     /**
@@ -393,7 +418,7 @@ class Session(
     fun dropLastTurn(): Boolean = locked {
         if (!canDropLastTurn()) return@locked false
         messages.subList(lastUserIndex(), messages.size).clear()
-        groundedNumbers.clear()
+        groundedTokens.clear(); groundedNumbers.clear()
         messages.forEach(::ground)
         pruneIdentities()
         true
@@ -409,7 +434,7 @@ class Session(
         workingSummary = null
         epochTools.clear()
         discoveredTools.clear()
-        groundedNumbers.clear()
+        groundedTokens.clear(); groundedNumbers.clear()
     }
 
     /**
@@ -467,7 +492,7 @@ class Session(
         messages.clear()
         messages += adopted
         appendedCount = adopted.size
-        groundedNumbers.clear()
+        groundedTokens.clear(); groundedNumbers.clear()
         adopted.forEach(::ground)
         pruneIdentities()
         adopted.size
@@ -506,5 +531,6 @@ class Session(
         const val LINE_CHARS = 120
         const val KEYWORD_LIMIT = 12
         const val MAX_GROUNDED_NUMBERS = 64
+        const val MAX_GROUNDED_TOKENS = 8192
     }
 }
