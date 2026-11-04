@@ -11,7 +11,10 @@ data class Skill(
     val body: String,
     /**
      * Tools this skill names in `allowed-tools:`, or empty when it names none. While the skill
-     * runs, calls to any other tool are refused, except the core tools (see SkillsPlugin).
+     * runs, the prompt and the tool grammar list only these tools plus the core tools
+     * (PluginHooks.toolScope), so the model never sees the others. A call to any other tool is
+     * still refused (beforeTool), as a backstop. An unscoped skill among the matched ones
+     * leaves the run unrestricted (see SkillsPlugin).
      *
      * WHY THIS DIFFERS FROM OTHER AGENT TOOLS: in some of them, `allowed-tools` pre-approves tools so they run
      * without a prompt and does not restrict anything. Here the same key restricts: the app's

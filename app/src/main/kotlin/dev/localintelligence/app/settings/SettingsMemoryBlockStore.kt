@@ -27,7 +27,12 @@ class SettingsMemoryBlockStore(private val store: SettingsStore) : MemoryBlockSt
 
     private val lock = Any()
     private val changes = mutableListOf<Change>()
-    private var nextId = 1L
+    /**
+     * Seeded from the clock, not 1: the chat rows keep their change ids across a restart, and a counter
+     * from 1 would give a new change an id an old row already holds, so that old row would show and
+     * undo the new change, with its note.
+     */
+    private var nextId = System.currentTimeMillis()
 
     private val _revision = MutableStateFlow(0)
 

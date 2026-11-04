@@ -127,9 +127,24 @@ class SkillsPlugin(private val repository: SkillRepository) : AgentPlugin {
             )
         }
 
-        override fun contextForStep(task: String): List<String> {
+        /**
+         * The scope the run's prompt and grammar are built from (see PluginHooks.toolScope). It is the
+         * same selection contextForStep makes for this task, so the two never disagree.
+         */
+        override fun toolScope(task: String): Set<String>? {
+            choose(task)
+            return allowed
+        }
+
+        /** Picks this task's skills and sets [allowed] from them. Called by [toolScope] and [contextForStep]. */
+        private fun choose(task: String): List<Skill> {
             val chosen = selector.select(task, skills, max)
             allowed = scopeOf(chosen)
+            return chosen
+        }
+
+        override fun contextForStep(task: String): List<String> {
+            val chosen = choose(task)
             if (chosen.isEmpty()) return emptyList()
             val lines = ArrayList<String>()
             var left = budget
