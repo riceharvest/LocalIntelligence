@@ -46,6 +46,8 @@ class LocalIntelligenceApp : Application() {
         CrashReports.install(this)
         CrashReports.importExitReasons(this)
         container = AppContainer(this)
+        // The app lock starts here, before any activity, so it counts every activity from the first one.
+        container.appLock
         // Telegram follows the settings: it starts when it becomes wanted and stops when it stops being
         // wanted. The first value also covers a launch, so a phone that had it on reconnects when the app opens.
         gatewayScope.launch {

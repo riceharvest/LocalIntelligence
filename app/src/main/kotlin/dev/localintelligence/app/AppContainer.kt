@@ -252,6 +252,11 @@ class AppContainer(private val context: Context) {
 
     val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
 
+    /** The app lock, one for the process. Created at app start so it sees every activity from the first one. */
+    val appLock: dev.localintelligence.app.security.AppLock by lazy {
+        dev.localintelligence.app.security.AppLock(context, settings)
+    }
+
     /** Reads replies aloud with the platform text-to-speech. The engine starts on first use. */
     val speaker: Speaker by lazy {
         Speaker(context, settings) {
