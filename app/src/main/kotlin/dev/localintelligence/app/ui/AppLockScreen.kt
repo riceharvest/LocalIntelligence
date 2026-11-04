@@ -48,10 +48,11 @@ import kotlinx.coroutines.launch
  * The lock screen. It replaces the app while the lock is on, in MainActivity and
  * in the assistant overlay, so nothing behind it is drawn.
  *
- * WHY FLAG_SECURE HERE AND NOT FOR THE WHOLE APP: the flag blocks screenshots and
- * the recent-apps thumbnail. It is set only while this screen is up, so the
- * thumbnail of the app is hidden while it is locked, and the rest of the app is
- * unaffected while it is open.
+ * WHY FLAG_SECURE HERE: the flag blocks screenshots while the PIN is typed. It is
+ * set only while this screen is up. The recent-apps thumbnail is a separate
+ * matter, handled by [AppLock.protectRecents]: Android 13 and later have a switch
+ * for it, and older versions get FLAG_SECURE for as long as the lock is on, which
+ * is why the disposal below sets the recents policy again.
  *
  * WHY PIN ALWAYS WORKS: fingerprint or face is an option, and the PIN is the
  * fallback. The biometric prompt has a "Use PIN" button and no device-credential
@@ -66,7 +67,12 @@ fun AppLockScreen(appLock: AppLock) {
     DisposableEffect(activity) {
         val window = activity?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+        // The lock screen's own flag goes, then the recents policy is set again: below Android 13 it
+        // is still needed while the lock stays on after unlocking.
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            activity?.let { appLock.protectRecents(it) }
+        }
     }
 
     val biometricUsable = remember(appLock, activity) {

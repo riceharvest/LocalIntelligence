@@ -409,7 +409,7 @@ private fun NewChatRow(onNewChat: (Long?) -> Unit, loadPersonas: (suspend () -> 
 
 /** One persona in the New chat dialog: a radio button and its name, the whole line selects it. */
 @Composable
-private fun PersonaChoice(label: String, selected: Boolean, onSelect: () -> Unit) {
+internal fun PersonaChoice(label: String, selected: Boolean, onSelect: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

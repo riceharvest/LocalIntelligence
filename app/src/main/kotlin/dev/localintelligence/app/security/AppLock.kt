@@ -3,8 +3,10 @@ package dev.localintelligence.app.security
 import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.WindowManager
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.core.security.PinAttempts
 import dev.localintelligence.core.security.PinCode
@@ -64,6 +66,23 @@ class AppLock(context: Context, private val settings: SettingsStore) {
 
     /** The fingerprint or face option, which only applies while the lock is on. */
     fun biometricEnabled(): Boolean = enabled() && settings[CoreSettings.APP_LOCK_BIOMETRIC]
+
+    /**
+     * Keeps the chat out of the recent-apps thumbnail while the lock is on. Android 13 and later have a
+     * switch for exactly that. Older versions have no such switch, so the window gets FLAG_SECURE instead;
+     * that flag also blocks screenshots, which is why it is set only there and only while the lock is on.
+     * Called when the switch changes, when an activity is composed, and when the lock screen goes away.
+     */
+    fun protectRecents(activity: Activity) {
+        val on = enabled()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            activity.setRecentsScreenshotEnabled(!on)
+        } else if (on) {
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
 
     /** Called when the lock screen is passed: a correct PIN, or a biometric match. */
     fun unlock() {

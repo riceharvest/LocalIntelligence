@@ -137,6 +137,11 @@ data class HubUiState(
      * through [HubViewModel.startNonGgufDownload] rather than as a quant row.
      */
     val nonGgufFiles: List<NonGgufModelFile> = emptyList(),
+    /**
+     * The LiteRT-LM files of [nonGgufFiles] that the phone already has, by [liteRtOnDeviceKey]. Their row says
+     * "On this phone" and offers no download. Filled in after the listing shows, by a checksum check.
+     */
+    val nonGgufOnDevice: Set<String> = emptySet(),
     /** Null until the repo resolves. A non-null plan with a reject is a refusal. */
     val plan: DownloadPlan? = null,
     val progress: DownloadProgress? = null,
@@ -220,6 +225,12 @@ data class HubUiState(
 }
 
 /**
+ * The key a LiteRT-LM file has in [HubUiState.nonGgufOnDevice]: repository and path, so two repositories
+ * that name a file the same way never share a mark.
+ */
+internal fun liteRtOnDeviceKey(repo: HubRepoId, path: HubFilePath): String = "${repo.id}|${path.pathInRepo}"
+
+/**
  * A model file in a repository that is not a GGUF.
  *
  * Carries what HF reports for any file (the path, the size and the LFS digest),
@@ -236,6 +247,9 @@ data class NonGgufModelFile(
     val sha256: String?,
 ) {
     val fileName: String get() = path.fileName
+
+    /** The key [HubUiState.nonGgufOnDevice] uses for this file. */
+    val onDeviceKey: String get() = liteRtOnDeviceKey(repo, path)
 
     /**
      * True for the LiteRT-LM container this app has a backend for.
@@ -662,6 +676,7 @@ class HubViewModel(
                                 partialBytesKept = planned?.keptBytes ?: 0,
                             )
                         }
+                        markLiteRtOnDevice(nonGguf)
                         // A suggested file that the repository does not list is
                         // simply not selected: the user sees the repo's files.
                         wantedFile?.let { name ->
@@ -681,6 +696,27 @@ class HubViewModel(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Marks the LiteRT-LM files of [files] that the phone already has. It runs after the listing is on
+     * screen: a checksum of a multi-gigabyte file is not something a listing should wait for. The marks are
+     * written only while the same listing is still on screen, so a search that moved on is not touched.
+     */
+    private fun markLiteRtOnDevice(files: List<NonGgufModelFile>) {
+        if (files.none { it.isLiteRtLm }) return
+        viewModelScope.launch {
+            val found = withContext(Dispatchers.IO) {
+                files
+                    .filter { it.isLiteRtLm && it.sizeBytes > 0 && downloader.isDownloaded(it.toHubFile()) }
+                    .map { it.onDeviceKey }
+                    .toSet()
+            }
+            if (found.isEmpty()) return@launch
+            _state.update { s ->
+                if (s.nonGgufFiles === files) s.copy(nonGgufOnDevice = s.nonGgufOnDevice + found) else s
             }
         }
     }
@@ -1158,6 +1194,7 @@ class HubViewModel(
                         registeredReady = note.chatReady,
                         alreadyOnDevice = true,
                         partialBytesKept = 0,
+                        nonGgufOnDevice = it.nonGgufOnDevice + liteRtOnDeviceKey(hubFile.repo, hubFile.path),
                     )
                 }
                 return@launch
@@ -1194,6 +1231,7 @@ class HubViewModel(
                             registeredReady = note.chatReady,
                             alreadyOnDevice = true,
                             partialBytesKept = 0,
+                            nonGgufOnDevice = it.nonGgufOnDevice + liteRtOnDeviceKey(event.file.repo, event.file.path),
                         )
                     }
                 }

@@ -81,6 +81,8 @@ class AssistActivity : FragmentActivity() {
                 // The PIN comes before the overlay, so the hands-free listening and the screen capture
                 // in the overlay do not start until the app is unlocked.
                 val locked by container.appLock.locked.collectAsStateWithLifecycle()
+                val settingsVersion by container.settings.changes.collectAsStateWithLifecycle()
+                LaunchedEffect(settingsVersion) { container.appLock.protectRecents(this@AssistActivity) }
                 if (locked) {
                     AppLockScreen(appLock = container.appLock)
                     return@LocalIntelligenceTheme

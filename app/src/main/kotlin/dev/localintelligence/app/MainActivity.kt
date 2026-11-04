@@ -180,6 +180,9 @@ class MainActivity : FragmentActivity() {
                 val scope = rememberCoroutineScope()
                 // While the app lock is on, the lock screen replaces the app below (see the gate before NavHost).
                 val locked by container.appLock.locked.collectAsStateWithLifecycle()
+                // The recent-apps thumbnail follows the App lock switch: applied now, and again on every settings change.
+                val settingsVersion by container.settings.changes.collectAsStateWithLifecycle()
+                LaunchedEffect(settingsVersion) { container.appLock.protectRecents(this@MainActivity) }
 
                 // What the app had at its last exit comes back before the chat is
                 // read: the stored turns are shown, and the saved model is loaded so
@@ -302,6 +305,15 @@ class MainActivity : FragmentActivity() {
                                 starter = if (technical) null else starterState,
                                 onStartStarter = { container.starterSetup.start() },
                                 onCancelStarter = { container.starterSetup.cancel() },
+                                // The empty chat's persona choice. It starts the conversation the same way New chat does.
+                                loadPersonas = { container.personas() },
+                                // Waits for the saved chat to come back: a chat restored after a restart is not empty, and must not be cleared.
+                                onChoosePersona = { personaId ->
+                                    scope.launch {
+                                        container.launchRestore.await()
+                                        if (chat.messages.value.isEmpty()) container.startNewConversation(personaId)
+                                    }
+                                },
                             )
                             }
                         }

@@ -424,7 +424,14 @@ fun HubScreen(
                             // listed for information, and a zero size is never
                             // offered because the downloader's size check would
                             // be skipped.
-                            if (file.isLiteRtLm && file.sizeBytes > 0) {
+                            if (file.isLiteRtLm && file.sizeBytes > 0 && file.onDeviceKey in state.nonGgufOnDevice) {
+                                // Already on the phone: the file is adopted, so there is nothing to download.
+                                Text(
+                                    text = "On this phone",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            } else if (file.isLiteRtLm && file.sizeBytes > 0) {
                                 OutlinedButton(
                                     onClick = { viewModel.startNonGgufDownload(file) },
                                     enabled = !state.downloading,
