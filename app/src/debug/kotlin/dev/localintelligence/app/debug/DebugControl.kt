@@ -56,6 +56,9 @@ private const val TRANSCRIPT_ROWS = 30
 private const val TOOL_CAP = 15
 private const val GENERATION_CAP = 10
 
+/** Arguments per tool in a DONE line. Longer ones are left out and marked argsCut, never cut mid-JSON. */
+private const val ARGS_CAP = 120
+
 /** Receives adb commands and answers each with one JSON object. Runs on the main thread. */
 class DebugControl : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -316,15 +319,25 @@ private fun doneLine(
         if (tools.length() >= TOOL_CAP) return@forEachIndexed
         // A call the runtime refused has no observation after it, and no time either.
         val executed = trace.getOrNull(index + 1)?.kind == StepTrace.Kind.OBSERVATION
+        val args = step.toolArgsJson
         tools.put(
             JSONObject()
                 .put("name", step.toolName ?: step.detail)
                 .put("success", step.success)
-                .put("ms", if (executed) step.durationMs else JSONObject.NULL),
+                .put("ms", if (executed) step.durationMs else JSONObject.NULL)
+                .put("args", if (args != null && args.length <= ARGS_CAP) JSONObject(args) else JSONObject.NULL)
+                .put("argsCut", args != null && args.length > ARGS_CAP),
         )
     }
     root.put("tools", tools)
     if (toolCount > TOOL_CAP) root.put("toolsCut", toolCount - TOOL_CAP)
+    // Arguments are the first thing dropped when the line is too long: the answer is trimmed below, and a
+    // run that cannot be checked is reported as unverified, never as a pass.
+    if (root.toString().length > LINE_LIMIT) {
+        for (i in 0 until tools.length()) {
+            tools.getJSONObject(i).put("args", JSONObject.NULL).put("argsCut", true)
+        }
+    }
 
     if (generations == null) {
         root.put("generations", JSONObject.NULL)

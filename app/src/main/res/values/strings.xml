@@ -678,6 +678,7 @@
     <string name="lan_no_model_listed">none listed</string>
     <string name="lan_messages_go_there">Messages go to that computer, on your own network.</string>
     <string name="lan_forget">Forget the server found on this network</string>
+    <string name="subtask_steps_header">Steps the helper took</string>
 
     <!-- Search my phone (Settings > Search my phone). Every source is off until switched on. -->
     <string name="phone_search_title">Search my phone</string>

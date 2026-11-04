@@ -321,6 +321,14 @@ class AgentController(
      * leaves the phone with the request (docs/threat-model.md T10). A screen confirmation says so.
      */
     private val screenTextLeavesPhone: Boolean = false,
+    /**
+     * Set only on a subtask (see Subtask.kt): the user's own message, which the "not requested"
+     * guard judges every call against. Null on the parent, where the message is [task]. A subtask's
+     * goal is written by the model, so judging against it would let the model grant itself a tool.
+     */
+    private val policyRequest: String? = null,
+    /** Numbers the user gave the parent. A subtask grounds these and nothing from its own goal. */
+    private val groundedFromUser: Set<String> = emptySet(),
 ) {
     /**
      * Run state. It outlives a single call because
@@ -387,6 +395,12 @@ class AgentController(
 
     /** Sticky: a cancelled controller stays cancelled. Reuse means a new controller. */
     private var cancelled: Boolean = false
+
+    /** A subtask whose own confirmation the user has not answered yet. See [delegate]. */
+    private var parkedSubtask: ParkedSubtask? = null
+
+    /** The subtask running right now, so [cancel] can reach it. */
+    private var runningSubtask: AgentController? = null
 
     private data class PendingCall(
         val name: String,
@@ -463,7 +477,10 @@ class AgentController(
         // 200-action and 20-destructive-action caps would carry over between
         // conversations, so a user who legitimately deleted 19 things today
         // could not delete one more tomorrow without a reinstall.
-        riskPolicy.resetTask()
+        // A subtask shares its parent's policy, so the blast radius counts across both. Resetting
+        // it here would hand the subtask a fresh destructive-action quota in the middle of a task.
+        if (policyRequest == null) riskPolicy.resetTask()
+        parkedSubtask = null
         // The task list is kept only while it is unfinished: a finished list belongs to the last
         // task, and would be read back into this message as if it were still open.
         if (!sessions.todos.hasOpen) sessions.todos.clear()
@@ -497,6 +514,12 @@ class AgentController(
             task
         }
         sessions.start(task, rendered)
+        if (policyRequest != null) {
+            // The goal was just grounded like a user turn. The model wrote it, so keep only the numbers
+            // the user gave the parent: a subtask must not be able to text a number it invented.
+            sessions.groundedNumbers.clear()
+            sessions.groundedNumbers += groundedFromUser
+        }
         val outcome = loop()
         // The session is long-lived now - one instance per app, shared by chat
         // and scheduled runs - so it has to be bounded here rather than left to
@@ -550,6 +573,13 @@ class AgentController(
      * execute it, tells the model, and continues so it can route around it.
      */
     suspend fun confirmAndResume(approved: Boolean): AgentResult = measured {
+        // A subtask is waiting on its own confirmation. The answer goes to it, and this run continues
+        // after the subtask finishes, so the user is asked the same question as in a run of their own.
+        parkedSubtask?.let { parked ->
+            if (cancelled) return@measured AgentResult.Cancelled
+            val early = resumeSubtask(parked, approved)
+            return@measured settleRun(early ?: loop())
+        }
         val call = pending
         pending = null
 
@@ -658,6 +688,9 @@ class AgentController(
     fun cancel() {
         cancelled = true
         model.cancel()
+        // A subtask reads its own cancelled flag, not this one, so it is stopped here too.
+        runningSubtask?.cancel()
+        parkedSubtask?.child?.cancel()
     }
 
     // ---------------------------------------------------------------- the loop
@@ -923,7 +956,7 @@ class AgentController(
         // the message needs no tool (measured: "What is 17 times 23?" set a real timer). A tool
         // whose name or tags the message does not mention is one the user did not ask for.
         // The task list is the runtime's own bookkeeping, not an action the message must name.
-        val requested = ToolRequest.asksFor(task, tool.definition) || tool.definition.name == TodoList.TOOL_NAME
+        val requested = ToolRequest.asksFor(policyRequest ?: task, tool.definition) || tool.definition.name == TodoList.TOOL_NAME
         // Screen tools resolve the index against the live screen. The result is the app and the
         // control the policy judges, and it is kept with the parked call so an approval records the
         // grant for the app the person was shown.
@@ -1085,6 +1118,9 @@ class AgentController(
         // four-second prefill on an overflow is the failure this exists to
         // prevent. Returns non-null only when the step must not run at all.
         refuseUnaffordableStep(call, reply)?.let { return it }
+        // The loop runs a subtask itself: a subtask needs this run's state, and a tool's execute
+        // can return a result but not a confirmation the user must answer.
+        if (call.name == SUBTASK_TOOL_NAME) return delegate(call)
 
         val context = ToolContext(
             userConfirmed = call.userConfirmed,
@@ -1117,7 +1153,22 @@ class AgentController(
             failed(call.name, "${t::class.java.simpleName}: ${t.message}")
         }
         val durationMs = (System.nanoTime() - startedAt) / 1_000_000
+        return finish(call, reply, result, argsText, durationMs, children = emptyList())
+    }
 
+    /**
+     * Records a finished tool call: its observation, its trace rows and the blast-radius charge, then
+     * the no-progress checks. Returns non-null when the run must stop. Shared by a tool that ran here
+     * and by a subtask that answered, so both are recorded the same way.
+     */
+    private suspend fun finish(
+        call: PendingCall,
+        reply: String,
+        result: ToolResult,
+        argsText: String,
+        durationMs: Long,
+        children: List<StepTrace>,
+    ): AgentResult? {
         val observation = truncate(call.name, hooks.afterTool(call.name, call.args, result.observation, result.success))
         loopDetector.recordResult(call.name, observation, result.success, result.error)
         sessions.appendToolObservation(call.tool, withArgumentsOnFirstUse(call.tool, observation), result.success)
@@ -1131,6 +1182,8 @@ class AgentController(
             durationMs, result.success,
             toolName = call.name,
             toolArgs = argsText,
+            children = children,
+            toolArgsJson = call.args.toString(),
         )
         trace += StepTrace(call.step, StepTrace.Kind.OBSERVATION, observation, success = result.success)
         metrics?.endPhase(StepTrace.Kind.TOOL_CALL, result.success)
@@ -1174,6 +1227,159 @@ class AgentController(
             sessions.observe(nudge)
         }
         return null
+    }
+
+    // ------------------------------------------------------------- subtasks
+
+    /** A subtask that is waiting for the user's answer to one of its own calls. */
+    private class ParkedSubtask(
+        val child: AgentController,
+        val call: PendingCall,
+        val argsText: String,
+        val startedAt: Long,
+    )
+
+    /**
+     * Runs one `task.delegate` call: a fresh child run on this same model, with its own session, its
+     * own step cap and the tools the model named. Only the child's capped answer comes back as this
+     * call's observation. Returns non-null when this run must stop or wait on the user.
+     *
+     * WHY HERE AND NOT IN THE TOOL: a child can ask the user to confirm a call, and only the loop can
+     * hand that question to the app, because `run` and `confirmAndResume` are the only calls that
+     * return a confirmation. A tool's execute can return a result and nothing else.
+     */
+    private suspend fun delegate(call: PendingCall): AgentResult? {
+        val argsText = compactArgs(call.args)
+        try {
+            onToolStart?.invoke(call.name, argsText)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Throwable) {
+        }
+        val startedAt = System.nanoTime()
+        val goal = subtaskGoal(call.args)
+        if (goal == null || policyRequest != null) {
+            // A child that asks for a subtask is refused here as well as by its registry, so no path
+            // leads to a grandchild whatever the registry holds.
+            val reason = if (goal == null) "needs a goal: what the subtask should do" else "a subtask cannot start a subtask"
+            val refused = ToolResult(
+                success = false,
+                observation = "${call.name} did not run: $reason. Do the work yourself, or answer without it.",
+                error = ToolError.InvalidArguments(reason),
+            )
+            return finish(call, "", refused, argsText, 0, children = emptyList())
+        }
+        val child = newSubtask(subtaskToolNames(call.args))
+        runningSubtask = child
+        val outcome = try {
+            child.run(goal)
+        } finally {
+            runningSubtask = null
+        }
+        return settleSubtask(child, call, argsText, startedAt, outcome)
+    }
+
+    /** Continues a parked subtask after the user answered its confirmation. Null when it finished. */
+    private suspend fun resumeSubtask(parked: ParkedSubtask, approved: Boolean): AgentResult? {
+        runningSubtask = parked.child
+        val outcome = try {
+            parked.child.confirmAndResume(approved)
+        } finally {
+            runningSubtask = null
+        }
+        return settleSubtask(parked.child, parked.call, parked.argsText, parked.startedAt, outcome)
+    }
+
+    /**
+     * Turns a subtask's outcome into this run's next step. A confirmation the subtask raised is
+     * parked and returned to the app unchanged. Anything else becomes one observation for the parent.
+     */
+    private suspend fun settleSubtask(
+        child: AgentController,
+        call: PendingCall,
+        argsText: String,
+        startedAt: Long,
+        outcome: AgentResult,
+    ): AgentResult? {
+        if (outcome is AgentResult.AwaitingConfirmation) {
+            parkedSubtask = ParkedSubtask(child, call, argsText, startedAt)
+            return outcome
+        }
+        parkedSubtask = null
+        if (outcome is AgentResult.Cancelled) return AgentResult.Cancelled
+        val result = when (outcome) {
+            is AgentResult.Success -> ToolResult(success = true, observation = capSummary(outcome.text))
+            is AgentResult.StepLimitReached -> ToolResult(
+                success = false,
+                observation = "${call.name} did not finish within $SUBTASK_MAX_STEPS steps. Do the rest " +
+                    "yourself, or answer with what you have.",
+                error = ToolError.Internal("step limit"),
+            )
+            is AgentResult.Stop -> ToolResult(
+                success = false,
+                observation = "${call.name} stopped: ${outcome.reason.take(LINE_CHARS)}. Do something else, " +
+                    "or answer without it.",
+                error = ToolError.Internal(outcome.reason.take(LINE_CHARS)),
+            )
+            else -> ToolResult(success = false, observation = "${call.name} failed.", error = ToolError.Internal("unexpected"))
+        }
+        // Cost, unmeasured: the subtask's prompts ran through the same model and replaced the parent's
+        // prefilled prefix. warmPrefix re-prefills the parent's system prompt and core tools, but only
+        // in the model's native tool format; elsewhere the next step pays that prefill itself.
+        warmPrefix()
+        val durationMs = (System.nanoTime() - startedAt) / 1_000_000
+        return finish(call, "", result, argsText, durationMs, children = child.traceSnapshot)
+    }
+
+    /**
+     * A fresh child controller on this same model and collaborators. It shares the parent's risk policy
+     * (one blast radius), grounds only what the user gave the parent, and takes no per-run state from
+     * the parent: its own loop detector, no metrics, no memory write, no UI callbacks.
+     *
+     * Its hooks are the parent's, so a plugin veto still applies to a subtask's calls. Its run end does
+     * not reach the plugins (see [measured]), so a plugin that counts runs counts the user's turn once.
+     */
+    private fun newSubtask(names: Set<String>?): AgentController = AgentController(
+        model = model,
+        parser = parser,
+        tools = SubtaskRegistry(tools, names),
+        toolSelector = toolSelector,
+        validator = validator,
+        loopDetector = LoopDetector(),
+        contextBuilder = contextBuilder,
+        memory = memory,
+        sessions = Session(),
+        config = config.copy(maxSteps = SUBTASK_MAX_STEPS),
+        riskPolicy = riskPolicy,
+        compactor = compactor,
+        stepEnforcer = stepEnforcer,
+        sampling = sampling,
+        hooks = hooks,
+        constrainOutput = constrainOutput,
+        useModelTemplate = useModelTemplate,
+        useNativeToolFormat = useNativeToolFormat,
+        thinkingBudget = thinkingBudget,
+        log = log,
+        observationStore = observationStore,
+        screenTextLeavesPhone = screenTextLeavesPhone,
+        policyRequest = policyRequest ?: task,
+        groundedFromUser = sessions.locked { sessions.groundedNumbers.toSet() },
+    )
+
+    /** Settles a run after a parked subtask resolved. Same bookkeeping as the end of [run]. */
+    private suspend fun settleRun(outcome: AgentResult): AgentResult {
+        if (outcome !is AgentResult.AwaitingConfirmation) {
+            if (sessions.messages.size > RetainedHistory.MAX_RETAINED_MESSAGES) {
+                compactNow("${sessions.messages.size} messages, over ${RetainedHistory.MAX_RETAINED_MESSAGES}")
+            }
+            RetainedHistory.bound(sessions.messages)
+            sessions.pruneIdentities()
+        }
+        if (outcome is AgentResult.Success) {
+            settleWorkingState()
+            afterAnswer?.invoke(this)
+        }
+        return outcome
     }
 
     // ------------------------------------------------- the per-step budget gate
@@ -2124,7 +2330,8 @@ class AgentController(
     private suspend fun measured(body: suspend () -> AgentResult): AgentResult {
         val result = guarded { body() }
         lastRunMetrics = metrics?.finish(result is AgentResult.Success)
-        hooks.onRunEnd(result)
+        // A subtask is not a run of its own: a plugin that counts runs must count the user's turn once.
+        if (policyRequest == null) hooks.onRunEnd(result)
         return result
     }
 

@@ -75,6 +75,19 @@ data class StepTrace(
      * Shown folded under the reply in Technical mode. Null on every other kind.
      */
     val speed: ReplySpeed? = null,
+
+    /**
+     * On a TOOL_CALL row for `task.delegate`: the subtask's own steps, folded under that row. Shown to
+     * the user only. The parent's model never sees them; it gets the subtask's capped answer.
+     */
+    val children: List<StepTrace> = emptyList(),
+
+    /**
+     * The call's arguments as JSON, exactly as the model sent them, on a TOOL_CALL row. Null
+     * elsewhere. The eval runner (scripts/run-evals.py) checks arguments against this; the
+     * display string in [toolArgs] is lossy (40-character values, six keys) and cannot be checked.
+     */
+    val toolArgsJson: String? = null,
 ) {
     enum class Kind { GENERATION, TOOL_CALL, OBSERVATION, MALFORMED, COMPACTION }
 }
