@@ -1518,7 +1518,6 @@
 <string name="model_not_enough_memory">इस मॉडल के लिए काफ़ी मेमोरी नहीं है। कोई छोटा आज़माएँ।</string>
 <string name="model_load_damaged">वह मॉडल लोड नहीं हो सका। शायद वह खराब है, या यह ऐप ऐसा फ़ॉर्मेट नहीं पढ़ सकता।</string>
 <string name="model_none_add">बात शुरू करने के लिए एक मॉडल जोड़ें। सब कुछ आपके फ़ोन पर रहता है।</string>
-<string name="model_getting_ready">मॉडल तैयार किया जा रहा है…</string>
 <string name="crash_preview_more">\n\n... %1$d और अक्षर। शेयर में पूरी रिपोर्ट है।</string>
 <string name="run_replace_needs_service">मैसेज बदलने के लिए असिस्टेंट सेवा चाहिए।</string>
 <string name="run_waiting_approval">आपकी मंज़ूरी का इंतज़ार है।</string>

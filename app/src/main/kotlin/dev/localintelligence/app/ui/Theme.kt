@@ -1,20 +1,28 @@
 package dev.localintelligence.app.ui
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextDirection
+import androidx.core.view.WindowCompat
 import dev.localintelligence.app.LocalIntelligenceApp
 import dev.localintelligence.core.settings.CoreSettings
 
@@ -154,6 +162,21 @@ fun themeSwatchOn(id: String, context: Context): Color =
         palette(id).light.onPrimary
     }
 
+/**
+ * Text takes its direction from what it says. Compose's default follows the layout, so an English
+ * message on an Arabic phone (or Arabic on an English phone) puts its punctuation on the wrong side.
+ */
+private val ContentDirectionTypography: Typography = Typography().run {
+    fun TextStyle.byContent() = copy(textDirection = TextDirection.Content)
+    Typography(
+        displayLarge = displayLarge.byContent(), displayMedium = displayMedium.byContent(), displaySmall = displaySmall.byContent(),
+        headlineLarge = headlineLarge.byContent(), headlineMedium = headlineMedium.byContent(), headlineSmall = headlineSmall.byContent(),
+        titleLarge = titleLarge.byContent(), titleMedium = titleMedium.byContent(), titleSmall = titleSmall.byContent(),
+        bodyLarge = bodyLarge.byContent(), bodyMedium = bodyMedium.byContent(), bodySmall = bodySmall.byContent(),
+        labelLarge = labelLarge.byContent(), labelMedium = labelMedium.byContent(), labelSmall = labelSmall.byContent(),
+    )
+}
+
 @Composable
 fun LocalIntelligenceTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
@@ -174,5 +197,18 @@ fun LocalIntelligenceTheme(content: @Composable () -> Unit) {
         dark -> palette(colorId).dark
         else -> palette(colorId).light
     }
-    MaterialTheme(colorScheme = colors, content = content)
+    // The window theme is the dark platform one, so without this the status bar icons stay white on a light screen.
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = generateSequence(view.context) { (it as? ContextWrapper)?.baseContext }
+                .filterIsInstance<Activity>().firstOrNull()?.window
+            if (window != null) {
+                val bars = WindowCompat.getInsetsController(window, view)
+                bars.isAppearanceLightStatusBars = !dark
+                bars.isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
+    MaterialTheme(colorScheme = colors, typography = ContentDirectionTypography, content = content)
 }

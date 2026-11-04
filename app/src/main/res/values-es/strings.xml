@@ -1518,7 +1518,6 @@
 <string name="model_not_enough_memory">No hay memoria suficiente para este modelo. Prueba con uno más pequeño.</string>
 <string name="model_load_damaged">No se pudo cargar ese modelo. Puede que esté dañado o en un formato que esta app no puede leer.</string>
 <string name="model_none_add">Añade un modelo para empezar a chatear. Todo se queda en tu teléfono.</string>
-<string name="model_getting_ready">Preparando el modelo…</string>
 <string name="crash_preview_more">\n\n... %1$d caracteres más. Lo que se comparte incluye el informe completo.</string>
 <string name="run_replace_needs_service">Reemplazar un mensaje necesita el servicio del asistente.</string>
 <string name="run_waiting_approval">Esperando tu aprobación.</string>

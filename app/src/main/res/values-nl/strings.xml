@@ -1518,7 +1518,6 @@
 <string name="model_not_enough_memory">Niet genoeg geheugen voor dit model. Probeer een kleiner model.</string>
 <string name="model_load_damaged">Dat model kon niet worden geladen. Het is mogelijk beschadigd of in een formaat dat deze app niet kan lezen.</string>
 <string name="model_none_add">Voeg een model toe om te beginnen met chatten. Alles blijft op je telefoon.</string>
-<string name="model_getting_ready">Het model wordt klaargemaakt…</string>
 <string name="crash_preview_more">\n\n... %1$d tekens meer. Het delen bevat het hele rapport.</string>
 <string name="run_replace_needs_service">Een bericht vervangen vraagt om de assistentdienst.</string>
 <string name="run_waiting_approval">Wacht op je goedkeuring.</string>

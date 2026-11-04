@@ -1517,7 +1517,6 @@
 <string name="model_not_enough_memory">หน่วยความจำไม่พอสำหรับโมเดลนี้ ลองตัวที่เล็กกว่า</string>
 <string name="model_load_damaged">โหลดโมเดลนั้นไม่ได้ อาจเสียหายหรืออยู่ในรูปแบบที่แอปนี้อ่านไม่ได้</string>
 <string name="model_none_add">เพิ่มโมเดลเพื่อเริ่มแชท ทุกอย่างอยู่บนโทรศัพท์ของคุณ</string>
-<string name="model_getting_ready">กำลังเตรียมโมเดล…</string>
 <string name="crash_preview_more">\n\n... อีก %1$d ตัวอักษร การแชร์จะรวมรายงานทั้งฉบับ</string>
 <string name="run_replace_needs_service">การแทนที่ข้อความต้องใช้บริการผู้ช่วย</string>
 <string name="run_waiting_approval">กำลังรอการอนุมัติของคุณ</string>

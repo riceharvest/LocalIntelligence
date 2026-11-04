@@ -1520,7 +1520,6 @@
 <string name="model_not_enough_memory">Za mało pamięci dla tego modelu. Spróbuj mniejszego.</string>
 <string name="model_load_damaged">Nie udało się wczytać tego modelu. Może być uszkodzony albo w formacie, którego ta aplikacja nie odczyta.</string>
 <string name="model_none_add">Dodaj model, żeby zacząć czat. Wszystko zostaje na twoim telefonie.</string>
-<string name="model_getting_ready">Przygotowuję model…</string>
 <string name="crash_preview_more">\n\n... jeszcze %1$d znaków. Udostępnienie zawiera cały raport.</string>
 <string name="run_replace_needs_service">Zastąpienie wiadomości wymaga usługi asystenta.</string>
 <string name="run_waiting_approval">Czeka na twoją zgodę.</string>

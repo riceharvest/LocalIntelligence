@@ -1518,7 +1518,6 @@
 <string name="model_not_enough_memory">Memória insuficiente para este modelo. Tente um menor.</string>
 <string name="model_load_damaged">Não foi possível carregar esse modelo. Ele pode estar danificado ou em um formato que este app não consegue ler.</string>
 <string name="model_none_add">Adicione um modelo para começar a conversar. Tudo fica no seu celular.</string>
-<string name="model_getting_ready">Preparando o modelo…</string>
 <string name="crash_preview_more">\n\n... mais %1$d caracteres. O compartilhamento inclui o relatório completo.</string>
 <string name="run_replace_needs_service">Substituir uma mensagem precisa do serviço do assistente.</string>
 <string name="run_waiting_approval">Aguardando sua aprovação.</string>

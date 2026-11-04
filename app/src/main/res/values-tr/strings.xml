@@ -1517,7 +1517,6 @@
 <string name="model_not_enough_memory">Bu model için yeterli bellek yok. Daha küçük bir tane dene.</string>
 <string name="model_load_damaged">Bu model yüklenemedi. Bozuk olabilir ya da bu uygulamanın okuyamadığı bir biçimde olabilir.</string>
 <string name="model_none_add">Sohbete başlamak için bir model ekle. Her şey telefonunda kalır.</string>
-<string name="model_getting_ready">Model hazırlanıyor…</string>
 <string name="crash_preview_more">\n\n... %1$d karakter daha. Paylaşım tüm raporu içerir.</string>
 <string name="run_replace_needs_service">Bir mesajı değiştirmek için asistan hizmeti gerekir.</string>
 <string name="run_waiting_approval">Onayını bekliyor.</string>

@@ -1520,7 +1520,6 @@
 <string name="model_not_enough_memory">Для цієї моделі не вистачає пам\'яті. Спробуйте меншу.</string>
 <string name="model_load_damaged">Не вдалося завантажити цю модель. Можливо, вона пошкоджена або має формат, який цей застосунок не може прочитати.</string>
 <string name="model_none_add">Додайте модель, щоб почати розмову. Усе залишається на вашому телефоні.</string>
-<string name="model_getting_ready">Готую модель…</string>
 <string name="crash_preview_more">\n\n... ще символів: %1$d. Поділитися можна всім звітом.</string>
 <string name="run_replace_needs_service">Щоб замінити повідомлення, потрібна служба помічника.</string>
 <string name="run_waiting_approval">Очікуємо на ваше підтвердження.</string>

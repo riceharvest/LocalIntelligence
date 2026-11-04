@@ -1522,7 +1522,6 @@
 <string name="model_not_enough_memory">لا توجد ذاكرة كافية لهذا النموذج. جرّب نموذجًا أصغر.</string>
 <string name="model_load_damaged">تعذّر تحميل هذا النموذج. ربما يكون تالفًا، أو بصيغة لا يستطيع التطبيق قراءتها.</string>
 <string name="model_none_add">أضف نموذجًا لتبدأ المحادثة. كل شيء يبقى على هاتفك.</string>
-<string name="model_getting_ready">جارٍ تجهيز النموذج…</string>
 <string name="crash_preview_more">\n\n... %1$d حرفًا إضافيًا. تتضمن المشاركة التقرير كاملًا.</string>
 <string name="run_replace_needs_service">استبدال الرسالة يحتاج إلى خدمة المساعد.</string>
 <string name="run_waiting_approval">بانتظار موافقتك.</string>

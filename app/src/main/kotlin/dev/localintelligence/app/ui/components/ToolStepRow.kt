@@ -561,7 +561,7 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
         // Simple mode: a finished step shows its first lines. A step that did not finish shows a plain
         // sentence for its kind of failure, never the raw text (which may name a file path or a library).
         val text = if (state == ToolRowState.Done) {
-            output.lines().filter { it.isNotBlank() }.take(SIMPLE_DETAIL_LINES).joinToString("\n")
+            output.lines().filter { it.isNotBlank() && !HTTP_STATUS_LINE.containsMatchIn(it) }.take(SIMPLE_DETAIL_LINES).joinToString("\n")
                 .ifBlank { stringResource(R.string.simple_nothing_came_back) }
         } else {
             SimpleWording.kindOf(output)?.let { stringResource(it.text) } ?: stringResource(R.string.simple_step_not_finished)
@@ -801,7 +801,8 @@ private fun summaryOf(step: ChatMessage.ToolStep, state: ToolRowState): String =
         else firstLine(step.detail).ifBlank { stringResource(R.string.tool_not_run) }
     ToolRowState.Failed -> if (!LocalTechnicalDetail.current) stringResource(R.string.simple_step_not_finished)
         else firstLine(step.observation.orEmpty()).ifBlank { stringResource(R.string.tool_failed) }
-    ToolRowState.Done -> firstLine(step.observation.orEmpty()).ifBlank { stringResource(R.string.tool_done) }
+    ToolRowState.Done -> if (!LocalTechnicalDetail.current) stringResource(R.string.tool_done)
+        else firstLine(step.observation.orEmpty()).ifBlank { stringResource(R.string.tool_done) }
     ToolRowState.Awaiting -> stringResource(R.string.tool_waiting_for_approval)
     ToolRowState.Running -> stringResource(R.string.tool_running)
 }
@@ -977,6 +978,7 @@ internal fun formatDuration(ms: Long): String? = when {
 private const val AUTO_FOLD_DELAY_MS = 450L
 private const val OUTPUT_FOLD_LINES = 10
 private const val SIMPLE_DETAIL_LINES = 4
+private val HTTP_STATUS_LINE = Regex("^HTTP \\d{3} ")
 private const val MAX_STACKED_MARKS = 4
 
 /**

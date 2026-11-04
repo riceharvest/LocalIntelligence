@@ -1517,7 +1517,6 @@
 <string name="model_not_enough_memory">Memori tidak cukup untuk model ini. Coba yang lebih kecil.</string>
 <string name="model_load_damaged">Model itu tidak bisa dimuat. Mungkin rusak atau formatnya tidak bisa dibaca aplikasi ini.</string>
 <string name="model_none_add">Tambahkan model untuk mulai mengobrol. Semuanya tetap di ponselmu.</string>
-<string name="model_getting_ready">Menyiapkan model…</string>
 <string name="crash_preview_more">\n\n... %1$d karakter lagi. Saat dibagikan, laporan lengkap ikut terkirim.</string>
 <string name="run_replace_needs_service">Mengganti pesan memerlukan layanan asisten.</string>
 <string name="run_waiting_approval">Menunggu persetujuanmu.</string>

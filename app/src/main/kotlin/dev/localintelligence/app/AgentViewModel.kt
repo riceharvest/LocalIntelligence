@@ -535,7 +535,7 @@ sealed interface RunState {
      */
     fun progressLabel(context: Context): String? = when (this) {
         Idle, is Finished -> null
-        LoadingModel -> context.getString(R.string.model_getting_ready)
+        LoadingModel -> context.getString(R.string.getting_ready)
         Running -> null
         is AwaitingApproval -> context.getString(R.string.run_waiting_approval)
     }

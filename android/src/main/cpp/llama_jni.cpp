@@ -1943,8 +1943,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     // during the previous prefill, kSnapshotTail tokens before the end, and is
     // restored when the new prompt agrees at least that far.
     //
-    // Only a longer prompt reuses anything: an agent step always grows, and a
-    // repeated identical prompt (the speed test) is processed in full.
+    // A prompt needs tokens past the agreed part to reuse anything; a repeated identical
+    // prompt (the speed test) is processed in full. WHY NOT prompt_tokens > previous: the previous
+    // tokens include the last reply, and its thinking is dropped from the next prompt, so a short
+    // step's prompt is often shorter than that while still agreeing with everything before the reply.
     llama_memory_t mem = llama_get_memory(ctx);
     int32_t reused = 0;
     // Whether `reused` is the state held in snap_state. Only then is snap_state the state
@@ -1954,7 +1956,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     const int32_t common = mm_chunks ? 0 : static_cast<int32_t>(
         std::mismatch(h->snap_tokens.begin(), h->snap_tokens.end(), tokens.begin(),
                       tokens.end()).first - h->snap_tokens.begin());
-    const bool grows = !mm_chunks && previous > 0 && prompt_tokens > previous;
+    const bool grows = !mm_chunks && previous > 0 && prompt_tokens > common;
     // A sliding-window model (Gemma) evicts positions that fall out of its
     // window; the first new token attends back n_swa positions, so those must
     // still be cached (the rule llama-server uses).
