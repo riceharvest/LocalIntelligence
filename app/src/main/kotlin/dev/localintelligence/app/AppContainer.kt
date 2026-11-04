@@ -1171,6 +1171,46 @@ class AppContainer(private val context: Context) {
     suspend fun loadModel(model: ImportedModel): ModelAvailability =
         readinessLock.withLock { loadModelLocked(model) }
 
+    /**
+     * Unloads the resident local model and gives its memory back. The selection and the saved
+     * URI are kept, so the next run loads the model again (see [ensureModelReady]).
+     *
+     * Refused, returning false and changing nothing, while a run holds [runGate] (a run is
+     * decoding, or about to), or when the resident backend is the remote or ChatGPT chat, which
+     * holds no local memory. The gate is checked under [readinessLock]: a run claims the gate
+     * before it calls [ensureModelReady], so a run that starts after this check waits on the lock
+     * and loads the model itself.
+     */
+    suspend fun ejectModel(): Boolean = readinessLock.withLock {
+        if (runGate.isBusy) return@withLock false
+        val resident = loadedBackend ?: return@withLock false
+        if (resident === remoteChatBackend || resident === chatGptBackend) return@withLock false
+        stopIdleWork()
+        stopPrefixWork()
+        loadedBackend = null
+        runCatching { resident.unload() }
+        modelAvailability.set(ModelAvailability.Unloaded)
+        true
+    }
+
+    /**
+     * Started screens of the app, counted from the activity lifecycle by [LocalIntelligenceApp].
+     * Zero means the app is in the background, which is when the Lean policy frees the model.
+     */
+    @Volatile
+    var activitiesStarted: Int = 0
+
+    /**
+     * The Lean policy's background step. Called when the last screen stops and when a run ends:
+     * unloads the model when no screen is started and no run holds the gate. Balanced
+     * never unloads here. Runs on [appScope], so the caller does not wait for the free.
+     */
+    fun leanEjectIfBackgrounded() {
+        if (settings[CoreSettings.KEEP_IN_MEMORY] != CoreSettings.KEEP_LEAN) return
+        if (activitiesStarted > 0) return
+        appScope.launch(Dispatchers.IO) { ejectModel() }
+    }
+
     /** [loadModel] without the lock, for callers that already hold it. */
     private suspend fun loadModelLocked(model: ImportedModel): ModelAvailability {
         // The chat's state and model before this switch. A switch that fails must leave the

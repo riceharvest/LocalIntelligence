@@ -616,6 +616,9 @@ class ExecutionService : Service() {
         // calls this a second time.
         activeClaim?.close()
         activeClaim = null
+        // Lean policy: a run that ends with no screen open frees the model it loaded. Balanced
+        // does nothing here. Refused while another run holds the gate.
+        container.leanEjectIfBackgrounded()
     }
 
     private fun mainActivityIntent(): PendingIntent = PendingIntent.getActivity(

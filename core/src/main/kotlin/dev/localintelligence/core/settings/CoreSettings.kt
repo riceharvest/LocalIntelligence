@@ -220,6 +220,26 @@ object CoreSettings {
         applies = SettingApplies.NEXT_MODEL_LOAD,
     )
 
+    /**
+     * How long the loaded model stays in memory. Balanced is what the app did before this row
+     * existed: the model stays loaded until another model replaces it, it is ejected or removed,
+     * or the process dies. Lean also unloads it once no screen is open and no run is active; the
+     * next message loads it again.
+     */
+    const val KEEP_LEAN = "lean"
+    const val KEEP_BALANCED = "balanced"
+
+    val KEEP_IN_MEMORY = Choice(
+        "model.keep_in_memory", "Keep the model in memory",
+        "Lean frees the model's memory when you leave the app and it is idle; the next message " +
+            "reloads it. Balanced keeps it loaded until you switch models or eject it.",
+        SettingSection.MODEL, KEEP_BALANCED,
+        listOf(
+            Choice.Option(KEEP_LEAN, "Lean"),
+            Choice.Option(KEEP_BALANCED, "Balanced"),
+        ),
+        applies = SettingApplies.NOW,
+    )
     // ---- sampling ----------------------------------------------------------
 
     val TEMPERATURE = FloatValue(
