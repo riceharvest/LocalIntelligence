@@ -678,6 +678,14 @@
     <string name="lan_no_model_listed">none listed</string>
     <string name="lan_messages_go_there">Messages go to that computer, on your own network.</string>
     <string name="lan_forget">Forget the server found on this network</string>
+    <!-- Memory block: a line in the chat after the agent writes the block, and its Undo. -->
+    <string name="memory_block_remembered">Remembered: %1$s</string>
+    <string name="memory_block_cleared">The memory block was cleared.</string>
+    <string name="memory_block_undo">Undo</string>
+    <!-- Repeat offer: after the same request has been made three times, offer to save it as a skill. -->
+    <string name="repeat_offer_question">Save this as a skill?</string>
+    <string name="repeat_offer_save">Save</string>
+    <string name="repeat_offer_not_now">Not now</string>
     <string name="subtask_steps_header">Steps the helper took</string>
 
     <!-- Search my phone (Settings > Search my phone). Every source is off until switched on. -->

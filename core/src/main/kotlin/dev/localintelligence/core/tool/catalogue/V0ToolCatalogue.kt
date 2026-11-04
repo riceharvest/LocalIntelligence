@@ -5,6 +5,7 @@ import dev.localintelligence.core.tool.ToolDefinition
 import dev.localintelligence.core.tool.ToolRisk
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -66,10 +67,12 @@ import kotlinx.serialization.json.putJsonObject
  *
  * Explicitly NOT in v0, and why:
  *
- * - **Memory write tools.** `docs/architecture.md` section 14 puts memory writes on an
- *   explicit "remember X" in the runtime, not behind a model-visible tool. Exposing
- *   `memory.write` would let the model invent a memory the user never asked for.
- *   `history.search` is the one read-only exception: it only reads past messages.
+ * - **Memory write tools, except one.** `memory.update_block` is the only write, added
+ *   2026-11-04 by the owner's decision. It edits the one visible memory block, is REVERSIBLE,
+ *   and is refused in a run that read outside text unless the message asks for it (see
+ *   `RiskPolicy`). Any other write, such as a model-invented fact or a `memory.write` that
+ *   could store anything, stays out. `history.search` is the read-only exception: it only
+ *   reads past messages.
  * - **A general SMS send.** Added with `sms.send` (texts and calls, default-assistant
  *   only). It is the one way to send a text by name; `notifications.reply` still answers
  *   messages already on screen.
@@ -1638,6 +1641,37 @@ object V0ToolCatalogue {
             ),
             requiredPermission = null,
         ),
+        // --------------------------------------------------------------- memory
+        // The one memory write. Owner decision 2026-11-04: the agent may edit the memory block,
+        // visibly and reversibly. RiskPolicy refuses it in a run that read outside text unless the
+        // message asks for it. Name and tier must match tools/memory/MemoryBlockTools.kt.
+        ToolDefinition(
+            name = "memory.update_block",
+            description = "Adds a note to the memory block the assistant sees on every step, or " +
+                "replaces or clears it. Use only when the user asks you to remember something.",
+            category = "memory",
+            schema = buildJsonObject {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("action") {
+                        put("type", "string")
+                        put("description", "add appends one note; replace sets the whole block; clear empties it.")
+                        putJsonArray("enum") { add("add"); add("replace"); add("clear") }
+                    }
+                    putJsonObject("text") {
+                        put("type", "string")
+                        put("maxLength", 1000)
+                        put("description", "The note to keep, in the user's words. Not needed for clear.")
+                    }
+                }
+                putJsonArray("required") { add("action") }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("remember", "remember that", "keep in mind", "note that", "save this", "memory"),
+            requiredPermission = null,
+        ),
+
         // ------------------------------------------------------------- todo
         // The task checklist. The runtime holds the list and puts it back into each prompt
         // (see TodoList); the call only replaces it. REVERSIBLE and LOCAL: it changes nothing

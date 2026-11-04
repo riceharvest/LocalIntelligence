@@ -16,6 +16,8 @@ import dev.localintelligence.core.model.MediaInput
 import dev.localintelligence.core.plugin.PluginHooks
 import dev.localintelligence.core.plugin.ToolGate
 import dev.localintelligence.core.model.ModelBackend
+import dev.localintelligence.core.model.ObservationOrigin
+import kotlinx.serialization.json.longOrNull
 import dev.localintelligence.core.model.StopReason
 import dev.localintelligence.core.metrics.RunMetrics
 import dev.localintelligence.core.metrics.RunRecorder
@@ -965,9 +967,16 @@ class AgentController(
         } else {
             null
         }
+        // Whether this conversation has read text from outside the phone, in this run or an earlier
+        // turn that is still in the session. The session is long-lived, so an earlier turn's web
+        // page still counts: a page read on Monday must not let a later "I like tea" write unasked.
+        val untrustedRead = sessions.messages.any {
+            it is ChatMessage.ToolObservation && it.origin == ObservationOrigin.NETWORK
+        }
         val decision = riskPolicy.evaluate(
             tool.definition, action.arguments, tool.describeTarget(action.arguments), requested,
             screen = screen,
+            untrustedRead = untrustedRead,
         ).let { d ->
             // The confirmation card says so when a remote model answers: the screen text it reads
             // goes to that provider. Only the sentence changes, never the outcome.
@@ -1185,7 +1194,10 @@ class AgentController(
             children = children,
             toolArgsJson = call.args.toString(),
         )
-        trace += StepTrace(call.step, StepTrace.Kind.OBSERVATION, observation, success = result.success)
+        trace += StepTrace(
+            call.step, StepTrace.Kind.OBSERVATION, observation, success = result.success,
+            changeId = (result.data?.get("change_id") as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull,
+        )
         metrics?.endPhase(StepTrace.Kind.TOOL_CALL, result.success)
         try {
             onToolDone?.invoke(trace.toList())
