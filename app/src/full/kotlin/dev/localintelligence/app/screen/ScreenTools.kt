@@ -61,6 +61,8 @@ class ScreenControlPlugin(private val reader: SettingsReader) : AgentPlugin {
 
     override fun tools(): List<AgentTool> {
         if (reader.mode != SettingsMode.TECHNICAL) return emptyList()
+        // No screen tool is offered until the person has agreed to the disclosure (docs/adr/0003).
+        if (!reader[ScreenControlSettings.CONSENT]) return emptyList()
         if (ScreenControlService.instance == null) return emptyList()
         return ScreenTools.all
     }
