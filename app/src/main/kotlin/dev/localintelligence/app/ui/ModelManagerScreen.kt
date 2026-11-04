@@ -170,6 +170,11 @@ fun ModelManagerScreen(
      */
     onUseModel: (suspend (ImportedModel) -> ModelAvailability)? = null,
     /**
+     * Unloads the model in use and frees its memory. Returns false when a run holds the model, so
+     * the screen can say so. Null hides the eject button.
+     */
+    onEjectModel: (suspend () -> Boolean)? = null,
+    /**
      * True in Technical mode. Simple mode shows one line per model and hides the speed
      * test; Technical keeps every figure.
      */
@@ -504,6 +509,19 @@ fun ModelManagerScreen(
                         onDelete = { pendingDelete = model },
                         speedTest = speedTest,
                         isLoaded = model.uri.toString() == loadedModelUri,
+                        onEject = onEjectModel?.let { eject ->
+                            {
+                                busyLabel = "Ejecting…"
+                                busy = true
+                                importError = null
+                                scanNotice = null
+                                scope.launch {
+                                    val ejected = runCatching { eject() }.getOrDefault(false)
+                                    if (!ejected) importError = "The model can't be ejected while a task is running."
+                                    busy = false
+                                }
+                            }
+                        },
                         onUse = onUseModel?.let { use ->
                             {
                                 busyLabel = "Loading model…"
@@ -623,6 +641,8 @@ private fun ModelRow(
     isLoaded: Boolean,
     /** Makes this model the resident one. Null hides the button. */
     onUse: (() -> Unit)? = null,
+    /** Unloads the resident model. Shown only on the row in use. Null hides the button. */
+    onEject: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     // WHY THIS IS `DEFAULT_CONTEXT_LENGTH` AND NOT THE MODEL'S TRAINED ONE:
@@ -700,6 +720,10 @@ private fun ModelRow(
                 }
                 if (!isLoaded && onUse != null) {
                     TextButton(onClick = onUse) { Text("Use") }
+                }
+                // Plain words in Simple mode; "Eject" is the name Technical users know.
+                if (isLoaded && onEject != null) {
+                    TextButton(onClick = onEject) { Text(if (technical) "Eject" else "Free memory") }
                 }
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Filled.Delete, contentDescription = "Remove $shownName")

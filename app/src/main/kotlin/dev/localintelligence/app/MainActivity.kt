@@ -354,6 +354,7 @@ class MainActivity : ComponentActivity() {
                             onUseModel = { model ->
                                 withContext(Dispatchers.IO) { container.loadModel(model) }
                             },
+                            onEjectModel = { withContext(Dispatchers.IO) { container.ejectModel() } },
                             onImport = { uri ->
                                 // Suspending off the composition: the header read
                                 // is a few hundred bytes over SAF, which on a cloud
