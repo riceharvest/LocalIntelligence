@@ -267,6 +267,7 @@ class AppContainer(private val context: Context) {
 
     private val builtInPlugins: List<AgentPlugin> by lazy {
         val families = androidToolPlugins(context, settings)
+        val flavor = FlavorPlugins.plugins(context, settings)
         val cloud = openRouterPlugin
         val sandbox = sandboxPlugin
         val browser = cloudBrowserPlugin
@@ -282,12 +283,13 @@ class AppContainer(private val context: Context) {
         val home = HomeAssistantPlugin(settings)
         val email = EmailPlugin(settings)
         CatalogueAgreement.require(
-            families.flatMap { it.tools() } + cloud.shippedTools() + sandbox.shippedTools() + browser.shippedTools() +
+            families.flatMap { it.tools() } + flavor.flatMap { it.tools() } + cloud.shippedTools() +
+                sandbox.shippedTools() + browser.shippedTools() +
                 docs.shippedTools() + finder + home.shippedTools() + email.shippedTools(),
             V0ToolCatalogue.definitions,
         )
         val remote = McpPlugin(settings)
-        families + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + sandbox + browser + remote + home +
+        families + flavor + ProfilePlugin() + SkillsPlugin(skills) + docs + cloud + chatGpt + sandbox + browser + remote + home +
             email + telegramPlugin
     }
 

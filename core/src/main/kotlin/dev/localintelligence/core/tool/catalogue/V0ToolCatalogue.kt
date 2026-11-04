@@ -160,6 +160,19 @@ object V0ToolCatalogue {
         "privacy", "storage", "accessibility", "about",
     )
 
+    /**
+     * Tool names that ship only in the `full` build (`docs/adr/0002-play-and-full-builds.md`).
+     *
+     * WHY THIS SET EXISTS: the catalogue documents every built-in tool across both builds,
+     * and [CatalogueAgreement] checks that every catalogued tool is implemented in the
+     * running app. A `play` build deliberately omits full-only tools (such as screen
+     * control through Accessibility), so [CatalogueAgreement.inspect] skips these names
+     * when computing `unimplemented`. When a full-only tool *is* shipped (in the `full`
+     * build), its risk tier, observation origin and category are still checked against
+     * the catalogue entry like any other tool.
+     */
+    val FULL_BUILD_ONLY: Set<String> = emptySet()
+
     val definitions: List<ToolDefinition> = listOf(
         // ---------------------------------------------------------------- tools
         // Offered only with "Let the model look up tools" (Technical); see ToolFinder.

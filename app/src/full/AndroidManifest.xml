@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Full-build manifest overlay, merged over src/main/AndroidManifest.xml
+         (docs/adr/0002-play-and-full-builds.md). Full-only permissions and the
+         Accessibility service go here so the Play build's manifest never declares them. -->
+</manifest>
