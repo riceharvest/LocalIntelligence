@@ -17,6 +17,7 @@ import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.inference.litertlm.tensorGenerationOfThisPhone
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.cloud.ChatGptChatBackend
+import dev.localintelligence.android.inference.GeminiNanoBackend
 import dev.localintelligence.android.cloud.ChatGptPlugin
 import dev.localintelligence.android.cloud.ChatGptSignIn
 import dev.localintelligence.android.cloud.CredentialSource
@@ -1136,6 +1137,40 @@ class AppContainer(private val context: Context) {
         )
     }
 
+    /**
+     * Gemini Nano, the model AICore runs on the phone. It has no file, so the Models screen
+     * offers it as its own row, and it is resident only while the user has picked it, like ChatGPT.
+     * Built by [backendRouter], the one place a backend is constructed.
+     */
+    val geminiNanoBackend: GeminiNanoBackend by lazy { backendRouter.geminiNano() }
+
+    /** True while Gemini Nano is the model answering. */
+    val geminiNanoActive: Boolean get() = loadedBackend === geminiNanoBackend
+
+    /**
+     * Makes Gemini Nano the resident backend, unloading the local model that held the memory.
+     * Returns null when it is answering now, or the reason it cannot. The previous model is kept
+     * when it cannot. Like [useChatGpt], the choice is not saved, so a restart comes back to the
+     * local model.
+     */
+    suspend fun useGeminiNano(): String? = readinessLock.withLock {
+        val backend = geminiNanoBackend
+        try {
+            backend.load(ModelSpec(id = GeminiNanoBackend.BACKEND_ID, displayName = "Gemini Nano"))
+        } catch (_: Exception) {
+            return@withLock context.getString(R.string.gemini_nano_not_ready)
+        }
+        val previous = loadedBackend
+        if (previous != null && previous !== backend) {
+            stopPrefixWork()
+            loadedBackend = null
+            previous.unload()
+        }
+        loadedBackend = backend
+        modelAvailability.set(ModelAvailability.Ready(displayName = context.getString(R.string.gemini_nano_ready)))
+        null
+    }
+
     /** Extras: the monthly subscription that supplies managed keys. Off unless the backend address is set. */
     val extras: ExtrasBilling by lazy { ExtrasBilling(context, settings, BuildConfig.EXTRAS_BACKEND_URL) }
 
@@ -1355,8 +1390,8 @@ class AppContainer(private val context: Context) {
      */
     private fun speedTestTarget(): SpeedTestTarget? {
         if (modelAvailability.current !is ModelAvailability.Ready) return null
-        // The remote model has no file on this phone to measure.
-        if (remoteChatActive || chatGptActive) return null
+        // The remote model and Gemini Nano have no file on this phone to measure.
+        if (remoteChatActive || chatGptActive || geminiNanoActive) return null
         val model = selectedModel ?: return null
         val file = model.uri.path?.takeIf { model.uri.scheme == "file" }?.let { File(it).name }
         val backend = residentBackend()
@@ -1541,7 +1576,7 @@ class AppContainer(private val context: Context) {
     suspend fun ejectModel(): Boolean = readinessLock.withLock {
         if (runGate.isBusy) return@withLock false
         val resident = loadedBackend ?: return@withLock false
-        if (resident === remoteChatBackend || resident === chatGptBackend) return@withLock false
+        if (resident === remoteChatBackend || resident === chatGptBackend || resident === geminiNanoBackend) return@withLock false
         stopIdleWork()
         stopPrefixWork()
         loadedBackend = null
@@ -1681,7 +1716,7 @@ class AppContainer(private val context: Context) {
         when {
             previous == null -> modelAvailability.set(failed)
             loadedBackend === previous -> modelAvailability.set(before)
-            previous === remoteChatBackend || previous === chatGptBackend -> {
+            previous === remoteChatBackend || previous === chatGptBackend || previous === geminiNanoBackend -> {
                 loadedBackend = previous
                 modelAvailability.set(before)
             }
@@ -2353,7 +2388,7 @@ class AppContainer(private val context: Context) {
     suspend fun removeModel(model: ImportedModel) {
         readinessLock.withLock {
             val uriText = model.uri.toString()
-            if (selectedModel?.uri == model.uri && loadedBackend !== remoteChatBackend && loadedBackend !== chatGptBackend) {
+            if (selectedModel?.uri == model.uri && loadedBackend !== remoteChatBackend && loadedBackend !== chatGptBackend && loadedBackend !== geminiNanoBackend) {
                 stopPrefixWork()
                 loadedBackend?.let { runCatching { it.unload() } }
                 loadedBackend = null
