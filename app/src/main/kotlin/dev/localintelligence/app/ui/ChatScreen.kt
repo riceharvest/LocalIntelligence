@@ -1297,7 +1297,7 @@ private fun StarterPanel(
 
         is SetupState.Failed -> {
             Text(
-                text = SimpleWording.failureText(LocalContext.current, starter.message),
+                text = SimpleWording.failureText(LocalContext.current, starter.kind),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

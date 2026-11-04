@@ -149,7 +149,8 @@ private fun ChatGptCard(container: AppContainer, detailed: Boolean) {
             }
             if (detailed && account != null) {
                 Text(
-                    text = stringResource(R.string.simple_chatgpt_answers_from) + chosen.ifBlank { stringResource(R.string.simple_chatgpt_first_listed) },
+                    text = if (chosen.isBlank()) stringResource(R.string.simple_chatgpt_answers_from_first)
+                    else stringResource(R.string.simple_chatgpt_answers_from, chosen),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

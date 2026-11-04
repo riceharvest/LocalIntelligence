@@ -1,6 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">LocalIntelligence</string>
+    <!--
+        FOR TRANSLATORS. Read before translating.
+
+        Placeholders: %1$s, %2$s, %3$s are filled in by the app, in this order. Keep each one
+        exactly as written, and keep its position in the sentence. A sentence may move a
+        placeholder to suit your language, but must still use every one of them once.
+
+        Product and brand names (LocalIntelligence, Telegram, ChatGPT, Gemini Nano, Google Gemini)
+        and format-only strings are marked translatable="false" and are not translated.
+
+        Simple-mode strings (plain_*, simple_*, sched_* where shown to a non-expert, and the
+        first-run lines) are for someone who has never heard of a model: plain words, short
+        sentences, no jargon. Avoid "model", "token", "context", "GGUF", "quant", "inference" and
+        "server" there. Technical-mode strings may keep those terms.
+
+        Whole sentences: a string is one sentence, or one label. When a sentence needs a value, it
+        arrives through a placeholder, so translate the sentence as a whole.
+    -->
+    <string name="app_name" translatable="false">LocalIntelligence</string>
     <!-- Label for the screen that requests notification access. -->
     <string name="background_access_title">Background access</string>
     <!-- Launcher shortcut into the scheduled-tasks screen. Short label is what
@@ -173,7 +191,7 @@
     <string name="the_provider_listed_no_models_type_the">The provider listed no models. Type the id in Settings.</string>
 
     <!-- auto: HubScreen.kt -->
-    <string name="qwen3_0_6b_gemma_liquidai_lfm3">qwen3 0.6b, gemma, LiquidAI/LFM3…</string>
+    <string name="qwen3_0_6b_gemma_liquidai_lfm3" translatable="false">qwen3 0.6b, gemma, LiquidAI/LFM3…</string>
     <string name="model_name_e_g_gemma">Model name, e.g. Gemma</string>
     <string name="downloads">%1$s · %2$s downloads</string>
     <string name="other_models_switch_to_technical_mode">Other models: switch to Technical mode in Settings.</string>
@@ -380,8 +398,7 @@
     <string name="how_to_turn_it_off">How to turn it off</string>
     <string name="switch_off_the_localintelligence">Switch off the LocalIntelligence accessibility service in Android\'s Accessibility settings. You can also switch Screen control off in this Settings screen.</string>
     <string name="if_android_blocks_the_switch">If Android blocks the switch</string>
-    <string name="some_installs_from_outside_google_play">"Some installs from outside Google Play are blocked from turning on accessibility "</string>
-    <string name="not_every_install_shows_this_step">Not every install shows this step.</string>
+    <string name="some_installs_from_outside_google_play">"Some installs from outside Google Play are blocked from turning on accessibility services until you allow restricted settings. If that happens:\n1. Open App info for LocalIntelligence.\n2. Tap the ⋮ menu at the top right.\n3. Tap Allow restricted settings.\n4. Come back to Accessibility and turn on the service.\nNot every install shows this step."</string>
     <string name="not_now">Not now</string>
     <string name="agree_and_open_settings">Agree and open settings</string>
 
@@ -431,7 +448,7 @@
     <string name="read_it_before_saving_nothing_is_saved">Read it before saving. Nothing is saved until you tap Save.</string>
 
     <!-- TelegramPanel.kt -->
-    <string name="telegram">Telegram</string>
+    <string name="telegram" translatable="false">Telegram</string>
     <string name="create_a_bot_with_botfather_paste_its">Create a bot with @BotFather, paste its token below, switch Telegram on, then link your chat. Only linked chats get answers. Each message runs on this phone like a scheduled task: anything that needs your approval is skipped, and the reply says so.</string>
     <string name="paste_the_bot_token_below_to_start">Paste the bot token below to start.</string>
     <string name="linked_chats">Linked chats</string>
@@ -554,7 +571,7 @@
     <string name="custom_type_any_other_server_s_https">Custom: type any other server\'s https:// address into an empty row.</string>
 
     <!-- ChatGptRows.kt -->
-    <string name="chatgpt">ChatGPT</string>
+    <string name="chatgpt" translatable="false">ChatGPT</string>
     <string name="use_your_chatgpt_plan_for_chat_eligible">Use your ChatGPT plan for chat. Eligible messages go to OpenAI while it is on.</string>
     <string name="continue_with_chatgpt">Continue with ChatGPT</string>
     <string name="using_chatgpt_plan_messages_go_to">Using ChatGPT plan. Messages go to OpenAI while ChatGPT is on.</string>
@@ -625,7 +642,7 @@
     <string name="the_answer_opens_in_localintelligence">The answer opens in LocalIntelligence</string>
 
     <!-- ExecutionService.kt -->
-    <string name="waiting_for_your_ok">"Waiting for your OK: "</string>
+    <string name="waiting_for_your_ok">"Waiting for your OK: %1$s"</string>
 
     <!-- DownloadService.kt -->
     <string name="starting_2">Starting</string>
@@ -662,8 +679,6 @@
     <!-- ToolStepRow.kt -->
     <string name="this_can_t_be_undone_2">This can\'t be undone.</string>
     <string name="this_reads_or_acts_in_another_app_s_2">This reads or acts in another app\'s screen. Only allow apps you recognise.</string>
-    <string name="couldn_t_2">"Couldn\'t "</string>
-    <string name="didn_t_2">"Didn\'t "</string>
 
     <!-- AppLockSettingsRow.kt -->
     <string name="type_it_again">Type it again</string>
@@ -1206,7 +1221,9 @@
     <string name="tool_row_a11y_details_closed">. Double tap to show details.</string>
     <string name="tool_row_a11y_allow">Allow: %1$s</string>
     <string name="tool_row_a11y_dont_allow">Don\'t allow: %1$s</string>
-    <string name="tool_running_more">%1$s…</string>
+    <string name="tool_running_more" translatable="false">%1$s…</string>
+    <string name="tool_couldnt_title">Couldn\'t %1$s</string>
+    <string name="tool_didnt_title">Didn\'t %1$s</string>
     <string name="tool_state_running">running</string>
     <string name="tool_state_done">done</string>
     <string name="tool_state_failed">failed</string>
@@ -1231,7 +1248,7 @@
     <string name="plugin_local_server_summary">Let other apps on this phone use the loaded model through a local OpenAI-style address. Each request needs the access token. They get the model only: no tools, memory or chats.</string>
     <string name="plugin_openrouter_title">Cloud images, video and chat</string>
     <string name="plugin_openrouter_summary">Make images and short videos with your own OpenRouter key, or chat with a remote model from a provider you choose (OpenRouter, Groq, Cerebras, DeepSeek, Together, Mistral, Gemini, or your own server). Prompts and messages are sent to the service you use.</string>
-    <string name="plugin_telegram_title">Telegram</string>
+    <string name="plugin_telegram_title" translatable="false">Telegram</string>
     <string name="plugin_telegram_summary">Message this phone\'s agent from Telegram. Only chats you link here get answers, and each message runs on this phone. Telegram carries the text.</string>
     <string name="plugin_home_assistant_title">Home Assistant</string>
     <string name="plugin_home_assistant_summary">Read and control lights, plugs, heating, covers, media and locks on your own Home Assistant. Requests go to that server.</string>
@@ -1499,7 +1516,7 @@
     <string name="setting_cloud_chat_provider_option_deepseek">DeepSeek</string>
     <string name="setting_cloud_chat_provider_option_together">Together AI</string>
     <string name="setting_cloud_chat_provider_option_mistral">Mistral</string>
-    <string name="setting_cloud_chat_provider_option_gemini">Google Gemini</string>
+    <string name="setting_cloud_chat_provider_option_gemini" translatable="false">Google Gemini</string>
     <string name="setting_cloud_chat_provider_option_custom">Custom server</string>
     <string name="setting_cloud_groq_api_key_label">Groq API key</string>
     <string name="setting_cloud_groq_api_key_desc">Your own key from groq.com. Stored encrypted and never shown back. Used only while this provider is the chat model.</string>
@@ -1665,22 +1682,22 @@
     <string name="sched_approval_skipped">An action that needed your approval was skipped.</string>
     <string name="sched_cancelled_user">Cancelled: stopped before it finished.</string>
     <string name="sched_cancelled_interrupted">Cancelled: the run was interrupted before it finished.</string>
-    <string name="sched_no_reason">the model was not ready.</string>
     <string name="sched_too_long">That was too long for this model.</string>
     <string name="sched_step_limit">Couldn\'t finish that task.</string>
+    <string name="sched_not_run_no_reason">Did not run: the model was not ready.</string>
     <string name="sched_not_allowed">Not allowed: %1$s</string>
-    <string name="sched_tool_delete_file">delete a file</string>
-    <string name="sched_tool_write_file">write a file</string>
-    <string name="sched_tool_read_file">read a file</string>
-    <string name="sched_tool_list_files">list files</string>
-    <string name="sched_tool_set_alarm">set an alarm</string>
-    <string name="sched_tool_cancel_alarm">cancel an alarm</string>
-    <string name="sched_tool_add_calendar_event">add a calendar event</string>
-    <string name="sched_tool_reply_notification">reply to a notification</string>
-    <string name="sched_tool_draft_message">draft a message</string>
-    <string name="sched_tool_open_web_page">open a web page</string>
-    <string name="sched_tool_search_web">search the web</string>
-    <string name="sched_tool_do_that">do that</string>
+    <string name="sched_not_allowed_delete_file">Not allowed: delete a file</string>
+    <string name="sched_not_allowed_write_file">Not allowed: write a file</string>
+    <string name="sched_not_allowed_read_file">Not allowed: read a file</string>
+    <string name="sched_not_allowed_list_files">Not allowed: list files</string>
+    <string name="sched_not_allowed_set_alarm">Not allowed: set an alarm</string>
+    <string name="sched_not_allowed_cancel_alarm">Not allowed: cancel an alarm</string>
+    <string name="sched_not_allowed_add_calendar_event">Not allowed: add a calendar event</string>
+    <string name="sched_not_allowed_reply_notification">Not allowed: reply to a notification</string>
+    <string name="sched_not_allowed_draft_message">Not allowed: draft a message</string>
+    <string name="sched_not_allowed_open_web_page">Not allowed: open a web page</string>
+    <string name="sched_not_allowed_search_web">Not allowed: search the web</string>
+    <string name="sched_not_allowed_do_that">Not allowed: do that</string>
     <string name="model_load_failed_plain">The model couldn\'t be loaded. Try again, or pick another model.</string>
     <string name="model_file_gone">That model file is gone. Add it again from Models.</string>
     <string name="model_not_enough_memory">Not enough memory for this model. Try a smaller one.</string>
@@ -1698,7 +1715,12 @@
     <string name="sched_android_refused">Android would not schedule this task. Check the blockers above — exact alarms have to be allowed for this app.</string>
     <string name="sched_resume_exact_alarms">Could not resume: Android is not allowing this app to schedule exact alarms. See the blockers above.</string>
     <string name="sched_resume_no_time">Could not resume: this task has no later time to run at.</string>
-    <string name="hub_size_with_photos">" + %1$s for photos"</string>
+    <string name="sched_did_not_start_refused">Android refused a background start. Allow background access for LocalIntelligence in its Background access screen, then trigger it again (%1$s).</string>
+    <string name="sched_did_not_start_system">the system refused to start a background run (%1$s).</string>
+    <string name="sched_did_not_start_missed">missed while the phone was off.</string>
+    <string name="hub_download_done">%1$s is downloaded. Open the app to use it.</string>
+    <string name="hub_download_stopped">%1$s stopped. Open the app to resume it.</string>
+    <string name="hub_size_with_photos">"%1$s + %2$s for photos"</string>
     <string name="hub_no_memory_figure">No memory figure is shown: this screen reads GGUF headers, and a .litertlm has none.</string>
     <string name="hub_npu_tensor_g5">Runs on the Tensor G5 NPU (Pixel 10) only</string>
     <string name="hub_npu_generation">Runs on the Tensor G%1$d NPU only</string>
@@ -1769,8 +1791,8 @@
     <string name="simple_hub_more_choices">More choices: turn on Advanced in Settings.</string>
     <string name="simple_chatgpt_in_use">In use. Use the phone\'s assistant below to stop sending messages.</string>
     <string name="simple_chatgpt_use_phone">Use the phone\'s assistant</string>
-    <string name="simple_chatgpt_answers_from">Answers from: </string>
-    <string name="simple_chatgpt_first_listed">the first version your account lists</string>
+    <string name="simple_chatgpt_answers_from">Answers from: %1$s</string>
+    <string name="simple_chatgpt_answers_from_first">Answers from: the first version your account lists</string>
     <string name="simple_chatgpt_choose_version">Choose a version</string>
     <string name="simple_chatgpt_loading_versions">Loading versions…</string>
     <string name="simple_chatgpt_first_version_listed">First version the account lists</string>

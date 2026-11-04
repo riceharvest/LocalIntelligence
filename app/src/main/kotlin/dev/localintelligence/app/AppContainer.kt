@@ -1629,7 +1629,7 @@ class AppContainer(private val context: Context) {
             } else {
                 "Too big for this phone's memory. Try a smaller model."
             }
-            return switchFailed(reason, before, previous, previousModel)
+            return switchFailed(reason, SimpleWording.Kind.LOW_MEMORY, before, previous, previousModel)
         }
         // Route per model, not once for the app: a .litertlm needs LiteRT-LM and
         // a GGUF needs llama.cpp, and loadModel is the only place that knows
@@ -1664,7 +1664,7 @@ class AppContainer(private val context: Context) {
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
-            return switchFailed(describeLoadFailure(context, t), before, previous, previousModel)
+            return switchFailed(describeLoadFailure(context, t), loadFailureKind(t), before, previous, previousModel)
         }
         // Recorded HERE, at the only place the decision is made, and read by
         // newController. Previously the decision lived and died in this
@@ -1689,7 +1689,7 @@ class AppContainer(private val context: Context) {
     } catch (e: CancellationException) {
         throw e
         } catch (t: Throwable) {
-            switchFailed(describeLoadFailure(context, t), before, previous, previousModel)
+            switchFailed(describeLoadFailure(context, t), loadFailureKind(t), before, previous, previousModel)
         }
     }
 
@@ -1708,11 +1708,12 @@ class AppContainer(private val context: Context) {
      */
     private suspend fun switchFailed(
         reason: String,
+        kind: SimpleWording.Kind?,
         before: ModelAvailability,
         previous: ModelBackend?,
         previousModel: ImportedModel?,
     ): ModelAvailability {
-        val failed = ModelAvailability.Failed(reason)
+        val failed = ModelAvailability.Failed(reason, kind)
         when {
             previous == null -> modelAvailability.set(failed)
             loadedBackend === previous -> modelAvailability.set(before)
@@ -1921,7 +1922,7 @@ class AppContainer(private val context: Context) {
             } catch (e: CancellationException) {
                 throw e
             } catch (t: Throwable) {
-                return ModelAvailability.Failed(describeLoadFailure(context, t))
+                return ModelAvailability.Failed(describeLoadFailure(context, t), loadFailureKind(t))
                     .also { modelAvailability.set(it) }
             }
             // Listed too, so the model screen names the model the chat is about to use.
@@ -2202,6 +2203,7 @@ class AppContainer(private val context: Context) {
      */
     val hubTransfers: HubTransfers by lazy {
         HubTransfers(
+            context = context,
             start = { DownloadService.start(context) },
             stop = { result -> DownloadService.stop(context, result) },
         )

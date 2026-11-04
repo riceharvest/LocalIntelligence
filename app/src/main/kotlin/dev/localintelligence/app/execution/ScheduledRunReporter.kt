@@ -170,7 +170,8 @@ internal object ScheduledRunReporter {
                 // guard above has already excluded — the `?:` is for the
                 // compiler, not for a case that can happen.
                 readiness != null && !readiness.canRun ->
-                    NOT_RUN + oneLine(readiness.blockingReason(context) ?: context.getString(R.string.sched_no_reason))
+                    readiness.blockingReason(context)?.let { NOT_RUN + oneLine(it) }
+                        ?: context.getString(R.string.sched_not_run_no_reason)
 
                 // No answer, and something was refused along the way. That is
                 // the real reason the user has nothing to read.
@@ -202,27 +203,35 @@ internal object ScheduledRunReporter {
         trace.lastOrNull { isRefusal(it) }?.let { entry ->
             val tool = entry.toolName
                 ?: entry.detail.removePrefix(REFUSED_DETAIL_PREFIX).substringBefore(':').trim()
-            context.getString(R.string.sched_not_allowed, toolPhrase(context, tool))
+            notAllowed(context, tool)
         }
 
-    private val TOOL_PHRASES: Map<String, Int> = mapOf(
-        "files.delete" to R.string.sched_tool_delete_file,
-        "files.write_text" to R.string.sched_tool_write_file,
-        "files.read_text" to R.string.sched_tool_read_file,
-        "files.list" to R.string.sched_tool_list_files,
-        "alarm.create" to R.string.sched_tool_set_alarm,
-        "alarm.cancel" to R.string.sched_tool_cancel_alarm,
-        "calendar.create" to R.string.sched_tool_add_calendar_event,
-        "notifications.reply" to R.string.sched_tool_reply_notification,
-        "message.draft" to R.string.sched_tool_draft_message,
-        "web.fetch" to R.string.sched_tool_open_web_page,
-        "web.search" to R.string.sched_tool_search_web,
+    /**
+     * One whole "Not allowed: ..." sentence per shipped tool. A sentence per tool, not a phrase
+     * spliced into a sentence, because a translator cannot inflect a fragment that another
+     * language's grammar puts in a different place.
+     */
+    private val TOOL_SENTENCES: Map<String, Int> = mapOf(
+        "files.delete" to R.string.sched_not_allowed_delete_file,
+        "files.write_text" to R.string.sched_not_allowed_write_file,
+        "files.read_text" to R.string.sched_not_allowed_read_file,
+        "files.list" to R.string.sched_not_allowed_list_files,
+        "alarm.create" to R.string.sched_not_allowed_set_alarm,
+        "alarm.cancel" to R.string.sched_not_allowed_cancel_alarm,
+        "calendar.create" to R.string.sched_not_allowed_add_calendar_event,
+        "notifications.reply" to R.string.sched_not_allowed_reply_notification,
+        "message.draft" to R.string.sched_not_allowed_draft_message,
+        "web.fetch" to R.string.sched_not_allowed_open_web_page,
+        "web.search" to R.string.sched_not_allowed_search_web,
     )
 
-    /** Plain words for a tool id: the shipped ones by map, others from the last segment. */
-    private fun toolPhrase(context: Context, tool: String): String =
-        TOOL_PHRASES[tool]?.let { context.getString(it) }
-            ?: tool.substringAfterLast('.').replace('_', ' ').ifBlank { context.getString(R.string.sched_tool_do_that) }
+    /** The sentence for a refused tool: a shipped tool's own sentence, else the id's last segment. */
+    private fun notAllowed(context: Context, tool: String): String {
+        TOOL_SENTENCES[tool]?.let { return context.getString(it) }
+        val name = tool.substringAfterLast('.').replace('_', ' ')
+        return if (name.isBlank()) context.getString(R.string.sched_not_allowed_do_that)
+        else context.getString(R.string.sched_not_allowed, name)
+    }
 
     /** The stored result as a notification body: no machine prefix for answers and failures. */
     fun notificationBody(result: String): String {

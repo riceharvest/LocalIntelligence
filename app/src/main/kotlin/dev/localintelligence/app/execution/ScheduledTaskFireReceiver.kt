@@ -2,6 +2,7 @@ package dev.localintelligence.app.execution
 
 import android.content.BroadcastReceiver
 import android.content.Context
+import dev.localintelligence.app.R
 import android.content.Intent
 import dev.localintelligence.app.ExecutionService
 import dev.localintelligence.app.LocalIntelligenceApp
@@ -241,8 +242,7 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
             store.upsert(
                 store.byId(task.id)?.copy(
                     lastResult = ScheduledRunReporter.DID_NOT_START +
-                        "the system refused to start a background run " +
-                        "(${e::class.java.simpleName}).",
+                        context.getString(R.string.sched_did_not_start_system, e::class.java.simpleName),
                 ) ?: return,
             )
         }
@@ -282,7 +282,7 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
                         task.copy(
                             enabled = false,
                             lastResult = ScheduledRunReporter.DID_NOT_START +
-                                "missed while the phone was off.",
+                                context.getString(R.string.sched_did_not_start_missed),
                         ),
                     )
                     continue

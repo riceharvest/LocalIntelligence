@@ -49,7 +49,7 @@ sealed interface ModelAvailability {
      * [reason] is user-facing and already safe to display: it is written by the
      * loader, never a raw stack trace.
      */
-    data class Failed(val reason: String) : ModelAvailability
+    data class Failed(val reason: String, val kind: SimpleWording.Kind? = null) : ModelAvailability
 
     /**
      * A model is being loaded: at launch, the one saved last time, or the one
@@ -165,6 +165,15 @@ internal fun describeLoadFailure(context: Context, cause: Throwable?): String = 
         android.util.Log.w("ModelAvailability", "model load failed", cause)
         context.getString(R.string.model_load_damaged)
     }
+}
+
+/**
+ * The Simple failure kind for a load that threw [cause]. Set at the same place as the text from
+ * [describeLoadFailure], so the Simple sentence never depends on the localized wording.
+ */
+internal fun loadFailureKind(cause: Throwable?): SimpleWording.Kind = when (cause) {
+    is OutOfMemoryError -> SimpleWording.Kind.LOW_MEMORY
+    else -> SimpleWording.Kind.LOAD_FAILED
 }
 
 /**

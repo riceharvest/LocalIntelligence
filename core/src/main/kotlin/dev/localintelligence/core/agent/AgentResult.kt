@@ -35,8 +35,19 @@ sealed interface AgentResult {
         val justification: String = "",
     ) : AgentResult
 
-    /** A terminal failure with a human-readable reason. The loop gave up. */
-    data class Stop(val reason: String, val trace: List<StepTrace>) : AgentResult
+    /**
+     * A terminal failure with a human-readable reason. The loop gave up.
+     *
+     * [kind] is the app's failure kind as a machine key, set by a caller that knows it. [localized]
+     * says the reason was already translated where it was built, so the app must not match its
+     * words to a kind. A core reason is English and is matched by the app when it arrives.
+     */
+    data class Stop(
+        val reason: String,
+        val trace: List<StepTrace>,
+        val kind: String? = null,
+        val localized: Boolean = false,
+    ) : AgentResult
 
     /** `maxSteps` was exhausted without a `Respond`. */
     data object StepLimitReached : AgentResult

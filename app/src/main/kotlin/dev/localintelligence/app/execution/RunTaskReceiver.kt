@@ -2,6 +2,7 @@ package dev.localintelligence.app.execution
 
 import android.content.BroadcastReceiver
 import android.content.Context
+import dev.localintelligence.app.R
 import android.content.Intent
 import android.util.Log
 import dev.localintelligence.app.ExecutionService
@@ -114,9 +115,7 @@ class RunTaskReceiver : BroadcastReceiver() {
                 store.upsert(
                     current.copy(
                         lastResult = ScheduledRunReporter.DID_NOT_START +
-                            "Android refused a background start. Allow background access " +
-                            "for LocalIntelligence in its Background access screen, then " +
-                            "trigger it again (${e::class.java.simpleName}).",
+                            context.getString(R.string.sched_did_not_start_refused, e::class.java.simpleName),
                     ),
                 )
             }

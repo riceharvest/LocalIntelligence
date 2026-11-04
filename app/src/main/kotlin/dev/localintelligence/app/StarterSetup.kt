@@ -57,7 +57,7 @@ sealed interface SetupState {
     data object Ready : SetupState
 
     /** One plain sentence for the user. Try again starts over and resumes any kept bytes. */
-    data class Failed(val message: String) : SetupState
+    data class Failed(val message: String, val kind: SimpleWording.Kind? = null) : SetupState
 }
 
 /**
@@ -204,7 +204,7 @@ class StarterSetup(
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "first-run setup failed", e)
-            _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed))
+            _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed), SimpleWording.Kind.NO_NETWORK)
         } finally {
             // A cancel can end the job before the downloader reports anything. The bytes on disk are the truth.
             _state.update { if (it is SetupState.Downloading) idleFromDisk() else it }
@@ -225,7 +225,7 @@ class StarterSetup(
         }
         val file = files.firstOrNull { it.fileName == suggestion.file }
         if (file == null) {
-            _state.value = SetupState.Failed(context.getString(R.string.setup_not_found))
+            _state.value = SetupState.Failed(context.getString(R.string.setup_not_found), SimpleWording.Kind.DOWNLOAD_FAILED)
             return
         }
 
@@ -242,7 +242,7 @@ class StarterSetup(
             )
         }
         plan.reject?.let { reject ->
-            _state.value = SetupState.Failed(refusal(reject))
+            _state.value = SetupState.Failed(refusal(reject), refusalKind(reject))
             return
         }
 
@@ -255,7 +255,7 @@ class StarterSetup(
         when (val end = download(file, plan)) {
             is DownloadProgress.Done -> loadDownloaded(downloader.localFileFor(file))
             is DownloadProgress.Stopped -> stopped(end)
-            else -> _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed))
+            else -> _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed), SimpleWording.Kind.NO_NETWORK)
         }
     }
 
@@ -279,7 +279,7 @@ class StarterSetup(
                 false
             }
             else -> {
-                _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed))
+                _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed), SimpleWording.Kind.NO_NETWORK)
                 false
             }
         }
@@ -317,7 +317,7 @@ class StarterSetup(
             null
         }
         if (registered == null || !registered.chatReady) {
-            _state.value = SetupState.Failed(context.getString(R.string.setup_starter_would_not_start))
+            _state.value = SetupState.Failed(context.getString(R.string.setup_starter_would_not_start), SimpleWording.Kind.LOAD_FAILED)
             return
         }
         awaitPrefix()
@@ -326,10 +326,22 @@ class StarterSetup(
 
     /** A download that ended with [event] and was not a success. A cancel the user asked for is not an error. */
     private fun stopped(event: DownloadProgress.Stopped) {
-        _state.value = if (event.error == HubError.Cancelled) idleFromDisk() else SetupState.Failed(describe(event.error))
+        _state.value = if (event.error == HubError.Cancelled) idleFromDisk() else SetupState.Failed(describe(event.error), kindOf(event.error))
     }
 
     /** The one plain sentence for a download that stopped. Never a file name, a code or a size we did not compute. */
+    /** The Simple kind of a failed download, set where the failure is born (the sentence is localized). */
+    private fun kindOf(error: HubError): SimpleWording.Kind = when (error) {
+        is HubError.InsufficientStorage -> SimpleWording.Kind.STORAGE_FULL
+        is HubError.ChecksumMismatch, is HubError.InvalidInput -> SimpleWording.Kind.DOWNLOAD_FAILED
+        else -> SimpleWording.Kind.NO_NETWORK
+    }
+
+    private fun refusalKind(reject: HubError): SimpleWording.Kind = when (reject) {
+        is HubError.InsufficientStorage -> SimpleWording.Kind.STORAGE_FULL
+        else -> SimpleWording.Kind.CANT_RUN
+    }
+
     private fun describe(error: HubError): String = when (error) {
         is HubError.InsufficientStorage -> storageSentence(error)
         is HubError.ChecksumMismatch -> context.getString(R.string.setup_checksum_damaged)

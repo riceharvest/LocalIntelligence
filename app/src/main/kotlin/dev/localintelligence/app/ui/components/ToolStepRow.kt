@@ -473,8 +473,8 @@ private fun ToolRow(
     val title = when (state) {
         ToolRowState.Running -> stringResource(R.string.tool_running_more, verb.present)
         ToolRowState.Awaiting -> verb.present
-        ToolRowState.Failed -> stringResource(R.string.couldn_t_2) + verb.base
-        ToolRowState.Refused -> stringResource(R.string.didn_t_2) + verb.base
+        ToolRowState.Failed -> stringResource(R.string.tool_couldnt_title, verb.base)
+        ToolRowState.Refused -> stringResource(R.string.tool_didnt_title, verb.base)
         ToolRowState.Done -> verb.past
     }
     val duration = formatDuration(durationMs)
