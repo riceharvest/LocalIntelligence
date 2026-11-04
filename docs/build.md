@@ -263,3 +263,21 @@ ms is null for a call the runtime refused), and `generations` (per generation: `
 `decodeTokPerS`, `prefillMs`, and `stop`). Values the run did not measure are null. Today that means
 `tokensReused`, `prefillTokPerS` and `firstTokenMs` are always null, because the metrics do not carry them.
 `ask` clears the whole logcat buffer before it sends, because logcat has no per-tag clear.
+
+## 10. Setting text (`scripts/gen-setting-text.py`)
+
+The settings screen's titles, help, option labels and section headings are translatable strings. Their
+English is written on each `SettingDef` in the Kotlin code. `scripts/gen-setting-text.py` copies that English
+into the block between the `setting-text` markers in `app/src/main/res/values/strings.xml`, and rewrites
+`app/src/main/kotlin/dev/localintelligence/app/settings/SettingTextMap.kt`. Run it after you add, rename or
+reword a setting, or add, rename or reword one of its options or a section:
+
+```bash
+python3 scripts/gen-setting-text.py          # write
+python3 scripts/gen-setting-text.py --check  # exit 1 if the files are out of date
+```
+
+It is stdlib only and safe to run again: a second run changes nothing. It fails loudly on anything it cannot
+read, such as a `$` template in a setting's text, a computed string, or a duplicate key. It skips only settings
+whose key is built at run time (per-request records); it prints each one it skips. Keep Simple-mode-only wording
+out of the generated block, because the next run replaces the whole block. Translators work from `strings.xml`.
