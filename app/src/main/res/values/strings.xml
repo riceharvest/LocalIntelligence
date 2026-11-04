@@ -1606,4 +1606,21 @@
     <string name="setting_section_agent">Agent loop</string>
     <string name="setting_section_plugins">Plugins</string>
     <!-- END setting-text -->
+
+    <!-- Simple-only wording. Simple mode must not show model, token, context or the
+         other engine words; Technical keeps the precise strings above. -->
+    <string name="simple_delete_my_data_text">Chats, memory, settings and everything the assistant downloaded are removed from this phone, and the app closes. This cannot be undone.</string>
+    <string name="simple_memory_limit_notice">Android stopped the app to free memory. Try again with fewer apps open, or ask a shorter question.</string>
+    <string name="simple_notif_downloading">Downloading the assistant</string>
+    <string name="simple_notif_download">Assistant download</string>
+    <string name="simple_notif_channel_downloads">Assistant downloads</string>
+    <string name="simple_notif_channel_download_results">Assistant download results</string>
+    <string name="simple_hub_more_choices">More choices: turn on Advanced in Settings.</string>
+    <string name="simple_chatgpt_in_use">In use. Use the phone\'s assistant below to stop sending messages.</string>
+    <string name="simple_chatgpt_use_phone">Use the phone\'s assistant</string>
+    <string name="simple_chatgpt_answers_from">Answers from: </string>
+    <string name="simple_chatgpt_first_listed">the first version your account lists</string>
+    <string name="simple_chatgpt_choose_version">Choose a version</string>
+    <string name="simple_chatgpt_loading_versions">Loading versions…</string>
+    <string name="simple_chatgpt_first_version_listed">First version the account lists</string>
 </resources>

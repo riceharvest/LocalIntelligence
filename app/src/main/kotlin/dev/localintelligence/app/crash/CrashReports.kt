@@ -12,7 +12,10 @@ import android.os.Looper
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import dev.localintelligence.app.BuildConfig
+import dev.localintelligence.app.LocalIntelligenceApp
 import dev.localintelligence.app.R
+import dev.localintelligence.core.settings.SettingsMode
+import dev.localintelligence.core.settings.mode
 import java.io.File
 import java.io.InputStream
 import java.time.Instant
@@ -179,7 +182,8 @@ object CrashReports {
      */
     private fun notifyMemoryLimit(app: Application) {
         Handler(Looper.getMainLooper()).post {
-            Toast.makeText(app, app.getString(R.string.memory_limit_notice), Toast.LENGTH_LONG).show()
+            val technical = (app as LocalIntelligenceApp).container.settings.mode == SettingsMode.TECHNICAL
+            Toast.makeText(app, app.getString(if (technical) R.string.memory_limit_notice else R.string.simple_memory_limit_notice), Toast.LENGTH_LONG).show()
         }
     }
 

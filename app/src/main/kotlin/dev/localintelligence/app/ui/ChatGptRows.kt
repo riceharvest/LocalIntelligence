@@ -126,7 +126,7 @@ private fun ChatGptCard(container: AppContainer, detailed: Boolean) {
                 )
                 if (detailed) {
                     Text(
-                        text = stringResource(R.string.in_use_use_a_local_model_below_to_stop),
+                        text = stringResource(R.string.simple_chatgpt_in_use),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -134,7 +134,7 @@ private fun ChatGptCard(container: AppContainer, detailed: Boolean) {
                 Row {
                     TextButton(onClick = { uriHandler.openUri(ChatGptSettings.USAGE_URL) }) { Text(stringResource(R.string.manage_usage)) }
                     TextButton(enabled = !busy, onClick = { busyAction { container.useLocalModel() } }) {
-                        Text(stringResource(R.string.use_the_phone_s_model_2))
+                        Text(stringResource(R.string.simple_chatgpt_use_phone))
                     }
                 }
             } else {
@@ -149,12 +149,12 @@ private fun ChatGptCard(container: AppContainer, detailed: Boolean) {
             }
             if (detailed && account != null) {
                 Text(
-                    text = stringResource(R.string.model_2) + chosen.ifBlank { "the first model your account lists" },
+                    text = stringResource(R.string.simple_chatgpt_answers_from) + chosen.ifBlank { stringResource(R.string.simple_chatgpt_first_listed) },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row {
-                    TextButton(enabled = !busy, onClick = { picking = true }) { Text(stringResource(R.string.choose_model)) }
+                    TextButton(enabled = !busy, onClick = { picking = true }) { Text(stringResource(R.string.simple_chatgpt_choose_version)) }
                 }
             }
             if (account != null) {
@@ -208,18 +208,18 @@ private fun ChatGptModelPicker(container: AppContainer, onDone: () -> Unit) {
     }
     AlertDialog(
         onDismissRequest = onDone,
-        title = { Text(stringResource(R.string.choose_a_model)) },
+        title = { Text(stringResource(R.string.simple_chatgpt_choose_version)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 val list = models
                 when {
                     error != null -> Text(error.orEmpty(), style = MaterialTheme.typography.bodySmall)
-                    list == null -> Text(stringResource(R.string.loading_models), style = MaterialTheme.typography.bodySmall)
+                    list == null -> Text(stringResource(R.string.simple_chatgpt_loading_versions), style = MaterialTheme.typography.bodySmall)
                     else -> {
                         TextButton(onClick = {
                             container.chatGptPlugin.setChatModel("")
                             onDone()
-                        }) { Text(stringResource(R.string.first_model_the_account_lists)) }
+                        }) { Text(stringResource(R.string.simple_chatgpt_first_version_listed)) }
                         list.forEach { model ->
                             TextButton(onClick = {
                                 container.chatGptPlugin.setChatModel(model.slug)

@@ -244,7 +244,7 @@ fun HubScreen(
             }
             item {
                 Text(
-                    stringResource(R.string.other_models_switch_to_technical_mode),
+                    stringResource(R.string.simple_hub_more_choices),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -441,7 +441,7 @@ private fun SimpleSettingsColumn(
         AlertDialog(
             onDismissRequest = { asking = false },
             title = { Text(stringResource(R.string.delete_my_data_question)) },
-            text = { Text(stringResource(R.string.delete_my_data_text)) },
+            text = { Text(stringResource(if (store.mode == SettingsMode.TECHNICAL) R.string.delete_my_data_text else R.string.simple_delete_my_data_text)) },
             confirmButton = {
                 TextButton(onClick = {
                     asking = false
