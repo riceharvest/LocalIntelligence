@@ -6,6 +6,7 @@ import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.android.tools.alarm.alarmTools
 import dev.localintelligence.android.tools.apps.appTools
 import dev.localintelligence.android.tools.calendar.calendarTools
+import dev.localintelligence.android.tools.subtask.subtaskTools
 import dev.localintelligence.android.tools.clipboard.clipboardTools
 import dev.localintelligence.android.tools.contacts.contactsTools
 import dev.localintelligence.android.tools.device.deviceTools
@@ -125,6 +126,7 @@ fun androidToolPlugins(context: Context, settings: SettingsReader, todos: TodoLi
         },
         ToolFamily("tools.location", "Location", "Current approximate location") { locationTools(app, grant) },
         ToolFamily("tools.drafts", "Drafts", "Open a message or email draft for you to send") { draftTools(app) },
+        ToolFamily("tools.subtask", "Subtasks", "Hand a job to a helper run on this model") { subtaskTools() },
         // Not a user switch, and not listed in Settings: the list is part of how the agent
         // plans every multi-step task, and it needs no permission. See TODO_FAMILY_ID.
         ToolFamily(TODO_FAMILY_ID, "Task list", "Keep a checklist for a multi-step task") {

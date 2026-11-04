@@ -744,6 +744,9 @@ class ChatViewModel(
                         // defaulted this to `true`, so a call the policy had
                         // refused rendered in the colour of a success.
                         success = observation?.success ?: false,
+                        subSteps = entry.children
+                            .filter { it.kind == StepTrace.Kind.TOOL_CALL }
+                            .map { it.detail.take(SUBSTEP_CHARS) },
                     )
                     base += 1
                 }
@@ -1465,6 +1468,9 @@ class ChatViewModel(
  */
 private const val MAX_TRANSCRIPT_ROWS = 200
 
+/** Characters of one subtask step shown under its row. */
+private const val SUBSTEP_CHARS = 160
+
 /** The most photos one message carries. A vision encoder's cost grows with each one. */
 internal const val MAX_PICTURES_PER_MESSAGE = 3
 
@@ -1576,6 +1582,8 @@ sealed interface ChatMessage {
         val detail: String,
         val durationMs: Long,
         val success: Boolean,
+        /** For `task.delegate`: one line per tool call the subtask made, shown folded under the row. Empty otherwise. */
+        val subSteps: List<String> = emptyList(),
     ) : ChatMessage {
         /**
          * Fills in the result that arrived after this row was drawn.
