@@ -567,29 +567,12 @@ fun ChatScreen(
                                 null
                             },
                         )
-                        is ChatMessage.Assistant -> AssistantBubble(
-                            text = message.text,
-                            thought = message.thought,
-                            speed = if (technical) message.speed else null,
-                            photos = message.photos,
-                            speaking = speakingText == message.text,
-                            onSpeak = { viewModel.toggleSpeak(message.text) },
-                            onReport = { reportingReply = message.text },
-                            onRetry = if (canRetry && message === messages.getOrNull(lastAnswerIndex)) {
-                                { viewModel.retryLast() }
-                            } else {
-                                null
-                            },
-                            onSaveAsSkill = if (skills != null && skillDraft != null && message === messages.last()) {
-                                { editingSkill = skillDraft }
-                            } else {
-                                null
-                            },
-                        )
                         is ChatMessage.Assistant -> Column {
                             AssistantBubble(
                                 text = message.text,
                                 thought = message.thought,
+                                speed = if (technical) message.speed else null,
+                                photos = message.photos,
                                 speaking = speakingText == message.text,
                                 onSpeak = { viewModel.toggleSpeak(message.text) },
                                 onReport = { reportingReply = message.text },
