@@ -273,6 +273,9 @@
     <string name="unlock">Unlock</string>
     <string name="use_fingerprint_or_face">Use fingerprint or face</string>
     <string name="wait_seconds_before_trying_again">Wait %1$s seconds before trying again.</string>
+    <string name="unlock_localintelligence">Unlock LocalIntelligence</string>
+    <string name="that_is_not_the_pin">That is not the PIN.</string>
+    <string name="too_many_wrong_pins">Too many wrong PINs.</string>
 
     <!-- CrashReportRow.kt -->
     <string name="share_last_crash_report">Share last crash report</string>
@@ -289,6 +292,10 @@
     <string name="add_document">Add document</string>
     <string name="no_documents_yet">No documents yet.</string>
     <string name="added_2">Added %1$s</string>
+    <string name="document_added">Added %1$s.</string>
+    <string name="document_added_long">Added %1$s. It is long, so only the first part can be searched.</string>
+    <string name="document_could_not_add">Could not add that file.</string>
+    <string name="document_could_not_read">Could not read that file. Try a different copy.</string>
     <string name="characters">, %1$s characters</string>
     <string name="remove_3">Remove %1$s?</string>
     <string name="the_assistant_will_no_longer_answer">The assistant will no longer answer from this document.</string>
@@ -323,6 +330,15 @@
     <string name="delete_persona">Delete persona</string>
 
     <!-- PhotoSearchScreen.kt -->
+    <string name="photo_search_needs_access">Photo search needs access to your photos. Allow it in the Android settings for this app, then try again.</string>
+    <string name="photo_index_deleted">The photo index is deleted.</string>
+    <string name="photo_run_nothing_new">No new photos to index.</string>
+    <string name="photo_run_indexed">Indexed %1$d photos.</string>
+    <string name="photo_run_indexed_with_failures">Indexed %1$d photos. %2$d could not be read.</string>
+    <string name="photo_run_stopped">Stopped after %1$d photos. The next run continues from here.</string>
+    <string name="photo_run_chat_busy">A chat is running, so indexing paused. Run it again when the chat is done.</string>
+    <string name="photo_run_no_vision_model">No model that can read pictures is loaded. Load one on the Models screen.</string>
+    <string name="photo_run_no_access">Photo access was not granted, so no photos were read.</string>
     <string name="checking_the_index">Checking the index.</string>
     <string name="nothing_indexed_yet">Nothing indexed yet.</string>
     <string name="photos_indexed">%1$s photos indexed.</string>
@@ -397,6 +413,9 @@
     <string name="main_js">main.js</string>
 
     <!-- SkillsScreen.kt -->
+    <string name="skill_template_description">Say when this skill applies, in a sentence.</string>
+    <string name="skill_template_body"># My skill\n\n1. First step.\n2. Second step.</string>
+    <string name="skill_url_failed">%1$s Use a direct link to the raw file (for GitHub, the \"Raw\" link), under 64 KB.</string>
     <string name="skills_teach_the_assistant_a_routine">Skills teach the assistant a routine you use often. Turn one on and it is used when a request matches.</string>
     <string name="add_skill">Add skill</string>
     <string name="no_skills_yet">No skills yet.</string>
@@ -1623,4 +1642,7 @@
     <string name="simple_chatgpt_choose_version">Choose a version</string>
     <string name="simple_chatgpt_loading_versions">Loading versions…</string>
     <string name="simple_chatgpt_first_version_listed">First version the account lists</string>
+    <!-- PhoneHitsRow.kt and TelegramPanel.kt -->
+    <string name="phone_hit_label">%1$s: %2$s</string>
+    <string name="telegram_chat_label">%1$s (%2$s)</string>
 </resources>
