@@ -85,8 +85,8 @@ def check_language(lang_path, base):
         mine = load(lang_path)
     except ET.ParseError as e:
         return [f"invalid XML: {e}"], []
-    for key in base:
-        if key not in mine:
+    for key, entry in base.items():
+        if key not in mine and not entry[3]:  # a translatable="false" string has no translation
             errors.append(f"missing key: {key}")
     for key in mine:
         if key not in base:
