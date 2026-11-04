@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -120,10 +122,10 @@ fun DocumentsScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Documents") },
+                title = { Text(stringResource(R.string.documents)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -138,19 +140,19 @@ fun DocumentsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Ask about a PDF, Word, EPUB or text file. It stays on this phone.",
+                stringResource(R.string.ask_about_a_pdf_word_epub_or_text_file),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             FilledTonalButton(
                 onClick = { picker.launch(DocumentImport.PICKER_TYPES) },
                 enabled = !busy,
-            ) { Text(if (busy) "Adding..." else "Add document") }
+            ) { Text(if (busy) stringResource(R.string.adding) else stringResource(R.string.add_document)) }
 
             message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 
             if (documents.isEmpty()) {
-                Text("No documents yet.", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.no_documents_yet), style = MaterialTheme.typography.bodyMedium)
             }
             val dateFormat = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
             documents.forEach { doc ->
@@ -158,13 +160,13 @@ fun DocumentsScreen(
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(doc.title, style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "Added ${dateFormat.format(Date(doc.addedAt))}" +
-                                if (technical) ", ${doc.sizeChars} characters" else "",
+                            stringResource(R.string.added_2, dateFormat.format(Date(doc.addedAt))) +
+                                if (technical) stringResource(R.string.characters, doc.sizeChars) else "",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Row {
-                            TextButton(onClick = { deleting = doc }) { Text("Remove") }
+                            TextButton(onClick = { deleting = doc }) { Text(stringResource(R.string.remove)) }
                         }
                     }
                 }
@@ -183,8 +185,8 @@ fun DocumentsScreen(
     deleting?.let { doc ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Remove ${doc.title}?") },
-            text = { Text("The assistant will no longer answer from this document.") },
+            title = { Text(stringResource(R.string.remove_3, doc.title)) },
+            text = { Text(stringResource(R.string.the_assistant_will_no_longer_answer)) },
             confirmButton = {
                 TextButton(
                     enabled = !busy,
@@ -197,10 +199,10 @@ fun DocumentsScreen(
                             reload++
                         }
                     },
-                ) { Text("Remove") }
+                ) { Text(stringResource(R.string.remove)) }
             },
             dismissButton = {
-                TextButton(onClick = { deleting = null }) { Text("Cancel") }
+                TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.cancel)) }
             },
         )
     }

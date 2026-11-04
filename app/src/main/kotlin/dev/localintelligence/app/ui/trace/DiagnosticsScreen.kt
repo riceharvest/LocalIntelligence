@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui.trace
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -96,15 +98,15 @@ fun DiagnosticsScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Self-check") },
+                title = { Text(stringResource(R.string.self_check)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
                     IconButton(onClick = viewModel::refresh) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Run every check again")
+                        Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.run_every_check_again))
                     }
                 },
             )
@@ -131,7 +133,7 @@ fun DiagnosticsScreen(
                             )
                             state.errorDetail?.let { detail ->
                                 Text(
-                                    "Details: $detail",
+                                    stringResource(R.string.details, detail),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                 )
@@ -143,8 +145,7 @@ fun DiagnosticsScreen(
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                             )
                             Text(
-                                "Nothing below this card ran, so nothing below it should " +
-                                    "be read as passing.",
+                                stringResource(R.string.nothing_below_this_card_ran_so_nothing),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                             )
@@ -177,7 +178,7 @@ fun DiagnosticsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
                     ) {
                         CircularProgressIndicator()
-                        Text("Checking this phone…", style = MaterialTheme.typography.bodyMedium)
+                        Text(stringResource(R.string.checking_this_phone), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             } else {
@@ -207,12 +208,12 @@ private fun ReportHeader(report: DiagnosticReport, running: Boolean) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(report.headline(), style = MaterialTheme.typography.titleSmall)
             Text(
-                "Each figure shows where it came from.",
+                stringResource(R.string.each_figure_shows_where_it_came_from),
                 style = MaterialTheme.typography.bodySmall,
             )
             if (running) {
                 Text(
-                    "Re-running…",
+                    stringResource(R.string.re_running),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -258,7 +259,7 @@ private fun CheckCard(
 
                 if (check.findings.isNotEmpty()) {
                     HorizontalDivider()
-                    Text("Figures", style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.figures), style = MaterialTheme.typography.labelLarge)
                     check.findings.forEach { FindingRow(it) }
                 }
 
@@ -272,7 +273,7 @@ private fun CheckCard(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (check.isUnfixableHere) {
                         Text(
-                            "This needs a different app build. Nothing on the phone can fix it.",
+                            stringResource(R.string.this_needs_a_different_app_build),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -285,7 +286,7 @@ private fun CheckCard(
             }
 
             TextButton(onClick = { expanded = !expanded }) {
-                Text(if (expanded) "Hide details" else "Details")
+                Text(if (expanded) stringResource(R.string.hide_details) else stringResource(R.string.details_2))
             }
         }
     }
@@ -363,17 +364,17 @@ private fun ProvenanceChip(provenance: Provenance) {
 private fun OutcomeBadge(outcome: CheckOutcome) {
     val (label, container, content) = when (outcome) {
         CheckOutcome.PASS -> Triple(
-            "OK",
+            stringResource(R.string.ok),
             MaterialTheme.colorScheme.tertiaryContainer,
             MaterialTheme.colorScheme.onTertiaryContainer,
         )
         CheckOutcome.FAIL -> Triple(
-            "Problem",
+            stringResource(R.string.problem),
             MaterialTheme.colorScheme.error,
             MaterialTheme.colorScheme.onError,
         )
         CheckOutcome.CANNOT_TELL -> Triple(
-            "Unknown",
+            stringResource(R.string.unknown),
             MaterialTheme.colorScheme.surfaceVariant,
             MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -419,7 +420,7 @@ private fun Footer() {
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                "This checks setup only. It doesn't run a model. Use Speed test to measure speed.",
+                stringResource(R.string.this_checks_setup_only_it_doesn_t_run_a),
                 style = MaterialTheme.typography.bodySmall,
             )
         }

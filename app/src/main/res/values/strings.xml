@@ -300,4 +300,303 @@
 
     <!-- ModelManagerScreen.kt -->
     <string name="ram_figures_are_calculated_from_the_3">RAM figures are calculated from the file size and the model\'s header. They are not measured on this phone.</string>
+
+    <!-- AppLockScreen.kt -->
+    <string name="that_is_not_the_pin">That is not the PIN.</string>
+    <string name="too_many_wrong_pins">Too many wrong PINs.</string>
+    <string name="localintelligence_is_locked">LocalIntelligence is locked</string>
+    <string name="pin">PIN</string>
+    <string name="unlock">Unlock</string>
+    <string name="use_fingerprint_or_face">Use fingerprint or face</string>
+    <string name="wait_seconds_before_trying_again">Wait %1$s seconds before trying again.</string>
+    <string name="forgot_your_pin_the_only_way_back_is_to">Forgot your PIN? The only way back is to clear this app\'s data in Android Settings. That deletes every chat, model and setting.</string>
+
+    <!-- CrashReportRow.kt -->
+    <string name="share_last_crash_report">Share last crash report</string>
+    <string name="a_crash_or_freeze_is_saved_on_this">A crash or freeze is saved on this phone only. Nothing is sent unless you share it.</string>
+    <string name="preview_and_share">Preview and share</string>
+    <string name="crash_report">Crash report</string>
+    <string name="share">Share</string>
+    <string name="delete_crash_reports">Delete crash reports?</string>
+    <string name="every_saved_crash_report_is_removed">Every saved crash report is removed from this phone and cannot be recovered.</string>
+
+    <!-- DocumentsScreen.kt -->
+    <string name="added_it_is_long_so_only_the_first_part">Added %1$s. It is long, so only the first part can be searched.</string>
+    <string name="added">Added %1$s.</string>
+    <string name="could_not_add_that_file">Could not add that file.</string>
+    <string name="could_not_read_that_file_try_a">Could not read that file. Try a different copy.</string>
+    <string name="ask_about_a_pdf_word_epub_or_text_file">Ask about a PDF, Word, EPUB or text file. It stays on this phone.</string>
+    <string name="adding">Adding...</string>
+    <string name="add_document">Add document</string>
+    <string name="no_documents_yet">No documents yet.</string>
+    <string name="added_2">Added %1$s</string>
+    <string name="characters">, %1$s characters</string>
+    <string name="remove_3">Remove %1$s?</string>
+    <string name="the_assistant_will_no_longer_answer">The assistant will no longer answer from this document.</string>
+
+    <!-- ExtrasScreen.kt -->
+    <string name="extras_is_one_monthly_subscription_from">Extras is one monthly subscription from Google Play. It gives this phone a smarter cloud chat model and better web search, with no setup. Your own keys in Technical mode still work the same, and the app stays free without Extras.</string>
+    <string name="extras_is_on_until">Extras is on until %1$s.</string>
+    <string name="extras_is_off">Extras is off.</string>
+    <string name="the_price_is_loading_from_google_play">The price is loading from Google Play.</string>
+    <string name="subscribe">Subscribe</string>
+    <string name="manage_subscription">Manage subscription</string>
+    <string name="what_leaves_the_phone_while_extras_is">What leaves the phone while Extras is on: chat messages go to OpenRouter, the model service, and web searches go to Exa. Google Play handles the payment. The Extras server sees only your Play purchase token and a random install id. It never sees your messages or searches. The keys are stored encrypted on this phone.</string>
+
+    <!-- LocalServerPanel.kt -->
+    <string name="local_server">Local server</string>
+    <string name="other_apps_on_this_phone_can_use_the">Other apps on this phone can use the loaded model at http://%1$s:%2$s/v1 with the access token as a Bearer header. They get the model only: no tools, memory or chats. A notification shows while it runs.</string>
+    <string name="last_problem">Last problem: %1$s</string>
+    <string name="copy_this_token_now_it_is_not_shown">Copy this token now. It is not shown again.</string>
+    <string name="the_access_token_is_set_regenerate">The access token is set. Regenerate makes a new one and cuts off the old one at once.</string>
+    <string name="no_token_yet_switch_the_local_server_on">No token yet. Switch the local server on to make one.</string>
+    <string name="regenerate_token">Regenerate token</string>
+
+    <!-- PersonasScreen.kt -->
+    <string name="a_persona_says_how_the_assistant_should">A persona says how the assistant should act, for example short answers or a formal tone. Pick one when you start a new chat. The chat keeps it, and changing it needs a new chat.</string>
+    <string name="add_persona">Add persona</string>
+    <string name="no_personas_yet">No personas yet.</string>
+    <string name="chats_that_used_it_go_back_to_no">Chats that used it go back to no persona. The chats themselves stay.</string>
+    <string name="new_persona">New persona</string>
+    <string name="edit_persona">Edit persona</string>
+    <string name="name">Name</string>
+    <string name="how_the_assistant_should_act">How the assistant should act</string>
+    <string name="delete_persona">Delete persona</string>
+
+    <!-- PhotoSearchScreen.kt -->
+    <string name="photo_search_needs_access_to_your">Photo search needs access to your photos. Allow it in the Android settings for this app, then try again.</string>
+    <string name="finds_photos_by_what_they_show_the">Finds photos by what they show. The phone\'s own vision model writes a short caption for each of your newest photos, and the captions are what is searched. Captions and photos stay on this phone. Indexing runs only when you tap the button. It handles up to %1$s photos not yet indexed per run, and each run picks up where the last stopped.</string>
+    <string name="checking_the_index">Checking the index.</string>
+    <string name="nothing_indexed_yet">Nothing indexed yet.</string>
+    <string name="photos_indexed">%1$s photos indexed.</string>
+    <string name="indexing_needs_a_model_that_can_read">Indexing needs a model that can read pictures. Load one on the Models screen first.</string>
+    <string name="captioning_photo_of">Captioning photo %1$s of %2$s</string>
+    <string name="stop">Stop</string>
+    <string name="index_my_photos">Index my photos</string>
+    <string name="delete_index">Delete index</string>
+    <string name="delete_the_photo_index">Delete the photo index?</string>
+    <string name="the_captions_are_removed_your_photos">The captions are removed. Your photos are not touched, and you can index them again.</string>
+    <string name="the_photo_index_is_deleted">The photo index is deleted.</string>
+    <string name="no_new_photos_to_index">No new photos to index.</string>
+    <string name="indexed_photos">Indexed %1$s photos.</string>
+    <string name="indexed_photos_could_not_be_read">Indexed %1$s photos. %2$s could not be read.</string>
+    <string name="stopped_after_photos_the_next_run">Stopped after %1$s photos. The next run continues from here.</string>
+    <string name="a_chat_is_running_so_indexing_paused">A chat is running, so indexing paused. Run it again when the chat is done.</string>
+    <string name="no_model_that_can_read_pictures_is">No model that can read pictures is loaded. Load one on the Models screen.</string>
+    <string name="photo_access_was_not_granted_so_no">Photo access was not granted, so no photos were read.</string>
+
+    <!-- ReplyReportSheet.kt -->
+    <string name="report_this_reply">Report this reply</string>
+    <string name="note_optional">Note (optional)</string>
+    <string name="include_the_reply_text">Include the reply text</string>
+    <string name="sent_to_the_developer_through_google">Sent to the developer through Google Forms. Nothing else from your chats is sent.</string>
+    <string name="thanks_report_sent">Thanks. Report sent.</string>
+    <string name="done">Done</string>
+    <string name="reporting_isn_t_set_up_in_this_build">Reporting isn\'t set up in this build.</string>
+    <string name="close">Close</string>
+    <string name="couldn_t_send_check_your_connection">Couldn\'t send. Check your connection.</string>
+    <string name="sending">Sending...</string>
+    <string name="send">Send</string>
+    <string name="why_are_you_reporting_it">Why are you reporting it?</string>
+
+    <!-- ScreenControlConsent.kt -->
+    <string name="let_the_assistant_use_other_apps">Let the assistant use other apps?</string>
+    <string name="screen_control_lets_the_assistant_read">Screen control lets the assistant read and act in an app on your screen. Read this before you turn it on.</string>
+    <string name="what_it_reads">What it reads</string>
+    <string name="only_the_app_in_front_during_a_request">Only the app in front, during a request that uses it: the text and buttons on that screen. It does not read your other apps in the background.</string>
+    <string name="what_it_does">What it does</string>
+    <string name="it_can_tap_type_scroll_and_press_back">It can tap, type, scroll and press Back or Home, but only in an app you approve for that request. It asks you again before any tap on a button such as send, pay, buy, delete, install or confirm.</string>
+    <string name="what_it_never_does">What it never does</string>
+    <string name="it_never_runs_unattended_or_in_the">It never runs unattended or in the background. It does not act in its own screens, Settings, or permission dialogs.</string>
+    <string name="where_the_data_goes">Where the data goes</string>
+    <string name="nothing_leaves_the_phone_because_of">Nothing leaves the phone because of screen control, unless you have set up a cloud model to answer the request. If one does, the text on that screen goes to that model\'s provider.</string>
+    <string name="how_to_turn_it_off">How to turn it off</string>
+    <string name="switch_off_the_localintelligence">Switch off the LocalIntelligence accessibility service in Android\'s Accessibility settings. You can also switch Screen control off in this Settings screen.</string>
+    <string name="if_android_blocks_the_switch">If Android blocks the switch</string>
+    <string name="some_installs_from_outside_google_play">"Some installs from outside Google Play are blocked from turning on accessibility "</string>
+    <string name="not_every_install_shows_this_step">Not every install shows this step.</string>
+    <string name="not_now">Not now</string>
+    <string name="agree_and_open_settings">Agree and open settings</string>
+
+    <!-- ScreenControlSetupCard.kt -->
+    <string name="screen_control">Screen control</string>
+    <string name="on_the_assistant_can_read_and_tap_in_an">On. The assistant can read and tap in an app you approve, once per request.</string>
+    <string name="off_turn_on_the_localintelligence">Off. Turn on the LocalIntelligence accessibility service, then switch Screen control on below.</string>
+    <string name="if_android_says_this_setting_is">If Android says this setting is restricted, open App info, tap the ⋮ menu, choose Allow restricted settings, then come back to Accessibility. Some installs from outside Google Play hit this on Android 13 and later.</string>
+    <string name="open_accessibility_settings">Open Accessibility settings</string>
+    <string name="open_app_info">Open App info</string>
+
+    <!-- ScriptPluginsScreen.kt -->
+    <string name="small_programs_that_add_tools_for_the">Small programs that add tools for the assistant. They run in a sandbox with no network and no access to your data.</string>
+    <string name="script_plugins_are_not_supported_on">Script plugins are not supported on this phone.</string>
+    <string name="add_plugin">Add plugin</string>
+    <string name="no_script_plugins_yet">No script plugins yet.</string>
+    <string name="how_to_write_one">How to write one</string>
+    <string name="a_plugin_is_two_files_plugin_json_says">A plugin is two files. plugin.json says what it is and which tools it offers: an id, a title, a summary, a version, and tools. Each tool has a name, a description, a parameters schema, and a risk of read_only or reversible. A script cannot be a riskier tier, because it cannot reach anything outside its sandbox.</string>
+    <string name="main_js_defines_one_function_per_tool">main.js defines one function per tool. It receives the arguments as an object and returns text. Use only plain JavaScript: no fetch, no files, no timers that run later. A call is stopped after 5 seconds.</string>
+    <string name="example_a_word_count_tool_its_tool_is">Example, a word count tool. Its tool is named script.word_count.count_words:</string>
+    <string name="write_a_new_plugin_or_import_one_from_a">Write a new plugin or import one from a link.</string>
+    <string name="write_it_here">Write it here</string>
+    <string name="import_from_a_link">Import from a link</string>
+    <string name="paste_the_link_to_the_plugin_you_can">Paste the link to the plugin. You can read it before it is saved.</string>
+    <string name="fetching">Fetching...</string>
+    <string name="fetch">Fetch</string>
+    <string name="the_plugin_files_are_removed_its_on_off">The plugin files are removed. Its on/off setting is cleared too.</string>
+    <string name="review_plugin">Review plugin</string>
+    <string name="read_both_files_nothing_is_saved_until">Read both files. Nothing is saved until you tap Save, and the plugin stays off until you switch it on.</string>
+    <string name="plugin_json">plugin.json</string>
+    <string name="main_js">main.js</string>
+
+    <!-- SkillsScreen.kt -->
+    <string name="say_when_this_skill_applies_in_a">Say when this skill applies, in a sentence.</string>
+    <string name="skills_teach_the_assistant_a_routine">Skills teach the assistant a routine you use often. Turn one on and it is used when a request matches.</string>
+    <string name="add_skill">Add skill</string>
+    <string name="no_skills_yet">No skills yet.</string>
+    <string name="write_a_new_skill_or_import_one_from_a">Write a new skill or import one from a link.</string>
+    <string name="paste_the_link_to_the_skill">Paste the link to the skill.</string>
+    <string name="review_skill">Review skill</string>
+    <string name="the_skill_file_is_removed_its_on_off">The skill file is removed. Its on/off setting is cleared too.</string>
+    <string name="new_skill">New skill</string>
+    <string name="when_to_use_it">When to use it</string>
+    <string name="steps">Steps</string>
+    <string name="give_the_skill_a_name">Give the skill a name.</string>
+    <string name="say_when_to_use_it">Say when to use it.</string>
+    <string name="write_the_steps">Write the steps.</string>
+    <string name="read_it_before_saving_nothing_is_saved">Read it before saving. Nothing is saved until you tap Save.</string>
+
+    <!-- TelegramPanel.kt -->
+    <string name="telegram">Telegram</string>
+    <string name="create_a_bot_with_botfather_paste_its">Create a bot with @BotFather, paste its token below, switch Telegram on, then link your chat. Only linked chats get answers. Each message runs on this phone like a scheduled task: anything that needs your approval is skipped, and the reply says so.</string>
+    <string name="paste_the_bot_token_below_to_start">Paste the bot token below to start.</string>
+    <string name="linked_chats">Linked chats</string>
+    <string name="none_yet">None yet.</string>
+    <string name="waiting_for_start_in_telegram">Waiting for /start in Telegram</string>
+    <string name="link_this_chat">Link this chat</string>
+    <string name="open_your_bot_in_telegram_and_send">Open your bot in Telegram and send /start within five minutes. The chat then appears here for approval.</string>
+    <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s) asked to talk to this phone. Approve only if it is you.</string>
+    <string name="approve">Approve</string>
+    <string name="decline">Decline</string>
+
+    <!-- DiagnosticsScreen.kt -->
+    <string name="run_every_check_again">Run every check again</string>
+    <string name="details">Details: %1$s</string>
+    <string name="nothing_below_this_card_ran_so_nothing">Nothing below this card ran, so nothing below it should be read as passing.</string>
+    <string name="checking_this_phone">Checking this phone…</string>
+    <string name="each_figure_shows_where_it_came_from">Each figure shows where it came from.</string>
+    <string name="re_running">Re-running…</string>
+    <string name="figures">Figures</string>
+    <string name="this_needs_a_different_app_build">This needs a different app build. Nothing on the phone can fix it.</string>
+    <string name="hide_details">Hide details</string>
+    <string name="details_2">Details</string>
+    <string name="ok">OK</string>
+    <string name="problem">Problem</string>
+    <string name="unknown">Unknown</string>
+    <string name="this_checks_setup_only_it_doesn_t_run_a">This checks setup only. It doesn\'t run a model. Use Speed test to measure speed.</string>
+
+    <!-- RedactionScreen.kt -->
+    <string name="what_it_looks_for">What it looks for</string>
+    <string name="each_of_these_is_matched_on_a_shape_not">Each of these is matched on a shape, not guessed at. The label is the whole of the match — no part of the original value is kept anywhere.</string>
+    <string name="what_it_does_not_do">What it does not do</string>
+    <string name="always_on">Always on</string>
+    <string name="there_is_no_setting_to_turn_this_off">There is no setting to turn this off.</string>
+    <string name="this_is_a_best_effort_filter_not_a">This is a best-effort filter, not a guarantee. It does not cover the following.</string>
+    <string name="text_you_type_or_paste_into_the_chat">Text you type or paste into the chat box. The model sees it and this filter does not run on it. It is your own text, so you can see and delete it, but it is the most likely way a secret gets into a chat.</string>
+    <string name="a_secret_with_no_recognisable_shape">A secret with no recognisable shape, such as a password written as ordinary words or a photo of one. Anything that does not match one of the shapes above passes through untouched.</string>
+    <string name="because_a_bare_six_digit_number_can">because a bare six-digit number can also be a price or a timestamp.</string>
+    <string name="what_the_model_writes_back_if_it">What the model writes back. If it repeats a secret in its answer, you see the answer as it was written.</string>
+    <string name="what_the_model_works_out_by_itself">What the model works out by itself. Hiding strings does not hide meaning, so it can still reason about the rest of a partly masked table.</string>
+    <string name="anything_already_saved_conversations">Anything already saved. Conversations and memories from an earlier version of the app are not rewritten.</string>
+    <string name="the_filter_runs_when_a_tool_reads">The filter runs when a tool reads something, such as the clipboard, a file you hand it or a page it fetches. It cannot protect a secret you never gave the app.</string>
+
+    <!-- ScheduleScreen.kt -->
+    <string name="delete_this_task">Delete this task?</string>
+    <string name="self_check_what_is_actually_working_on">Self-check: what is actually working on this phone</string>
+    <string name="no_scheduled_tasks_yet_write_what_the">No scheduled tasks yet. Write what the assistant should do, pick how often, and it will run on this phone at that time.</string>
+    <string name="what_should_the_assistant_do">What should the assistant do?</string>
+    <string name="check_my_notifications_and_summarise">Check my notifications and summarise anything urgent</string>
+    <string name="runs_on_this_phone_nothing_is_sent_to_a">Runs on this phone. Nothing is sent to a server.</string>
+    <string name="how_often">How often</string>
+    <string name="schedule_this">Schedule this</string>
+    <string name="delete_this_task_2">Delete this task</string>
+    <string name="running_now">Running now.</string>
+    <string name="already_ran_not_scheduled_any_more">Already ran. Not scheduled any more.</string>
+    <string name="paused_not_scheduled">Paused. Not scheduled.</string>
+    <string name="next">Next: %1$s</string>
+    <string name="failed">Failed</string>
+    <string name="refused">Refused</string>
+    <string name="pause">Pause</string>
+    <string name="resume">Resume</string>
+    <string name="other_apps">Other apps</string>
+    <string name="no_token_yet_make_one_below">No token yet. Make one below.</string>
+    <string name="anyone_with_this_token_can_start_your">Anyone with this token can start your scheduled tasks. Make a new one to revoke it.</string>
+    <string name="copy_token">Copy token</string>
+    <string name="make_a_token">Make a token</string>
+    <string name="make_a_new_token">Make a new token</string>
+    <string name="p_es_es_token">-p %1$s --es %2$s %3$s --es %4$s &lt;token&gt;</string>
+    <string name="target_broadcast_receiver_extras_and">Target Broadcast Receiver, Extras %1$s:%2$s and %3$s:&lt;token&gt;</string>
+    <string name="start_from_another_app_replace_token">Start from another app. Replace &lt;token&gt; with the token above. Needs the setting on, and background access for this app on Android 12 and newer.</string>
+    <string name="task_id">Task id: %1$s</string>
+    <string name="copy_adb_command">Copy adb command</string>
+    <string name="copy_tasker_settings">Copy Tasker settings</string>
+    <string name="this_task_will_not_run_yet">This task will not run yet:</string>
+    <string name="this_task_will_not_run_until_these_are">This task will not run until these are fixed:</string>
+    <string name="running_now_started_at">Running now. Started at %1$s.</string>
+    <string name="last_ran_at">Last ran at %1$s.</string>
+    <string name="open_models">Open models</string>
+    <string name="allow_notification_access">Allow notification access</string>
+    <string name="battery_settings">Battery settings</string>
+    <string name="allow_alarms">Allow alarms</string>
+
+    <!-- TraceView.kt -->
+    <string name="the_most_recent_run_that_reported_its">The most recent run that reported its steps.</string>
+    <string name="showing_the_previous_run_this_run_s">Showing the previous run. This run\'s steps appear when it finishes.</string>
+    <string name="waiting_for_your_approval_steps_so_far">Waiting for your approval. Steps so far are below.</string>
+    <string name="the_most_recent_run">The most recent run.</string>
+    <string name="the_model_stopped_before_it_could_answer">The model stopped before it could answer.</string>
+    <string name="no_trace_yet_send_a_message_to_see_the">No trace yet. Send a message to see the steps.</string>
+    <string name="still_running_steps_appear_when_it">Still running. Steps appear when it finishes.</string>
+    <string name="that_run_finished_without_recording_any">That run finished without recording any steps.</string>
+    <string name="you_stopped_that_run_before_it_recorded">You stopped that run before it recorded a step.</string>
+    <string name="that_run_used_all_of_its_steps_without">That run used all of its steps without recording a trace.</string>
+    <string name="that_run_failed_before_recording_a_step">"That run failed before recording a step: "</string>
+    <string name="expanded">, expanded</string>
+    <string name="collapsed">, collapsed</string>
+    <string name="step">Step %1$s</string>
+    <string name="events">"  %1$s events"</string>
+    <string name="model_output">Model output</string>
+    <string name="tool_call">Tool call</string>
+    <string name="result">Result</string>
+    <string name="unreadable">Unreadable</string>
+    <string name="shortened">Shortened</string>
+    <string name="ms">%1$sms</string>
+
+    <!-- AttachmentViews.kt -->
+    <string name="remove_photo">Remove photo %1$s</string>
+    <string name="attached_photo">Attached photo</string>
+    <string name="voice_message">Voice message</string>
+    <string name="voice_clip">Voice clip %1$s</string>
+
+    <!-- AppLockScreen.kt -->
+    <string name="forgot_your_pin_the_only_way_back_is_to_2">Forgot your PIN? The only way back is to clear this app\'s data in Android Settings. That deletes every chat, model and setting.</string>
+
+    <!-- ScheduleScreen.kt -->
+    <string name="p_es_es_token_2">-p %1$s --es %2$s %3$s --es %4$s &lt;token&gt;</string>
+    <string name="target_broadcast_receiver_extras_and_2">Target Broadcast Receiver, Extras %1$s:%2$s and %3$s:&lt;token&gt;</string>
+    <string name="start_from_another_app_replace_token_2">Start from another app. Replace &lt;token&gt; with the token above. Needs the setting on, and background access for this app on Android 12 and newer.</string>
+
+    <!-- PhotoSearchScreen.kt -->
+    <string name="finds_photos_by_what_they_show_the_2">Finds photos by what they show. The phone\'s own vision model writes a short caption for each of your newest photos, and the captions are what is searched. Captions and photos stay on this phone. Indexing runs only when you tap the button. It handles up to %1$s photos not yet indexed per run, and each run picks up where the last stopped.</string>
+
+    <!-- TraceView.kt -->
+    <string name="showing_the_previous_run_this_run_s_2">Showing the previous run. This run\'s steps appear when it finishes.</string>
+    <string name="events_2">"  %1$s events"</string>
+
+    <!-- TraceView.kt -->
+    <string name="showing_the_previous_run_this_run_s_3">Showing the previous run. This run\'s steps appear when it finishes.</string>
+    <string name="that_run_failed_before_recording_a_step_2">"That run failed before recording a step: "</string>
+    <string name="events_3">"  %1$s events"</string>
+
+    <!-- TraceView.kt -->
+    <string name="showing_the_previous_run_this_run_s_4">Showing the previous run. This run\'s steps appear when it finishes.</string>
+    <string name="events_4">"  %1$s events"</string>
 </resources>

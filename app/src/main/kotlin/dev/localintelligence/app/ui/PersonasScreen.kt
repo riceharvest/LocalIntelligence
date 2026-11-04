@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -70,10 +72,10 @@ fun PersonasScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Personas") },
+                title = { Text(stringResource(R.string.personas)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -88,15 +90,14 @@ fun PersonasScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "A persona says how the assistant should act, for example short answers or a formal tone. " +
-                    "Pick one when you start a new chat. The chat keeps it, and changing it needs a new chat.",
+                stringResource(R.string.a_persona_says_how_the_assistant_should),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            FilledTonalButton(onClick = { creating = true }) { Text("Add persona") }
+            FilledTonalButton(onClick = { creating = true }) { Text(stringResource(R.string.add_persona)) }
 
             if (personas.isEmpty()) {
-                Text("No personas yet.", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.no_personas_yet), style = MaterialTheme.typography.bodyMedium)
             }
             personas.forEach { persona ->
                 Card(
@@ -152,7 +153,7 @@ fun PersonasScreen(
             AlertDialog(
                 onDismissRequest = { confirmingDelete = false },
                 title = { Text("Delete \"${persona.name}\"?") },
-                text = { Text("Chats that used it go back to no persona. The chats themselves stay.") },
+                text = { Text(stringResource(R.string.chats_that_used_it_go_back_to_no)) },
                 confirmButton = {
                     TextButton(onClick = {
                         confirmingDelete = false
@@ -161,9 +162,9 @@ fun PersonasScreen(
                             editingId = null
                             reload++
                         }
-                    }) { Text("Delete") }
+                    }) { Text(stringResource(R.string.delete)) }
                 },
-                dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") } },
+                dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text(stringResource(R.string.cancel)) } },
             )
         }
     }
@@ -183,31 +184,31 @@ private fun PersonaEditor(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "New persona" else "Edit persona") },
+        title = { Text(if (initial == null) stringResource(R.string.new_persona) else stringResource(R.string.edit_persona)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name") },
+                    label = { Text(stringResource(R.string.name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    label = { Text("How the assistant should act") },
+                    label = { Text(stringResource(R.string.how_the_assistant_should_act)) },
                     supportingText = { Text("${text.length} / ${PersonaLimits.MAX_TEXT_CHARS}") },
                     minLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 problem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                onDelete?.let { TextButton(onClick = it) { Text("Delete persona") } }
+                onDelete?.let { TextButton(onClick = it) { Text(stringResource(R.string.delete_persona)) } }
             }
         },
         confirmButton = {
-            TextButton(enabled = problem == null, onClick = { onSave(name, text) }) { Text("Save") }
+            TextButton(enabled = problem == null, onClick = { onSave(name, text) }) { Text(stringResource(R.string.save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }

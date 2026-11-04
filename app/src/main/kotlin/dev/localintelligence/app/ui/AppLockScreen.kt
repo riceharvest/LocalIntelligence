@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.view.WindowManager
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -153,11 +155,11 @@ fun AppLockScreen(appLock: AppLock) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text("LocalIntelligence is locked", style = MaterialTheme.typography.titleLarge)
+                Text(stringResource(R.string.localintelligence_is_locked), style = MaterialTheme.typography.titleLarge)
                 OutlinedTextField(
                     value = pin,
                     onValueChange = { pin = it.filter(Char::isDigit).take(PinCode.MAX_LENGTH) },
-                    label = { Text("PIN") },
+                    label = { Text(stringResource(R.string.pin)) },
                     singleLine = true,
                     enabled = canType,
                     visualTransformation = PasswordVisualTransformation(),
@@ -168,22 +170,21 @@ fun AppLockScreen(appLock: AppLock) {
                 Button(
                     onClick = { submit() },
                     enabled = canType && pin.length >= PinCode.MIN_LENGTH,
-                ) { Text("Unlock") }
+                ) { Text(stringResource(R.string.unlock)) }
                 if (biometricUsable) {
                     OutlinedButton(onClick = { activity?.let(::showBiometric) }) {
-                        Text("Use fingerprint or face")
+                        Text(stringResource(R.string.use_fingerprint_or_face))
                     }
                 }
                 if (waitLeftMillis > 0L) {
                     Text(
-                        "Wait ${(waitLeftMillis + 999L) / 1000L} seconds before trying again.",
+                        stringResource(R.string.wait_seconds_before_trying_again, (waitLeftMillis + 999L) / 1000L),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
                 message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                 Text(
-                    "Forgot your PIN? The only way back is to clear this app's data in Android Settings. " +
-                        "That deletes every chat, model and setting.",
+                    stringResource(R.string.forgot_your_pin_the_only_way_back_is_to_2),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

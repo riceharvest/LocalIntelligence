@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui.components
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -60,9 +62,9 @@ internal fun AttachmentChip(
             // 48dp: the platform touch target. At 40dp the remove target was too small to hit reliably.
             IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Filled.Close, contentDescription = if (attachment.shown is ShownAttachment.Picture && pictureCount > 1) {
-                        "Remove photo $pictureNumber"
+                        stringResource(R.string.remove_photo, pictureNumber)
                     } else {
-                        "Remove ${label.lowercase()}"
+                        stringResource(R.string.remove_2, label.lowercase())
                     },)
             }
         }
@@ -111,7 +113,7 @@ private fun AttachmentPreview(shown: ShownAttachment, modifier: Modifier) {
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap,
-                    contentDescription = "Attached photo",
+                    contentDescription = stringResource(R.string.attached_photo),
                     contentScale = ContentScale.Crop,
                     modifier = modifier.clip(RoundedCornerShape(10.dp)),
                 )
@@ -124,7 +126,7 @@ private fun AttachmentPreview(shown: ShownAttachment, modifier: Modifier) {
             contentAlignment = Alignment.Center,
         ) {
             // The only thing in this box, so it has to name itself.
-            Icon(Icons.Filled.Mic, contentDescription = "Voice message")
+            Icon(Icons.Filled.Mic, contentDescription = stringResource(R.string.voice_message))
         }
     }
 }

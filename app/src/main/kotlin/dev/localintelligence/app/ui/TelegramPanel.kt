@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,27 +43,25 @@ fun TelegramPanel(store: SettingsStore) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Telegram", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.telegram), style = MaterialTheme.typography.titleSmall)
         Text(
-            "Create a bot with @BotFather, paste its token below, switch Telegram on, then link your chat. " +
-                "Only linked chats get answers. Each message runs on this phone like a scheduled task: " +
-                "anything that needs your approval is skipped, and the reply says so.",
+            stringResource(R.string.create_a_bot_with_botfather_paste_its),
             style = MaterialTheme.typography.bodySmall,
         )
         if (!hasToken) {
-            Text("Paste the bot token below to start.", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.paste_the_bot_token_below_to_start), style = MaterialTheme.typography.bodySmall)
         }
         if (error.isNotBlank()) {
             Text(
-                "Last problem: $error",
+                stringResource(R.string.last_problem, error),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
         }
 
-        Text("Linked chats", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.linked_chats), style = MaterialTheme.typography.labelLarge)
         if (linked.isEmpty()) {
-            Text("None yet.", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.none_yet), style = MaterialTheme.typography.bodySmall)
         }
         linked.forEach { chat ->
             Row(
@@ -75,7 +75,7 @@ fun TelegramPanel(store: SettingsStore) {
                 )
                 OutlinedButton(onClick = {
                     store.set(TelegramSettings.LINKED, TelegramChats.encodeList(linked - chat))
-                }) { Text("Remove") }
+                }) { Text(stringResource(R.string.remove)) }
             }
         }
 
@@ -89,10 +89,10 @@ fun TelegramPanel(store: SettingsStore) {
                     (System.currentTimeMillis() + TelegramChats.LINK_WINDOW_MILLIS).toString(),
                 )
             },
-        ) { Text(if (linkOpen) "Waiting for /start in Telegram" else "Link this chat") }
+        ) { Text(if (linkOpen) stringResource(R.string.waiting_for_start_in_telegram) else stringResource(R.string.link_this_chat)) }
         if (linkOpen) {
             Text(
-                "Open your bot in Telegram and send /start within five minutes. The chat then appears here for approval.",
+                stringResource(R.string.open_your_bot_in_telegram_and_send),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -104,7 +104,7 @@ fun TelegramPanel(store: SettingsStore) {
 private fun PendingChat(store: SettingsStore, chat: TelegramChat, linked: List<TelegramChat>) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
-            "${chat.name} (${chat.id}) asked to talk to this phone. Approve only if it is you.",
+            stringResource(R.string.asked_to_talk_to_this_phone_approve, chat.name, chat.id),
             style = MaterialTheme.typography.bodyMedium,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -113,8 +113,8 @@ private fun PendingChat(store: SettingsStore, chat: TelegramChat, linked: List<T
                 store.set(TelegramSettings.PENDING, "")
                 store.set(TelegramSettings.LINK_OPEN_UNTIL, "0")
                 TelegramReplies.send(store, chat.id, "This chat is linked to LocalIntelligence. Send a message to run it on the phone.")
-            }) { Text("Approve") }
-            OutlinedButton(onClick = { store.set(TelegramSettings.PENDING, "") }) { Text("Decline") }
+            }) { Text(stringResource(R.string.approve)) }
+            OutlinedButton(onClick = { store.set(TelegramSettings.PENDING, "") }) { Text(stringResource(R.string.decline)) }
         }
     }
 }

@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -86,7 +88,7 @@ fun ReplyReportSheet(
                 .padding(horizontal = 20.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Report this reply", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.report_this_reply), style = MaterialTheme.typography.titleLarge)
 
             ReasonChips(selected = reason, enabled = !sending && outcome != ReplyReportSender.Outcome.Sent) {
                 reason = it
@@ -95,7 +97,7 @@ fun ReplyReportSheet(
             OutlinedTextField(
                 value = note,
                 onValueChange = { note = it },
-                label = { Text("Note (optional)") },
+                label = { Text(stringResource(R.string.note_optional)) },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 2,
                 enabled = !sending && outcome != ReplyReportSender.Outcome.Sent,
@@ -110,7 +112,7 @@ fun ReplyReportSheet(
                     onCheckedChange = { includeReply = it },
                     enabled = !sending,
                 )
-                Text("Include the reply text", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.include_the_reply_text), style = MaterialTheme.typography.bodyLarge)
             }
 
             if (includeReply) {
@@ -130,30 +132,30 @@ fun ReplyReportSheet(
             }
 
             Text(
-                "Sent to the developer through Google Forms. Nothing else from your chats is sent.",
+                stringResource(R.string.sent_to_the_developer_through_google),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             when (outcome) {
                 ReplyReportSender.Outcome.Sent -> {
-                    Text("Thanks. Report sent.", style = MaterialTheme.typography.bodyLarge)
-                    Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Done") }
+                    Text(stringResource(R.string.thanks_report_sent), style = MaterialTheme.typography.bodyLarge)
+                    Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.done)) }
                 }
                 ReplyReportSender.Outcome.NotSetUp -> {
-                    Text("Reporting isn't set up in this build.", style = MaterialTheme.typography.bodyLarge)
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Close") }
+                    Text(stringResource(R.string.reporting_isn_t_set_up_in_this_build), style = MaterialTheme.typography.bodyLarge)
+                    OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.close)) }
                 }
                 ReplyReportSender.Outcome.Failed -> {
                     Text(
-                        "Couldn't send. Check your connection.",
+                        stringResource(R.string.couldn_t_send_check_your_connection),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    SendButton(label = "Retry", enabled = reason != null && !sending) { reason?.let { send(it) } }
+                    SendButton(label = stringResource(R.string.retry), enabled = reason != null && !sending) { reason?.let { send(it) } }
                 }
                 null -> SendButton(
-                    label = if (sending) "Sending..." else "Send",
+                    label = if (sending) stringResource(R.string.sending) else stringResource(R.string.send),
                     enabled = reason != null && !sending,
                 ) { reason?.let { send(it) } }
             }
@@ -175,7 +177,7 @@ private fun ReasonChips(
     onPick: (ReplyReportReason) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Why are you reporting it?", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.why_are_you_reporting_it), style = MaterialTheme.typography.labelLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ReplyReportReason.entries.forEach { reason ->
                 FilterChip(

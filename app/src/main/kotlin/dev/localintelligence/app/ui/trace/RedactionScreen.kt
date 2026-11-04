@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui.trace
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -71,10 +73,10 @@ fun RedactionScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("What is filtered") },
+                title = { Text(stringResource(R.string.what_is_filtered)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -90,15 +92,13 @@ fun RedactionScreen(
         ) {
             AlwaysOnBanner()
 
-            Section(title = "What it does") {
+            Section(title = stringResource(R.string.what_it_does)) {
                 Text(RedactionPolicy.SUMMARY, style = MaterialTheme.typography.bodyMedium)
             }
 
-            Section(title = "What it looks for") {
+            Section(title = stringResource(R.string.what_it_looks_for)) {
                 Text(
-                    "Each of these is matched on a shape, not guessed at. " +
-                        "The label is the whole of the match — no part of the " +
-                        "original value is kept anywhere.",
+                    stringResource(R.string.each_of_these_is_matched_on_a_shape_not),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -111,7 +111,7 @@ fun RedactionScreen(
                 }
             }
 
-            Section(title = "What it does not do") {
+            Section(title = stringResource(R.string.what_it_does_not_do)) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     HONEST_LIMITS.forEach { line ->
                         Text(line, style = MaterialTheme.typography.bodyMedium)
@@ -143,9 +143,9 @@ private fun AlwaysOnBanner() {
         ) {
             Icon(Icons.Filled.Shield, contentDescription = null)
             Column {
-                Text("Always on", style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.always_on), style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "There is no setting to turn this off.",
+                    stringResource(R.string.there_is_no_setting_to_turn_this_off),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui.trace
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -128,15 +130,15 @@ fun ScheduleScreen(
     pendingDelete?.let { id ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete this task?") },
+            title = { Text(stringResource(R.string.delete_this_task)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(id)
                     pendingDelete = null
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.cancel)) }
             },
         )
     }
@@ -145,10 +147,10 @@ fun ScheduleScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Scheduled tasks") },
+                title = { Text(stringResource(R.string.schedule_shortcut_long)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
@@ -156,7 +158,7 @@ fun ScheduleScreen(
                         IconButton(onClick = onOpenSelfCheck) {
                             Icon(
                                 Icons.Filled.HealthAndSafety,
-                                contentDescription = "Self-check: what is actually working on this phone",
+                                contentDescription = stringResource(R.string.self_check_what_is_actually_working_on),
                             )
                         }
                     }
@@ -218,8 +220,7 @@ fun ScheduleScreen(
 
             if (state.tasks.isEmpty()) {
                 Text(
-                    text = "No scheduled tasks yet. Write what the assistant should do, " +
-                        "pick how often, and it will run on this phone at that time.",
+                    text = stringResource(R.string.no_scheduled_tasks_yet_write_what_the),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp),
@@ -258,17 +259,17 @@ private fun ScheduleForm(
                 prompt = it
                 onPromptChanged()
             },
-            label = { Text("What should the assistant do?") },
-            placeholder = { Text("Check my notifications and summarise anything urgent") },
+            label = { Text(stringResource(R.string.what_should_the_assistant_do)) },
+            placeholder = { Text(stringResource(R.string.check_my_notifications_and_summarise)) },
             modifier = Modifier.fillMaxWidth(),
             // Honest about the limit rather than silently truncating: a prompt
             // clipped mid-word is a prompt the agent cannot run.
-            supportingText = { Text("Runs on this phone. Nothing is sent to a server.") },
+            supportingText = { Text(stringResource(R.string.runs_on_this_phone_nothing_is_sent_to_a)) },
             minLines = 2,
         )
 
         Text(
-            text = "How often",
+            text = stringResource(R.string.how_often),
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
         )
@@ -298,7 +299,7 @@ private fun ScheduleForm(
             enabled = canCreate,
             modifier = Modifier.padding(top = 12.dp),
         ) {
-            Text("Schedule this")
+            Text(stringResource(R.string.schedule_this))
         }
     }
 }
@@ -370,7 +371,7 @@ private fun TaskRow(
                     )
                 }
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Delete this task")
+                    Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.delete_this_task_2))
                 }
             }
 
@@ -379,12 +380,12 @@ private fun TaskRow(
             // promise the app is not keeping.
             Text(
                 text = when {
-                    isRunning -> "Running now."
+                    isRunning -> stringResource(R.string.running_now)
                     !task.enabled && task.cadence == TaskCadence.Once &&
                         task.nextRunAtMillis <= System.currentTimeMillis() ->
-                        "Already ran. Not scheduled any more."
-                    !task.enabled -> "Paused. Not scheduled."
-                    else -> "Next: ${task.timeLabel()}"
+                        stringResource(R.string.already_ran_not_scheduled_any_more)
+                    !task.enabled -> stringResource(R.string.paused_not_scheduled)
+                    else -> stringResource(R.string.next, task.timeLabel())
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (isRunning) FontWeight.Bold else FontWeight.Normal,
@@ -404,7 +405,7 @@ private fun TaskRow(
                 val failed = result.startsWith(FAILED_PREFIX) || result.startsWith(REFUSED_PREFIX)
                 if (failed) {
                     Text(
-                        text = if (result.startsWith(FAILED_PREFIX)) "Failed" else "Refused",
+                        text = if (result.startsWith(FAILED_PREFIX)) stringResource(R.string.failed) else stringResource(R.string.refused),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(top = 2.dp),
@@ -447,7 +448,7 @@ private fun TaskRow(
                         contentDescription = null,
                         modifier = Modifier.padding(end = 4.dp),
                     )
-                    Text(if (task.enabled) "Pause" else "Resume")
+                    Text(if (task.enabled) stringResource(R.string.pause) else stringResource(R.string.resume))
                 }
             }
 
@@ -468,14 +469,14 @@ private fun TriggerTokenSection(toggleOn: Boolean, token: String, onRegenerate: 
     val clipboard = LocalClipboardManager.current
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(
-            text = "Other apps",
+            text = stringResource(R.string.other_apps),
             style = MaterialTheme.typography.labelLarge,
         )
         Text(
             text = when {
                 !toggleOn -> "Turn on \"Let other apps start my scheduled tasks\" in Settings to use a token."
-                token.isEmpty() -> "No token yet. Make one below."
-                else -> "Anyone with this token can start your scheduled tasks. Make a new one to revoke it."
+                token.isEmpty() -> stringResource(R.string.no_token_yet_make_one_below)
+                else -> stringResource(R.string.anyone_with_this_token_can_start_your)
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -487,11 +488,11 @@ private fun TriggerTokenSection(toggleOn: Boolean, token: String, onRegenerate: 
                 modifier = Modifier.padding(top = 4.dp),
             )
             TextButton(onClick = { clipboard.setText(AnnotatedString(token)) }) {
-                Text("Copy token")
+                Text(stringResource(R.string.copy_token))
             }
         }
         TextButton(onClick = onRegenerate) {
-            Text(if (token.isEmpty()) "Make a token" else "Make a new token")
+            Text(if (token.isEmpty()) stringResource(R.string.make_a_token) else stringResource(R.string.make_a_new_token))
         }
     }
 }
@@ -511,29 +512,27 @@ private fun TriggerExample(taskId: String) {
     val pkg = context.packageName
     // The token is never put in these: <token> stands for the one in the section above.
     val adb = "adb shell am broadcast -a ${RunTaskReceiver.ACTION_RUN_TASK} " +
-        "-p $pkg --es ${RunTaskReceiver.EXTRA_TASK_ID} $taskId --es ${RunTaskReceiver.EXTRA_TOKEN} <token>"
+        stringResource(R.string.p_es_es_token_2, pkg, RunTaskReceiver.EXTRA_TASK_ID, taskId, RunTaskReceiver.EXTRA_TOKEN)
     val tasker = "Send Intent: Action ${RunTaskReceiver.ACTION_RUN_TASK}, Package $pkg, " +
-        "Target Broadcast Receiver, Extras ${RunTaskReceiver.EXTRA_TASK_ID}:$taskId and " +
-        "${RunTaskReceiver.EXTRA_TOKEN}:<token>"
+        stringResource(R.string.target_broadcast_receiver_extras_and_2, RunTaskReceiver.EXTRA_TASK_ID, taskId, RunTaskReceiver.EXTRA_TOKEN)
 
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         Text(
-            text = "Start from another app. Replace <token> with the token above. Needs the setting " +
-                "on, and background access for this app on Android 12 and newer.",
+            text = stringResource(R.string.start_from_another_app_replace_token_2),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text = "Task id: $taskId",
+            text = stringResource(R.string.task_id, taskId),
             style = MaterialTheme.typography.bodySmall,
             fontFamily = FontFamily.Monospace,
             modifier = Modifier.padding(top = 4.dp),
         )
         TextButton(onClick = { clipboard.setText(AnnotatedString(adb)) }) {
-            Text("Copy adb command")
+            Text(stringResource(R.string.copy_adb_command))
         }
         TextButton(onClick = { clipboard.setText(AnnotatedString(tasker)) }) {
-            Text("Copy Tasker settings")
+            Text(stringResource(R.string.copy_tasker_settings))
         }
     }
 }
@@ -558,9 +557,9 @@ private fun BlockerList(
         Column(Modifier.padding(16.dp).semantics { liveRegion = LiveRegionMode.Assertive }) {
             Text(
                 text = if (blockers.size == 1) {
-                    "This task will not run yet:"
+                    stringResource(R.string.this_task_will_not_run_yet)
                 } else {
-                    "This task will not run until these are fixed:"
+                    stringResource(R.string.this_task_will_not_run_until_these_are)
                 },
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
@@ -611,9 +610,9 @@ private fun LastRunLine(task: ScheduledTask, isRunning: Boolean) {
     val at = task.lastRunAtMillis ?: return
     Text(
         text = if (isRunning) {
-            "Running now. Started at ${timeOf(at)}."
+            stringResource(R.string.running_now_started_at, timeOf(at))
         } else {
-            "Last ran at ${timeOf(at)}."
+            stringResource(R.string.last_ran_at, timeOf(at))
         },
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,

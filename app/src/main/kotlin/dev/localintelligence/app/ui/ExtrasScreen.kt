@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -72,10 +74,10 @@ fun ExtrasScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Extras") },
+                title = { Text(stringResource(R.string.extras)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -93,24 +95,22 @@ fun ExtrasScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    "Extras is one monthly subscription from Google Play. It gives this phone a smarter " +
-                        "cloud chat model and better web search, with no setup. Your own keys in Technical " +
-                        "mode still work the same, and the app stays free without Extras.",
+                    stringResource(R.string.extras_is_one_monthly_subscription_from),
                 )
                 Text(
-                    if (active) "Extras is on until ${shortDate(until)}."
-                    else "Extras is off.",
+                    if (active) stringResource(R.string.extras_is_on_until, shortDate(until))
+                    else stringResource(R.string.extras_is_off),
                 )
                 Text(
                     price?.let { "$it a month, charged by Google Play." }
-                        ?: "The price is loading from Google Play.",
+                        ?: stringResource(R.string.the_price_is_loading_from_google_play),
                 )
 
                 if (!active) {
                     Button(
                         onClick = { findActivity(context)?.let(onSubscribe) },
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Subscribe") }
+                    ) { Text(stringResource(R.string.subscribe)) }
                 }
                 OutlinedButton(
                     onClick = {
@@ -118,7 +118,7 @@ fun ExtrasScreen(
                         context.startActivity(intent)
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Manage subscription") }
+                ) { Text(stringResource(R.string.manage_subscription)) }
 
                 if (active) {
                     val cloudChat = store[ExtrasSettings.CLOUD_CHAT]
@@ -140,10 +140,7 @@ fun ExtrasScreen(
                 notice?.let { Text(it) }
 
                 Text(
-                    "What leaves the phone while Extras is on: chat messages go to OpenRouter, the " +
-                        "model service, and web searches go to Exa. Google Play handles the payment. " +
-                        "The Extras server sees only your Play purchase token and a random install id. " +
-                        "It never sees your messages or searches. The keys are stored encrypted on this phone.",
+                    stringResource(R.string.what_leaves_the_phone_while_extras_is),
                 )
             }
         }

@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -55,15 +57,15 @@ fun CrashReportRow() {
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Share last crash report", style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.share_last_crash_report), style = MaterialTheme.typography.bodyLarge)
             Text(
-                "A crash or freeze is saved on this phone only. Nothing is sent unless you share it.",
+                stringResource(R.string.a_crash_or_freeze_is_saved_on_this),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = { previewing = true }) { Text("Preview and share") }
-                OutlinedButton(onClick = { asking = true }) { Text("Delete") }
+                FilledTonalButton(onClick = { previewing = true }) { Text(stringResource(R.string.preview_and_share)) }
+                OutlinedButton(onClick = { asking = true }) { Text(stringResource(R.string.delete)) }
             }
         }
     }
@@ -74,7 +76,7 @@ fun CrashReportRow() {
         }
         AlertDialog(
             onDismissRequest = { previewing = false },
-            title = { Text("Crash report") },
+            title = { Text(stringResource(R.string.crash_report)) },
             text = {
                 Text(
                     body ?: "",
@@ -87,17 +89,17 @@ fun CrashReportRow() {
                 TextButton(onClick = {
                     previewing = false
                     CrashReports.share(context, file)
-                }) { Text("Share") }
+                }) { Text(stringResource(R.string.share)) }
             },
-            dismissButton = { TextButton(onClick = { previewing = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { previewing = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 
     if (asking) {
         AlertDialog(
             onDismissRequest = { asking = false },
-            title = { Text("Delete crash reports?") },
-            text = { Text("Every saved crash report is removed from this phone and cannot be recovered.") },
+            title = { Text(stringResource(R.string.delete_crash_reports)) },
+            text = { Text(stringResource(R.string.every_saved_crash_report_is_removed)) },
             confirmButton = {
                 TextButton(onClick = {
                     asking = false
@@ -105,9 +107,9 @@ fun CrashReportRow() {
                         withContext(Dispatchers.IO) { CrashReports.deleteAll(context) }
                         refresh++
                     }
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.delete)) }
             },
-            dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }
