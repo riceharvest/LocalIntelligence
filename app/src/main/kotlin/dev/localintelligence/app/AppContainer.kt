@@ -117,6 +117,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -739,7 +740,52 @@ class AppContainer(private val context: Context) {
      */
     fun persistRunEnd() {
         val pending = snapshotPendingMessages()
-        if (pending.isNotEmpty()) appScope.launch { writeSnapshot(pending) }
+        if (pending.isNotEmpty()) launchWrite(pending)
+    }
+
+    /**
+     * The window writes that are launched in the background and not yet finished. A replace
+     * waits for them ([replaceLastTurn]), so none of them can write the dropped turn back
+     * after its row has been deleted.
+     */
+    private val writeJobs = java.util.concurrent.ConcurrentLinkedQueue<Job>()
+
+    private fun launchWrite(pending: List<ChatMessage>) {
+        val job = appScope.launch { writeSnapshot(pending) }
+        writeJobs += job
+        job.invokeOnCompletion { writeJobs.remove(job) }
+    }
+
+    /**
+     * Makes the conversation forget its newest user turn and the replies after it, in memory
+     * and in the store, so a retry or an edit can send that message again. It runs after the
+     * stored conversation is restored and before the run starts.
+     *
+     * Returns false, and changes neither copy, when the newest turn is not [expectedText] in the
+     * window or in the store, or when either cannot drop it. The run then does not start, so the
+     * model never answers on top of a turn the user asked to replace.
+     */
+    suspend fun replaceLastTurn(expectedText: String): Boolean {
+        if (session.lastUserText() != expectedText || !session.canDropLastTurn()) return false
+        val store = sessionStore
+        val id = pinnedSessionId
+        if (store != null && id != null) {
+            // Every write already launched must land before the delete, or it could put the turn back.
+            writeJobs.toList().joinAll()
+            val dropped = try {
+                withContext(Dispatchers.IO) {
+                    if (store.lastUserText(id) != expectedText) return@withContext false
+                    store.dropLastTurn(id)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                android.util.Log.w(TAG, "Could not drop the replaced turn from the store.", t)
+                false
+            }
+            if (!dropped) return false
+        }
+        return session.dropLastTurn()
     }
 
     @Volatile
@@ -1636,7 +1682,7 @@ class AppContainer(private val context: Context) {
         onWindowChanged = {
             val pending = snapshotPendingMessages()
             if (pending.isNotEmpty()) {
-                appScope.launch { writeSnapshot(pending) }
+                launchWrite(pending)
             }
         },
         model = model,

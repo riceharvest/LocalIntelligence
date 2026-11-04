@@ -206,6 +206,13 @@ data class GenerationResult(
     val stopReason: StopReason = StopReason.COMPLETED,
     val prefillMs: Long = 0,
     val decodeMs: Long = 0,
+    /**
+     * The model's thought for this generation, when the backend read one out of its
+     * reply (llama.cpp's `reasoning_content`). Null when it did not; a caller that wants
+     * the thought from the raw text uses `GenerationProse.thought`. Shown to the user, never
+     * written into the model's history.
+     */
+    val thought: String? = null,
 ) {
     val decodeTokensPerSecond: Double
         get() = if (decodeMs > 0) completionTokens * 1000.0 / decodeMs else 0.0

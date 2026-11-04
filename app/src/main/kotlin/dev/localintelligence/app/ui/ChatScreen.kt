@@ -29,7 +29,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
@@ -77,6 +81,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.app.ModelAvailability
+import dev.localintelligence.app.RunOutcome
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.SetupState
 import dev.localintelligence.app.blockingReason
@@ -195,6 +200,14 @@ fun ChatScreen(
     // local instead of resting on a coincidence in another file.
     val busy = runState.isActive
     val blocked = modelState.blockingReason()
+    // Retry and Edit both act on the last turn, so they are offered only there. A turn with
+    // pictures or a voice clip cannot be sent again: the media bytes are not kept.
+    val lastUserIndex = messages.indexOfLast { it is ChatMessage.User }
+    val lastAnswerIndex = messages.indexOfLast { it is ChatMessage.Assistant }
+    val lastUserReplayable = (messages.getOrNull(lastUserIndex) as? ChatMessage.User)?.attached?.isEmpty() == true
+    val canRetry = !busy && lastUserReplayable && lastAnswerIndex > lastUserIndex &&
+        (runState as? RunState.Finished)?.outcome is RunOutcome.Answer
+    val canEdit = !busy && lastUserReplayable
 
     val listState = rememberLazyListState()
 
@@ -431,12 +444,26 @@ fun ChatScreen(
             items(entries, key = { entry -> entry.key }) { entry ->
                 when (entry) {
                     is TranscriptEntry.Single -> when (val message = entry.message) {
-                        is ChatMessage.User -> UserBubble(message.text, message.attached)
+                        is ChatMessage.User -> UserBubble(
+                            text = message.text,
+                            attached = message.attached,
+                            onEdit = if (canEdit && message === messages.getOrNull(lastUserIndex)) {
+                                { viewModel.editLast() }
+                            } else {
+                                null
+                            },
+                        )
                         is ChatMessage.Assistant -> AssistantBubble(
                             text = message.text,
+                            thought = message.thought,
                             speaking = speakingText == message.text,
                             onSpeak = { viewModel.toggleSpeak(message.text) },
                             onReport = { reportingReply = message.text },
+                            onRetry = if (canRetry && message === messages.getOrNull(lastAnswerIndex)) {
+                                { viewModel.retryLast() }
+                            } else {
+                                null
+                            },
                             onSaveAsSkill = if (skills != null && skillDraft != null && message === messages.last()) {
                                 { editingSkill = skillDraft }
                             } else {
@@ -514,7 +541,7 @@ private suspend fun LazyListState.scrollToEnd() {
 
 /** The user's message: a compact bubble on the right that fits its text, up to 80% of the width. */
 @Composable
-private fun UserBubble(text: String, attached: List<ShownAttachment>) {
+private fun UserBubble(text: String, attached: List<ShownAttachment>, onEdit: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(Modifier.fillMaxWidth(0.8f), contentAlignment = Alignment.CenterEnd) {
             Surface(
@@ -539,6 +566,13 @@ private fun UserBubble(text: String, attached: List<ShownAttachment>) {
             }
         }
     }
+    if (onEdit != null) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            IconButton(onClick = onEdit) {
+                Icon(Icons.Filled.Edit, contentDescription = "Edit message", modifier = Modifier.size(18.dp))
+            }
+        }
+    }
 }
 
 /**
@@ -548,15 +582,18 @@ private fun UserBubble(text: String, attached: List<ShownAttachment>) {
 @Composable
 private fun AssistantBubble(
     text: String,
+    thought: String?,
     speaking: Boolean,
     onSpeak: () -> Unit,
     onReport: () -> Unit,
+    onRetry: (() -> Unit)? = null,
     onSaveAsSkill: (() -> Unit)? = null,
 ) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+        if (thought != null) ThoughtRow(thought)
         SelectionContainer { MarkdownText(text) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = {
@@ -580,6 +617,11 @@ private fun AssistantBubble(
             IconButton(onClick = onReport) {
                 Icon(Icons.Filled.Flag, contentDescription = "Report reply", modifier = Modifier.size(20.dp))
             }
+            if (onRetry != null) {
+                IconButton(onClick = onRetry) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Retry", modifier = Modifier.size(20.dp))
+                }
+            }
             if (onSaveAsSkill != null) {
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
@@ -595,6 +637,39 @@ private fun AssistantBubble(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The model's reasoning for an answer, folded: a single line that opens to the text. Folded
+ * by default so the answer is what the eye lands on; the thought is there for anyone who asks.
+ */
+@Composable
+private fun ThoughtRow(thought: String) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth()) {
+        TextButton(onClick = { expanded = !expanded }) {
+            Icon(
+                imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                "Thought for a moment",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+        if (expanded) {
+            SelectionContainer {
+                Text(
+                    thought,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 12.dp, bottom = 8.dp),
+                )
             }
         }
     }
