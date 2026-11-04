@@ -351,13 +351,13 @@ private fun StepHeader(
     // three Text children and the chevron's contentDescription separately, so
     // the user hears "Step 3, 4 events, FAILED, Collapse step 3" with no pause
     // and no indication that the row is the thing you tap.
+    val failureState = stringResource(R.string.trace_state_failure)
     val description = buildString {
-        append("Step $step, ${rows.size} events")
-        if (failed) append(", contains a failure")
+        append(stringResource(R.string.trace_step_a11y, step, rows.size))
+        if (failed) append(stringResource(R.string.trace_step_a11y_failure))
         append(if (expanded) stringResource(R.string.expanded) else stringResource(R.string.collapsed))
-        append(". Double tap to ")
-        append(if (expanded) "collapse" else "expand")
-        append(".")
+        append(". ")
+        append(if (expanded) stringResource(R.string.trace_step_a11y_collapse) else stringResource(R.string.trace_step_a11y_expand))
     }
     Row(
         modifier = Modifier
@@ -390,7 +390,7 @@ private fun StepHeader(
                 fontWeight = FontWeight.Bold,
                 // Colour alone is not an accessible signal; "FAILED" is, and
                 // spelling it out here also puts it in the header description.
-                modifier = Modifier.semantics { stateDescription = "Contains a failure" },
+                modifier = Modifier.semantics { stateDescription = failureState },
             )
         }
         Icon(
