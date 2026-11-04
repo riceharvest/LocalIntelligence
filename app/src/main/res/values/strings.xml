@@ -7,4 +7,70 @@
          the launcher shows under the icon, so it is kept to one word. -->
     <string name="schedule_shortcut_short">Schedule</string>
     <string name="schedule_shortcut_long">Scheduled tasks</string>
+
+    <!-- Permission screen -->
+    <string name="permissions_title">Permissions</string>
+    <string name="back">Back</string>
+    <string name="all_set">All set</string>
+    <string name="allow_all">Allow all</string>
+    <string name="hide_other">Hide other</string>
+    <string name="open_settings">Open settings</string>
+    <string name="permission_needs_assistant_role">Only the default assistant app can use this. Make LocalIntelligence the default assistant first.</string>
+    <string name="set_as_default_assistant">Set as default assistant</string>
+    <string name="allow">Allow</string>
+    <string name="turn_it_on_in_settings">Turn it on in Android settings.</string>
+    <string name="open_app_settings">Open app settings</string>
+    <string name="on">On</string>
+    <string name="off">Off</string>
+    <string name="blocked">Blocked</string>
+    <string name="nothing_to_grant">Nothing to grant</string>
+    <string name="other">Other</string>
+    <plurals name="permissions_off">
+        <item quantity="one">%1$d permission is off</item>
+        <item quantity="other">%1$d permissions are off</item>
+    </plurals>
+
+    <!-- Permission entries -->
+    <string name="perm_default_assistant_app">Default assistant app</string>
+    <string name="perm_needed_before_texts_and_call_history_can_be_used">Needed before texts and call history can be used.</string>
+    <string name="perm_contacts">Contacts</string>
+    <string name="perm_look_up_names_and_numbers_when_you_ask">Look up names and numbers when you ask.</string>
+    <string name="perm_calendar_reading">Calendar, reading</string>
+    <string name="perm_check_your_schedule_when_you_ask">Check your schedule when you ask.</string>
+    <string name="perm_calendar_writing">Calendar, writing</string>
+    <string name="perm_add_events_when_you_ask">Add events when you ask.</string>
+    <string name="perm_texts_reading">Texts, reading</string>
+    <string name="perm_search_your_texts_when_you_ask">Search your texts when you ask.</string>
+    <string name="perm_texts_sending">Texts, sending</string>
+    <string name="perm_send_a_text_when_you_ask_after_you_confirm_it">Send a text when you ask, after you confirm it.</string>
+    <string name="perm_call_history">Call history</string>
+    <string name="perm_see_who_called_when_you_ask">See who called when you ask.</string>
+    <string name="perm_phone_calls">Phone calls</string>
+    <string name="perm_place_a_call_when_you_ask_after_you_confirm_it">Place a call when you ask, after you confirm it.</string>
+    <string name="perm_notifications">Notifications</string>
+    <string name="perm_tell_you_when_a_task_or_alarm_is_done">Tell you when a task or alarm is done.</string>
+    <string name="perm_already_on">Already on.</string>
+    <string name="perm_all_files">All files</string>
+    <string name="perm_lets_the_assistant_find_and_read_files_anywhere_on_the_phone">Lets the assistant find and read files anywhere on the phone.</string>
+    <string name="perm_notification_access">Notification access</string>
+    <string name="perm_read_and_reply_to_notifications_when_you_ask">Read and reply to notifications when you ask.</string>
+    <string name="perm_do_not_disturb">Do Not Disturb</string>
+    <string name="perm_change_do_not_disturb_when_you_ask">Change Do Not Disturb when you ask.</string>
+    <string name="perm_screen_brightness">Screen brightness</string>
+    <string name="perm_change_the_screen_brightness_when_you_ask">Change the screen brightness when you ask.</string>
+    <string name="perm_screen_time">Screen time</string>
+    <string name="perm_read_which_apps_you_use_most_when_you_ask">Read which apps you use most when you ask.</string>
+    <string name="perm_exact_alarms">Exact alarms</string>
+    <string name="perm_run_tasks_at_an_exact_time">Run tasks at an exact time.</string>
+    <string name="perm_your_documents">Your documents</string>
+    <string name="perm_share_a_file_to_the_app_to_use_it">Share a file to the app to use it.</string>
+    <string name="perm_your_documents_reading">Your documents, reading</string>
+    <string name="perm_read_documents_on_this_phone">Read documents on this phone.</string>
+    <string name="perm_your_documents_writing">Your documents, writing</string>
+    <string name="perm_save_files_on_this_phone">Save files on this phone.</string>
+    <string name="perm_clipboard_in_the_background">Clipboard in the background</string>
+    <string name="perm_read_the_clipboard_while_the_app_is_open">Read the clipboard while the app is open.</string>
+    <string name="perm_vibration">Vibration</string>
+    <string name="perm_always_on">Always on.</string>
+    <string name="perm_network">Network</string>
 </resources>
