@@ -83,8 +83,10 @@ object CoreSettings {
     )
 
     // ---- approvals ---------------------------------------------------------
-    // Not simple: Simple mode always asks, so an auto-accept chosen in Technical
-    // mode cannot keep running where the screen no longer shows it.
+    // Not simple: the Simple screen does not show these. Simple mode reads them as
+    // true from SimpleSetup.values, so its ordinary prompts are off by default and
+    // the phone's guards still apply. Technical mode reads the value the user stored
+    // there (default false), and switching modes never rewrites it.
 
     val AUTO_ACCEPT_DESTRUCTIVE = Toggle(
         "approvals.auto_destructive", "Run deletions without asking",
