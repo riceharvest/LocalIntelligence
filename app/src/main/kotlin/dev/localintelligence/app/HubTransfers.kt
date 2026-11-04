@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import android.content.Context
 import dev.localintelligence.core.hub.DownloadProgress
 import dev.localintelligence.core.hub.HubError
 import kotlinx.coroutines.CoroutineScope
@@ -29,6 +30,7 @@ import kotlinx.coroutines.launch
  * [transfer] instead of showing an idle screen.
  */
 class HubTransfers(
+    private val context: Context,
     private val start: () -> Unit,
     private val stop: (result: String?) -> Unit,
 ) {
@@ -94,9 +96,9 @@ class HubTransfers(
 
     /** The line for the result notification. A cancel the user asked for needs no notice. */
     private fun resultText(fileName: String, ended: DownloadProgress?): String? = when (ended) {
-        is DownloadProgress.Done -> "$fileName is downloaded. Open the app to use it."
+        is DownloadProgress.Done -> context.getString(R.string.hub_download_done, fileName)
         is DownloadProgress.Stopped ->
-            if (ended.error == HubError.Cancelled) null else "$fileName stopped. Open the app to resume it."
+            if (ended.error == HubError.Cancelled) null else context.getString(R.string.hub_download_stopped, fileName)
         else -> null
     }
 }

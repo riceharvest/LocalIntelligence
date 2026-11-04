@@ -483,7 +483,7 @@ class ExecutionService : Service() {
             var last = getString(R.string.notif_working_request)
             sinks.state.collect { state ->
                 val text = if (state is RunState.AwaitingApproval) {
-                    getString(R.string.waiting_for_your_ok) + state.description.ifBlank { state.toolName }
+                    getString(R.string.waiting_for_your_ok, state.description.ifBlank { state.toolName })
                 } else {
                     getString(R.string.notif_working_request)
                 }

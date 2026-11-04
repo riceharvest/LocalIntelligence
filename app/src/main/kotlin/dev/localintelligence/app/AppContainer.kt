@@ -2203,6 +2203,7 @@ class AppContainer(private val context: Context) {
      */
     val hubTransfers: HubTransfers by lazy {
         HubTransfers(
+            context = context,
             start = { DownloadService.start(context) },
             stop = { result -> DownloadService.stop(context, result) },
         )

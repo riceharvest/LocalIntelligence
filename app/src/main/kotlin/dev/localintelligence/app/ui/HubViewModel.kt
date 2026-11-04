@@ -186,7 +186,8 @@ data class HubUiState(
 
     /** The size label shown before starting. */
     fun sizeLabel(context: Context): String? = selected?.let { file ->
-        formatBytes(file.sizeBytes) + (projector?.let { context.getString(R.string.hub_size_with_photos, formatBytes(it.sizeBytes)) } ?: "")
+        projector?.let { context.getString(R.string.hub_size_with_photos, formatBytes(file.sizeBytes), formatBytes(it.sizeBytes)) }
+            ?: formatBytes(file.sizeBytes)
     }
 
     /**

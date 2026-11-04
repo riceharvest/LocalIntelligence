@@ -92,13 +92,7 @@ fun ScreenControlConsentDialog(
 
                 Text(stringResource(R.string.if_android_blocks_the_switch), style = MaterialTheme.typography.titleSmall)
                 Text(
-                    stringResource(R.string.some_installs_from_outside_google_play) +
-                        "services until you allow restricted settings. If that happens:\n" +
-                        "1. Open App info for LocalIntelligence.\n" +
-                        "2. Tap the ⋮ menu at the top right.\n" +
-                        "3. Tap Allow restricted settings.\n" +
-                        "4. Come back to Accessibility and turn on the service.\n" +
-                        stringResource(R.string.not_every_install_shows_this_step),
+                    stringResource(R.string.some_installs_from_outside_google_play),
                     style = MaterialTheme.typography.bodyMedium,
                 )
 
