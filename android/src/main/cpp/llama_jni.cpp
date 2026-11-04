@@ -68,6 +68,7 @@ static void log_to_logcat(enum ggml_log_level level, const char * text, void * /
 #include <mutex>
 #include <cmath>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <thread>
@@ -905,7 +906,7 @@ const char * kv_type_name(ggml_type type) {
 // The sequence speech runs on when the context has two (see nativeLoadModel).
 constexpr llama_seq_id kSpeechSeq = 1;
 
-constexpr char kAnchorFormat[] = "b11988-1";
+constexpr char kAnchorFormat[] = "b12110-1";
 // Below this the system prompt is cheap to prefill and not worth a file.
 constexpr int32_t kMinAnchorTokens = 64;
 // Anchor files kept on disk; the oldest go first.
@@ -1032,6 +1033,18 @@ void save_anchor(LlamaHandle * h, llama_context * ctx, const std::vector<llama_t
     if (saved) prune_anchor_files(h->prefix_dir);
     __android_log_print(ANDROID_LOG_INFO, "LocalLlama", "prefix anchor: kept %d system-prompt tokens (%.1f MiB)%s",
                         at, static_cast<double>(size) / (1024.0 * 1024.0), saved ? ", saved to disk" : "");
+}
+
+// llama.cpp v0.9.0 (b12110) switches on a fused "flash attention over K/V rows"
+// op by default for a unified cache, which is the cache a speech-capable model
+// gets (nativeLoadModel, outputs_max == 0). It is new on the decode path and
+// nothing here has measured it, so the JNI keeps the b11988 path: the env switch
+// is read only by the context constructor, so it is set for this one call.
+llama_context * init_context_without_kv_rows(llama_model * model, const llama_context_params & cparams) {
+    setenv("LLAMA_KV_ROWS_DISABLE", "1", 1);
+    llama_context * ctx = llama_init_from_model(model, cparams);
+    unsetenv("LLAMA_KV_ROWS_DISABLE");
+    return ctx;
 }
 
 }  // namespace
@@ -1212,7 +1225,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
         cparams.kv_unified = true;
     }
 
-    llama_context * ctx = llama_init_from_model(model, cparams);
+    llama_context * ctx = init_context_without_kv_rows(model, cparams);
     if (ctx == nullptr && kv_used != GGML_TYPE_F16) {
         // A quantised V cache needs flash attention, which an architecture or a backend may
         // not have. Try once more with f16 rather than failing the load.
@@ -1220,7 +1233,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
         kv_used = GGML_TYPE_F16;
         cparams.type_k = kv_used;
         cparams.type_v = kv_used;
-        ctx = llama_init_from_model(model, cparams);
+        ctx = init_context_without_kv_rows(model, cparams);
     }
     if (ctx == nullptr) {
         llama_model_free(model);

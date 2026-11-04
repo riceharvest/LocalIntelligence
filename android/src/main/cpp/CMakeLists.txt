@@ -206,7 +206,7 @@ set(PIDROID_LLAMA_DIR "" CACHE PATH "Path to a llama.cpp source checkout")
 # Changing this tag: also bump kAnchorFormat in llama_jni.cpp. Saved llama.cpp
 # states (the system prompt anchor, on disk) are only valid for the build that
 # wrote them, and the format string is part of their file key.
-set(PIDROID_LLAMA_TAG "b11988" CACHE STRING "llama.cpp git tag to build against" FORCE)
+set(PIDROID_LLAMA_TAG "b12110" CACHE STRING "llama.cpp git tag to build against" FORCE)
 # WHY FETCH IS THE DEFAULT, NOT OPT-IN: it used to be OFF, so a fresh
 # `git clone` followed by `./gradlew :app:assembleDebug` failed with
 # "llama.cpp sources not found" and the error told the user to run
