@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import android.content.Context
+import dev.localintelligence.app.R
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -183,8 +185,8 @@ data class HubUiState(
     val blocked: HubError? get() = plan?.reject
 
     /** The size label shown before starting. */
-    val sizeLabel: String? get() = selected?.let { file ->
-        formatBytes(file.sizeBytes) + (projector?.let { " + ${formatBytes(it.sizeBytes)} for photos" } ?: "")
+    fun sizeLabel(context: Context): String? = selected?.let { file ->
+        formatBytes(file.sizeBytes) + (projector?.let { context.getString(R.string.hub_size_with_photos, formatBytes(it.sizeBytes)) } ?: "")
     }
 
     /**
@@ -217,11 +219,35 @@ data class HubUiState(
      * "no speed is claimed" caveat are stated where they apply: the notice after
      * a finished download and the ViewModel's `adopt`.
      */
-    val nonGgufNotice: String? get() {
+    fun nonGgufNotice(context: Context): String? {
         if (nonGgufFiles.none { it.isLiteRtLm }) return null
-        return "No memory figure is shown: this screen reads GGUF headers, and a " +
-            ".litertlm has none."
+        return context.getString(R.string.hub_no_memory_figure)
     }
+}
+
+/**
+ * The Hub's words for a [HubError]. The core type carries English, so the app maps each case by
+ * its stable id and falls back to the core text for anything it does not name.
+ */
+internal fun hubErrorText(context: Context, error: HubError): String = when (error) {
+    is HubError.RepoNotFound -> context.getString(R.string.hub_err_repo_not_found, error.repo)
+    is HubError.FileNotFound -> context.getString(R.string.hub_err_file_not_found, error.file, error.repo)
+    is HubError.GatedRepo -> context.getString(R.string.hub_err_gated, error.repo)
+    is HubError.Unauthorized -> context.getString(R.string.hub_err_unauthorized, error.repo)
+    is HubError.RateLimited -> error.retryAfterSeconds?.let { context.getString(R.string.hub_err_rate_limited_seconds, it) }
+        ?: context.getString(R.string.hub_err_rate_limited)
+    is HubError.ServerUnavailable -> context.getString(R.string.hub_err_server, error.status)
+    is HubError.UnexpectedStatus -> context.getString(R.string.hub_err_unexpected_status, error.status)
+    HubError.NoNetwork -> context.getString(R.string.hub_err_no_network)
+    is HubError.ConnectionLost -> context.getString(R.string.hub_err_connection_lost)
+    is HubError.InsufficientStorage -> context.getString(
+        R.string.hub_err_insufficient_storage,
+        formatBytes(error.neededBytes),
+        formatBytes(error.availableBytes),
+    )
+    is HubError.ChecksumMismatch -> context.getString(R.string.hub_err_checksum, error.file)
+    is HubError.Cancelled -> context.getString(R.string.hub_err_cancelled)
+    is HubError.InvalidInput -> error.message
 }
 
 /**
@@ -267,12 +293,12 @@ data class NonGgufModelFile(
      * this is the same pattern as its `compiledFor` (case-insensitive, first
      * match), so the label and the backend's refusal read the name the same way.
      */
-    val npuLabel: String?
-        get() = NPU_COMPILED_FOR.find(fileName.lowercase())?.groupValues?.get(1)?.toIntOrNull()?.let { generation ->
+    fun npuLabel(context: Context): String? =
+        NPU_COMPILED_FOR.find(fileName.lowercase())?.groupValues?.get(1)?.toIntOrNull()?.let { generation ->
             if (generation == 5) {
-                "Runs on the Tensor G5 NPU (Pixel 10) only"
+                context.getString(R.string.hub_npu_tensor_g5)
             } else {
-                "Runs on the Tensor G$generation NPU only"
+                context.getString(R.string.hub_npu_generation, generation)
             }
         }
 
@@ -309,6 +335,7 @@ data class NonGgufModelFile(
  * user is choosing one model at a time. Starting a new one cancels the old.
  */
 class HubViewModel(
+    private val context: Context,
     private val client: HuggingFaceClient,
     private val downloader: ModelDownloader,
     private val budget: DeviceBudget,
@@ -537,9 +564,9 @@ class HubViewModel(
             _searchResults.value = hits.orEmpty()
             _showingPopular.value = false
             _searchNote.value = when {
-                tokenRejected -> "Hugging Face rejected the access token. Check it in Settings."
-                hits == null -> "Couldn't reach Hugging Face. Check the connection and try again."
-                hits.isEmpty() && query.isNotEmpty() -> "No models found for \u201c$query\u201d."
+                tokenRejected -> context.getString(R.string.hub_search_token_rejected)
+                hits == null -> context.getString(R.string.hub_search_unreachable)
+                hits.isEmpty() && query.isNotEmpty() -> context.getString(R.string.hub_search_no_models, query)
                 else -> null
             }
             if (openSingle && hits?.size == 1) pickSearchHit(hits.single())
@@ -589,7 +616,7 @@ class HubViewModel(
                 // Restricted: a repository is listed only for an allowed file, and the refusal
                 // comes before any request, so nothing is fetched for a model Simple mode does not offer.
                 if (restricted() && wantedFile?.let { allowed(parsed.repoId.id, it) } != true) {
-                    _state.update { it.copy(error = OTHER_MODELS_MESSAGE) }
+                    _state.update { it.copy(error = context.getString(R.string.hub_other_models_technical)) }
                     return
                 }
                 // WHY EVERY DOWNLOAD FIELD IS CLEARED HERE: `resolve` is also
@@ -662,7 +689,7 @@ class HubViewModel(
                                     // use") reads as "this repo is empty".
                                     loadable.isEmpty() && nonGguf.isNotEmpty() -> null
                                     loadable.isEmpty() ->
-                                        "That repository has no GGUF files this app can use."
+                                        context.getString(R.string.hub_repo_no_gguf)
                                     else -> null
                                 },
                                 files = loadable,
@@ -686,7 +713,7 @@ class HubViewModel(
                         _state.update {
                             it.copy(
                                 loading = false,
-                                error = (e as? HubError)?.message ?: "Could not reach HuggingFace.",
+                                error = (e as? HubError)?.let { hubErrorText(context, it) } ?: context.getString(R.string.hub_could_not_reach),
                                 files = emptyList(),
                                 nonGgufFiles = emptyList(),
                                 selected = null,
@@ -741,7 +768,7 @@ class HubViewModel(
     fun prefill(repo: String, fileName: String) {
         if (restricted() && !allowed(repo, fileName)) {
             pendingPrefill = null
-            _state.update { it.copy(error = OTHER_MODELS_MESSAGE) }
+            _state.update { it.copy(error = context.getString(R.string.hub_other_models_technical)) }
             return
         }
         pendingPrefill = fileName
@@ -799,7 +826,7 @@ class HubViewModel(
     /** Selects a specific quant and recomputes the plan for it. */
     fun select(file: HubGgufFile) {
         if (restricted() && !allowed(file.repo.id, file.path.pathInRepo)) {
-            _state.update { it.copy(error = OTHER_MODELS_MESSAGE) }
+            _state.update { it.copy(error = context.getString(R.string.hub_other_models_technical)) }
             return
         }
         selectJob?.cancel()
@@ -1000,7 +1027,7 @@ class HubViewModel(
         if (plan.reject != null) return
         // The projector that follows is from this same repository, so one check covers both files.
         if (restricted() && !allowed(file.repo.id, file.path.pathInRepo)) {
-            _state.update { it.copy(error = OTHER_MODELS_MESSAGE) }
+            _state.update { it.copy(error = context.getString(R.string.hub_other_models_technical)) }
             return
         }
         // A quant tap still probing must not change the selection under this download.
@@ -1140,7 +1167,7 @@ class HubViewModel(
     fun startNonGgufDownload(file: NonGgufModelFile) {
         if (file.sizeBytes <= 0L) return
         if (restricted() && !allowed(file.repo.id, file.path.pathInRepo)) {
-            _state.update { it.copy(error = OTHER_MODELS_MESSAGE) }
+            _state.update { it.copy(error = context.getString(R.string.hub_other_models_technical)) }
             return
         }
         val hubFile = file.toHubFile()
@@ -1175,7 +1202,7 @@ class HubViewModel(
                 )
             }
             plan.reject?.let { reject ->
-                _state.update { it.copy(downloading = false, downloadJob = null, error = reject.message) }
+                _state.update { it.copy(downloading = false, downloadJob = null, error = hubErrorText(context, reject)) }
                 return@launch
             }
             if (onDisk) {
@@ -1274,7 +1301,7 @@ class HubViewModel(
         val local = downloader.localFileFor(file)
         if (!local.isFile) {
             return DownloadedModelRegistrar.Registered(
-                "Downloaded, but the file is not where the app looks for models.",
+                context.getString(R.string.hub_downloaded_not_where),
                 chatReady = false,
             )
         }
@@ -1283,7 +1310,7 @@ class HubViewModel(
         // the file was saved but did not load, so "Open Models to load it" would
         // point the user at a file that is not usable there.
         // The file is listed in Models even so (adoptDownloaded adds it before loading).
-        return DownloadedModelRegistrar.Registered(COULD_NOT_START, chatReady = false)
+        return DownloadedModelRegistrar.Registered(context.getString(R.string.hub_downloaded_wont_start), chatReady = false)
     }
 
     /**
@@ -1330,12 +1357,6 @@ class HubViewModel(
     }
 
     companion object {
-        /** What the Hub says when a download is on disk and listed but did not load. */
-        const val COULD_NOT_START = "Downloaded, but it couldn't start. Try a smaller version."
-
-        /** What a Play build's Simple mode says when asked for a model it does not offer. */
-        const val OTHER_MODELS_MESSAGE = "Other models are in Technical mode (Settings)."
-
         /**
          * Only the fallback when no resolver is wired: 4096, the context the app's
          * tool-using agent needs for a system prompt, a tool result and a reply. The app

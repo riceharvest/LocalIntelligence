@@ -37,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -102,6 +103,7 @@ fun HubScreen(
     /** The models a restricted screen offers as cards, the phone's suggestion first. */
     recommended: List<SimpleSetup.RecommendedModel> = emptyList(),
 ) {
+    val hubContext = LocalContext.current
     // The ViewModel re-checks the restriction against what it last saw, so this is safe on every
     // composition and on rotation; it is what drops a listing the new mode does not allow.
     LaunchedEffect(restricted) { viewModel.onRestrictionChanged() }
@@ -361,7 +363,7 @@ fun HubScreen(
         // is worse than no row, so these get their own block: the real file
         // name, the real byte size (a fact about the server's bytes, not a
         // memory estimate), and the reason the app cannot fetch it.
-        state.nonGgufNotice?.takeIf { technical }?.let { notice ->
+        state.nonGgufNotice(hubContext)?.takeIf { technical }?.let { notice ->
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -405,7 +407,7 @@ fun HubScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = FontFamily.Monospace,
                             )
-                            file.npuLabel?.let { label ->
+                            file.npuLabel(LocalContext.current)?.let { label ->
                                 Text(text = label, style = MaterialTheme.typography.bodySmall)
                             }
                             if (fit == LiteRtFit.Hidden) {
@@ -449,7 +451,7 @@ fun HubScreen(
             }
         }
 
-        if (!technical && state.files.isEmpty() && state.nonGgufNotice != null) {
+        if (!technical && state.files.isEmpty() && state.nonGgufNotice(hubContext) != null) {
             item {
                 Text(
                     stringResource(R.string.no_models_in_this_repository_can_run_on),
@@ -547,11 +549,11 @@ fun HubScreen(
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                note ?: HubViewModel.COULD_NOT_START,
+                                note ?: stringResource(R.string.hub_downloaded_wont_start),
                                 color = MaterialTheme.colorScheme.primary,
                                 style = MaterialTheme.typography.bodyMedium,
                             )
-                            if (note == null || note == HubViewModel.COULD_NOT_START) {
+                            if (note == null || note == stringResource(R.string.hub_downloaded_wont_start)) {
                                 Button(onClick = onOpenModels) { Text(stringResource(R.string.go_to_models)) }
                             }
                         }
@@ -593,7 +595,7 @@ fun HubScreen(
                                 if (state.resumable) {
                                     stringResource(R.string.resume_download)
                                 } else {
-                                    "Download${state.sizeLabel?.let { " ($it)" } ?: ""}"
+                                    "Download${state.sizeLabel(LocalContext.current)?.let { " ($it)" } ?: ""}"
                                 },
                             )
                         }
@@ -658,7 +660,7 @@ fun HubScreen(
                                 // full size next to it would be a second
                                 // overstatement on the same button.
                                 state.resumable -> stringResource(R.string.resume_download)
-                                else -> "Download${state.sizeLabel?.let { " ($it)" } ?: ""}"
+                                else -> "Download${state.sizeLabel(LocalContext.current)?.let { " ($it)" } ?: ""}"
                             },
                         )
                     }

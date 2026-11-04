@@ -2229,6 +2229,7 @@ class AppContainer(private val context: Context) {
     fun newHubViewModel(
         registrar: DownloadedModelRegistrar = DownloadedModelRegistrar.NONE,
     ): HubViewModel = HubViewModel(
+        context = context,
         client = hubClient,
         downloader = hubDownloader,
         budget = hubBudget,
