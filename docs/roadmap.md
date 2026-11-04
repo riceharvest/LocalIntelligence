@@ -9,6 +9,8 @@ box says so rather than staying green.
 
 ## Status in one paragraph
 
+**Update 2026-11-04:** the v1 scope is set. See "Before public release (v1.0)" and "After v1" below. The paragraph that follows is the older status and still holds: no device observation exists.
+
 The agent loop, the tool registry, the llama.cpp backend, the LiteRT-LM backend,
 Room persistence, the Hugging Face download, and the Compose UI are all written
 and **compile**. The app assembles into an installable debug APK.
@@ -79,10 +81,12 @@ deleted suite.
 [x] Context compaction
 [x] Loop detection wired into the loop
 [x] Permission policy + confirmation UX
-[x] 25 Android tools (see below)
+[x] 32 built-in Android tools (see below)
 [x] Model manager (import GGUF, RAM fit estimate, context size)
 [x] Debug trace view
-[ ] Lexical tool selection tuned against a real eval
+[-] Lexical tool selection tuned against a real eval. Replaced: the model now loads
+    tools from a listing in `tools.find` and every enabled tool is callable [#255].
+    Whether that helps is still unmeasured.
 [ ] Remaining tools
 ```
 
@@ -124,11 +128,11 @@ real Android APIs through the agent loop.
 [ ] Benchmark both against the same task list
 ```
 
-The second item is **not done and cannot currently be done**: there is no
-task list runner, and LiteRT-LM has no model it can load. See
-[`acceleration.md`](acceleration.md) — there is no GGUF-to-`.litertlm`
-converter, so a user must hand-place a `.litertlm` file, and no such file has
-been run on a device.
+The second item is **not done**: there is no task list runner. Since this
+section was written the app can load a `.litertlm` file (download from the in-app
+hub [#78], file picker [#96]) and has a Tensor G5 NPU path for Gemma 4 E2B [#69],
+but no such file has been run on a device. There is still no GGUF-to-`.litertlm`
+converter; see [`acceleration.md`](acceleration.md).
 
 ---
 
@@ -157,8 +161,8 @@ observation behind it.
 [?] runs completely offline        by design; unverified on a device
 [?] streams responses              implemented; unverified on a device
 [?] constrained tool calls work    implemented; unverified end to end
-[?] 15+ Android operations         25 exist; none verified on a device
-[?] runtime selects relevant tools implemented; no eval to show it helps
+[?] 15+ Android operations         32 exist; none verified on a device
+[?] runtime selects relevant tools implemented (tools.find listing, #255); no eval to show it helps
 [?] confirmation for risky actions implemented; unverified
 [?] session persistence            implemented; unverified
 [?] durable memory                 implemented; unverified
@@ -185,7 +189,7 @@ light.** A small core with capabilities added on demand, in the spirit of pi;
 a companion that remembers and grows, in the spirit of Hermes Agent, without
 Hermes's 64K-context harness.
 
-Compared against, as of 2026-10-29:
+Compared against, as of 2026-10-29 (re-checked with sources 2026-11-04, see "Before public release"):
 
 | App | Why it is on the list |
 |---|---|
@@ -263,15 +267,17 @@ Open:
 [?] external plugins as sandboxed scripts (DeepSeek Harness style); see
       architecture.md §18b "Script plugins"                                 [#97]
 [?] document search with embeddings (EmbeddingGemma 2) next to BM25, hybrid ranking  [#100]
-[ ] Simple mode: offer the EmbeddingGemma 2 download (0.31 GB) with one tap when the first
-      document is added (today it comes from the hub)
+[?] Simple mode: one-tap EmbeddingGemma 2 download (0.31 GB) without the hub                 [#262]
 [?] wake word: "Hey <assistant name>" with sherpa-onnx open-vocabulary keyword spotting,
       off by default. The keyword encoding must run in the app for any name; if it can't,
       use one fixed phrase. Android 14+ won't start a microphone service from the
-      background, so after a reboot listening resumes when the app is next opened [#?]
-[ ] `full` build, installed outside Play from GitHub Releases: screen control through
-      Accessibility (docs/adr/0002)
-[ ] privacy policy page on GitHub Pages (Play needs one for any release)
+      background, so after a reboot listening resumes when the app is next opened   [#263]
+[?] `play` and `full` product flavors (full: own package id `.full`, side by side)    [#259]
+[?] all-files access in the full build (`MANAGE_EXTERNAL_STORAGE`)                   [#261]
+[ ] full build: screen control through Accessibility (docs/adr/0002, 0003). IN PROGRESS.
+[?] privacy policy draft in `docs/privacy.html`                                      [#260]
+[ ] privacy policy hosted at a public URL (GitHub Pages is not enabled yet, checked
+      2026-11-04) with the developer name and contact filled in
 [?] .litertlm through the file picker, copied into app storage                       [#96]
 [?] video.status for long OpenRouter video jobs                                      [#96]
 ```
@@ -359,6 +365,244 @@ Gemma 4 E4B (8B total, too large).
 
 ---
 
+## Before public release (v1.0)
+
+Written 2026-11-04. Nothing in this section has been run on a device. Items marked
+must block the release or would get it rejected; should clearly hurts it. Every
+rule quoted from Google was read on the page named in brackets on that date.
+
+### Where we stand against the competitors
+
+Features below are from each project's own page. A competitor feature is listed only
+where a page says it.
+
+| App | Features that matter for v1 | Source |
+|---|---|---|
+| AnythingLLM Mobile | default assistant; asking about the screen; cited answers from web and files; recurring tasks; a "fit badge" per model; fork and retry a reply; automatic thread names; reasoning shown; export PDF, Markdown, JSON, text; pairs with its desktop app; GPLv3 | https://anythingllm.com/mobile |
+| Google AI Edge Gallery | Agent Skills loaded from a URL; speech in and out; Ask Image; Audio Scribe (transcribe recordings); search-as-you-type over photos; Prompt Lab; benchmark; FunctionGemma "Mobile Actions" | https://github.com/google-ai-edge/gallery |
+| Google AI Edge Gallery releases | 1.0.21 (28 Oct): speech in and out, longer chats with context management, live inference metrics; 1.0.20: EmbeddingGemma 2, media search; 1.0.19: session restore after interruption | https://github.com/google-ai-edge/gallery/releases |
+| Google AI Edge Gallery, older notes (APKMirror mirror, not Google) | 1.0.13 Gemma 4 multi-token prediction for faster decoding; 1.0.15 experimental MCP, reminders, calendar | https://www.apkmirror.com/apk/research-at-google/google-ai-edge-gallery/google-ai-edge-gallery-1-0-15-release/ and https://www.apkmirror.com/apk/research-at-google/google-ai-edge-gallery/google-ai-edge-gallery-1-0-13-release/ |
+| PocketPal AI | personas ("Pals") and a Pals hub; Whisper dictation; neural voices; calculator, date/time, opt-in web search; Hugging Face search incl. gated models; benchmark; CPU, GPU and Qualcomm Hexagon NPU paths; 16 languages; paid one-time "Plus" for hands-free voice | https://github.com/a-ghorbani/pocketpal-ai |
+| Off Grid | on-device Stable Diffusion; vision; Whisper; tool calling (web search, calculator, device info, knowledge base); PDF/CSV knowledge base; LAN model servers; per-model eject and three memory policies; 3 parallel pausable downloads; Pro tier $119 once or $7.99 a month (voice, personas with memory, draft-then-approve calendar, email and MCP actions, phone-Mac sync) | https://github.com/alichherawalla/off-grid-mobile |
+| Operit | screen control by Accessibility, Shizuku or root; Ubuntu terminal; visual workflows triggered by schedule, Tasker, intents or voice; per-tool Allow / Ask / Deny; MNN and llama.cpp local models; v1.12.0 on 2026-07-01 | https://github.com/AAswordman/Operit |
+| MNN Chat | text, image and audio input; diffusion image generation; MNN engine claimed faster than llama.cpp on Android CPUs (their claim, not measured by us) | https://github.com/alibaba/MNN/blob/master/apps/Android/MnnLlmChat/README.md |
+| ToolNeuron (MIT) | OpenAI-style HTTP server on the phone with bearer auth; RAG over PDF, DOCX, EPUB, CSV, Markdown; PIN lock; plugin store; on-device image generation; says it has no tool calling | https://github.com/Siddhesh2377/ToolNeuron |
+
+What we have that none of these pages claim together: grammar-constrained tool calls
+on any GGUF, 32 built-in tools plus Home Assistant, email, Telegram and MCP, per-tier
+approval with unattended runs, and no telemetry. All of it is unrun on a device.
+
+Gaps a user hits in the first five minutes, found by reading our chat source (no
+regenerate, retry, edit or fork of a reply, and no reasoning display, in `ChatScreen`
+or `ChatViewModel`; a search of the source, not a device check):
+
+```
+[ ] retry / regenerate the last reply, and edit the last message   (AnythingLLM, PocketPal)
+[ ] show the model's reasoning, folded                             (AnythingLLM, Off Grid)
+[ ] per-model "will it fit" badge in the model list                (AnythingLLM)  RAM-fit
+      estimate exists [#73]; a one-word badge in the list is the gap
+```
+
+### Must
+
+```
+[ ] Device pass. The vertical slice, then the Model test plan, on the Pixel 10 Pro,
+      using the RELEASE builds (minified), not debug. R8 breaking JNI or reflection is a
+      classic crash that a debug run never shows. Both flavors.
+[ ] Release signing. No signing config exists in app/build.gradle.kts today. Make an
+      upload key for the Play build (Play App Signing) and a separate key for the
+      full build (ADR 0002). Back both up; losing the full key strands every installed copy.
+      Produce an AAB for Play. versionCode is 1 and versionName 0.1.0 today.
+[ ] Run .github/scripts/check-16k-alignment.sh on the release AAB/APK before each upload
+      (Play needs 16 KB alignment for apps targeting Android 15+; the script exists
+      [#259 era] but no workflow runs it, and the roadmap rule is no CI workflows, so
+      it is a manual step in the release script).
+[ ] Target API: already 36. New apps and updates must target API 36 from 2026-08-31
+      [https://developer.android.com/google/play/requirements/target-sdk].
+[ ] Privacy policy at a public URL (enable GitHub Pages for docs/), developer name and
+      contact filled in, the same name as the Play listing. Link it from Settings, About
+      (no link exists in the app today; grep of app/src found none) and from the Play listing.
+      Play needs it for the Data safety form even when nothing is collected
+      [https://support.google.com/googleplay/android-developer/answer/10787469].
+[ ] Play developer account and closed testing. For a personal account created after
+      2023-11-13: at least 12 testers opted in continuously for 14 days, then "Apply for
+      production" with a description of the test; review takes about 7 days
+      [https://support.google.com/googleplay/android-developer/answer/14151465].
+      This is the longest wait (about 3 weeks). Start the closed test as soon as one
+      release build passes the device pass; it can run beside the Model test plan.
+[ ] Data safety form. Required even for an app that collects nothing. On-device
+      processing is not collection; data sent to a provider the user turned on is
+      (declare it, with the user-initiated exemptions read from the same page). The
+      form covers the Play build as shipped, so decide first whether Extras and the
+      Billing library count while Extras is hidden.
+[ ] SMS and call log declaration. READ_SMS, SEND_SMS, READ_CALL_LOG are restricted; the
+      default Assistant handler is a permitted use, subject to Play review, and needs the
+      Permissions Declaration Form
+      [https://support.google.com/googleplay/android-developer/answer/10208820].
+      The app asks for them only while it holds the assistant role (ADR 0002). Give the
+      reviewers steps to set it as default assistant. Keep a fallback: a Play build
+      without these permissions, if the form is refused.
+[ ] Foreground service declarations (Android 14+): one per type used (dataSync,
+      microphone; check shortService), each with the functionality, the impact of being
+      interrupted, and a video of the user starting it in the app. Automatic or
+      background behavior does not count as the video
+      [https://support.google.com/googleplay/android-developer/answer/13392821].
+      The wake word service is the one to film: switch it on in Settings, then show the
+      notification.
+[ ] Store listing. Icon 512x512 PNG, feature graphic 1024x500, at least 2 screenshots
+      (4 at 1080 px or more are needed for large-format recommendations), short description
+      80 characters at most
+      [https://support.google.com/googleplay/android-developer/answer/9866151].
+      Also: content rating questionnaire, target audience (not directed at children, as
+      the privacy page says), ads: none, contact email, category.
+[ ] Generative AI policy. Apps with a chatbot as a central feature must not generate
+      offensive content [https://support.google.com/googleplay/android-developer/answer/14094294].
+      The app downloads any Hugging Face GGUF, including uncensored ones. Decision for the
+      owner: in the Play build, does Simple mode offer only the recommended models, and does
+      the Hub stay in Technical mode? I did not find an in-app reporting rule on that page;
+      verify in Play Console before submitting.
+[ ] Full build release. Signed APK on GitHub Releases, a tag, a SHA-256 file and release
+      notes. There are no GitHub Releases yet (checked 2026-11-04).
+[ ] Android developer verification for the full build. Apps installed outside Play must
+      be registered to a verified developer: user protection started 2026-09-30 in Brazil,
+      Indonesia, Singapore and Thailand and goes global in 2027. A developer who
+      distributes only outside Play registers in the Android Developer Console; one who
+      also uses Play can register through Play Console. Register the `.full` package id
+      with the full signing key. Limited-distribution accounts cover up to 20 devices
+      without ID or fee
+      [https://developer.android.com/developer-verification]. Fees and documents are not
+      on that page; the owner has to read the Guides and FAQ.
+[ ] Screen control finished for the full build with the ADR 0003 guards, and its
+      Accessibility prominent disclosure and consent screen in place. (In progress.)
+      Play's accessibility rule bans autonomous action, so this stays out of the Play build
+      [https://support.google.com/googleplay/android-developer/answer/10964491].
+```
+
+### Should
+
+```
+[ ] First-run check on a clean install, both flavors: Simple mode, one tap, first
+      answer, with no key. Time it from install; record it as the first number in
+      docs/measurements.md.
+[ ] Crash and ANR handling without third-party analytics. On Play installs Android
+      vitals already reports crashes to the owner with no SDK. For the full build, and
+      for hangs: an uncaught-exception handler that writes a local file, and a Settings
+      button "Share last crash report" through the Android share sheet, filled from
+      ApplicationExitInfo (API 30+). Nothing is sent unless the user shares it. No such
+      handler exists today (grep).
+[ ] Update path for the full build. Document Obtainium or manual download in the README for
+      v1. An in-app "Check for updates" button, asking first, is v1.1.
+[ ] Accessibility of the app's own UI: TalkBack pass on Chat, Models, Settings and the
+      approval card; 17 of 68 `contentDescription` in app/src are null, check each is
+      decorative; touch targets of 48 dp; large font scale. Play's pre-launch report
+      (runs on the closed-test upload) will also flag these.
+[ ] Move user-visible strings out of Kotlin into resources. strings.xml has 4 entries
+      and the source has 178 `Text("...")` calls. English-only is acceptable for v1; doing
+      the move now is cheap and every later string makes it dearer.
+[ ] Dutch UI is not a v1 blocker. Play lists apps in English with no UI translation, and
+      the Model test plan has no Dutch task. Do the Dutch store listing (text only) at
+      launch, the Dutch UI in v1.1. How well LFM3-1.7B answers in Dutch is unmeasured:
+      add three Dutch tasks to the Model test plan.
+[ ] Retry/regenerate, edit last message, folded reasoning, fit badge (see gaps above).
+[ ] Confirm which Android permissions need a Play declaration: SCHEDULE_EXACT_ALARM,
+      PACKAGE_USAGE_STATS, WRITE_SETTINGS, ACCESS_NOTIFICATION_POLICY and notification
+      access. Google's list
+      [https://support.google.com/googleplay/android-developer/answer/9888170] does not
+      name the last four, so check Policy status after the first upload.
+[ ] Full build onboarding for sideloaders: Android may block enabling an Accessibility
+      service for an app installed from outside a store until "Allow restricted
+      settings" is turned on in App info. Not verified here; check on the Pixel and put
+      the steps in the screen-control setup screen.
+```
+
+### What the owner has to do for v1.0
+
+```
+[ ] Play Console developer account (fee, identity), and choose the developer name
+[ ] recruit 12 closed testers and keep them opted in 14 days
+[ ] privacy page: developer name and contact email
+[ ] decide the Play-build model policy (see Generative AI policy)
+[ ] Android Developer Console account for the full build; read the fee and ID rules
+[ ] create and back up the two signing keys
+[ ] screenshots, icon and feature graphic approval; content rating answers
+[ ] run the device pass and film the two declaration videos (wake word, assistant role)
+```
+
+---
+
+## After v1
+
+Ordered by user value per engineering effort, within each phase. Engineering and
+owner to-dos are kept apart. Effort is a guess, not a measurement.
+
+### v1.1: the first weeks of feedback
+
+Engineering:
+
+```
+[ ] Dutch UI (needs the string move from "Before public release")
+[ ] "Check for updates" in the full build: a button, asks first, reads the GitHub
+      Releases API; no background check
+[ ] Local crash report share, if not done for v1
+[ ] Per-model load policy and eject, from Off Grid's Lean / Balanced / Aggressive
+[ ] Fixes from the Play pre-launch report and the closed test
+[ ] Intent and Tasker triggers for scheduled tasks, from Operit's workflows. Small:
+      a broadcast receiver that starts an unattended run
+[ ] Audio file transcription, from Edge Gallery's Audio Scribe, with LFM3-Audio from the
+      Model test plan if it passes
+```
+
+Needs from the owner: Dutch review of the translation; which fixes first.
+
+### v1.2: Extras go-live
+
+The to-dos are already listed under "Extras" above; they stay the source of truth.
+Added here:
+
+```
+[ ] Pub/Sub OIDC check, the default model id and monthly limits, the rename of the
+      "Use the cloud model for chat" switch (engineering)
+[ ] Data safety form update: Extras sends the Play purchase token and an install id to
+      our server. Update privacy.html and the form together.
+```
+
+Needs from the owner: the accounts and secrets, OpenRouter's and Exa's written answers,
+the Play product and price, and a payments profile. Price anchor: Off Grid Pro is $7.99
+a month or $119 once (page above). Do not set the price before the cost per customer
+is measured.
+
+### v1.3: speed and depth
+
+```
+[ ] Speculative or multi-token-prediction decoding where llama.cpp supports it. Edge
+      Gallery 1.0.13 added Gemma 4 MTP for faster decoding (APKMirror notes). Measure
+      decode tokens/s before and after with the in-app speed test; keep it only if it wins.
+[ ] Image search by text over the photo library (Edge Gallery "Instant Media Search"
+      with EmbeddingGemma 2 is the same family; image embeddings are a different
+      model, so this is medium effort)
+[ ] Personas ("Pals" in PocketPal, personas in Off Grid Pro): an About-you variant per chat
+[ ] More document types (DOCX, EPUB) next to PDF/txt/md/csv, from ToolNeuron
+[ ] App lock with a PIN or biometrics (ToolNeuron)
+```
+
+Needs from the owner: a second phone class (Snapdragon) before any Hexagon work.
+
+### v2: larger bets
+
+```
+[ ] Qualcomm Hexagon NPU path (PocketPal and Off Grid ship one; Off Grid calls it
+      experimental, Q4_0 and Q8_0 only). Needs a Snapdragon test phone.
+[ ] A local OpenAI-style server so other apps on the phone use the loaded model
+      (ToolNeuron). Needs a threat-model entry (T-number) first.
+[ ] Pairing and sync with a desktop or home server (AnythingLLM Desktop)
+[ ] Screen control hardening in the full build, from the first real-world reports
+```
+
+Still not chased, unchanged from above: Linux terminal, Shizuku, on-device image
+generation, multi-character group chat, visual workflow builder.
+
+---
+
 ## Explicitly deferred
 
 **v0.2+** — only after the baseline works:
@@ -383,9 +627,10 @@ multi-agent         browser automation on the phone
 - **ADK (Agent Development Kit).** Deliberately excluded. The loop here is a
   `while` loop with constructor-injected dependencies. There is no planner node,
   no critic, no reflection pass, no subagent dispatch, and none is planned.
-- **NPU / TPU acceleration.** Not a deferral — it is *unreachable*. LiteRT-LM
-  0.13.1 ships no NPU library and no `Backend.GOOGLE_TENSOR`. The GPU path is
-  OpenCL. See [`acceleration.md`](acceleration.md).
+- **NPU acceleration beyond Gemma 4 E2B on Tensor.** The Tensor G5 path exists
+  [#69] (LiteRT-LM 0.17.1) but is unrun on a device, and LFM3 on the NPU was dropped
+  2026-11-04. The older text here (LiteRT-LM 0.13.1, "unreachable") is superseded.
+  See [`acceleration.md`](acceleration.md).
 
 ---
 
