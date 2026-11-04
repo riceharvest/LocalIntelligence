@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.platform.LocalContext
+import android.content.Context
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
 import androidx.compose.foundation.background
@@ -110,7 +112,7 @@ fun TraceView(
         // exactly the runs that matter it was not: the error lives in the run
         // state, not in a trace row, so the transcript was pointing at a screen
         // that did not have it. One line, from the same state, closes both.
-        traceVerdict(runState)?.let { verdict ->
+        traceVerdict(LocalContext.current, runState)?.let { verdict ->
             Text(
                 text = verdict,
                 style = MaterialTheme.typography.bodyMedium,
@@ -158,7 +160,7 @@ private fun TraceRunCaption(runState: RunState?) {
         RunState.LoadingModel, RunState.Running ->
             stringResource(R.string.showing_the_previous_run_this_run_s_4)
         is RunState.AwaitingApproval ->
-            "Waiting for your approval. Steps so far are below."
+            stringResource(R.string.trace_waiting_for_approval)
         is RunState.Finished -> stringResource(R.string.the_most_recent_run)
     }
     Text(
@@ -188,9 +190,9 @@ private fun TraceRunCaption(runState: RunState?) {
 private const val RAW_MODEL_FAILURE = "model failed: "
 
 /** The reason a run failed, with the backend's raw error string removed. */
-internal fun safeFailureReason(reason: String): String =
+internal fun safeFailureReason(context: Context, reason: String): String =
     if (reason.startsWith(RAW_MODEL_FAILURE)) {
-        "The model stopped before it could answer."
+        context.getString(R.string.trace_model_stopped)
     } else {
         reason
     }
@@ -203,10 +205,10 @@ internal fun safeFailureReason(reason: String): String =
  * here — the transcript already shows the answer — and adding a line for them
  * would be noise on a debug screen.
  */
-internal fun traceVerdict(runState: RunState?): String? {
+internal fun traceVerdict(context: Context, runState: RunState?): String? {
     val outcome = (runState as? RunState.Finished)?.outcome ?: return null
     if (outcome !is RunOutcome.Failed) return null
-    return "That run failed: ${safeFailureReason(outcome.reason)}"
+    return context.getString(R.string.trace_run_failed, safeFailureReason(context, outcome.reason))
 }
 
 /**
@@ -227,41 +229,32 @@ internal fun traceVerdict(runState: RunState?): String? {
  * appear as soon as it does", which describes a live tail this build does not
  * have, and sent the user back to a screen that stayed empty.
  */
-internal fun traceEmptyMessage(runState: RunState?): String = when (runState) {
-    null, RunState.Idle -> "No trace yet. Send a message to see the steps."
+internal fun traceEmptyMessage(context: Context, runState: RunState?): String = when (runState) {
+    null, RunState.Idle -> context.getString(R.string.trace_no_trace_yet)
 
-    RunState.LoadingModel ->
-        "Still running. Steps appear when it finishes."
+    RunState.LoadingModel, RunState.Running -> context.getString(R.string.trace_still_running)
 
-    RunState.Running ->
-        "Still running. Steps appear when it finishes."
-
-    is RunState.AwaitingApproval ->
-        "Waiting for your approval. Steps so far are below."
+    is RunState.AwaitingApproval -> context.getString(R.string.trace_waiting_for_approval)
 
     is RunState.Finished -> when (val outcome = runState.outcome) {
-        is RunOutcome.Answer ->
-            "That run finished without recording any steps."
+        is RunOutcome.Answer -> context.getString(R.string.trace_finished_no_steps)
 
-        is RunOutcome.Cancelled ->
-            "You stopped that run before it recorded a step."
+        is RunOutcome.Cancelled -> context.getString(R.string.trace_cancelled_no_steps)
 
-        RunOutcome.StepLimitReached ->
-            "That run used all of its steps without recording a trace."
+        RunOutcome.StepLimitReached -> context.getString(R.string.trace_step_limit)
 
+        // Naming the reason is the entire value of this screen. A generic
+        // "no trace" here would send a developer hunting for a bug that the
+        // transcript has already explained.
         is RunOutcome.Failed ->
-            // Naming the reason is the entire value of this screen. A generic
-            // "no trace" here would send a developer hunting for a bug that the
-            // transcript has already explained.
-            "That run failed before recording a step: " +
-                safeFailureReason(outcome.reason)
+            context.getString(R.string.trace_failed_before_step, safeFailureReason(context, outcome.reason))
     }
 }
 
 @Composable
 private fun TraceEmptyState(runState: RunState?, modifier: Modifier) {
     Text(
-        text = traceEmptyMessage(runState),
+        text = traceEmptyMessage(LocalContext.current, runState),
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier.padding(16.dp),
@@ -317,16 +310,16 @@ private fun TraceSummary(trace: List<StepTrace>) {
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        SummaryCell("Steps", trace.maxOf { it.step }.toString())
-        SummaryCell("Tools", "$okCalls ok / $failedCalls failed")
+        SummaryCell(stringResource(R.string.trace_steps), trace.maxOf { it.step }.toString())
+        SummaryCell(stringResource(R.string.trace_tools), stringResource(R.string.trace_tools_value, okCalls, failedCalls))
         if (malformed > 0) {
             // Broken out rather than folded into the tool count, because it is a
             // different failure with a different fix: the model emitted something
             // the parser would not accept, which is a prompt or grammar problem,
             // not a phone problem.
-            SummaryCell("Unreadable", malformed.toString())
+            SummaryCell(stringResource(R.string.trace_unreadable), malformed.toString())
         }
-        SummaryCell("Time", formatMs(trace.sumOf { it.durationMs }))
+        SummaryCell(stringResource(R.string.trace_time), formatMs(trace.sumOf { it.durationMs }))
     }
 }
 
@@ -420,7 +413,7 @@ private fun TraceRow(row: StepTrace) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = kindLabel(row.kind),
+                text = kindLabel(LocalContext.current, row.kind),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = tint,
@@ -446,12 +439,12 @@ private fun TraceRow(row: StepTrace) {
     }
 }
 
-private fun kindLabel(kind: StepTrace.Kind): String = when (kind) {
-    StepTrace.Kind.GENERATION -> "Model output"
-    StepTrace.Kind.TOOL_CALL -> "Tool call"
-    StepTrace.Kind.OBSERVATION -> "Result"
-    StepTrace.Kind.MALFORMED -> "Unreadable"
-    StepTrace.Kind.COMPACTION -> "Shortened"
+private fun kindLabel(context: Context, kind: StepTrace.Kind): String = when (kind) {
+    StepTrace.Kind.GENERATION -> context.getString(R.string.trace_kind_model_output)
+    StepTrace.Kind.TOOL_CALL -> context.getString(R.string.trace_kind_tool_call)
+    StepTrace.Kind.OBSERVATION -> context.getString(R.string.trace_kind_result)
+    StepTrace.Kind.MALFORMED -> context.getString(R.string.trace_unreadable)
+    StepTrace.Kind.COMPACTION -> context.getString(R.string.trace_kind_shortened)
 }
 
 @Composable

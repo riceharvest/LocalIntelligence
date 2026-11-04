@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui.components
 
+import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
 import android.provider.Settings
@@ -159,7 +160,7 @@ fun RunningToolRow(
     ToolRow(
         toolName = tool.toolName,
         state = ToolRowState.Running,
-        summary = "Running",
+        summary = stringResource(R.string.tool_running),
         durationMs = 0,
         expanded = null,
         onToggle = {},
@@ -717,19 +718,23 @@ internal fun stateOf(step: ChatMessage.ToolStep): ToolRowState = when {
     else -> ToolRowState.Failed
 }
 
+@Composable
 private fun summaryOf(step: ChatMessage.ToolStep, state: ToolRowState): String = when (state) {
-    ToolRowState.Refused -> firstLine(step.detail).ifBlank { "Not run" }
-    ToolRowState.Failed -> firstLine(step.observation.orEmpty()).ifBlank { "Failed" }
-    ToolRowState.Done -> firstLine(step.observation.orEmpty()).ifBlank { "Done" }
-    ToolRowState.Awaiting -> "Waiting for your approval"
-    ToolRowState.Running -> "Running"
+    ToolRowState.Refused -> firstLine(step.detail).ifBlank { stringResource(R.string.tool_not_run) }
+    ToolRowState.Failed -> firstLine(step.observation.orEmpty()).ifBlank { stringResource(R.string.tool_failed) }
+    ToolRowState.Done -> firstLine(step.observation.orEmpty()).ifBlank { stringResource(R.string.tool_done) }
+    ToolRowState.Awaiting -> stringResource(R.string.tool_waiting_for_approval)
+    ToolRowState.Running -> stringResource(R.string.tool_running)
 }
 
 private fun firstLine(text: String): String =
     text.lineSequence().firstOrNull().orEmpty().trim().take(120)
 
 /** "Checking battery" while it runs, "Checked battery" after, "check battery" in "Couldn't check battery". */
-private class ToolVerb(val present: String, val past: String, val base: String)
+private class ToolVerb(@StringRes val present: Int, @StringRes val past: Int, @StringRes val base: Int)
+
+/** A verb phrase in the phone's language, ready to show. */
+private class ResolvedVerb(val present: String, val past: String, val base: String)
 
 /**
  * Tool name to a verb phrase. A tool missing from this map (a script plugin's
@@ -737,87 +742,96 @@ private class ToolVerb(val present: String, val past: String, val base: String)
  * never shows a raw `family.name` id.
  */
 private val toolVerbs: Map<String, ToolVerb> = mapOf(
-    "device.battery" to ToolVerb("Checking battery", "Checked battery", "check the battery"),
-    "device.info" to ToolVerb("Reading device info", "Read device info", "read device info"),
-    "device.open_settings" to ToolVerb("Opening settings", "Opened settings", "open settings"),
-    "device.vibrate" to ToolVerb("Vibrating phone", "Vibrated phone", "vibrate the phone"),
-    "files.delete" to ToolVerb("Deleting file", "Deleted file", "delete a file"),
-    "files.list" to ToolVerb("Listing files", "Listed files", "list files"),
-    "files.read_text" to ToolVerb("Reading file", "Read file", "read a file"),
-    "files.search" to ToolVerb("Searching files", "Searched files", "search files"),
-    "files.write_text" to ToolVerb("Writing file", "Wrote file", "write a file"),
-    "apps.list" to ToolVerb("Listing apps", "Listed apps", "list apps"),
-    "apps.open" to ToolVerb("Opening app", "Opened app", "open an app"),
-    "apps.share" to ToolVerb("Sharing", "Shared", "share"),
-    "clipboard.read" to ToolVerb("Reading clipboard", "Read clipboard", "read the clipboard"),
-    "clipboard.write" to ToolVerb("Copying to clipboard", "Copied to clipboard", "copy to the clipboard"),
-    "alarm.create" to ToolVerb("Setting alarm", "Set alarm", "set an alarm"),
-    "alarm.list" to ToolVerb("Listing alarms", "Listed alarms", "list alarms"),
-    "alarm.cancel" to ToolVerb("Cancelling alarm", "Cancelled alarm", "cancel an alarm"),
-    "timer.set" to ToolVerb("Setting timer", "Set timer", "set a timer"),
-    "calendar.create" to ToolVerb("Adding calendar event", "Added calendar event", "add a calendar event"),
-    "calendar.search" to ToolVerb("Searching calendar", "Searched calendar", "search the calendar"),
-    "contacts.get" to ToolVerb("Reading contact", "Read contact", "read a contact"),
-    "contacts.search" to ToolVerb("Searching contacts", "Searched contacts", "search contacts"),
-    "notifications.list" to ToolVerb("Reading notifications", "Read notifications", "read notifications"),
-    "notifications.dismiss" to ToolVerb("Dismissing notification", "Dismissed notification", "dismiss a notification"),
-    "notifications.reply" to ToolVerb("Replying", "Replied", "reply"),
-    "email.draft" to ToolVerb("Drafting email", "Drafted email", "draft an email"),
-    "message.draft" to ToolVerb("Drafting message", "Drafted message", "draft a message"),
-    "sms.search" to ToolVerb("Searching texts", "Searched texts", "search texts"),
-    "sms.send" to ToolVerb("Sending text", "Sent text", "send a text"),
-    "calls.recent" to ToolVerb("Reading recent calls", "Read recent calls", "read recent calls"),
-    "phone.call" to ToolVerb("Calling someone", "Called someone", "call someone"),
-    "phone.dnd" to ToolVerb("Changing Do Not Disturb", "Changed Do Not Disturb", "change Do Not Disturb"),
-    "phone.brightness" to ToolVerb("Changing brightness", "Changed brightness", "change the brightness"),
-    "device.screen_time" to ToolVerb("Reading screen time", "Read screen time", "read screen time"),
-    "location.get" to ToolVerb("Checking location", "Checked location", "check your location"),
-    "web.fetch" to ToolVerb("Opening page", "Opened page", "open a web page"),
-    "web.search" to ToolVerb("Searching the web", "Searched the web", "search the web"),
-    "documents.search" to ToolVerb("Searching your documents", "Searched your documents", "search your documents"),
-    "history.search" to ToolVerb("Searching past chats", "Searched past chats", "search past chats"),
-    "tools.find" to ToolVerb("Looking up tools", "Looked up tools", "look up tools"),
-    "observations.read" to ToolVerb("Reading saved result", "Read saved result", "read a saved result"),
-    "image.generate" to ToolVerb("Creating image", "Created image", "create an image"),
-    "video.generate" to ToolVerb("Creating video", "Started video", "create a video"),
-    "video.status" to ToolVerb("Checking video", "Checked video", "check the video"),
-    "contacts.add" to ToolVerb("Adding contact", "Added contact", "add a contact"),
-    "phone.dial" to ToolVerb("Opening the dialer", "Opened the dialer", "open the dialer"),
-    "phone.flashlight" to ToolVerb("Switching the flashlight", "Switched the flashlight", "switch the flashlight"),
-    "phone.media" to ToolVerb("Controlling media", "Controlled media", "control the playing media"),
-    "phone.volume" to ToolVerb("Changing volume", "Changed volume", "change the volume"),
-    "maps.navigate" to ToolVerb("Starting directions", "Started directions", "start directions"),
-    "maps.show" to ToolVerb("Showing on the map", "Showed on the map", "show a place on the map"),
-    "places.search" to ToolVerb("Finding a place", "Found a place", "find a place"),
-    "weather.get" to ToolVerb("Checking the weather", "Checked the weather", "check the weather"),
-    "wiki.search" to ToolVerb("Searching Wikipedia", "Searched Wikipedia", "search Wikipedia"),
-    "email.search" to ToolVerb("Searching email", "Searched email", "search your email"),
-    "email.read" to ToolVerb("Reading email", "Read email", "read an email"),
-    "email.send" to ToolVerb("Sending email", "Sent email", "send an email"),
-    "home.devices" to ToolVerb("Finding home devices", "Found home devices", "find home devices"),
-    "home.control" to ToolVerb("Controlling a home device", "Controlled a home device", "control a home device"),
-    "home.secure" to ToolVerb("Changing a lock or door", "Changed a lock or door", "change a lock or door"),
-    "sandbox.run" to ToolVerb("Running a command", "Ran a command", "run a command on your cloud computer"),
-    "sandbox.read_file" to ToolVerb("Reading a cloud file", "Read a cloud file", "read a file on your cloud computer"),
-    "sandbox.write_file" to ToolVerb("Writing a cloud file", "Wrote a cloud file", "write a file on your cloud computer"),
-    "browser.task" to ToolVerb("Browsing for you", "Browsed for you", "browse the web for you"),
-    "browser.status" to ToolVerb("Checking the browser task", "Checked the browser task", "check the browser task"),
+    "device.battery" to ToolVerb(R.string.tool_verb_device_battery_present, R.string.tool_verb_device_battery_past, R.string.tool_verb_device_battery_base),
+    "device.info" to ToolVerb(R.string.tool_verb_device_info_present, R.string.tool_verb_device_info_past, R.string.tool_verb_device_info_base),
+    "device.open_settings" to ToolVerb(R.string.tool_verb_device_open_settings_present, R.string.tool_verb_device_open_settings_past, R.string.tool_verb_device_open_settings_base),
+    "device.vibrate" to ToolVerb(R.string.tool_verb_device_vibrate_present, R.string.tool_verb_device_vibrate_past, R.string.tool_verb_device_vibrate_base),
+    "files.delete" to ToolVerb(R.string.tool_verb_files_delete_present, R.string.tool_verb_files_delete_past, R.string.tool_verb_files_delete_base),
+    "files.list" to ToolVerb(R.string.tool_verb_files_list_present, R.string.tool_verb_files_list_past, R.string.tool_verb_files_list_base),
+    "files.read_text" to ToolVerb(R.string.tool_verb_files_read_text_present, R.string.tool_verb_files_read_text_past, R.string.tool_verb_files_read_text_base),
+    "files.search" to ToolVerb(R.string.tool_verb_files_search_present, R.string.tool_verb_files_search_past, R.string.tool_verb_files_search_base),
+    "files.write_text" to ToolVerb(R.string.tool_verb_files_write_text_present, R.string.tool_verb_files_write_text_past, R.string.tool_verb_files_write_text_base),
+    "apps.list" to ToolVerb(R.string.tool_verb_apps_list_present, R.string.tool_verb_apps_list_past, R.string.tool_verb_apps_list_base),
+    "apps.open" to ToolVerb(R.string.tool_verb_apps_open_present, R.string.tool_verb_apps_open_past, R.string.tool_verb_apps_open_base),
+    "apps.share" to ToolVerb(R.string.tool_verb_apps_share_present, R.string.tool_verb_apps_share_past, R.string.tool_verb_apps_share_base),
+    "clipboard.read" to ToolVerb(R.string.tool_verb_clipboard_read_present, R.string.tool_verb_clipboard_read_past, R.string.tool_verb_clipboard_read_base),
+    "clipboard.write" to ToolVerb(R.string.tool_verb_clipboard_write_present, R.string.tool_verb_clipboard_write_past, R.string.tool_verb_clipboard_write_base),
+    "alarm.create" to ToolVerb(R.string.tool_verb_alarm_create_present, R.string.tool_verb_alarm_create_past, R.string.tool_verb_alarm_create_base),
+    "alarm.list" to ToolVerb(R.string.tool_verb_alarm_list_present, R.string.tool_verb_alarm_list_past, R.string.tool_verb_alarm_list_base),
+    "alarm.cancel" to ToolVerb(R.string.tool_verb_alarm_cancel_present, R.string.tool_verb_alarm_cancel_past, R.string.tool_verb_alarm_cancel_base),
+    "timer.set" to ToolVerb(R.string.tool_verb_timer_set_present, R.string.tool_verb_timer_set_past, R.string.tool_verb_timer_set_base),
+    "calendar.create" to ToolVerb(R.string.tool_verb_calendar_create_present, R.string.tool_verb_calendar_create_past, R.string.tool_verb_calendar_create_base),
+    "calendar.search" to ToolVerb(R.string.tool_verb_calendar_search_present, R.string.tool_verb_calendar_search_past, R.string.tool_verb_calendar_search_base),
+    "contacts.get" to ToolVerb(R.string.tool_verb_contacts_get_present, R.string.tool_verb_contacts_get_past, R.string.tool_verb_contacts_get_base),
+    "contacts.search" to ToolVerb(R.string.tool_verb_contacts_search_present, R.string.tool_verb_contacts_search_past, R.string.tool_verb_contacts_search_base),
+    "notifications.list" to ToolVerb(R.string.tool_verb_notifications_list_present, R.string.tool_verb_notifications_list_past, R.string.tool_verb_notifications_list_base),
+    "notifications.dismiss" to ToolVerb(R.string.tool_verb_notifications_dismiss_present, R.string.tool_verb_notifications_dismiss_past, R.string.tool_verb_notifications_dismiss_base),
+    "notifications.reply" to ToolVerb(R.string.tool_verb_notifications_reply_present, R.string.tool_verb_notifications_reply_past, R.string.tool_verb_notifications_reply_base),
+    "email.draft" to ToolVerb(R.string.tool_verb_email_draft_present, R.string.tool_verb_email_draft_past, R.string.tool_verb_email_draft_base),
+    "message.draft" to ToolVerb(R.string.tool_verb_message_draft_present, R.string.tool_verb_message_draft_past, R.string.tool_verb_message_draft_base),
+    "sms.search" to ToolVerb(R.string.tool_verb_sms_search_present, R.string.tool_verb_sms_search_past, R.string.tool_verb_sms_search_base),
+    "sms.send" to ToolVerb(R.string.tool_verb_sms_send_present, R.string.tool_verb_sms_send_past, R.string.tool_verb_sms_send_base),
+    "calls.recent" to ToolVerb(R.string.tool_verb_calls_recent_present, R.string.tool_verb_calls_recent_past, R.string.tool_verb_calls_recent_base),
+    "phone.call" to ToolVerb(R.string.tool_verb_phone_call_present, R.string.tool_verb_phone_call_past, R.string.tool_verb_phone_call_base),
+    "phone.dnd" to ToolVerb(R.string.tool_verb_phone_dnd_present, R.string.tool_verb_phone_dnd_past, R.string.tool_verb_phone_dnd_base),
+    "phone.brightness" to ToolVerb(R.string.tool_verb_phone_brightness_present, R.string.tool_verb_phone_brightness_past, R.string.tool_verb_phone_brightness_base),
+    "device.screen_time" to ToolVerb(R.string.tool_verb_device_screen_time_present, R.string.tool_verb_device_screen_time_past, R.string.tool_verb_device_screen_time_base),
+    "location.get" to ToolVerb(R.string.tool_verb_location_get_present, R.string.tool_verb_location_get_past, R.string.tool_verb_location_get_base),
+    "web.fetch" to ToolVerb(R.string.tool_verb_web_fetch_present, R.string.tool_verb_web_fetch_past, R.string.tool_verb_web_fetch_base),
+    "web.search" to ToolVerb(R.string.tool_verb_web_search_present, R.string.tool_verb_web_search_past, R.string.tool_verb_web_search_base),
+    "documents.search" to ToolVerb(R.string.tool_verb_documents_search_present, R.string.tool_verb_documents_search_past, R.string.tool_verb_documents_search_base),
+    "history.search" to ToolVerb(R.string.tool_verb_history_search_present, R.string.tool_verb_history_search_past, R.string.tool_verb_history_search_base),
+    "tools.find" to ToolVerb(R.string.tool_verb_tools_find_present, R.string.tool_verb_tools_find_past, R.string.tool_verb_tools_find_base),
+    "observations.read" to ToolVerb(R.string.tool_verb_observations_read_present, R.string.tool_verb_observations_read_past, R.string.tool_verb_observations_read_base),
+    "image.generate" to ToolVerb(R.string.tool_verb_image_generate_present, R.string.tool_verb_image_generate_past, R.string.tool_verb_image_generate_base),
+    "video.generate" to ToolVerb(R.string.tool_verb_video_generate_present, R.string.tool_verb_video_generate_past, R.string.tool_verb_video_generate_base),
+    "video.status" to ToolVerb(R.string.tool_verb_video_status_present, R.string.tool_verb_video_status_past, R.string.tool_verb_video_status_base),
+    "contacts.add" to ToolVerb(R.string.tool_verb_contacts_add_present, R.string.tool_verb_contacts_add_past, R.string.tool_verb_contacts_add_base),
+    "phone.dial" to ToolVerb(R.string.tool_verb_phone_dial_present, R.string.tool_verb_phone_dial_past, R.string.tool_verb_phone_dial_base),
+    "phone.flashlight" to ToolVerb(R.string.tool_verb_phone_flashlight_present, R.string.tool_verb_phone_flashlight_past, R.string.tool_verb_phone_flashlight_base),
+    "phone.media" to ToolVerb(R.string.tool_verb_phone_media_present, R.string.tool_verb_phone_media_past, R.string.tool_verb_phone_media_base),
+    "phone.volume" to ToolVerb(R.string.tool_verb_phone_volume_present, R.string.tool_verb_phone_volume_past, R.string.tool_verb_phone_volume_base),
+    "maps.navigate" to ToolVerb(R.string.tool_verb_maps_navigate_present, R.string.tool_verb_maps_navigate_past, R.string.tool_verb_maps_navigate_base),
+    "maps.show" to ToolVerb(R.string.tool_verb_maps_show_present, R.string.tool_verb_maps_show_past, R.string.tool_verb_maps_show_base),
+    "places.search" to ToolVerb(R.string.tool_verb_places_search_present, R.string.tool_verb_places_search_past, R.string.tool_verb_places_search_base),
+    "weather.get" to ToolVerb(R.string.tool_verb_weather_get_present, R.string.tool_verb_weather_get_past, R.string.tool_verb_weather_get_base),
+    "wiki.search" to ToolVerb(R.string.tool_verb_wiki_search_present, R.string.tool_verb_wiki_search_past, R.string.tool_verb_wiki_search_base),
+    "email.search" to ToolVerb(R.string.tool_verb_email_search_present, R.string.tool_verb_email_search_past, R.string.tool_verb_email_search_base),
+    "email.read" to ToolVerb(R.string.tool_verb_email_read_present, R.string.tool_verb_email_read_past, R.string.tool_verb_email_read_base),
+    "email.send" to ToolVerb(R.string.tool_verb_email_send_present, R.string.tool_verb_email_send_past, R.string.tool_verb_email_send_base),
+    "home.devices" to ToolVerb(R.string.tool_verb_home_devices_present, R.string.tool_verb_home_devices_past, R.string.tool_verb_home_devices_base),
+    "home.control" to ToolVerb(R.string.tool_verb_home_control_present, R.string.tool_verb_home_control_past, R.string.tool_verb_home_control_base),
+    "home.secure" to ToolVerb(R.string.tool_verb_home_secure_present, R.string.tool_verb_home_secure_past, R.string.tool_verb_home_secure_base),
+    "sandbox.run" to ToolVerb(R.string.tool_verb_sandbox_run_present, R.string.tool_verb_sandbox_run_past, R.string.tool_verb_sandbox_run_base),
+    "sandbox.read_file" to ToolVerb(R.string.tool_verb_sandbox_read_file_present, R.string.tool_verb_sandbox_read_file_past, R.string.tool_verb_sandbox_read_file_base),
+    "sandbox.write_file" to ToolVerb(R.string.tool_verb_sandbox_write_file_present, R.string.tool_verb_sandbox_write_file_past, R.string.tool_verb_sandbox_write_file_base),
+    "browser.task" to ToolVerb(R.string.tool_verb_browser_task_present, R.string.tool_verb_browser_task_past, R.string.tool_verb_browser_task_base),
+    "browser.status" to ToolVerb(R.string.tool_verb_browser_status_present, R.string.tool_verb_browser_status_past, R.string.tool_verb_browser_status_base),
 )
 
-private fun verbFor(toolName: String): ToolVerb = toolVerbs[toolName] ?: run {
-    // "script.word_count.count_words" -> "Count words"
-    val words = toolName.substringAfterLast('.').replace('_', ' ').trim().ifEmpty { "use a tool" }
-    val phrase = words.replaceFirstChar { it.uppercaseChar() }
-    ToolVerb(phrase, phrase, words)
+@Composable
+private fun verbFor(toolName: String): ResolvedVerb {
+    val verb = toolVerbs[toolName] ?: run {
+        // "script.word_count.count_words" -> "Count words". Not translated: the name is the tool's own.
+        val words = toolName.substringAfterLast('.').replace('_', ' ').trim().ifEmpty { "use a tool" }
+        val phrase = words.replaceFirstChar { it.uppercaseChar() }
+        return ResolvedVerb(phrase, phrase, words)
+    }
+    return ResolvedVerb(stringResource(verb.present), stringResource(verb.past), stringResource(verb.base))
 }
 
 /** "Delete a file?" for the approval question, from the verb's base form. */
+@Composable
 internal fun approvalQuestion(toolName: String): String =
     verbFor(toolName).base.replaceFirstChar { it.uppercaseChar() } + "?"
 
 /** "You allowed: delete a file" in the transcript after an approval. */
+@Composable
 private fun approvalRecord(toolName: String, approved: Boolean): String =
-    (if (approved) "You allowed: " else "You didn't allow: ") + verbFor(toolName).base
+    stringResource(
+        if (approved) R.string.tool_you_allowed else R.string.tool_you_didnt_allow,
+        verbFor(toolName).base,
+    )
 
 /** The mark by tool family: the part of the name before the first dot. */
 private fun markFor(toolName: String): ImageVector =

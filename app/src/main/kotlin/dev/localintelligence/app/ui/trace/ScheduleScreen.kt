@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui.trace
 
+import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
@@ -286,7 +287,7 @@ private fun ScheduleForm(
                 FilterChip(
                     selected = choice == cadence,
                     onClick = { cadence = choice },
-                    label = { Text(choice.label) },
+                    label = { Text(stringResource(choice.label)) },
                 )
             }
         }
@@ -305,11 +306,11 @@ private fun ScheduleForm(
 }
 
 /** What a recurring task supports, and nothing more. */
-private enum class CadenceChoice(val label: String, val cadence: TaskCadence) {
-    EveryHour("Every hour", TaskCadence.EveryMinutes(60)),
-    Every15Minutes("Every 15 min", TaskCadence.EveryMinutes(15)),
-    DailyAtMorning("Daily 08:00", TaskCadence.DailyAt(8, 0)),
-    DailyAtEvening("Daily 18:00", TaskCadence.DailyAt(18, 0)),
+private enum class CadenceChoice(@StringRes val label: Int, val cadence: TaskCadence) {
+    EveryHour(R.string.cadence_every_hour, TaskCadence.EveryMinutes(60)),
+    Every15Minutes(R.string.cadence_every_15_min, TaskCadence.EveryMinutes(15)),
+    DailyAtMorning(R.string.cadence_daily_0800, TaskCadence.DailyAt(8, 0)),
+    DailyAtEvening(R.string.cadence_daily_1800, TaskCadence.DailyAt(18, 0)),
 }
 
 /**
@@ -686,9 +687,10 @@ private fun ScheduleNotice(notice: String) {
  * "Fix" next to a data type is how a data class ends up carrying a translation
  * key.
  */
+@Composable
 private fun TaskAction.label(): String = when (this) {
-    TaskAction.OpenModels -> "Open models"
-    TaskAction.OpenNotificationAccess -> "Allow notification access"
-    TaskAction.OpenBatterySettings -> "Battery settings"
-    TaskAction.OpenExactAlarmSettings -> "Allow alarms"
+    TaskAction.OpenModels -> stringResource(R.string.task_action_open_models)
+    TaskAction.OpenNotificationAccess -> stringResource(R.string.task_action_notification_access)
+    TaskAction.OpenBatterySettings -> stringResource(R.string.task_action_battery_settings)
+    TaskAction.OpenExactAlarmSettings -> stringResource(R.string.task_action_exact_alarm)
 }

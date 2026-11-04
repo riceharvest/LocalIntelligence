@@ -113,7 +113,7 @@ fun RedactionScreen(
 
             Section(title = stringResource(R.string.what_it_does_not_do)) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HONEST_LIMITS.forEach { line ->
+                    honestLimits().forEach { line ->
                         Text(line, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
@@ -205,18 +205,14 @@ private fun Section(title: String, content: @Composable () -> Unit) {
  * get back. Every clause names a case that gets through, because the failure
  * this guards against is a user who believes the filter is complete.
  */
-private val HONEST_LIMITS = listOf(
-    "This is a best-effort filter, not a guarantee. It does not cover the following.",
-    "Text you type or paste into the chat box. The model sees it and this filter does not run on it. " +
-        "It is your own text, so you can see and delete it, but it is the most likely way a secret gets into a chat.",
-    "A secret with no recognisable shape, such as a password written as ordinary words or a photo of one. " +
-        "Anything that does not match one of the shapes above passes through untouched.",
-    "A one-time code on its own. Codes are only caught next to a word like \"code\" or \"OTP\", " +
-        "because a bare six-digit number can also be a price or a timestamp.",
-    "What the model writes back. If it repeats a secret in its answer, you see the answer as it was written.",
-    "What the model works out by itself. Hiding strings does not hide meaning, so it can still reason about " +
-        "the rest of a partly masked table.",
-    "Anything already saved. Conversations and memories from an earlier version of the app are not rewritten.",
-    "The filter runs when a tool reads something, such as the clipboard, a file you hand it or a page it fetches. " +
-        "It cannot protect a secret you never gave the app.",
+@Composable
+private fun honestLimits(): List<String> = listOf(
+        stringResource(R.string.redaction_limit_1),
+        stringResource(R.string.redaction_limit_2),
+        stringResource(R.string.redaction_limit_3),
+        stringResource(R.string.redaction_limit_4),
+        stringResource(R.string.redaction_limit_5),
+        stringResource(R.string.redaction_limit_6),
+        stringResource(R.string.redaction_limit_7),
+        stringResource(R.string.redaction_limit_8),
 )

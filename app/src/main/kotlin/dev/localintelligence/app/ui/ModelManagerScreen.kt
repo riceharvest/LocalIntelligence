@@ -222,7 +222,7 @@ fun ModelManagerScreen(
     var copying by remember { mutableStateOf<Pair<String, Pair<Long, Long>>?>(null) }
 
     // What the spinner row says: "Checking file…" for an import or scan, "Loading model…" for Use.
-    var busyLabel by remember { mutableStateOf("Checking file…") }
+    var busyLabel by remember { mutableStateOf(context.getString(R.string.checking_file)) }
     var menuOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -243,7 +243,7 @@ fun ModelManagerScreen(
         }
         importError = null
         scanNotice = null
-        busyLabel = "Checking file…"
+        busyLabel = context.getString(R.string.checking_file)
         busy = true
         scope.launch {
             // The container is sniffed before `onImport`, because `onImport` reads a
@@ -266,7 +266,7 @@ fun ModelManagerScreen(
                         }
                     } catch (e: java.io.IOException) {
                         Log.w("ModelManager", "Copying $name failed", e)
-                        importError = "Couldn't add \"$name\". Check there is enough free space and try again."
+                        importError = context.getString(R.string.couldnt_add_name, name)
                         null
                     } finally {
                         copying = null
@@ -329,16 +329,14 @@ fun ModelManagerScreen(
                                     enabled = !busy,
                                     onClick = {
                                         menuOpen = false
-                                        busyLabel = "Checking file…"
+                                        busyLabel = context.getString(R.string.checking_file)
                                         busy = true
                                         importError = null
                                         scope.launch {
                                             runCatching { scan() }
                                                 .onFailure { importError = describeLoadFailure(it) }
                                                 .onSuccess {
-                                                    scanNotice = "Scanned this app's own storage for " +
-                                                        "GGUF files. Anything found is now in the " +
-                                                        "list."
+                                                    scanNotice = context.getString(R.string.scan_notice)
                                                 }
                                             busy = false
                                         }
@@ -479,7 +477,7 @@ fun ModelManagerScreen(
                             onListModels = onListRemoteModels,
                             onPickModel = onPickRemoteModel,
                             onUse = {
-                                busyLabel = "Loading model…"
+                                busyLabel = context.getString(R.string.loading_model)
                                 busy = true
                                 importError = null
                                 scanNotice = null
@@ -507,20 +505,20 @@ fun ModelManagerScreen(
                         isLoaded = model.uri.toString() == loadedModelUri,
                         onEject = onEjectModel?.let { eject ->
                             {
-                                busyLabel = "Ejecting…"
+                                busyLabel = context.getString(R.string.ejecting_model)
                                 busy = true
                                 importError = null
                                 scanNotice = null
                                 scope.launch {
                                     val ejected = runCatching { eject() }.getOrDefault(false)
-                                    if (!ejected) importError = "The model can't be ejected while a task is running."
+                                    if (!ejected) importError = context.getString(R.string.model_cannot_be_ejected)
                                     busy = false
                                 }
                             }
                         },
                         onUse = onUseModel?.let { use ->
                             {
-                                busyLabel = "Loading model…"
+                                busyLabel = context.getString(R.string.loading_model)
                                 busy = true
                                 importError = null
                                 scanNotice = null
@@ -615,13 +613,13 @@ private fun ImportErrorBanner(message: String, onDismiss: () -> Unit) {
  * with less than the band's comfortable headroom is "Tight", since its margin is inside
  * the estimate's measured error.
  */
-private fun fitLabel(totalBytes: Long, fits: Boolean): String {
-    if (!fits) return "Too big"
+private fun fitLabel(context: Context, totalBytes: Long, fits: Boolean): String {
+    if (!fits) return context.getString(R.string.fit_too_big)
     val usable = RamEstimate.usableDeviceBytes()
     val headroom = if (totalBytes <= 0L) 0.0 else (usable - totalBytes).toDouble() / totalBytes.toDouble()
     return when (FitGate.MarginBand.of(headroom)) {
-        FitGate.MarginBand.CONFIDENT -> "Fits"
-        FitGate.MarginBand.TIGHT, FitGate.MarginBand.MARGINAL -> "Tight"
+        FitGate.MarginBand.CONFIDENT -> context.getString(R.string.fit_fits)
+        FitGate.MarginBand.TIGHT, FitGate.MarginBand.MARGINAL -> context.getString(R.string.fit_tight)
     }
 }
 
@@ -657,7 +655,7 @@ private fun ModelRow(
     // is why it is still shown — as its own line, labelled, below.
     val totalBytes = model.estimate.totalBytes(loadContext)
     val fits = model.fitsOnDevice(loadContext)
-    val fitWord = fitLabel(totalBytes, fits)
+    val fitWord = fitLabel(context, totalBytes, fits)
 
     // The model in use gets its own container colour, so the row that answers the chat
     // is the one that stands out.
@@ -684,7 +682,7 @@ private fun ModelRow(
                         listOfNotNull(
                             model.quantType,
                             model.architecture,
-                            model.parameterCount?.let { "${formatParams(it)} params" },
+                            model.parameterCount?.let { context.getString(R.string.params_count, formatParams(it)) },
                         ).joinToString(" · ")
                     } else {
                         model.parameterCount?.let { formatParams(it) }.orEmpty()
@@ -738,22 +736,22 @@ private fun ModelRow(
                 // arithmetic on that number plus the header, and the card says so
                 // once, here, instead of leaving four confident figures looking
                 // equally solid.
-                FactLine("On disk (measured)", formatBytes(model.fileSizeBytes))
-                FactLine("Weights, estimated", formatBytes(model.estimate.weightBytes))
-                FactLine("RAM at load (estimated)", formatBytes(totalBytes))
-                FactLine("Fit", fitWord)
+                FactLine(stringResource(R.string.fact_on_disk_measured), formatBytes(model.fileSizeBytes))
+                FactLine(stringResource(R.string.fact_weights_estimated), formatBytes(model.estimate.weightBytes))
+                FactLine(stringResource(R.string.fact_ram_at_load), formatBytes(totalBytes))
+                FactLine(stringResource(R.string.fact_fit), fitWord)
                 // A LiteRT-LM file does not expose its KV geometry, so the line is
                 // omitted rather than shown as 0 B, which would read as a claim.
                 model.estimate.kvBytes(loadContext)?.let { kv ->
                     FactLine("  of which KV cache", formatBytes(kv))
                 }
-                FactLine("Context at load", "$loadContext tokens")
+                FactLine(stringResource(R.string.fact_context_at_load), stringResource(R.string.fact_tokens, loadContext))
                 model.trainedContextLength?.let { trained ->
                     // The trained length is a property of the file, and it is NOT
                     // what this app will use. Shown because it is genuinely useful
                     // to know the model is capable of more, labelled so that it is
                     // never read as the size of the cache about to be allocated.
-                    FactLine("Model's own max context", "$trained tokens (not used)")
+                    FactLine(stringResource(R.string.fact_model_max_context), stringResource(R.string.fact_tokens_not_used, trained))
                 }
                 // The disclaimer the numbers above need: nothing has been profiled
                 // on a phone, so every RAM number is arithmetic on the file size and
@@ -766,7 +764,7 @@ private fun ModelRow(
             }
 
             if (technical && !model.hasChatTemplate) {
-                FactLine("Chat template", "missing — tool calls will be unreliable")
+                FactLine(stringResource(R.string.fact_chat_template), stringResource(R.string.fact_chat_template_missing))
             }
 
             if (!fits) {
@@ -804,7 +802,7 @@ private fun ModelRow(
             // so offer the real one from the provider when it disagrees.
             val resolved = remember(model.uri) { displayNameOf(context, model.uri) }
             if (technical && resolved != null && resolved != model.displayName) {
-                FactLine("File", resolved)
+                FactLine(stringResource(R.string.fact_file), resolved)
             }
 
             // The speed test sits under the resident model only: it measures the
@@ -839,6 +837,7 @@ private fun RemoteChatCard(
     onPickModel: ((String) -> Unit)?,
     onUse: () -> Unit,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var listing by remember { mutableStateOf(false) }
     var listed by remember { mutableStateOf<List<String>?>(null) }
@@ -849,7 +848,7 @@ private fun RemoteChatCard(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                text = "${offer.providerLabel}: ${offer.model.ifBlank { "no model chosen" }}",
+                text = "${offer.providerLabel}: ${offer.model.ifBlank { context.getString(R.string.no_model_chosen) }}",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -878,7 +877,7 @@ private fun RemoteChatCard(
                                 .onSuccess { listed = it }
                                 .onFailure {
                                     listed = null
-                                    listError = "Could not list models. ${it.message.orEmpty().take(120)}"
+                                    listError = context.getString(R.string.could_not_list_models, it.message.orEmpty().take(120))
                                 }
                             listing = false
                         }

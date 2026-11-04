@@ -256,7 +256,7 @@ fun ChatScreen(
     ) { granted ->
         val resume = whenMicGranted
         whenMicGranted = null
-        if (granted) resume?.invoke() else viewModel.showNotice("Microphone access is needed for voice input.")
+        if (granted) resume?.invoke() else viewModel.showNotice(context.getString(R.string.microphone_access_needed))
     }
     // The system photo picker needs no permission, and returns only the file the user chose.
     val pickPicture = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -310,7 +310,7 @@ fun ChatScreen(
     val onHandsFree: () -> Unit = {
         when {
             handsFreeOn -> viewModel.stopHandsFree()
-            dictating || voiceSeconds != null -> viewModel.showNotice("Finish the voice input first.")
+            dictating || voiceSeconds != null -> viewModel.showNotice(context.getString(R.string.finish_the_voice_input_first))
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED -> viewModel.startHandsFree()
             else -> {
@@ -323,7 +323,7 @@ fun ChatScreen(
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP && viewModel.handsFree.value.phase != HandsFreePhase.Off) {
-                viewModel.stopHandsFree("Hands-free stopped because the app went to the background.")
+                viewModel.stopHandsFree(context.getString(R.string.hands_free_stopped_in_background))
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -334,7 +334,7 @@ fun ChatScreen(
             if (canReadAudio) {
                 viewModel.startVoiceClip()
             } else if (!dictation.start(input) { viewModel.onInputChange(it) }) {
-                viewModel.showNotice("Speech recognition is not available on this phone.")
+                viewModel.showNotice(context.getString(R.string.speech_recognition_unavailable))
             }
         }
         when {
@@ -348,7 +348,7 @@ fun ChatScreen(
             }
         }
     }
-    val liveStatus = voiceSeconds?.let { "Recording ${clipLength(it)}" }
+    val liveStatus = voiceSeconds?.let { context.getString(R.string.recording_with_length, clipLength(it)) }
         ?: if (dictating) stringResource(R.string.listening) else null
         ?: when (handsFree.phase) {
             HandsFreePhase.Off -> null
@@ -362,7 +362,7 @@ fun ChatScreen(
     // While the runtime waits on an approval, the call's own row (with its
     // Allow and Deny) says so, so the progress line stays silent to avoid saying it twice.
     val awaiting = runState as? RunState.AwaitingApproval
-    val progress = if (awaiting != null) null else progressLine(runState)
+    val progress = if (awaiting != null) null else progressLine(runState, stringResource(R.string.working_on_it))
     val entries = remember(messages) { groupToolCalls(messages) }
     val animate = rememberMotionEnabled()
     val rowCount = messages.size +
@@ -877,10 +877,10 @@ private fun NoticeLine(text: String) {
  * `AgentAction` is `Respond | CallTool` and the model has no thought channel to
  * report. A "thinking…" label would be a narration the system cannot back.
  */
-private fun progressLine(state: RunState): String? = when (state) {
+private fun progressLine(state: RunState, working: String): String? = when (state) {
     RunState.Idle, is RunState.Finished -> null
     RunState.LoadingModel -> state.progressLabel
-    RunState.Running -> "Working on it…"
+    RunState.Running -> working
     is RunState.AwaitingApproval -> state.progressLabel
 }
 
@@ -940,7 +940,10 @@ private fun EmptyState(
         }
         Text(
             text = blockedReason
-                ?: "Ask ${assistantName.trim().ifEmpty { "the assistant" }} to do something on this phone.",
+                ?: stringResource(
+                    R.string.ask_assistant_to_do_something,
+                    assistantName.trim().ifEmpty { stringResource(R.string.the_assistant) },
+                ),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -1019,12 +1022,6 @@ private fun EmptyPersonaRow(personas: List<Persona>, onChoose: (Long?) -> Unit) 
 }
 
 /** The three first things a new user can ask, tapped to send. */
-private val STARTER_EXAMPLES = listOf(
-    "How much battery do I have?",
-    "Set a timer for 10 minutes",
-    "Wake me up at 7 tomorrow",
-)
-
 /**
  * The first-run panel of Simple mode: one button for the download, then progress, then the wait for
  * the first answer. No model name, quant or reason is shown; the user only needs to know what happens.
@@ -1038,7 +1035,7 @@ private fun StarterPanel(
     onOpenModels: () -> Unit,
 ) {
     // It opens the sentence, so a capital: "the assistant runs on your phone" with no name set.
-    val name = assistantName.trim().ifEmpty { "the assistant" }.replaceFirstChar { it.uppercase() }
+    val name = assistantName.trim().ifEmpty { stringResource(R.string.the_assistant) }.replaceFirstChar { it.uppercase() }
     when (starter) {
         is SetupState.Idle -> {
             Text(
@@ -1144,11 +1141,16 @@ private fun StarterPanel(
 /** The three example questions, each a 48dp button that sends its text. */
 @Composable
 private fun ExampleChips(onExample: (String) -> Unit) {
+    val starterExamples = listOf(
+        stringResource(R.string.starter_battery),
+        stringResource(R.string.starter_timer),
+        stringResource(R.string.starter_wake),
+    )
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        STARTER_EXAMPLES.forEach { text ->
+        starterExamples.forEach { text ->
             OutlinedButton(
                 onClick = { onExample(text) },
                 modifier = Modifier.heightIn(min = 48.dp),
