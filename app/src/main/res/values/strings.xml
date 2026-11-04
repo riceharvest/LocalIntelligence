@@ -535,7 +535,7 @@
     <string name="forgot_your_pin_the_only_way_back_is_to_2">Forgot your PIN? The only way back is to clear this app\'s data in Android Settings. That deletes every chat, model and setting.</string>
 
     <!-- ScheduleScreen.kt -->
-    <string name="p_es_es_token_2">-p %1$s --es %2$s %3$s --es %4$s &lt;token&gt;</string>
+    <string name="p_es_es_token_2" translatable="false">-p %1$s --es %2$s %3$s --es %4$s &lt;token&gt;</string>
     <string name="target_broadcast_receiver_extras_and_2">Target Broadcast Receiver, Extras %1$s:%2$s and %3$s:&lt;token&gt;</string>
     <string name="start_from_another_app_replace_token_2">Start from another app. Replace &lt;token&gt; with the token above. Needs the setting on, and background access for this app on Android 12 and newer.</string>
 
