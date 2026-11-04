@@ -35,6 +35,12 @@ android {
                 // armeabi-v7a is dropped: a 1-4B model does not fit in 32-bit
                 // address space alongside a JVM. 64-bit only, on purpose.
                 arguments += listOf("-DANDROID_STL=c++_shared")
+                // 4 compile jobs matches the systemd CPUQuota=400%; unbounded ninja on a 32-core box exceeds the 6 GB cap.
+                arguments += listOf(
+                    "-DCMAKE_JOB_POOLS=compile=4;link=1",
+                    "-DCMAKE_JOB_POOL_COMPILE=compile",
+                    "-DCMAKE_JOB_POOL_LINK=link",
+                )
             }
         }
         ndk {

@@ -15,3 +15,8 @@ captures/
 *.so
 models/
 evals/results/
+# Release signing: keystores and their properties live outside the repo; dist/ holds release outputs.
+*.jks
+*.keystore
+keystore.properties
+dist/

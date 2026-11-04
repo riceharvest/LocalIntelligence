@@ -1,6 +1,7 @@
 package dev.localintelligence.app
 
 import dev.localintelligence.core.tool.ToolFinder
+import dev.localintelligence.android.data.durableSessionStore
 import dev.localintelligence.android.data.lazyObservationStore
 import dev.localintelligence.core.tool.ObservationStore
 import android.content.Context
@@ -1947,74 +1948,18 @@ class AppContainer(private val context: Context) {
 /**
  * Supplies the durable [SessionStore], or null when none can be built.
  *
- * ## WHY THIS IS A SEAM AND NOT A DIRECT CALL
- *
- * `:app` provably cannot construct a Room store itself, and this is not a
- * style preference - it was verified by compiling the direct form. `:android`
- * declares `implementation(libs.androidx.room.runtime)` rather than `api`, so
- * `RoomDatabase` is absent from `:app`'s compile classpath, and every attempt
- * to reach through it fails at the compiler with:
- *
- *     Cannot access 'RoomDatabase' which is a supertype of
- *     'LocalIntelligenceDatabase'.
- *
- * That holds for the DAO accessors, for the `sessionStore()` extension, and
- * for the database type itself. So the store has to be built in the module
- * that owns Room and handed across as a `:core` interface - the same trick
- * `resilientMemoryStore` already uses for the memory store on the very same
- * database.
- *
- * ## THE REQUIRED EDIT, IN THE MODULE THAT OWNS ROOM
- *
- * This returns null until the following lands in `:android` (it is one small
- * function in a file this change does not own, so it is specified here rather
- * than applied):
- *
- * ```kotlin
- * // android/src/main/kotlin/dev/localintelligence/android/data/SessionStores.kt
- * package dev.localintelligence.android.data
- *
- * import android.content.Context
- * import dev.localintelligence.core.agent.SessionStore
- *
- * fun durableSessionStore(context: Context): SessionStore =
- *     LocalIntelligenceDatabase.build(context.applicationContext).sessionStore()
- * ```
- *
- * and then this object delegates to it:
- *
- * ```kotlin
- * object SessionStoreFactory {
- *     fun provide(context: Context): SessionStore? = runCatching {
- *         dev.localintelligence.android.data.durableSessionStore(context)
- *     }.getOrNull()
- * }
- * ```
- *
- * Returning null is the correct degraded mode, not a stub: the app keeps the
- * exact behaviour it had before this change (a conversation that lasts one
- * process) instead of failing to start, so the seam can land independently of
- * this wiring.
+ * The factory lives in `:android`, next to the Room database it opens (`:app`
+ * cannot name Room's types, see `durableSessionStore`). A failure to open the
+ * database is not fatal: the conversation then lasts one process instead of the
+ * app failing on a cold start. The failure is logged, not hidden.
  */
 object SessionStoreFactory {
-    /**
-     * The store to mirror the session into, or null if none is available.
-     *
-     * Resolved through reflection so that `:app` compiles and runs whether or
-     * not the `:android` factory has landed yet, which is what makes the two
-     * halves independently landable. Once the factory exists this becomes a
-     * direct call; the indirection is a bridge, not an architecture.
-     */
     fun provide(context: Context): SessionStore? = try {
-        val type = Class.forName("dev.localintelligence.android.data.SessionStoresKt")
-        type.getDeclaredMethod("durableSessionStore", Context::class.java)
-            .invoke(null, context) as? SessionStore
+        durableSessionStore(context)
     } catch (e: CancellationException) {
         throw e
     } catch (t: Throwable) {
-        // Absent factory, or a database that will not open. Either way the app
-        // runs with an in-process conversation rather than not at all.
-        android.util.Log.i("AppContainer", "No durable session store; conversation is process-local.", t)
+        android.util.Log.w("AppContainer", "No durable session store; conversation is process-local.", t)
         null
     }
 }

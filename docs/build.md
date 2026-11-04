@@ -145,3 +145,60 @@ records why:
 **Do not propose restoring a test suite as a goal, and do not add CI workflows.**
 Verification here means running a real model on a real device. See
 [`evals.md`](evals.md) for what replaced the harness and what is still missing.
+
+---
+
+## 7. Release builds
+
+Release builds are signed only on the machine that holds the keys. Without the key
+setup below, `assembleRelease` and `bundleRelease` still configure and produce
+**unsigned** outputs, so every other build is unchanged.
+
+**Where the keys live.** Outside the repository, in `/home/dario/LI-keys/`:
+
+| File | What it is |
+|---|---|
+| `play-upload.jks` | PKCS12 keystore, Play upload key (`play.*` keys in the properties file) |
+| `full-release.jks` | PKCS12 keystore, full-build key (`full.*` keys) |
+| `keystore.properties` | store paths, aliases and passwords for both keystores |
+
+`~/.gradle/gradle.properties` holds one line that points at the properties file:
+`liSigningProps=/home/dario/LI-keys/keystore.properties`. The passwords are only in that
+file. Do not copy them into the repository, a shell history or a chat.
+
+**What may be lost, and what may not.**
+
+- The **Play upload key** may be lost. Play App Signing lets the owner reset the upload
+  key in Play Console, so a lost upload key costs a reset, not the app.
+- The **full key** may not be lost. Every installed copy of the full build was signed with
+  it, and Android installs an update only when the signature matches. A lost full key means
+  users can never update in place; they would have to uninstall, which deletes their chats,
+  models and settings.
+
+**What to back up.** Copy `play-upload.jks`, `full-release.jks` and `keystore.properties`
+together, to at least two places that are not this machine. Keep the copy with the full key
+somewhere that survives this desktop's disk failing.
+
+**Building.** From the repository root:
+
+```bash
+scripts/release.sh
+```
+
+It refuses to run without `liSigningProps`, builds `:app:bundlePlayRelease` and
+`:app:assembleFullRelease` (with the same resource wrapper as other builds), checks 16 KB
+page alignment on both outputs, verifies each output is signed with the key it is meant for
+and prints the signing certificate's SHA-256, then copies the results to `dist/`:
+
+- `dist/LocalIntelligence-<versionName>.aab` for Google Play
+- `dist/LocalIntelligence-Full-<versionName>-full.apk` for GitHub Releases, with a `.sha256` file
+
+It never uploads, tags or creates a release. Google Play needs a higher `versionCode` than
+the last upload; bump `versionCode` in `app/build.gradle.kts` first. `dist/` is git-ignored.
+
+**R8.** Release builds minify and shrink. The keep rules are in `app/proguard-rules.pro`
+and `android/consumer-rules.pro`, each with the reason it exists. Anything the native code or
+a library reaches by name needs one, so a new by-name lookup needs a new rule.
+
+**Status.** UNVERIFIED on a phone: the signed outputs have not been installed or run on a
+device, and the Play upload has not been made.
