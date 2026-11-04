@@ -696,4 +696,5 @@
     <string name="desktop_ask_title">Ask my desktop</string>
     <string name="desktop_ask_help">Uses the custom server address in Settings, the same as any remote model. Set your desktop model address there and turn the custom server on.</string>
     <string name="desktop_open_settings">Open Settings</string>
+    <string name="desktop_queued_title">Queued, not yet sent</string>
 </resources>

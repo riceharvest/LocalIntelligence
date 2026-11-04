@@ -88,6 +88,12 @@ def run_command(argv, stdin_text=None, timeout=COMMAND_TIMEOUT):
     return done.returncode, done.stdout, done.stderr
 
 
+def herdr_error_code(err):
+    """The error code herdr printed on stderr, such as agent_not_found, or an empty string."""
+    match = re.search(r'"code"\s*:\s*"([a-z_]+)"', err or "")
+    return match.group(1) if match else ""
+
+
 class HerdrBackend(Backend):
     """Talks to the local `herdr` CLI, which speaks JSON. Field names come from `herdr api schema`."""
 
@@ -100,11 +106,7 @@ class HerdrBackend(Backend):
     def _json(self, args):
         code, out, err = run_command([self.bin] + args)
         if code != 0:
-            if "not_found" in err or "not found" in err:
-                raise BridgeError(404, "not_found", "no such agent")
-            if "agent_blocked" in err:
-                raise BridgeError(409, "agent_blocked", "the agent is waiting for an answer")
-            raise BridgeError(502, "backend_failed", "herdr failed")
+            raise _herdr_failure(err)
         try:
             return json.loads(out)
         except ValueError:
@@ -129,25 +131,24 @@ class HerdrBackend(Backend):
             args += ["--lines", str(lines)]
         code, out, err = run_command([self.bin] + args)
         if code != 0:
-            raise BridgeError(404, "not_found", "no such agent")
+            raise _herdr_failure(err)
         try:
-            # If herdr wraps the text in JSON, unwrap it; otherwise the output is the text.
+            # The CLI prints the JSON envelope: a pane_read result carries the text under result.read.
             wrapped = json.loads(out)
             if isinstance(wrapped, dict) and isinstance(wrapped.get("result"), dict):
-                return str(wrapped["result"].get("text", ""))
+                read = wrapped["result"].get("read", wrapped["result"])
+                if isinstance(read, dict) and "text" in read:
+                    return str(read["text"])
         except ValueError:
             pass
         return out
 
     def send_text(self, target, text):
-        # `--` ends option parsing, so text that starts with a dash is still text.
-        code, _, err = run_command([self.bin, "agent", "prompt", "--", target, text])
+        # Target first, then text: herdr accepts text that starts with a dash in this position (checked
+        # against a nonexistent target). It does not accept `--` here.
+        code, _, err = run_command([self.bin, "agent", "prompt", target, text])
         if code != 0:
-            if "agent_blocked" in err:
-                raise BridgeError(409, "agent_blocked", "the agent is waiting for an answer; reply on the desktop")
-            if "not_found" in err:
-                raise BridgeError(404, "not_found", "no such agent")
-            raise BridgeError(502, "backend_failed", "herdr did not accept the message")
+            raise _herdr_failure(err, default="herdr did not accept the message")
 
     def send_keys(self, target, keys):
         code, _, _ = run_command([self.bin, "agent", "send-keys", target] + keys)
@@ -158,16 +159,24 @@ class HerdrBackend(Backend):
         args = [self.bin, "agent", "wait", target]
         for state in until:
             args += ["--until", state]
-        code, out, err = run_command(args, timeout=None)
+        code, _, err = run_command(args, timeout=None)
         if code != 0:
-            if "not_found" in err or "not found" in err:
-                raise BridgeError(404, "not_found", "no such agent")
-            raise BridgeError(502, "backend_failed", "herdr wait failed")
-        match = re.search(r'"agent_status"\s*:\s*"(\w+)"', out)
-        return match.group(1) if match else None
+            raise _herdr_failure(err)
+        # The caller reads the status again from list_agents, the shape the schema confirms.
+        return None
 
     def seq_for(self, agent, text):
         return agent["state_seq"]
+
+
+def _herdr_failure(err, default="herdr failed"):
+    """Maps a herdr error code to a bridge error. Unknown codes become 502 with a short message."""
+    code = herdr_error_code(err)
+    if code.endswith("not_found"):
+        return BridgeError(404, "not_found", "no such agent")
+    if code == "agent_blocked":
+        return BridgeError(409, "agent_blocked", "the agent is waiting for an answer; reply on the desktop")
+    return BridgeError(502, "backend_failed", default)
 
 
 class TmuxBackend(Backend):
@@ -252,7 +261,8 @@ class Notifier:
             # Wait for any state other than the last one seen. The call returns at once if the state already moved on,
             # so no status change is missed, and it cannot spin, because the returned state always differs from `last`.
             try:
-                state = self.backend.wait(target, [s for s in STATES if s != last]) or "unknown"
+                self.backend.wait(target, [s for s in STATES if s != last])
+                state = self._status_of(target)
                 failures = 0
             except BridgeError as err:
                 if err.code == "not_found":
@@ -271,6 +281,12 @@ class Notifier:
             elif state == "done" and last == "working":
                 self._send("Coding agent: done", "Open My desktop to see it.")
             last = state
+
+    def _status_of(self, target):
+        for agent in self.backend.list_agents():
+            if agent["target"] == target:
+                return agent["status"]
+        raise BridgeError(404, "not_found", "no such agent")
 
     def _send(self, title, body):
         request = urllib.request.Request(
@@ -399,6 +415,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.close_connection = True
         self.end_headers()
         last = None
         deadline = time.monotonic() + 1800
@@ -427,6 +445,9 @@ class Handler(BaseHTTPRequestHandler):
             self._guard()
             self._route(method)
         except BridgeError as err:
+            if err.status == 403:
+                # Says why, so a wrong --host or --login can be fixed. The presented login is never printed.
+                print(f"desklink: refused ({err}); Host was {self.headers.get('Host')!r}", file=sys.stderr)
             self._send_json(err.status, {"error": err.code, "message": str(err)})
 
     def do_GET(self):
@@ -482,6 +503,11 @@ def main(argv=None):
     # 127.0.0.1 only, never 0.0.0.0: tailscale serve is the only way in.
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     server.daemon_threads = True
+    if notifier is not None:
+        try:
+            notifier.watch_all(backend.list_agents())
+        except BridgeError as err:
+            print(f"desklink: could not list agents for notifications: {err}", file=sys.stderr)
     print(f"desklink: {backend.name} backend on 127.0.0.1:{args.port}", file=sys.stderr)
     try:
         server.serve_forever()

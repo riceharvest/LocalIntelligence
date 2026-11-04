@@ -227,6 +227,12 @@ private fun AgentView(
             modifier = Modifier.fillMaxWidth(),
             maxLines = 6,
         )
+        if (state.queuedForSelected.isNotEmpty()) {
+            Text(stringResource(R.string.desktop_queued_title), style = MaterialTheme.typography.titleSmall)
+            state.queuedForSelected.forEach { queued ->
+                Text(queued, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            }
+        }
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             FilledTonalButton(
                 onClick = {

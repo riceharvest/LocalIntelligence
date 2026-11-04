@@ -17,10 +17,14 @@ It never runs anything on its own, never runs a shell, and sends no terminal tex
 1. Start it with your Tailscale login (the account the phone uses):
 
    ```
-   python3 desktop-bridge/desklink.py --login you@example.com --backend herdr
+   python3 desktop-bridge/desklink.py --login you@example.com --host mymachine.tailnet-name.ts.net --backend herdr
    ```
 
-   Options: `--port 8787` (default), `--host <machine>.<tailnet>.ts.net` (the name tailscale serve answers on), `--ntfy-url https://ntfy.sh/<your-topic>` (optional), `--backend tmux` for tmux.
+   Options: `--port 8787` (default), `--ntfy-url https://ntfy.sh/<your-topic>` (optional), `--backend tmux` for tmux.
+
+   `--host` is the name tailscale serve answers on. Tailscale may forward the Host header unchanged, so without
+   `--host` a request can be refused with 403. The bridge prints the refused Host to stderr when that happens:
+   if it differs from the name you gave, set `--host` to the printed value.
 
 2. Publish it on your tailnet with tailscale serve. Check the current syntax with `tailscale serve --help`; it forwards HTTPS on your tailnet to the loopback port:
 

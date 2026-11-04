@@ -39,6 +39,8 @@ data class DesktopUiState(
     /** The sequence number of the text the user is looking at. Sent with each key press. */
     val lastSeq: Long = 0L,
     val queued: Int = 0,
+    /** Messages waiting for the selected agent, oldest first, shown under the view. */
+    val queuedForSelected: List<String> = emptyList(),
 )
 
 enum class DesktopError { NOT_SET, INVALID_ADDRESS, UNREACHABLE, REFUSED, BLOCKED, STALE, NOT_FOUND, MESSAGE_INVALID, QUEUE_FULL }
@@ -108,6 +110,7 @@ class DesktopViewModel(
         streamJob = scope.launch(Dispatchers.IO) {
             val saved = dao.text(agent.target)?.text
             update { it.copy(cachedText = saved) }
+            showQueued(agent.target)
             watch(agent)
         }
     }
@@ -180,7 +183,8 @@ class DesktopViewModel(
                 failures = 0
             } catch (e: DesktopException) {
                 failures++
-                update { it.copy(online = false, liveText = null) }
+                // Keep the last live text as the saved text, so the view still shows what the user was reading.
+                update { it.copy(online = false, cachedText = it.liveText ?: it.cachedText, liveText = null) }
                 if (e.code != "unreachable") fail(e)
                 delay(STREAM_RETRY_MS)
             }
@@ -214,7 +218,13 @@ class DesktopViewModel(
                 notice = if (sent > 0) DesktopNotice.QUEUE_SENT else it.notice,
             )
         }
+        _state.value.selected?.let { showQueued(it.target) }
         remaining
+    }
+
+    private suspend fun showQueued(target: String) {
+        val texts = dao.outboxFor(target).map { it.text }
+        update { if (it.selected?.target == target) it.copy(queuedForSelected = texts) else it }
     }
 
     private suspend fun enqueue(target: String, text: String) {
@@ -225,6 +235,7 @@ class DesktopViewModel(
         dao.enqueue(DesktopOutboxEntity(target = target, text = text, createdAt = System.currentTimeMillis()))
         val queued = dao.outboxCount()
         update { it.copy(online = false, queued = queued, notice = DesktopNotice.QUEUED, error = null) }
+        showQueued(target)
     }
 
     private fun fail(e: DesktopException) {

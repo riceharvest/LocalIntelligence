@@ -66,4 +66,7 @@ interface DesktopDao {
 
     @Query("SELECT COUNT(*) FROM desktop_outbox")
     suspend fun outboxCount(): Int
+
+    @Query("SELECT * FROM desktop_outbox WHERE target = :target ORDER BY id ASC")
+    suspend fun outboxFor(target: String): List<DesktopOutboxEntity>
 }
