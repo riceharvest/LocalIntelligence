@@ -31,6 +31,9 @@ interface DebugPort {
      * got a controller (a stop during model load, for example).
      */
     fun runEnded(result: AgentResult, trace: List<StepTrace>, controllerMetrics: RunMetrics?)
+
+    /** A run stopped to wait for an approval. It is not over: the same recorder goes on after the answer. */
+    fun runPaused(result: AgentResult, trace: List<StepTrace>, controllerMetrics: RunMetrics?)
 }
 
 /** Holds the debug port. Written once, by the debug build's content provider, before the first screen opens. */

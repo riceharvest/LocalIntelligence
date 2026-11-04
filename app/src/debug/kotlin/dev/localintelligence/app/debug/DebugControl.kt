@@ -119,6 +119,10 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
         Log.i(TAG, "DONE " + doneLine(result, trace, controllerMetrics, finished?.generations()))
     }
 
+    override fun runPaused(result: AgentResult, trace: List<StepTrace>, controllerMetrics: RunMetrics?) {
+        Log.i(TAG, "DONE " + doneLine(result, trace, controllerMetrics, recorder?.generations()))
+    }
+
     /** Runs one command. Never throws: a failure is an answer with ok=false. */
     fun handle(cmd: String, arg: String): JSONObject = try {
         when (cmd) {

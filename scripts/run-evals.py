@@ -384,6 +384,9 @@ def bring_to_front(serial, package) -> None:
 def run_device_task(serial, task, package, timeout_s, stats) -> dict:
     turns = []
     bring_to_front(serial, package)
+    # A task that timed out can leave its run parked on an approval, which would refuse every later task.
+    if devicectl(serial, "state").get("pendingApproval"):
+        devicectl(serial, "approve", "deny")
     if not task.get("new_session_per_turn"):
         devicectl(serial, "newchat")
     for turn in task["turns"]:
@@ -397,10 +400,10 @@ def run_device_task(serial, task, package, timeout_s, stats) -> dict:
         approvals = 0
         while rec["outcome"] == "awaiting_approval" and approvals < 3:
             approvals += 1
-            pending = rec["calls"][-1]["name"] if rec["calls"] else None
+            pending = (devicectl(serial, "state").get("pendingApproval") or {}).get("tool")
             verb = "allow" if pending in APPROVE_ON_DEVICE else "deny"
             stats["approvals"].append({"task": task["id"], "tool": pending, "decision": verb})
-            nxt = devicectl(serial, "approve", verb)
+            nxt = devicectl(serial, "approve", verb, str(timeout_s), timeout=timeout_s + 120)
             if nxt.get("outcome") is None:
                 return {"error": f"approval answer had no outcome: {str(nxt)[:160]}", "turns": turns + [rec]}
             rec = record_from_done(nxt)

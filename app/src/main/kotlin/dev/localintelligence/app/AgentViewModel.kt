@@ -430,6 +430,8 @@ class AgentViewModel(
         // Debug builds only: the run report. Not for AwaitingConfirmation, which is not the end of a run.
         if (result !is AgentResult.AwaitingConfirmation) {
             DebugPorts.current?.runEnded(result, sinks.trace.value, controller?.lastRunMetrics)
+        } else {
+            DebugPorts.current?.runPaused(result, sinks.trace.value, controller?.lastRunMetrics)
         }
     }
 
