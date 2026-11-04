@@ -66,7 +66,7 @@ object SkillParser {
             return Parsed.Rejected("The name must contain at least one letter or digit.")
         }
         val body = lines.drop(close + 1).joinToString("\n").trim()
-        // One line, space-separated, as the Claude Code docs write it. A YAML list is not read
+        // One line, space-separated, as agent skill files usually write it. A YAML list is not read
         // here: a dropped list would silently lift the restriction the author wrote.
         val allowed = values["allowed-tools"].orEmpty().split(Regex("\\s+")).filter { it.isNotEmpty() }.toSet()
         return Parsed.Ok(Skill(name = name, description = description, body = body, allowedTools = allowed))
