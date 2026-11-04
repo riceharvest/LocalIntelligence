@@ -43,11 +43,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,11 +60,14 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.app.LocalIntelligenceApp
 import dev.localintelligence.app.data.ScheduledTask
+import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.core.settings.SettingsMode
 import dev.localintelligence.core.settings.mode
 import dev.localintelligence.app.data.TaskAction
 import dev.localintelligence.app.data.TaskBlocker
 import dev.localintelligence.app.data.TaskCadence
+import dev.localintelligence.app.execution.ExternalTaskToken
+import dev.localintelligence.app.execution.RunTaskReceiver
 import dev.localintelligence.app.execution.ScheduledRunReporter.ANSWER_PREFIX
 import dev.localintelligence.app.execution.ScheduledRunReporter.FAILED_PREFIX
 import dev.localintelligence.app.execution.ScheduledRunReporter.REFUSED_PREFIX
@@ -104,6 +110,10 @@ fun ScheduleScreen(
             SettingsMode.TECHNICAL
     }
     var pendingDelete by remember { mutableStateOf<String?>(null) }
+    // Read here, not in a composable below, so the token section and the examples see the same snapshot.
+    val container = (context.applicationContext as LocalIntelligenceApp).container
+    val triggerOn = remember(settingsVersion) { container.settings[CoreSettings.EXTERNAL_TASK_START] }
+    val triggerToken = remember(settingsVersion) { container.settings[CoreSettings.EXTERNAL_TASK_TOKEN] }
 
     // Readiness is a snapshot of settings the user can change in another app,
     // so it is re-read on every resume rather than captured at composition.
@@ -168,6 +178,21 @@ fun ScheduleScreen(
                 ScheduleNotice(notice)
             }
 
+            if (technical) {
+                TriggerTokenSection(
+                    toggleOn = triggerOn,
+                    token = triggerToken,
+                    onRegenerate = {
+                        // Replaces the token at once. Anything that holds the old one stops working.
+                        container.settings.setSecret(
+                            CoreSettings.EXTERNAL_TASK_TOKEN,
+                            ExternalTaskToken.generate(),
+                        )
+                    },
+                )
+                HorizontalDivider()
+            }
+
             state.readiness?.blockers?.takeIf { it.isNotEmpty() }?.let { blockers ->
                 BlockerList(
                     blockers = blockers,
@@ -208,6 +233,7 @@ fun ScheduleScreen(
                             onDelete = { pendingDelete = task.id },
                             onPause = { viewModel.pause(task.id) },
                             onResume = { viewModel.resume(task.id) },
+                            showTrigger = technical,
                         )
                     }
                 }
@@ -312,6 +338,7 @@ private fun TaskRow(
     onDelete: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
+    showTrigger: Boolean,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -423,6 +450,90 @@ private fun TaskRow(
                     Text(if (task.enabled) "Pause" else "Resume")
                 }
             }
+
+            if (showTrigger) TriggerExample(task.id)
+        }
+    }
+}
+
+/**
+ * The token another app must send to start a task from outside. Technical mode only.
+ *
+ * Shown in full here, once for each token, and only on this screen. The examples on each
+ * task use a placeholder instead, so a copied command never carries the real token. The
+ * regenerate button is the only way to revoke it: the old token stops working at once.
+ */
+@Composable
+private fun TriggerTokenSection(toggleOn: Boolean, token: String, onRegenerate: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(
+            text = "Other apps",
+            style = MaterialTheme.typography.labelLarge,
+        )
+        Text(
+            text = when {
+                !toggleOn -> "Turn on \"Let other apps start my scheduled tasks\" in Settings to use a token."
+                token.isEmpty() -> "No token yet. Make one below."
+                else -> "Anyone with this token can start your scheduled tasks. Make a new one to revoke it."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (token.isNotEmpty()) {
+            Text(
+                text = token,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            TextButton(onClick = { clipboard.setText(AnnotatedString(token)) }) {
+                Text("Copy token")
+            }
+        }
+        TextButton(onClick = onRegenerate) {
+            Text(if (token.isEmpty()) "Make a token" else "Make a new token")
+        }
+    }
+}
+
+/**
+ * The commands that start this task from another app. Technical mode only.
+ *
+ * The package name is read at runtime, because a debug build or a flavour can
+ * change it, so a copied command names the install that is actually running.
+ * The text says what must be on, because a copied command against a switched-off
+ * receiver does nothing and gives no error to look at.
+ */
+@Composable
+private fun TriggerExample(taskId: String) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val pkg = context.packageName
+    // The token is never put in these: <token> stands for the one in the section above.
+    val adb = "adb shell am broadcast -a ${RunTaskReceiver.ACTION_RUN_TASK} " +
+        "-p $pkg --es ${RunTaskReceiver.EXTRA_TASK_ID} $taskId --es ${RunTaskReceiver.EXTRA_TOKEN} <token>"
+    val tasker = "Send Intent: Action ${RunTaskReceiver.ACTION_RUN_TASK}, Package $pkg, " +
+        "Target Broadcast Receiver, Extras ${RunTaskReceiver.EXTRA_TASK_ID}:$taskId and " +
+        "${RunTaskReceiver.EXTRA_TOKEN}:<token>"
+
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Text(
+            text = "Start from another app. Replace <token> with the token above. Needs the setting " +
+                "on, and background access for this app on Android 12 and newer.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "Task id: $taskId",
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        TextButton(onClick = { clipboard.setText(AnnotatedString(adb)) }) {
+            Text("Copy adb command")
+        }
+        TextButton(onClick = { clipboard.setText(AnnotatedString(tasker)) }) {
+            Text("Copy Tasker settings")
         }
     }
 }

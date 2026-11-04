@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import dev.localintelligence.android.cloud.ChatGptSettingsWriter
 import dev.localintelligence.android.cloud.sandbox.SandboxSettingsWriter
 import dev.localintelligence.android.hub.KeystoreCipher
+import dev.localintelligence.app.execution.ExternalTaskToken
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.core.settings.SettingDef
@@ -96,6 +97,13 @@ class SettingsStore(
             return
         }
         val coerced = def.coerce(value)
+        // Switching the external-start toggle on makes the token it needs. An existing token is
+        // kept, so turning it off and on again does not break the other app's setup.
+        if (def === CoreSettings.EXTERNAL_TASK_START && coerced == true &&
+            !isSecretSet(CoreSettings.EXTERNAL_TASK_TOKEN)
+        ) {
+            setSecret(CoreSettings.EXTERNAL_TASK_TOKEN, ExternalTaskToken.generate())
+        }
         prefs.edit().apply {
             when (coerced) {
                 is Boolean -> putBoolean(def.key, coerced)

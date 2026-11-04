@@ -344,6 +344,32 @@ object CoreSettings {
         SettingSection.AGENT, default = ObservationTruncator.DEFAULT_BUDGET_CHARS, min = 200, max = 20_000, step = 100,
     )
 
+    /**
+     * Off by default and Technical only. Gates `RunTaskReceiver`: an app that holds
+     * [EXTERNAL_TASK_TOKEN] may start an existing scheduled task by id. Turning it on
+     * generates the token (see SettingsStore.set). Simple mode reads the default (off),
+     * so the receiver ignores broadcasts there.
+     */
+    val EXTERNAL_TASK_START = Toggle(
+        "approvals.external_task_start", "Let other apps start my scheduled tasks",
+        "An app with your token can start one of your scheduled tasks by its id. It cannot " +
+            "change the task or send its own prompt. The run is unattended: anything that needs " +
+            "your approval is skipped. On Android 12 and newer, allow background access for this " +
+            "app, or the start is refused.",
+        SettingSection.APPROVALS, default = false,
+    )
+
+    /**
+     * The token a caller presents. Encrypted, and deliberately kept out of [all]: the
+     * generic settings list has no field for a secret, and the token is shown only on the
+     * Scheduled tasks screen in Technical mode.
+     */
+    val EXTERNAL_TASK_TOKEN = SettingDef.Secret(
+        "approvals.external_task_token", "Token for other apps",
+        "Required, with the setting above, to start a scheduled task from another app.",
+        SettingSection.APPROVALS,
+    )
+
     val all: List<SettingDef<*>> = listOf(
         MODE, ASSISTANT_NAME, THEME_COLOR, APPEARANCE,
         AUTO_ACCEPT_DESTRUCTIVE, AUTO_ACCEPT_EXTERNAL, AUTO_ACCEPT_NETWORK, AUTO_ACCEPT_IN_BACKGROUND,
@@ -353,6 +379,7 @@ object CoreSettings {
         COMPUTE, GPU_LAYERS, CONTEXT_LENGTH, KV_CACHE_TYPE,
         SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE, NATIVE_TOOL_FORMAT, THINKING_BUDGET, HF_READ_TOKEN,
         MAX_STEPS, MAX_VISIBLE_TOOLS, TOOL_LOOKUP, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
+        EXTERNAL_TASK_START,
     )
 }
 
