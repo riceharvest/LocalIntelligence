@@ -302,6 +302,53 @@ rate limit. Whoever holds it can run every task the user has, until the user reg
 token is also visible to the user in the Tasker or adb command they paste, which is the point.
 This entry describes the code; the receiver has not been run on a device.
 
+### T12. Local OpenAI-style server — opt-in, loopback only, token-gated
+
+Off by default and Technical mode only (`LocalServerPlugin`). With it on, the app listens on
+`127.0.0.1` only (never `0.0.0.0`) and answers `GET /v1/models` and `POST /v1/chat/completions`
+so other apps on this phone can use the loaded model.
+
+**Threat.** Any app on the phone can open a connection to loopback, so the network is not a
+barrier at all. The bearer token is the only barrier between another app and the model.
+
+What another app gets: the model, and nothing else. A request is answered from its own
+`messages` only. It gets no tools (a request that names tools is refused with 400), no agent loop,
+no memory, no chat history, no session, and no system prompt from the app. The model's
+output goes back on the same connection and nowhere else.
+
+Mitigations in code:
+
+- The token is 32 bytes from `SecureRandom`, generated when the server is switched on and
+  stored as a `SettingDef.Secret` (Keystore-encrypted, never shown back). It is shown once
+  with a Copy button, and Regenerate replaces it. Every request is compared in constant time
+  (`MessageDigest.isEqual`). A missing or wrong token gets 401.
+- One generation at a time. The server claims the process-wide `RunGate`; while it is busy
+  the server answers 429. A chat run in the app takes priority: a chat run that finds the
+  gate held by this server cancels the generation and takes the gate (see
+  `ExecutionService.startRun`).
+- The server stops when the switch goes off, and it runs inside a visible foreground
+  notification.
+- Limits: 1 MiB request body (413), 30 s read timeout, at most 4 connections (a fifth gets 503
+  at once), 16 KiB of headers. Chunked request bodies are refused.
+- Malformed input gets 400 with a short message and no stack trace. Other errors get a generic
+  500, and the model's text is never echoed into an error.
+- Requests never start a model load. With no model resident the server answers 503.
+
+**Not defended, stated gaps:**
+
+- The token is the whole defence, and it is shown to the user once. A token pasted into another
+  app, or copied to a clipboard that another app can read, gives that app the model. Regenerate
+  revokes the old token at once.
+- Plain HTTP on loopback. Traffic is not visible to other apps, but a process that can read
+  loopback memory or run as root already has everything.
+- A process with the token can use the model's compute and battery for as long as the server is
+  on. There is no per-client quota, only one generation at a time.
+- Prompts from another app reach the model, so the model's output can be wrong or steered by
+  that app's own text. Nothing is run on that output, since no tools are offered.
+- The server reads only `messages`, `max_tokens`, `temperature`, `top_p`, and `stream`. Other
+  OpenAI fields (`stop`, `n`, `logprobs`, `tools`) are ignored or refused, so a client cannot
+  rely on them.
+
 ## Deliberately not defended
 
 - **A hostile local model file.** Anyone who can place a GGUF in app storage can
