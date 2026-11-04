@@ -265,6 +265,8 @@
     <string name="you_re_on_mobile_data_wi_fi_is_better_3">You\'re on mobile data. Wi-Fi is better for a download this size.</string>
 
     <!-- ModelManagerScreen.kt -->
+    <string name="of_which_kv_cache">of which KV cache</string>
+    <string name="provider_offer_title">%1$s: %2$s</string>
     <string name="ram_figures_are_calculated_from_the_3">RAM figures are calculated from the file size and the model\'s header. They are not measured on this phone.</string>
 
     <!-- AppLockScreen.kt -->
@@ -442,6 +444,9 @@
     <string name="decline">Decline</string>
 
     <!-- DiagnosticsScreen.kt -->
+    <string name="check_label_found">Found</string>
+    <string name="check_label_checked">Checked</string>
+    <string name="check_label_cannot_tell">Cannot tell</string>
     <string name="run_every_check_again">Run every check again</string>
     <string name="details">Details: %1$s</string>
     <string name="nothing_below_this_card_ran_so_nothing">Nothing below this card ran, so nothing below it should be read as passing.</string>
@@ -465,6 +470,7 @@
     <string name="there_is_no_setting_to_turn_this_off">There is no setting to turn this off.</string>
 
     <!-- ScheduleScreen.kt -->
+    <string name="schedule_turn_on_external_start">Turn on \"%1$s\" in Settings to use a token.</string>
     <string name="delete_this_task">Delete this task?</string>
     <string name="self_check_what_is_actually_working_on">Self-check: what is actually working on this phone</string>
     <string name="no_scheduled_tasks_yet_write_what_the">No scheduled tasks yet. Write what the assistant should do, pick how often, and it will run on this phone at that time.</string>

@@ -475,7 +475,10 @@ private fun TriggerTokenSection(toggleOn: Boolean, token: String, onRegenerate: 
         )
         Text(
             text = when {
-                !toggleOn -> "Turn on \"Let other apps start my scheduled tasks\" in Settings to use a token."
+                !toggleOn -> stringResource(
+                    R.string.schedule_turn_on_external_start,
+                    stringResource(R.string.setting_approvals_external_task_start_label),
+                )
                 token.isEmpty() -> stringResource(R.string.no_token_yet_make_one_below)
                 else -> stringResource(R.string.anyone_with_this_token_can_start_your)
             },

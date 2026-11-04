@@ -768,7 +768,7 @@ private fun ModelRow(
                 // A LiteRT-LM file does not expose its KV geometry, so the line is
                 // omitted rather than shown as 0 B, which would read as a claim.
                 model.estimate.kvBytes(loadContext)?.let { kv ->
-                    FactLine("  of which KV cache", formatBytes(kv))
+                    FactLine("  " + stringResource(R.string.of_which_kv_cache), formatBytes(kv))
                 }
                 FactLine(stringResource(R.string.fact_context_at_load), stringResource(R.string.fact_tokens, loadContext))
                 model.trainedContextLength?.let { trained ->
@@ -971,7 +971,11 @@ private fun RemoteChatCard(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                text = "${offer.providerLabel}: ${offer.model.ifBlank { context.getString(R.string.no_model_chosen) }}",
+                text = stringResource(
+                    R.string.provider_offer_title,
+                    offer.providerLabel,
+                    offer.model.ifBlank { context.getString(R.string.no_model_chosen) },
+                ),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
