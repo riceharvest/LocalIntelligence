@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -88,6 +89,7 @@ import kotlinx.coroutines.launch
  */
 class ChatViewModel(
     private val gateway: AgentGateway,
+    private val context: Context,
     /**
      * Overrides the scope. Production passes nothing and gets [viewModelScope].
      *
@@ -371,7 +373,7 @@ class ChatViewModel(
      * state machine about *why* it is disabled — the two drifting apart is how a
      * user ends up with a greyed-out button and no explanation.
      */
-    val blockedReason: String? get() = modelAvailability.current.blockingReason()
+    val blockedReason: String? get() = modelAvailability.current.blockingReason(context)
 
     /**
      * The confirmation currently staged by the runtime, or null.
@@ -1200,7 +1202,7 @@ class ChatViewModel(
     private fun plainNoAudio(): String = plainText(NO_AUDIO_MODEL)
 
     fun transcribeBlockedReason(): String? {
-        modelAvailability.current.blockingReason()?.let { return it }
+        modelAvailability.current.blockingReason(context)?.let { return it }
         return if (transcriptionModel()?.capabilities?.supportsAudioInput == true) null else plainNoAudio()
     }
 
@@ -1401,6 +1403,7 @@ class ChatViewModel(
 
     class Factory(
         private val gateway: AgentGateway,
+        private val context: Context,
         private val modelAvailability: ModelAvailabilityHolder = ModelAvailabilityHolder(),
         private val attachmentQueue: PendingAttachments = PendingAttachments(),
         private val capabilities: () -> ModelCapabilities = { ModelCapabilities.UNKNOWN },
@@ -1430,6 +1433,7 @@ class ChatViewModel(
             }
             return ChatViewModel(
                 gateway,
+                context = context,
                 modelAvailability = modelAvailability,
                 attachmentQueue = attachmentQueue,
                 capabilities = capabilities,

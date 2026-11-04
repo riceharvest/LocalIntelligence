@@ -1,5 +1,7 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.app.R
+import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -142,14 +144,14 @@ class ModelAvailabilityHolder(
  * phone screen is noise at best and a leak of internal paths at worst. The
  * developer-facing detail belongs in the trace view.
  */
-internal fun describeLoadFailure(cause: Throwable?): String = when (cause) {
-    null -> "The model couldn't be loaded. Try again, or pick another model."
+internal fun describeLoadFailure(context: Context, cause: Throwable?): String = when (cause) {
+    null -> context.getString(R.string.model_load_failed_plain)
 
     is java.io.FileNotFoundException ->
-        "That model file is gone. Add it again from Models."
+        context.getString(R.string.model_file_gone)
 
     is OutOfMemoryError ->
-        "Not enough memory for this model. Try a smaller one."
+        context.getString(R.string.model_not_enough_memory)
 
     else -> {
         // The raw message is NOT shown. It is a native or JNI string and can be
@@ -161,7 +163,7 @@ internal fun describeLoadFailure(cause: Throwable?): String = when (cause) {
         //
         // The cause is not swallowed: it is logged, so a bug report has it.
         android.util.Log.w("ModelAvailability", "model load failed", cause)
-        "That model couldn't be loaded. It may be damaged or in a format this app can't read."
+        context.getString(R.string.model_load_damaged)
     }
 }
 
@@ -172,7 +174,7 @@ internal fun describeLoadFailure(cause: Throwable?): String = when (cause) {
  * an error banner over a working screen — the check and the message cannot
  * drift apart because they are the same expression.
  */
-internal fun ModelAvailability.blockingReason(): String? = when (this) {
+internal fun ModelAvailability.blockingReason(context: Context): String? = when (this) {
     // `is`, not equality: Ready is a data class, so `ModelAvailability.Ready`
     // in this position is a classifier and not a value. Every other case is
     // matched by shape too, which is what makes the exhaustiveness of this
@@ -180,11 +182,11 @@ internal fun ModelAvailability.blockingReason(): String? = when (this) {
     // day it was written.
     is ModelAvailability.Ready -> null
     ModelAvailability.None ->
-        "Add a model to start chatting. Everything stays on your phone."
+        context.getString(R.string.model_none_add)
 
     is ModelAvailability.Failed -> reason
 
-    ModelAvailability.Loading -> "Getting the model ready…"
+    ModelAvailability.Loading -> context.getString(R.string.model_getting_ready)
 
     // Not a block: the selected model is loaded again by the next send, so the composer stays
     // enabled. The readiness check in AgentViewModel runs after that load and sees Ready.

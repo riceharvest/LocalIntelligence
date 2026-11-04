@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import android.content.Context
 import dev.localintelligence.app.screen.ScreenRun
 import dev.localintelligence.app.media.PendingAttachments
 import dev.localintelligence.core.agent.AgentController
@@ -40,6 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * So one of these is one run, and [ExecutionService] builds a fresh one per task.
  */
 class AgentViewModel(
+    private val context: Context,
     private val newController: () -> AgentController,
     private val scope: CoroutineScope,
     private val sinks: RunSinks = RunSinks(),
@@ -201,7 +203,7 @@ class AgentViewModel(
                 publishCancelled()
                 throw e
             } catch (t: Throwable) {
-                ModelAvailability.Failed(describeLoadFailure(t))
+                ModelAvailability.Failed(describeLoadFailure(context, t))
             }
             // Before the blocking reason, so a load that failed after the STOP cannot replace
             // the cancelled outcome with its own failure.
@@ -210,7 +212,7 @@ class AgentViewModel(
                 answerStopBeforeRun()
                 return@launch
             }
-            val blocked = readiness.blockingReason()
+            val blocked = readiness.blockingReason(context)
             if (blocked != null) {
                 // The run never starts, so what was taken for it is dropped with it.
                 queuedMedia = emptyList()

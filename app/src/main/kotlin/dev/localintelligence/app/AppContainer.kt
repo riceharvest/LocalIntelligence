@@ -1664,7 +1664,7 @@ class AppContainer(private val context: Context) {
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
-            return switchFailed(describeLoadFailure(t), before, previous, previousModel)
+            return switchFailed(describeLoadFailure(context, t), before, previous, previousModel)
         }
         // Recorded HERE, at the only place the decision is made, and read by
         // newController. Previously the decision lived and died in this
@@ -1689,7 +1689,7 @@ class AppContainer(private val context: Context) {
     } catch (e: CancellationException) {
         throw e
         } catch (t: Throwable) {
-            switchFailed(describeLoadFailure(t), before, previous, previousModel)
+            switchFailed(describeLoadFailure(context, t), before, previous, previousModel)
         }
     }
 
@@ -1921,7 +1921,7 @@ class AppContainer(private val context: Context) {
             } catch (e: CancellationException) {
                 throw e
             } catch (t: Throwable) {
-                return ModelAvailability.Failed(describeLoadFailure(t))
+                return ModelAvailability.Failed(describeLoadFailure(context, t))
                     .also { modelAvailability.set(it) }
             }
             // Listed too, so the model screen names the model the chat is about to use.
@@ -2265,6 +2265,7 @@ class AppContainer(private val context: Context) {
      */
     val starterSetup: StarterSetup by lazy {
         StarterSetup(
+            context = context,
             scope = appScope,
             suggestion = SimpleSetup.suggestedModel(deviceFacts),
             client = hubClient,
@@ -2286,6 +2287,7 @@ class AppContainer(private val context: Context) {
      */
     val embeddingSetup: EmbeddingSetup by lazy {
         EmbeddingSetup(
+            context = context,
             scope = appScope,
             client = hubClient,
             downloader = hubDownloader,

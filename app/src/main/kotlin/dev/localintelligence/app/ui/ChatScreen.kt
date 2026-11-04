@@ -267,7 +267,7 @@ fun ChatScreen(
         onDispose { view.keepScreenOn = false }
     }
     // Simple mode says why in plain words; Technical keeps the state's own line.
-    val blocked = if (technical) modelState.blockingReason() else SimpleWording.blocked(LocalContext.current, modelState)
+    val blocked = if (technical) modelState.blockingReason(LocalContext.current) else SimpleWording.blocked(LocalContext.current, modelState)
     // Retry and Edit both act on the last turn, so they are offered only there. A turn with
     // pictures or a voice clip cannot be sent again: the media bytes are not kept.
     val lastUserIndex = messages.indexOfLast { it is ChatMessage.User }

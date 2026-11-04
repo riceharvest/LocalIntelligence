@@ -376,6 +376,7 @@ class ExecutionService : Service() {
         val unattended = scheduledTaskId != null || replyChat != null
         readinessInFlight = null
         val agent = AgentViewModel(
+            context = applicationContext,
             // Called by AgentViewModel only after the model is ready, so the
             // controller binds to the backend that is actually loaded.
             newController = {
@@ -448,7 +449,7 @@ class ExecutionService : Service() {
                 if (!unattended && ready.canRun) container.markRunInFlight()
                 ready
             } else {
-                ModelAvailability.Failed("The message to replace is no longer the last one. Nothing was run.")
+                ModelAvailability.Failed(getString(R.string.run_replace_not_last))
             }
         }
     }
@@ -468,7 +469,7 @@ class ExecutionService : Service() {
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(mainActivityIntent())
-            .addAction(0, "Stop", stop)
+            .addAction(0, getString(R.string.stop), stop)
             .build()
     }
 
@@ -586,6 +587,7 @@ class ExecutionService : Service() {
                     container.settings,
                     chat,
                     TelegramReplies.outcomeText(
+                        applicationContext,
                         outcome.outcome,
                         sinks.trace.value,
                         readinessInFlight,
@@ -640,7 +642,7 @@ class ExecutionService : Service() {
                 val current = store.byId(scheduledTaskId) ?: return@runCatching
                 store.upsert(
                     current.copy(
-                        lastResult = "Skipped: another task was already running.",
+                        lastResult = getString(R.string.schedule_skipped_busy),
                     ),
                 )
             }.onFailure { Log.w(TAG, "could not record refused schedule: ${it.message}") }

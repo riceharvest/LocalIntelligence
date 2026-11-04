@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +40,7 @@ fun LocalServerPanel(store: SettingsStore) {
     val token = remember(revision) { LocalServerReveal.token }
     val hasToken = remember(revision) { store.isSecretSet(LocalServerSettings.TOKEN) }
     val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
 
     // The revealed token leaves memory when this screen closes, so it is shown only in this visit.
     DisposableEffect(Unit) {
@@ -87,6 +89,6 @@ fun LocalServerPanel(store: SettingsStore) {
             )
         }
 
-        OutlinedButton(onClick = { LocalServerService.regenerateToken(store) }) { Text(stringResource(R.string.regenerate_token)) }
+        OutlinedButton(onClick = { LocalServerService.regenerateToken(context, store) }) { Text(stringResource(R.string.regenerate_token)) }
     }
 }

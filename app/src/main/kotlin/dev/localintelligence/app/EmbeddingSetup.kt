@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import android.content.Context
 import android.util.Log
 import dev.localintelligence.android.documents.DEFAULT_EMBEDDING_FILE
 import dev.localintelligence.android.documents.DEFAULT_EMBEDDING_REPO
@@ -38,6 +39,7 @@ import kotlinx.coroutines.withContext
  * duplicating any transfer logic.
  */
 class EmbeddingSetup(
+    private val context: Context,
     private val scope: CoroutineScope,
     private val client: HuggingFaceClient,
     private val downloader: ModelDownloader,
@@ -117,7 +119,7 @@ class EmbeddingSetup(
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "embedding model download failed", e)
-            _state.value = SetupState.Failed(NETWORK_FAILED)
+            _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed))
         } finally {
             _state.update { if (it is SetupState.Downloading) idleFromDisk() else it }
         }
@@ -137,7 +139,7 @@ class EmbeddingSetup(
         }
         val file = files.firstOrNull { it.fileName == DEFAULT_EMBEDDING_FILE }
         if (file == null) {
-            _state.value = SetupState.Failed(NOT_FOUND)
+            _state.value = SetupState.Failed(context.getString(R.string.setup_not_found))
             return
         }
 
@@ -162,7 +164,7 @@ class EmbeddingSetup(
         when (val end = download(file, plan)) {
             is DownloadProgress.Done -> loadDownloaded(downloader.localFileFor(file))
             is DownloadProgress.Stopped -> stopped(end)
-            else -> _state.value = SetupState.Failed(NETWORK_FAILED)
+            else -> _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed))
         }
     }
 
@@ -192,7 +194,7 @@ class EmbeddingSetup(
             onModelReady?.invoke()
             _state.value = SetupState.Ready
         } else {
-            _state.value = SetupState.Failed(COULD_NOT_START)
+            _state.value = SetupState.Failed(context.getString(R.string.setup_embedding_not_loaded))
         }
     }
 
@@ -202,18 +204,18 @@ class EmbeddingSetup(
 
     private fun describe(error: HubError): String = when (error) {
         is HubError.InsufficientStorage -> storageSentence(error)
-        is HubError.ChecksumMismatch -> "The download was damaged, so it was removed. Try again."
-        is HubError.InvalidInput -> COULD_NOT_SAVE
-        else -> NETWORK_FAILED
+        is HubError.ChecksumMismatch -> context.getString(R.string.setup_checksum_damaged)
+        is HubError.InvalidInput -> context.getString(R.string.setup_could_not_save)
+        else -> context.getString(R.string.setup_network_failed)
     }
 
     private fun refusal(reject: HubError): String = when (reject) {
         is HubError.InsufficientStorage -> storageSentence(reject)
-        else -> "This phone cannot download this model."
+        else -> context.getString(R.string.setup_embedding_cannot_download)
     }
 
     private fun storageSentence(error: HubError.InsufficientStorage): String =
-        "Free up ${formatBytes(error.neededBytes - error.availableBytes)} of storage, then try again."
+        context.getString(R.string.setup_free_storage, formatBytes(error.neededBytes - error.availableBytes))
 
     private fun idleFromDisk(): SetupState {
         if (isModelReady()) return SetupState.Ready
@@ -228,9 +230,5 @@ class EmbeddingSetup(
 
     private companion object {
         const val TAG = "EmbeddingSetup"
-        const val NETWORK_FAILED = "Couldn't download. Check your internet connection and try again."
-        const val NOT_FOUND = "Couldn't find the model to download. Try again later."
-        const val COULD_NOT_START = "The search model downloaded but could not be loaded."
-        const val COULD_NOT_SAVE = "The download could not be saved. Free up some storage and try again."
     }
 }
