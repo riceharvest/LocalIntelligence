@@ -461,10 +461,10 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
         else -> null
     } else null
     when (def) {
-        is SettingDef.Toggle -> if (def === CoreSettings.WAKE_WORD) {
-            WakeWordToggleRow(store, def, help, note)
-        } else {
-            SwitchRow(def.title, help, store.stored(def), note = note) { store.set(def, it) }
+        is SettingDef.Toggle -> when {
+            def === CoreSettings.WAKE_WORD -> WakeWordToggleRow(store, def, help, note)
+            def === CoreSettings.APP_LOCK -> AppLockRow(store, def, help, note)
+            else -> SwitchRow(def.title, help, store.stored(def), note = note) { store.set(def, it) }
         }
         is SettingDef.Choice -> if (def === CoreSettings.THEME_COLOR) {
             ColorRow(store, def, help, note)

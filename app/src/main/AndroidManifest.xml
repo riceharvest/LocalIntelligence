@@ -55,6 +55,8 @@
          composer for one that does not. Requested at first use from the mic button,
          never at launch. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- App lock: the fingerprint or face option on the lock screen. The PIN works without it. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <queries>
         <intent>

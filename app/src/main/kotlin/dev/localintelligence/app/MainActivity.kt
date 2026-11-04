@@ -5,7 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -54,6 +54,7 @@ import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.encodePickedPicture
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.settings.SuggestedModel
+import dev.localintelligence.app.ui.AppLockScreen
 import dev.localintelligence.app.ui.ChatGptModelCard
 import dev.localintelligence.app.ui.ChatGptSettingsCard
 import dev.localintelligence.app.ui.ChatMessage
@@ -107,7 +108,7 @@ import kotlinx.coroutines.withContext
  * without a first send. Any other load waits for a run or an explicit user action
  * ([dev.localintelligence.app.ui.ModelManagerScreen]).
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private var deliveredIntent by mutableStateOf<Intent?>(null)
 
@@ -169,6 +170,8 @@ class MainActivity : ComponentActivity() {
                 // not with this screen.
                 val models = container.models
                 val scope = rememberCoroutineScope()
+                // While the app lock is on, the lock screen replaces the app below (see the gate before NavHost).
+                val locked by container.appLock.locked.collectAsStateWithLifecycle()
 
                 // What the app had at its last exit comes back before the chat is
                 // read: the stored turns are shown, and the saved model is loaded so
@@ -190,7 +193,10 @@ class MainActivity : ComponentActivity() {
                 // A SEND intent arrives on cold start or warm via onNewIntent.
                 // Keyed on deliveredIntent so new arrivals re-run, and consumed
                 // once so recomposition or rotation does not repeat the action.
-                LaunchedEffect(deliveredIntent) {
+                LaunchedEffect(deliveredIntent, locked) {
+                    // Held while locked: a hands-free start or shared text waits for the PIN, and the key
+                    // changes on unlock, so this runs again then.
+                    if (locked) return@LaunchedEffect
                     val incoming = deliveredIntent ?: return@LaunchedEffect
                     if (incoming.getBooleanExtra(EXTRA_START_HANDS_FREE, false)) {
                         val prompt = incoming.getStringExtra(EXTRA_HANDS_FREE_PROMPT)
@@ -219,6 +225,13 @@ class MainActivity : ComponentActivity() {
                 // in the container, so popping the screen cancels its download
                 // with its ViewModel scope instead of leaving it running.
                 var hub: HubViewModel? = null
+
+                // Nothing below is composed while locked. The nav controller and the view models above survive,
+                // so the back stack is kept when the screen comes back.
+                if (locked) {
+                    AppLockScreen(appLock = container.appLock)
+                    return@LocalIntelligenceTheme
+                }
 
                 NavHost(navController = nav, startDestination = ROUTE_CHAT) {
                     composable(ROUTE_CHAT) {

@@ -344,6 +344,35 @@ object CoreSettings {
         SettingSection.AGENT, default = ObservationTruncator.DEFAULT_BUDGET_CHARS, min = 200, max = 20_000, step = 100,
     )
 
+    // ---- app lock ------------------------------------------------------------
+    // The switch is a normal row, in both modes. The PIN hash and the wrong-PIN
+    // count are NOT in [all]: nothing renders them. They are read with stored(),
+    // never with the operator, because Simple mode would answer a non-simple row
+    // with its default and the lock would read as off.
+
+    val APP_LOCK = Toggle(
+        "security.app_lock", "App lock",
+        "Ask for a PIN when the app opens and after it has been in the background for a minute. " +
+            "Off by default.",
+        SettingSection.GENERAL, default = false, simple = true, applies = SettingApplies.NOW,
+    )
+    val APP_LOCK_BIOMETRIC = Toggle(
+        "security.app_lock_biometric", "Unlock with fingerprint or face",
+        "Offers fingerprint or face unlock on the lock screen. The PIN always works too.",
+        SettingSection.GENERAL, default = false, simple = true, applies = SettingApplies.NOW,
+    )
+
+    /** The salted PBKDF2 hash of the PIN, encrypted by the Keystore like every secret. Never shown. */
+    val APP_LOCK_PIN = SettingDef.Secret(
+        "security.app_lock_pin", "App lock PIN", "The PIN hash. Not shown.", SettingSection.GENERAL,
+    )
+
+    /** Wrong-PIN count and the wait, as [dev.localintelligence.core.security.PinAttempts] text. Not shown. */
+    val APP_LOCK_ATTEMPTS = SettingDef.Text(
+        "security.app_lock_attempts", "App lock attempts", "Wrong PIN count. Not shown.",
+        SettingSection.GENERAL, default = "", maxLength = 64,
+    )
+
     val all: List<SettingDef<*>> = listOf(
         MODE, ASSISTANT_NAME, THEME_COLOR, APPEARANCE,
         AUTO_ACCEPT_DESTRUCTIVE, AUTO_ACCEPT_EXTERNAL, AUTO_ACCEPT_NETWORK, AUTO_ACCEPT_IN_BACKGROUND,
@@ -353,6 +382,7 @@ object CoreSettings {
         COMPUTE, GPU_LAYERS, CONTEXT_LENGTH, KV_CACHE_TYPE,
         SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE, NATIVE_TOOL_FORMAT, THINKING_BUDGET, HF_READ_TOKEN,
         MAX_STEPS, MAX_VISIBLE_TOOLS, TOOL_LOOKUP, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
+        APP_LOCK, APP_LOCK_BIOMETRIC,
     )
 }
 
