@@ -139,6 +139,13 @@ object SimpleSetup {
             CoreSettings.MAX_VISIBLE_TOOLS.key to d.maxVisibleTools,
             CoreSettings.OBSERVATION_BUDGET.key to d.observationBudget,
             CoreSettings.MEMORY_RESULTS.key to d.memoryResults,
+            // Simple mode runs the ordinary tiers without the prompts (see CoreSettings, Approvals).
+            // The guards in RiskPolicy still ask for what the message did not request, a bulk change,
+            // a path outside app storage, a bare-link message and the named texts and calls.
+            CoreSettings.AUTO_ACCEPT_DESTRUCTIVE.key to true,
+            CoreSettings.AUTO_ACCEPT_EXTERNAL.key to true,
+            CoreSettings.AUTO_ACCEPT_NETWORK.key to true,
+            CoreSettings.AUTO_ACCEPT_IN_BACKGROUND.key to true,
         )
     }
 

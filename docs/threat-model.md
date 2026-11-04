@@ -194,6 +194,21 @@ account. Nothing is sent before then. The shared rules are enforced in code:
   "Send messages without asking" switch can skip it, except for texts and calls.
   `NETWORK_EGRESS` asks unless "Open websites without asking" is on. `DESTRUCTIVE` asks
   unless "Run deletions without asking" is on.
+- **Simple mode allows these tiers by default.** Simple mode does not show the Approvals
+  switches, so the ordinary prompts for `DESTRUCTIVE`, `EXTERNAL_COMMUNICATION` and
+  `NETWORK_EGRESS` are off there. The four switches (`AUTO_ACCEPT_DESTRUCTIVE`,
+  `AUTO_ACCEPT_EXTERNAL`, `AUTO_ACCEPT_NETWORK`, `AUTO_ACCEPT_IN_BACKGROUND`) read true from
+  `SimpleSetup.values`. Technical mode keeps its own stored values (default false), and
+  switching modes does not rewrite them. The guards in `RiskPolicy` are unchanged and still
+  ask or refuse in Simple mode: a call the user's message did not ask for (`notRequested`);
+  a bulk change of more than ten items (a destructive one of 100 or more is refused); a path
+  outside the app's storage; a message that is only a link; texts and calls (`sms.send`,
+  `phone.call`, named in `neverAutoAccept`); screen control, which asks per app and per
+  guarded control and is never auto-accepted; and the Android permission dialogs, which an
+  app cannot skip. Privileged tools stay blocked, and the per-task action and destructive
+  limits still apply. Scheduled and background runs also take these choices in Simple mode,
+  because `AUTO_ACCEPT_IN_BACKGROUND` is true there, so an external send to an unknown
+  recipient in a background run goes without a prompt.
 
 | Path | Gate | What protects it |
 |---|---|---|
