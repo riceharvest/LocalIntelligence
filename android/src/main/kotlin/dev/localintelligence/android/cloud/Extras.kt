@@ -61,7 +61,7 @@ object ExtrasSettings {
      * model and keeps it there across restarts; Extras search stays on either way.
      */
     val CLOUD_CHAT = SettingDef.Toggle(
-        "extras.cloud_chat", "Use the cloud model for chat",
+        "extras.cloud_chat", "Send chat messages to the cloud",
         "On, Extras' cloud model answers. Off, the phone's own model answers; Extras search stays on.",
         SettingSection.PLUGINS, default = true, simple = true,
     )
