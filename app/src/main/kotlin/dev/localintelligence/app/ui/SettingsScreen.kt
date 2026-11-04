@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
@@ -164,6 +165,8 @@ fun SettingsScreen(
     onOpenScripts: () -> Unit = {},
     /** Opens the Photo search screen. Null hides the row: the row exists only in the full build. */
     onOpenPhotos: (() -> Unit)? = null,
+    /** Opens Search my phone. Shown in both modes; null hides the row. */
+    onOpenPhoneSearch: (() -> Unit)? = null,
     /** The ChatGPT row, shown in Simple mode. Null hides it. */
     chatGptRow: (@Composable () -> Unit)? = null,
     /** The folder of generated images and videos, for the Storage row. Null hides the row. */
@@ -234,6 +237,7 @@ fun SettingsScreen(
                     NavRow(Icons.Filled.Person, stringResource(R.string.personas), onOpenPersonas)
                     NavRow(Icons.Filled.Description, stringResource(R.string.documents), onOpenDocuments)
                     onOpenPhotos?.let { NavRow(Icons.Filled.PhotoLibrary, stringResource(R.string.photo_search), it) }
+                    onOpenPhoneSearch?.let { NavRow(Icons.Filled.Search, stringResource(R.string.phone_search_title), it) }
                     NavRow(Icons.Filled.Schedule, stringResource(R.string.schedule_shortcut_long), onOpenSchedule)
                     onOpenExtras?.let { NavRow(Icons.Filled.Star, stringResource(R.string.extras), it) }
                     NavRow(Icons.Filled.Lock, stringResource(R.string.permissions_title)) { openPermissionScreen(context) }

@@ -658,4 +658,30 @@
     <string name="use_pin">Use PIN</string>
     <string name="persona_delete_title">Delete \"%1$s\"?</string>
     <string name="persona_char_count">%1$s / %2$d</string>
+
+    <!-- Search my phone (Settings > Search my phone). Every source is off until switched on. -->
+    <string name="phone_search_title">Search my phone</string>
+    <string name="phone_search_intro">Find things on this phone by words: notifications, texts, calendar, contact names, text files in a folder you choose, and photo captions. Everything is off until you switch it on.</string>
+    <string name="phone_search_privacy">The index is kept on this phone, and the index itself sends nothing anywhere. If a cloud chat model is answering, the matches the assistant finds are sent to that model in the chat, as any tool result is.</string>
+    <string name="phone_search_charging_note">Texts, calendar, contact names and files are refreshed about every six hours, and only while the phone is charging. Notifications are recorded as they arrive.</string>
+    <string name="phone_search_notifications">Notifications</string>
+    <string name="phone_search_notifications_help">Keeps the notifications that arrive from now on. Notifications from before are not read.</string>
+    <string name="phone_search_messages">Texts</string>
+    <string name="phone_search_messages_help">Only while LocalIntelligence is the phone\'s default assistant app. Scheduled runs in the Play build never search texts.</string>
+    <string name="phone_search_calendar">Calendar</string>
+    <string name="phone_search_calendar_help">Events from 30 days ago to a year ahead.</string>
+    <string name="phone_search_contacts">Contact names</string>
+    <string name="phone_search_contacts_help">Names only. Phone numbers and addresses are never read.</string>
+    <string name="phone_search_files">Files in a folder</string>
+    <string name="phone_search_files_help">Text files in the folder you choose, including its subfolders. Large files are read in part.</string>
+    <string name="phone_search_photos">Photo captions</string>
+    <string name="phone_search_photos_help">The captions written by Photo search. Index your photos there first.</string>
+    <string name="phone_search_choose_folder">Choose folder</string>
+    <string name="phone_search_no_folder">No folder chosen yet.</string>
+    <string name="phone_search_folder_chosen">Folder chosen.</string>
+    <string name="phone_search_stored">%1$d stored</string>
+    <string name="phone_search_delete">Delete</string>
+    <string name="phone_search_index_now">Refresh now</string>
+    <string name="phone_search_index_done">Refreshed.</string>
+    <string name="phone_search_index_failed">The refresh failed. Try again later.</string>
 </resources>

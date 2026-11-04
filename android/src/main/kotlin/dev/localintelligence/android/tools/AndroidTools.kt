@@ -16,6 +16,7 @@ import dev.localintelligence.android.tools.messages.messageTools
 import dev.localintelligence.android.tools.files.fileTools
 import dev.localintelligence.android.tools.notifications.notificationTools
 import dev.localintelligence.android.tools.phone.phoneTools
+import dev.localintelligence.android.tools.phonesearch.phoneSearchTools
 import dev.localintelligence.android.tools.observations.observationTools
 import dev.localintelligence.android.tools.info.infoTools
 import dev.localintelligence.android.tools.web.WebSearchSettings
@@ -79,6 +80,7 @@ fun androidTools(context: Context, settings: SettingsReader): List<AgentTool> {
         addAll(draftTools(appContext))
         addAll(observationTools(lazyObservationStore(appContext)))
         addAll(historyTools(appContext))
+        addAll(phoneSearchTools(appContext, settings))
     }
     return requireCatalogueAgreement(tools)
 }
@@ -130,6 +132,10 @@ fun androidToolPlugins(context: Context, settings: SettingsReader): List<AgentPl
         ToolFamily("memory.history", "Past chats", "Search what was said in earlier conversations") {
             historyTools(app)
         },
+        ToolFamily(
+            "tools.phone_search", "Search my phone",
+            "Finds what you chose to index in Search my phone: notifications, texts, calendar, contact names, files and photo captions",
+        ) { phoneSearchTools(app, settings) },
     )
     requireCatalogueAgreement(families.flatMap { it.tools() })
     return families
