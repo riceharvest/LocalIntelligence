@@ -85,10 +85,7 @@ class LocalServerService : Service() {
                 server = next
                 setError("")
             } catch (e: IOException) {
-                setError(
-                    "Port ${LocalServerSettings.PORT} is in use. Another app may hold it, " +
-                        "or the server may still be stopping. Switch the server off and on to try again.",
-                )
+                setError(getString(R.string.local_server_port_in_use, LocalServerSettings.PORT))
                 stopForegroundAndSelf()
                 return START_NOT_STICKY
             }
@@ -102,7 +99,7 @@ class LocalServerService : Service() {
 
     /** Android 15+: the six-hour daily limit for `dataSync`. Say why, then stop cleanly. */
     override fun onTimeout(startId: Int, fgsType: Int) {
-        setError("Android stopped the local server after its six-hour background limit. Switch it off and on to restart it.")
+        setError(getString(R.string.local_server_timeout_error))
         server?.stop()
         server = null
         stopForegroundAndSelf()
@@ -143,7 +140,7 @@ class LocalServerService : Service() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val text = "Other apps on this phone can use the model. Switch the local server off in Settings to stop."
+        val text = getString(R.string.local_server_notification_text)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
@@ -157,7 +154,7 @@ class LocalServerService : Service() {
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(CHANNEL_ID, getString(R.string.notif_channel_local_server), NotificationManager.IMPORTANCE_LOW)
             .apply { setShowBadge(false) }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
@@ -165,7 +162,6 @@ class LocalServerService : Service() {
     companion object {
         private const val NOTIFICATION_ID = 50
         private const val CHANNEL_ID = "local_server"
-        private const val CHANNEL_NAME = "Local server"
 
         /** How often [claimForChat] looks again for the gate, and for how many tries. About one second in all. */
         private const val PREEMPT_POLLS = 20
@@ -200,7 +196,7 @@ class LocalServerService : Service() {
             } catch (e: RuntimeException) {
                 container.settings.set(
                     LocalServerSettings.LAST_ERROR,
-                    "Android would not start the local server in the background. Open LocalIntelligence to start it.",
+                    context.getString(R.string.local_server_start_refused),
                 )
             }
         }

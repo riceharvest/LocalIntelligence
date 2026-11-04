@@ -96,7 +96,7 @@ class TelegramService : Service() {
 
     /** Android 15+: the six-hour daily limit for `dataSync`. Say why, then stop cleanly. */
     override fun onTimeout(startId: Int, fgsType: Int) {
-        setError("Android stopped Telegram after its six-hour background limit. Switch Telegram off and on to reconnect.")
+        setError(getString(R.string.telegram_timeout_error))
         stopForegroundAndSelf()
     }
 
@@ -122,7 +122,7 @@ class TelegramService : Service() {
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        setError("Could not handle a message: ${e.javaClass.simpleName}")
+                        setError(getString(R.string.telegram_error_handle, e.javaClass.simpleName))
                     }
                     settings.set(TelegramSettings.OFFSET, (update.updateId + 1).toString())
                 }
@@ -132,14 +132,14 @@ class TelegramService : Service() {
                 // 401 and 404 mean the token itself is wrong. Retrying cannot fix that, so the
                 // loop stops and the panel says what to do.
                 if (e.code == 401 || e.code == 404) {
-                    setError("Telegram does not accept this token. Paste the token from @BotFather again.")
+                    setError(getString(R.string.telegram_error_token))
                     break
                 }
-                setError(e.message ?: "Telegram refused the call")
+                setError(e.message ?: getString(R.string.telegram_error_refused))
                 backoffMs = nextBackoff(backoffMs)
                 delay(backoffMs)
             } catch (e: IOException) {
-                setError("No connection to Telegram: ${e.javaClass.simpleName}")
+                setError(getString(R.string.telegram_error_connection, e.javaClass.simpleName))
                 backoffMs = nextBackoff(backoffMs)
                 delay(backoffMs)
             }
@@ -197,7 +197,8 @@ class TelegramService : Service() {
 
     private fun statusText(): String {
         val error = settings.stored(TelegramSettings.LAST_ERROR)
-        return if (error.isBlank()) CONNECTED_TEXT else "Telegram: " + error.take(120)
+        return if (error.isBlank()) getString(R.string.telegram_connected)
+        else getString(R.string.telegram_status_error, error.take(120))
     }
 
     private fun startForegroundNow() {
@@ -249,7 +250,6 @@ class TelegramService : Service() {
         private const val NOTIFICATION_ID = 46
         private const val CHANNEL_ID = "telegram"
         private const val CHANNEL_NAME = "Telegram"
-        private const val CONNECTED_TEXT = "Telegram is connected"
 
         /** A message older than this is not run. */
         private const val STALE_SECONDS = 60 * 60L
@@ -293,7 +293,7 @@ class TelegramService : Service() {
             } catch (e: RuntimeException) {
                 container.settings.set(
                     TelegramSettings.LAST_ERROR,
-                    "Android would not start Telegram in the background. Open LocalIntelligence to connect.",
+                    context.getString(R.string.telegram_start_refused),
                 )
             }
         }

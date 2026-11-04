@@ -332,7 +332,7 @@ class WakeWordService : Service() {
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(openIntent)
-            .addAction(0, "Stop", stopIntent)
+            .addAction(0, getString(R.string.stop), stopIntent)
             .build()
     }
 
@@ -342,9 +342,7 @@ class WakeWordService : Service() {
         private const val DETECTED_NOTIFICATION_ID = 49
 
         private const val CHANNEL_LISTENING = "wake_word_listening"
-        private const val CHANNEL_LISTENING_NAME = "Wake word listening"
         private const val CHANNEL_DETECTED = "wake_word_detected"
-        private const val CHANNEL_DETECTED_NAME = "Wake word alerts"
 
         private const val REQ_OPEN_APP = 4701
         private const val REQ_STOP_SERVICE = 4702
@@ -505,7 +503,7 @@ class WakeWordService : Service() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             val notification = NotificationCompat.Builder(context, CHANNEL_DETECTED)
-                .setContentTitle("Heard “$phrase”")
+                .setContentTitle(context.getString(R.string.notif_heard_phrase, phrase))
                 .setContentText(context.getString(R.string.tap_to_open_hands_free_chat))
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setAutoCancel(true)
@@ -539,14 +537,14 @@ class WakeWordService : Service() {
             val nm = context.getSystemService(NotificationManager::class.java)
             val listening = NotificationChannel(
                 CHANNEL_LISTENING,
-                CHANNEL_LISTENING_NAME,
+                context.getString(R.string.notif_channel_wake_listening),
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 setShowBadge(false)
             }
             val detected = NotificationChannel(
                 CHANNEL_DETECTED,
-                CHANNEL_DETECTED_NAME,
+                context.getString(R.string.notif_channel_wake_alerts),
                 NotificationManager.IMPORTANCE_HIGH,
             )
             nm.createNotificationChannel(listening)
