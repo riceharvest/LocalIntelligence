@@ -1751,7 +1751,8 @@ class AgentController(
             if (id != null) {
                 savedObservation = true
                 log("saved $toolName result ${observation.length} chars as obs#$id; the model gets a ${budget}-char preview")
-                return ObservationTruncator.preview(observation, budget, id)
+                // web.fetch puts its main text first and its menus last, so its preview is head only.
+                return ObservationTruncator.preview(observation, budget, id, keepTail = toolName != "web.fetch")
             }
         }
         return when {
