@@ -215,6 +215,13 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- Search my phone's charger refresh (PhoneIndexJob). JobScheduler binds it, so the system's
+             BIND_JOB_SERVICE permission keeps other apps out. Not exported. -->
+        <service
+            android:name=".phoneindex.PhoneIndexJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <!-- Shares a chat export. Only cacheDir/exports is covered (see
              res/xml/export_paths.xml), and the grant is per share, so no other
              app can read the transcript later. Not exported. -->

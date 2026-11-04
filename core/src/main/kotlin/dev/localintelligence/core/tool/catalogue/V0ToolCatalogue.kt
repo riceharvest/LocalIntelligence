@@ -144,6 +144,7 @@ object V0ToolCatalogue {
     val categories: List<String> = listOf(
         "files", "apps", "clipboard", "device", "alarm", "calendar",
         "contacts", "notifications", "web", "history", "documents", "messages", "screen", "photos",
+        "phone_search",
     )
 
     /**
@@ -2052,6 +2053,48 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.NETWORK,
             tags = setOf("photo", "photos", "picture", "pictures", "image", "gallery", "find my photo", "foto"),
+            requiredPermission = null,
+        ),
+
+        // ---------------------------------------------------------------- search my phone
+        // Searches only the sources the person switched on in Settings, Search my phone. The
+        // matches are the phone's own data (notifications, texts, events, names, files, captions), so
+        // the observation is NETWORK-origin and fenced like web text: a text or file can carry words
+        // meant for a model. Texts are left out of unattended Play runs (AppContainer).
+        ToolDefinition(
+            name = "phone.search",
+            description = "Search what the user chose to index on this phone: notifications, texts, " +
+                "calendar, contact names, files in their folder and photo captions. Use when the user asks " +
+                "what they got, said or wrote, or when an event or file is.",
+            category = "phone_search",
+            schema = objSchema(required = listOf("query")) {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "The words to look for, for example \"dentist\" or \"invoice march\".")
+                }
+                putJsonObject("source") {
+                    put("type", "string")
+                    put("description", "Optional: only this source.")
+                    putJsonArray("enum") {
+                        add("notifications")
+                        add("messages")
+                        add("calendar")
+                        add("contacts")
+                        add("files")
+                        add("photos")
+                    }
+                }
+                putJsonObject("max_results") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 10)
+                    put("description", "How many items to return, 5 by default.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("search my phone", "find on phone", "notification", "text", "message", "calendar", "event", "contact", "file", "document", "remember"),
             requiredPermission = null,
         ),
     )

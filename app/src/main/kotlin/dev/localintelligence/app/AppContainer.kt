@@ -146,7 +146,7 @@ import kotlinx.coroutines.sync.withLock
  * for a global.
  */
 /** Tools a Play build offers only to a run the person started in the app. See `pluginTools`. */
-private val PLAY_ATTENDED_ONLY_TOOLS = setOf("sms.search", "sms.send", "calls.recent")
+private val PLAY_ATTENDED_ONLY_TOOLS = setOf("sms.search", "sms.send", "calls.recent", "phone.search")
 
 class AppContainer(private val context: Context) {
 
