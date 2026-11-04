@@ -1130,6 +1130,7 @@ class AgentController(
             durationMs, result.success,
             toolName = call.name,
             toolArgs = argsText,
+            toolArgsJson = call.args.toString(),
         )
         trace += StepTrace(call.step, StepTrace.Kind.OBSERVATION, observation, success = result.success)
         metrics?.endPhase(StepTrace.Kind.TOOL_CALL, result.success)
