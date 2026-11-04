@@ -164,8 +164,14 @@ class LlamaCppBackend(
 
         // A text-only model asks for one logits row per batch, which saves the
         // output head's reserve; a model with a projector may speak, and the
-        // audio head reads every row, so it keeps the default.
-        val outputsMax = if (findProjector(uri) == null) 1 else 0
+        // audio head reads every row, so it keeps the default. Speculation (the
+        // Technical setting) checks a draft row by row, so it asks for one row per
+        // drafted token plus one; that is the only load that differs from the default.
+        val outputsMax = if (findProjector(uri) == null) {
+            if (model.speculative) SPECULATIVE_OUTPUTS_MAX else 1
+        } else {
+            0
+        }
 
         fun loadNative(compute: LlamaCompute): String? {
             computeSource.loadStarting(compute)
@@ -1028,6 +1034,12 @@ class LlamaCppBackend(
 
     companion object {
         const val DEFAULT_CONTEXT_LENGTH = 4096
+
+        /**
+         * One logits row per token of a speculative draft (8) plus the token it follows.
+         * Must stay kSpecDraft + 1 in llama_jni.cpp.
+         */
+        const val SPECULATIVE_OUTPUTS_MAX = 9
 
         private const val TAG = "LlamaCppBackend"
 

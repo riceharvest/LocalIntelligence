@@ -1227,6 +1227,7 @@ class AppContainer(private val context: Context) {
                     supportedBackends = model.supportedBackends,
                     contextLength = loadContext,
                     kvCacheType = choice.kvCacheType,
+                    speculative = settings[CoreSettings.SPECULATIVE_DECODING],
                 ),
             )
         } catch (e: CancellationException) {

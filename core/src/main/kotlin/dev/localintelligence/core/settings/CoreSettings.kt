@@ -271,6 +271,19 @@ object CoreSettings {
             "freely and relies on the parser.",
         SettingSection.SAMPLING, default = true,
     )
+    /**
+     * Technical only, default off. Prompt-lookup speculation: the reply's own repeats are
+     * drafted and checked in one pass (llama_jni.cpp). Its speed is unmeasured on the phone,
+     * so the help says so. It reads the load, so it applies to the next model load.
+     */
+    val SPECULATIVE_DECODING = Toggle(
+        "model.speculative_decoding", "Faster replies (experimental)",
+        "Guesses the next words from what the reply has already repeated and checks them in one " +
+            "pass. Unmeasured on this phone: it may be faster, the same or slower. Not used for " +
+            "models with recurrent layers, such as LFM, or when a grammar constrains the reply. " +
+            "Applies after the next model load.",
+        SettingSection.MODEL, default = false, applies = SettingApplies.NEXT_MODEL_LOAD,
+    )
     val MODEL_CHAT_TEMPLATE = Toggle(
         "sampling.model_chat_template", "Use the model's chat format",
         "llama.cpp only: the prompt uses the model's own turn markers, which small instruct " +
@@ -350,7 +363,7 @@ object CoreSettings {
         TOOL_CALLS_AUTO_COLLAPSE,
         READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE, WAKE_WORD, WAKE_PHRASE,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
-        COMPUTE, GPU_LAYERS, CONTEXT_LENGTH, KV_CACHE_TYPE,
+        COMPUTE, GPU_LAYERS, CONTEXT_LENGTH, KV_CACHE_TYPE, SPECULATIVE_DECODING,
         SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE, NATIVE_TOOL_FORMAT, THINKING_BUDGET, HF_READ_TOKEN,
         MAX_STEPS, MAX_VISIBLE_TOOLS, TOOL_LOOKUP, MAX_MALFORMED_RETRIES, WORKING_TOKEN_LIMIT, MEMORY_RESULTS, OBSERVATION_BUDGET,
     )

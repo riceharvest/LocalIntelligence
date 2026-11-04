@@ -22,6 +22,7 @@
 #include "chat.h"
 #include "common.h"
 #include "reasoning-budget.h"
+#include "ngram-map.h"
 #pragma clang diagnostic pop
 
 #include <set>
@@ -86,6 +87,14 @@ constexpr int32_t kEmbeddingContext = 1024;
 // Headroom left at the end of the context window for generation, so a prompt
 // that exactly fills the window still has somewhere to put an answer.
 constexpr int32_t kGenerationHeadroom = 8;
+
+// Prompt-lookup speculation (the decode loop in nativeGenerate). The most tokens one draft
+// proposes; a draft of k needs k + 1 logits rows, so it only runs when the load asked for
+// that many (LlamaCppBackend asks for 1 + kSpecDraft rows when the setting is on).
+constexpr int32_t kSpecDraft = 8;
+// The run of tokens a draft is looked up by. Three is specific enough that a repeat is
+// rarely a coincidence, and short enough that a reply which repeats itself is found.
+constexpr int32_t kSpecNgram = 3;
 
 llama_model * as_model(void * p) { return reinterpret_cast<llama_model *>(p); }
 llama_context * as_context(void * p) { return reinterpret_cast<llama_context *>(p); }
@@ -1270,6 +1279,7 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeLoadModel(
     h->path = model_path;
     h->n_threads = pick_threads(n_threads);
     h->state_snapshots = llama_model_is_recurrent(model) || llama_model_is_hybrid(model);
+    h->outputs_max = outputs_max;
     h->loaded = true;
     // A fresh load starts uncancelled.
     h->cancelled.store(false);
@@ -2083,6 +2093,27 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
 
     // ---- decode loop ----------------------------------------------------------
     std::vector<llama_token> gen_tokens;
+
+    // ---- prompt-lookup speculation ----------------------------------------------
+    // Off unless the load gave the rows (h->outputs_max), and never for a hybrid model
+    // (its recurrent state cannot be cut back to an earlier position), a grammar (its
+    // sampler must see each token as it is chosen), or a prompt with media.
+    //
+    // A draft is the tokens that followed the same run of kSpecNgram tokens earlier in
+    // the history (common_ngram_simple_draft). Its tokens go into the cache in ONE batch
+    // with the token before them, and each position is then sampled exactly as the loop
+    // below samples one at a time: a drafted token is kept only when the model's own
+    // choice is the same token. The first one it is not discards the rest of the batch
+    // from the cache, and that token is decoded as usual. So the reply is the one the
+    // loop would have produced, up to the rounding of a batched decode.
+    const int32_t draft_max = std::min(kSpecDraft, h->outputs_max - 1);
+    const bool spec_on = draft_max > 0 && !mm_chunks && !h->state_snapshots && grammar_smpl == nullptr;
+    std::vector<llama_token> history;      // every token of the cache so far, but not a batch's tail
+    if (spec_on) history = tokens;
+    std::vector<llama_token> spec_draft;   // the drafted tokens in the cache past pos
+    size_t spec_cursor = 0;                // how many of spec_draft the model has confirmed
+    bool spec_active = false;              // the cache holds spec_draft[spec_cursor..] past pos
+
     if (!failed && outcome.stop != static_cast<int32_t>(StopCode::CANCELLED)) {
         // max_tokens < 0: prefill only (the agent warming the next turn while
         // the user reads); 0: the default 512.
@@ -2101,7 +2132,9 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
 
             // Sample the next token from the last row's logits.
             llama_token id = -1;
-            const float * logits = llama_get_logits_ith(ctx, -1);
+            // Under speculation the row is the one after the last confirmed token of the batch
+            // in the cache (spec_cursor); otherwise the last row, as always.
+            const float * logits = llama_get_logits_ith(ctx, spec_active ? static_cast<int32_t>(spec_cursor) : -1);
             if (logits != nullptr && n_vocab > 0) {
                 // llama_token_data is a plain {id, logit, p} triple; the context
                 // hands back a float* of raw logits, so wrap rather than copy
@@ -2184,25 +2217,64 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             outcome.completion_tokens++;
             gen_tokens.push_back(id);
 
-            // Decode the sampled token so the next one has context.
-            llama_batch batch = llama_batch_init(1, 0, 1);
-            batch.token[0] = id;
-            batch.pos[0] = pos;
-            batch.n_seq_id[0] = 1;
-            batch.seq_id[0][0] = kPromptSeq;
-            batch.logits[0] = 1;
-            batch.n_tokens = 1;  // see the prefill note: never left implicit
-            const int32_t rc = llama_decode(ctx, batch);
-            llama_batch_free(batch);
-            if (rc != 0 && h->cancelled.load()) {
-                outcome.stop = static_cast<int32_t>(StopCode::CANCELLED);
-                break;
+            // Speculation first: the token may already be in the cache, as the model's
+            // confirmed choice from a batch, or it may be the first one a draft got wrong.
+            bool in_cache = false;
+            std::vector<llama_token> next_draft;
+            if (spec_on) {
+                if (spec_active && spec_cursor < spec_draft.size() && id == spec_draft[spec_cursor]) {
+                    in_cache = true;
+                    ++spec_cursor;
+                } else {
+                    // Drop the drafted tokens the model did not confirm, which are past pos.
+                    if (spec_active && spec_cursor < spec_draft.size() && !llama_memory_seq_rm(mem, kPromptSeq, pos, -1)) {
+                        outcome.stop = static_cast<int32_t>(StopCode::ERROR);
+                        outcome.error = "the drafted tokens could not be removed from the cache";
+                        failed = true;
+                        break;
+                    }
+                    spec_active = false;
+                    // A draft needs room in the batch, in the reply's token limit and in the context.
+                    const int32_t room = std::min(std::min(draft_max, limit - i - 1), n_ctx - pos - 1);
+                    if (room > 0) {
+                        next_draft = common_ngram_simple_draft(
+                            common_ngram_simple_config{static_cast<uint16_t>(kSpecNgram), static_cast<uint16_t>(room)},
+                            history, id);
+                        if (next_draft.size() > static_cast<size_t>(room)) next_draft.resize(static_cast<size_t>(room));
+                    }
+                }
+                history.push_back(id);
             }
-            if (rc != 0) {
-                outcome.stop = static_cast<int32_t>(StopCode::ERROR);
-                outcome.error = "llama_decode failed with " + std::to_string(rc);
-                failed = true;
-                break;
+            if (!in_cache) {
+                // Decode the sampled token, and the draft after it, in one batch. Every row
+                // asks for logits: the draft is checked row by row.
+                const int32_t rows = 1 + static_cast<int32_t>(next_draft.size());
+                llama_batch batch = llama_batch_init(rows, 0, 1);
+                for (int32_t r = 0; r < rows; ++r) {
+                    batch.token[r] = r == 0 ? id : next_draft[static_cast<size_t>(r - 1)];
+                    batch.pos[r] = pos + r;
+                    batch.n_seq_id[r] = 1;
+                    batch.seq_id[r][0] = kPromptSeq;
+                    batch.logits[r] = 1;
+                }
+                batch.n_tokens = rows;  // see the prefill note: never left implicit
+                const int32_t rc = llama_decode(ctx, batch);
+                llama_batch_free(batch);
+                if (rc != 0 && h->cancelled.load()) {
+                    outcome.stop = static_cast<int32_t>(StopCode::CANCELLED);
+                    break;
+                }
+                if (rc != 0) {
+                    outcome.stop = static_cast<int32_t>(StopCode::ERROR);
+                    outcome.error = "llama_decode failed with " + std::to_string(rc);
+                    failed = true;
+                    break;
+                }
+                if (!next_draft.empty()) {
+                    spec_draft = next_draft;
+                    spec_cursor = 0;
+                    spec_active = true;
+                }
             }
             pos++;
 
@@ -2253,6 +2325,14 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
                 }
             }
         }
+    }
+
+    // A draft the model did not confirm is still in the cache past pos (a stop, a limit or
+    // a cancel came first). Drop it, so the cache holds exactly the reply that was kept.
+    if (spec_active && spec_cursor < spec_draft.size() && !llama_memory_seq_rm(mem, kPromptSeq, pos, -1) && !failed) {
+        outcome.stop = static_cast<int32_t>(StopCode::ERROR);
+        outcome.error = "the drafted tokens could not be removed from the cache";
+        failed = true;
     }
 
     // Native mode: the final parse of the whole reply, then the content that is

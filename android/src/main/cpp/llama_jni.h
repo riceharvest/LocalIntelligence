@@ -77,6 +77,9 @@ struct LlamaHandle {
     // a copy (snap_state). Attention-only models trim their KV cache in place
     // and keep no copy, which the RAM estimate does not price.
     bool state_snapshots = false;
+    // The logits rows the context was loaded for (loadModel's outputs_max): prompt-lookup
+    // speculation needs more than one, see kSpecDraft in llama_jni.cpp.
+    int32_t outputs_max = 0;
     // The prompt position snap_state was copied at, 0 when there is none.
     int32_t snap_at = 0;
     // Hybrid models: the state after the last reply, so a next prompt that

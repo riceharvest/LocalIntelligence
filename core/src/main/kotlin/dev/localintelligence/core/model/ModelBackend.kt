@@ -30,6 +30,11 @@ data class ModelSpec(
      * type, so what is checked is what is allocated. Backends with their own cache ignore it.
      */
     val kvCacheType: KvCacheType = KvCacheType.DEFAULT,
+    /**
+     * Prompt-lookup speculation, from the Technical setting. Read at load: it sets how many
+     * logits rows the context keeps (LlamaCppBackend), so it applies to the next load.
+     */
+    val speculative: Boolean = false,
 )
 
 data class ModelCapabilities(
