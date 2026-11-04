@@ -266,3 +266,21 @@ generation carries `tokensReused` (prompt tokens restored from the previous step
 the first sampled token). Remote, LiteRT-LM and Gemini Nano report `firstTokenMs` only: their reuse is not
 known, so `tokensReused`, `tokensPrefilled` and `prefillTokPerS` are null there.
 `ask` clears the whole logcat buffer before it sends, because logcat has no per-tag clear.
+
+## 10. Setting text (`scripts/gen-setting-text.py`)
+
+The settings screen's titles, help, option labels and section headings are translatable strings. Their
+English is written on each `SettingDef` in the Kotlin code. `scripts/gen-setting-text.py` copies that English
+into the block between the `setting-text` markers in `app/src/main/res/values/strings.xml`, and rewrites
+`app/src/main/kotlin/dev/localintelligence/app/settings/SettingTextMap.kt`. Run it after you add, rename or
+reword a setting, or add, rename or reword one of its options or a section:
+
+```bash
+python3 scripts/gen-setting-text.py          # write
+python3 scripts/gen-setting-text.py --check  # exit 1 if the files are out of date
+```
+
+It is stdlib only and safe to run again: a second run changes nothing. It fails loudly on anything it cannot
+read, such as a `$` template in a setting's text, a computed string, or a duplicate key. It skips only settings
+whose key is built at run time (per-request records); it prints each one it skips. Keep Simple-mode-only wording
+out of the generated block, because the next run replaces the whole block. Translators work from `strings.xml`.

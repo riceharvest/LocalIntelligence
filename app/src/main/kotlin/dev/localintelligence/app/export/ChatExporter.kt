@@ -1,5 +1,6 @@
 package dev.localintelligence.app.export
 
+import dev.localintelligence.app.R
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
@@ -40,10 +41,10 @@ import kotlinx.serialization.json.Json
 object ChatExporter {
 
     /** One entry per export format, so the menu, the file name and the MIME type cannot drift apart. */
-    enum class Format(val label: String, val extension: String, val mimeType: String) {
-        MARKDOWN("Export as Markdown", "md", "text/markdown"),
-        JSON("Export as JSON", "json", "application/json"),
-        PDF("Export as PDF", "pdf", "application/pdf"),
+    enum class Format(val labelRes: Int, val extension: String, val mimeType: String) {
+        MARKDOWN(R.string.export_format_markdown, "md", "text/markdown"),
+        JSON(R.string.export_format_json, "json", "application/json"),
+        PDF(R.string.export_format_pdf, "pdf", "application/pdf"),
     }
 
     /** The authority the manifest's FileProvider declares, derived the same way the manifest does. */

@@ -140,7 +140,7 @@ class DownloadService : Service() {
             else -> null to (state?.fileName ?: getString(R.string.starting_2))
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Downloading a model")
+            .setContentTitle(getString(R.string.notif_downloading_model))
             .setContentText(text)
             .setSmallIcon(R.mipmap.ic_launcher)
             // Indeterminate until the first progress event, or when the server did not say the size.
@@ -149,7 +149,7 @@ class DownloadService : Service() {
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(mainActivityIntent())
-            .addAction(0, "Cancel", cancel)
+            .addAction(0, getString(R.string.cancel), cancel)
             .build()
     }
 
@@ -159,7 +159,7 @@ class DownloadService : Service() {
         // Off when the user has disabled notifications; the download's state is still in the app.
         if (!manager.areNotificationsEnabled()) return
         val notification = NotificationCompat.Builder(this, RESULT_CHANNEL_ID)
-            .setContentTitle("Model download")
+            .setContentTitle(getString(R.string.notif_model_download))
             .setContentText(text)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setAutoCancel(true)
@@ -187,9 +187,9 @@ class DownloadService : Service() {
     private fun createChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         // LOW: progress is not something to interrupt for. The result gets its own channel, so it can be silenced without silencing progress.
-        val progress = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW)
+        val progress = NotificationChannel(CHANNEL_ID, getString(R.string.notif_channel_model_downloads), NotificationManager.IMPORTANCE_LOW)
             .apply { setShowBadge(false) }
-        val results = NotificationChannel(RESULT_CHANNEL_ID, RESULT_CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT)
+        val results = NotificationChannel(RESULT_CHANNEL_ID, getString(R.string.notif_channel_model_download_results), NotificationManager.IMPORTANCE_DEFAULT)
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(progress)
         manager.createNotificationChannel(results)
@@ -224,10 +224,8 @@ class DownloadService : Service() {
         }
 
         private const val CHANNEL_ID = "downloads"
-        private const val CHANNEL_NAME = "Model downloads"
         private const val NOTIFICATION_ID = 42
         private const val RESULT_CHANNEL_ID = "download_results"
-        private const val RESULT_CHANNEL_NAME = "Model download results"
         private const val RESULT_NOTIFICATION_ID = 43
     }
 }
