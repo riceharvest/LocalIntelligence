@@ -1034,7 +1034,13 @@ internal class WebFetcher(
                             room > PageText.OTHER_TEXT_MARKER.length
                         val detached = if (keepDetached) page.substring(split).take(room) else ""
                         PlainText(main.text + detached, truncated = main.truncated, fromHtml = true)
-                    } catch (e: RuntimeException) {
+                    } catch (e: Exception) {
+                        android.util.Log.w("WebFetch", "page extraction failed, using the plain stripper", e)
+                        HtmlText.toPlainText(raw, bodyBudget, response?.contentType)
+                    } catch (e: LinkageError) {
+                        // WHY: a failed static initialiser is an Error, not an Exception. Without this one
+                        // bad regex on one Android version breaks every page instead of falling back.
+                        android.util.Log.w("WebFetch", "page extraction failed, using the plain stripper", e)
                         HtmlText.toPlainText(raw, bodyBudget, response?.contentType)
                     }
                 } else {
