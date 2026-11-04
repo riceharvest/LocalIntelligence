@@ -635,6 +635,19 @@ marked simple reads as the value `SimpleSetup` picks for the phone, or its
 default; the user's Technical value is kept for when they switch back. A run
 reads a frozen snapshot.
 
+**Play build, Simple mode: recommended models only.** The Play build's Simple
+mode limits the Hub to the recommended models (`SimpleSetup.recommendedModels`:
+LFM3 1.7B, LFM2.5 230M and Spark X2.6 4B, plus the default embedding model),
+because Google Play's Generative AI policy
+(support.google.com/googleplay/android-developer/answer/14094294) covers apps
+that let people download arbitrary models. Simple mode shows those models as
+cards and no search. Technical mode, and the full build in both modes, keep
+the open search. The rule is enforced in `HubViewModel`, not only in the screen:
+a search, a popular list, a free-text submit, a prefill, a quant selection or a
+download of any other repository or file is refused before any network call.
+Importing a model file the user already has on the phone is not a download and
+is not limited.
+
 **Approvals.** Auto-accept is per risk tier, off by default, and only skips
 the confirmation the tier itself causes: bulk changes, paths outside app
 storage, bare-link messages and blocks always ask. Scheduled runs use it only

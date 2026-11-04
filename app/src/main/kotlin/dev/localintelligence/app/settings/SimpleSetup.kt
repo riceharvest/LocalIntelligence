@@ -2,6 +2,8 @@ package dev.localintelligence.app.settings
 
 import android.app.ActivityManager
 import android.content.Context
+import dev.localintelligence.android.documents.DEFAULT_EMBEDDING_FILE
+import dev.localintelligence.android.documents.DEFAULT_EMBEDDING_REPO
 import dev.localintelligence.core.settings.CoreSettings
 
 /** How fast this CPU reads a prompt, from its instruction set. The speed test is never run in Simple mode. */
@@ -168,32 +170,72 @@ object SimpleSetup {
         return PromptBudget(working, observation)
     }
 
+    /** RAM from which the 4B is offered as the opt-in alternative (it needs 3.7-3.9 GiB at 4K-8K context). */
+    private const val SPARK_MIN_RAM = (9.5 * GIB).toLong()
+
+    // QAD Q4_0 over Q4_K_M: Q4_0 gets the ARM repack/KleidiAI kernels.
+    // MEASURED Pixel 10 Pro, llama-bench 6 threads: pp256 254.6 vs 211.0
+    // t/s, tg64 25.3 vs 23.7 t/s; and it is quantisation-aware trained.
+    private val LFM3_1_7B = SuggestedModel(
+        repo = "LiquidAI/LFM3-1.7B-GGUF",
+        file = "LFM3-1.7B-QAD-Q4_0.gguf",
+        name = "LFM3 1.7B",
+        sizeBytes = 1_049_615_680,
+        reason = "Fast on this phone, and good at using its apps and tools.",
+    )
+
+    // QAD Q4_0, like LFM3's: the fastest format on phone CPUs.
+    private val LFM2_5_230M = SuggestedModel(
+        repo = "LiquidAI/LFM2.5-230M-GGUF",
+        file = "LFM2.5-230M-QAD-Q4_0.gguf",
+        name = "LFM2.5 230M",
+        sizeBytes = 149_081_056,
+        reason = "Small enough for this phone's memory. It handles simple requests.",
+    )
+
     fun suggestedModel(facts: DeviceFacts): SuggestedModel = when {
         // 3.2 GiB, not 4: LFM3 needs about 1.1 GiB at 4K, which leaves a 3.6 GB
         // phone over 2 GiB for Android. What kept it off those phones was speed:
         // every message re-prefilled the whole conversation at ~11 tok/s. With
         // the prompt now growing only at its end, a message prefills only
         // itself, so the agent model is usable there too.
-        facts.totalRamBytes >= LFM3_MIN_RAM -> SuggestedModel(
-            repo = "LiquidAI/LFM3-1.7B-GGUF",
-            // QAD Q4_0 over Q4_K_M: Q4_0 gets the ARM repack/KleidiAI kernels.
-            // MEASURED Pixel 10 Pro, llama-bench 6 threads: pp256 254.6 vs 211.0
-            // t/s, tg64 25.3 vs 23.7 t/s; and it is quantisation-aware trained.
-            file = "LFM3-1.7B-QAD-Q4_0.gguf",
-            name = "LFM3 1.7B",
-            sizeBytes = 1_049_615_680,
-            reason = "Fast on this phone, and good at using its apps and tools.",
-            // 12 GB and up has room for the 4B: smarter, about 3x slower, so an opt-in
-            // (it needs 3.7-3.9 GiB at 4K-8K context).
-            alternative = if (facts.totalRamBytes >= 9.5 * GIB) SPARK_4B else null,
+        facts.totalRamBytes >= LFM3_MIN_RAM -> LFM3_1_7B.copy(
+            alternative = if (facts.totalRamBytes >= SPARK_MIN_RAM) SPARK_4B else null,
         )
-        else -> SuggestedModel(
-            repo = "LiquidAI/LFM2.5-230M-GGUF",
-            // QAD Q4_0, like LFM3's: the fastest format on phone CPUs.
-            file = "LFM2.5-230M-QAD-Q4_0.gguf",
-            name = "LFM2.5 230M",
-            sizeBytes = 149_081_056,
-            reason = "Small enough for this phone's memory. It handles simple requests.",
+        else -> LFM2_5_230M
+    }
+
+    /** A model Simple mode may offer, and whether this phone's RAM is enough for it. */
+    data class RecommendedModel(val model: SuggestedModel, val fitsThisPhone: Boolean)
+
+    /**
+     * Every model the Play build's Simple mode may download. The phone's suggestion comes first,
+     * then the rest, and a model this phone's RAM cannot run comes last and is marked. The fit
+     * here is the same RAM rule the suggestion uses; the Hub's own fit verdict still decides at
+     * download time.
+     */
+    fun recommendedModels(facts: DeviceFacts): List<RecommendedModel> {
+        val suggestion = suggestedModel(facts)
+        val ram = facts.totalRamBytes
+        return listOf(
+            RecommendedModel(LFM3_1_7B, fitsThisPhone = ram >= LFM3_MIN_RAM),
+            RecommendedModel(LFM2_5_230M, fitsThisPhone = true),
+            RecommendedModel(SPARK_4B, fitsThisPhone = ram >= SPARK_MIN_RAM),
+        ).sortedWith(
+            compareBy<RecommendedModel> { it.model.repo != suggestion.repo || it.model.file != suggestion.file }
+                .thenBy { !it.fitsThisPhone },
         )
+    }
+
+    /**
+     * True when Simple mode may download [repo] / [file]: a recommended model, or the default
+     * embedding model that document search needs. Match on both, so another file in an
+     * allowed repository is not allowed.
+     */
+    fun allowsDownload(facts: DeviceFacts, repo: String, file: String): Boolean {
+        if (repo.equals(DEFAULT_EMBEDDING_REPO, ignoreCase = true) && file == DEFAULT_EMBEDDING_FILE) return true
+        return recommendedModels(facts).any { option ->
+            option.model.repo.equals(repo, ignoreCase = true) && option.model.file == file
+        }
     }
 }

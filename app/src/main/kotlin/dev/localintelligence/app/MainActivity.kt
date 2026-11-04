@@ -577,6 +577,9 @@ class MainActivity : ComponentActivity() {
                             technical = remember(hubSettingsVersion) {
                                 container.settings.mode == SettingsMode.TECHNICAL
                             },
+                            // The Play build's Simple mode: the recommended models only (see HubViewModel).
+                            restricted = remember(hubSettingsVersion) { container.hubRestricted() },
+                            recommended = remember { SimpleSetup.recommendedModels(container.deviceFacts) },
                         )
                     }
 
