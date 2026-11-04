@@ -1,6 +1,9 @@
 package dev.localintelligence.app.settings
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.content.SharedPreferences
 import dev.localintelligence.android.cloud.ChatGptSettingsWriter
 import dev.localintelligence.android.cloud.sandbox.SandboxSettingsWriter
@@ -33,6 +36,7 @@ class SettingsStore(
     context: Context,
     private val simpleValues: () -> Map<String, Any> = { emptyMap() },
 ) : SettingsReader, ChatGptSettingsWriter, SandboxSettingsWriter {
+    private val appContext: Context = context.applicationContext
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
@@ -47,7 +51,25 @@ class SettingsStore(
         if (def !== CoreSettings.MODE && !def.simple && mode == SettingsMode.SIMPLE) {
             return def.coerce(simpleValues()[def.key])
         }
+        if (def !== CoreSettings.MODE && def.simple && mode == SettingsMode.SIMPLE && !prefs.contains(def.key)) {
+            simplePhoneSourceDefault(def.key)?.let { @Suppress("UNCHECKED_CAST") return it as T }
+        }
         return stored(def)
+    }
+
+    /**
+     * Simple mode's starting value for a Search my phone source the user has never set: on when
+     * Android already grants the permission the source reads, so no prompt is ever shown for it.
+     * Null for every other row, and for a source whose permission is not granted: those stay off.
+     * Technical mode never reads this; it keeps the stored value, which defaults to off.
+     */
+    private fun simplePhoneSourceDefault(key: String): Boolean? {
+        val permission = when (key) {
+            CoreSettings.PHONE_INDEX_CALENDAR.key -> Manifest.permission.READ_CALENDAR
+            CoreSettings.PHONE_INDEX_CONTACTS.key -> Manifest.permission.READ_CONTACTS
+            else -> return null
+        }
+        return ContextCompat.checkSelfPermission(appContext, permission) == PackageManager.PERMISSION_GRANTED
     }
 
     /** The value saved for [def], ignoring Simple mode. What the Technical screen edits. */

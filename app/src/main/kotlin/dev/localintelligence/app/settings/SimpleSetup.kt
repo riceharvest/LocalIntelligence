@@ -153,6 +153,9 @@ object SimpleSetup {
             CoreSettings.AUTO_ACCEPT_EXTERNAL.key to true,
             CoreSettings.AUTO_ACCEPT_NETWORK.key to true,
             CoreSettings.AUTO_ACCEPT_IN_BACKGROUND.key to true,
+            // The screen stays on while the assistant answers: a Simple user should not have to
+            // keep touching the phone during a long answer.
+            CoreSettings.KEEP_SCREEN_AWAKE.key to true,
         )
     }
 

@@ -89,6 +89,7 @@ import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.android.tools.phonesearch.PhoneSearchLink
 import dev.localintelligence.core.skill.SkillDraft
 import dev.localintelligence.app.ModelAvailability
+import dev.localintelligence.app.SimpleWording
 import dev.localintelligence.app.RunOutcome
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.SetupState
@@ -265,7 +266,8 @@ fun ChatScreen(
         view.keepScreenOn = keepScreenAwake && busy
         onDispose { view.keepScreenOn = false }
     }
-    val blocked = modelState.blockingReason()
+    // Simple mode says why in plain words; Technical keeps the state's own line.
+    val blocked = if (technical) modelState.blockingReason() else SimpleWording.blocked(LocalContext.current, modelState)
     // Retry and Edit both act on the last turn, so they are offered only there. A turn with
     // pictures or a voice clip cannot be sent again: the media bytes are not kept.
     val lastUserIndex = messages.indexOfLast { it is ChatMessage.User }
@@ -330,7 +332,7 @@ fun ChatScreen(
         AlertDialog(
             onDismissRequest = { attachChoice = false },
             title = { Text(stringResource(R.string.attach)) },
-            text = { Text(stringResource(R.string.a_photo_for_the_model_to_see_or_an)) },
+            text = { Text(stringResource(if (technical) R.string.a_photo_for_the_model_to_see_or_an else R.string.plain_attach_text)) },
             confirmButton = {
                 TextButton(onClick = {
                     attachChoice = false
@@ -349,7 +351,7 @@ fun ChatScreen(
         AlertDialog(
             onDismissRequest = { pendingAudio = null },
             title = { Text(stringResource(R.string.transcribe_this_recording)) },
-            text = { Text(stringResource(R.string.the_text_is_written_into_the_chat_as)) },
+            text = { Text(stringResource(if (technical) R.string.the_text_is_written_into_the_chat_as else R.string.plain_transcribe_text)) },
             confirmButton = {
                 TextButton(onClick = {
                     pendingAudio = null
@@ -598,6 +600,7 @@ fun ChatScreen(
                                 } else {
                                     null
                                 },
+                                simple = !technical,
                             )
                             val offer = visibleOffer
                             if (offer != null && message === messages.last()) {
@@ -737,6 +740,8 @@ private fun AssistantBubble(
     onReport: () -> Unit,
     onRetry: (() -> Unit)? = null,
     onSaveAsSkill: (() -> Unit)? = null,
+    /** Simple mode: the four reply actions sit in one overflow menu, and the skill and speed lines are not shown. */
+    simple: Boolean = false,
 ) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -746,13 +751,63 @@ private fun AssistantBubble(
         SelectionContainer { MarkdownText(text) }
         if (photos.isNotEmpty()) PhotoHitsRow(photos)
         if (phoneLinks.isNotEmpty()) PhoneHitsRow(phoneLinks)
-        if (speed != null) {
+        if (speed != null && !simple) {
             Text(
                 text = replySpeedLine(speed),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
             )
+        }
+        if (simple) {
+            // Simple mode: one small menu holds the reply actions. Report stays in it, because Play requires it.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Filled.MoreHoriz, contentDescription = stringResource(R.string.more), modifier = Modifier.size(20.dp))
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.copy)) },
+                            leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
+                            onClick = {
+                                menuOpen = false
+                                clipboard.setText(AnnotatedString(text))
+                                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                                    Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (speaking) stringResource(R.string.stop_reading) else stringResource(R.string.read_aloud)) },
+                            leadingIcon = { Icon(if (speaking) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp, contentDescription = null) },
+                            onClick = {
+                                menuOpen = false
+                                onSpeak()
+                            },
+                        )
+                        if (onRetry != null) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.retry)) },
+                                leadingIcon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+                                onClick = {
+                                    menuOpen = false
+                                    onRetry()
+                                },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.report_reply)) },
+                            leadingIcon = { Icon(Icons.Filled.Flag, contentDescription = null) },
+                            onClick = {
+                                menuOpen = false
+                                onReport()
+                            },
+                        )
+                    }
+                }
+            }
+            return@Column
         }
         // One traversal group: TalkBack moves through the reply's actions together, in order.
         Row(
@@ -1040,7 +1095,6 @@ private fun EmptyState(
                 assistantName = assistantName,
                 onStart = onStartStarter,
                 onCancel = onCancelStarter,
-                onOpenModels = onOpenModels,
             )
             EmptyPersonaRow(personas, onChoosePersona)
             return@Column
@@ -1079,6 +1133,14 @@ private fun EmptyState(
             )
             TextButton(onClick = onOpenModels, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(stringResource(R.string.other_models))
+            }
+        } else if (blockedReason != null && starter != null) {
+            // Simple mode: the Models screen is not offered there, so the one action is to start again.
+            Button(
+                onClick = onStartStarter,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(stringResource(R.string.try_again))
             }
         } else if (blockedReason != null) {
             // 48dp: the minimum touch target. A plain TextButton would be 40dp
@@ -1139,7 +1201,6 @@ private fun StarterPanel(
     assistantName: String,
     onStart: () -> Unit,
     onCancel: () -> Unit,
-    onOpenModels: () -> Unit,
 ) {
     // It opens the sentence, so a capital: "the assistant runs on your phone" with no name set.
     val name = assistantName.trim().ifEmpty { stringResource(R.string.the_assistant) }.replaceFirstChar { it.uppercase() }
@@ -1155,10 +1216,18 @@ private fun StarterPanel(
             val label = when {
                 starter.onDisk -> stringResource(R.string.finish_setup)
                 starter.keptBytes > 0 -> stringResource(R.string.continue_setup, percentOf(starter.keptBytes, starter.sizeBytes))
-                else -> stringResource(R.string.get_started, formatBytes(starter.sizeBytes))
+                else -> stringResource(R.string.get_started_plain)
             }
             Button(onClick = onStart, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(label)
+            }
+            if (!starter.onDisk && starter.keptBytes == 0L) {
+                Text(
+                    text = stringResource(R.string.download_is_about_stays_on_phone, formatBytes(starter.sizeBytes)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
             }
             // Read when the panel appears, not on every recomposition: the network does not change under it.
             val metered = remember { isOnMeteredNetwork(context) }
@@ -1169,9 +1238,6 @@ private fun StarterPanel(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
-            }
-            TextButton(onClick = onOpenModels, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.other_models))
             }
         }
 
@@ -1219,7 +1285,7 @@ private fun StarterPanel(
         SetupState.Preparing -> {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             Text(
-                text = stringResource(R.string.almost_ready_this_only_happens_once),
+                text = stringResource(R.string.getting_ready),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -1229,7 +1295,7 @@ private fun StarterPanel(
 
         is SetupState.Failed -> {
             Text(
-                text = starter.message,
+                text = SimpleWording.failureText(LocalContext.current, starter.message),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

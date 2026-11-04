@@ -102,7 +102,7 @@ fun SearchModelCard(
                     val label = when {
                         state.onDisk -> stringResource(R.string.finish_setup)
                         state.keptBytes > 0 -> stringResource(R.string.continue_download, percentOf(state.keptBytes, state.sizeBytes))
-                        else -> stringResource(R.string.get_search_model)
+                        else -> stringResource(if (technical) R.string.get_search_model else R.string.simple_get_better_search)
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
