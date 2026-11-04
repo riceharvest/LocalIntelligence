@@ -360,9 +360,11 @@ user never asked for, or a tool the parent may not call, or it invents a phone n
 gave, or it reads outside its own goal and steers the parent with the answer.
 
 **Mitigations.**
-- The child shares the parent's `RiskPolicy`, so one blast radius covers both. The "not requested" guard
-  judges every child call against the parent's own user message, never the goal the model wrote. A goal
-  that names a tool cannot grant it.
+- The child's calls are the barrier. `task.delegate` itself is not confirmed as "not requested": it only
+  starts a child (`NOT_REQUESTED_EXEMPT` in `RiskPolicy`). Every call the child makes is judged on its own
+  against the parent's own user message, never the goal the model wrote, so a goal that names a tool cannot
+  grant it. A child's confirmation still reaches the user, so a call that needs one still asks.
+- The child shares the parent's `RiskPolicy`, so one blast radius covers both.
 - A child's grounded phone numbers are the parent's, not the goal's. A number written into the goal is
   refused like any other ungrounded number.
 - A child that needs a confirmation raises it to the user as a normal card. The answer is forwarded to the
@@ -380,7 +382,8 @@ gave, or it reads outside its own goal and steers the parent with the answer.
   narrow allow-list would give. The user sees each guarded call.
 - The child reads memories for its own goal. Those are the same user's memories, but they are read for a
   job the user did not phrase.
-- Plugin hooks are shared. A plugin counting runs also counts subtasks, and a plugin veto still applies.
+- Plugin hooks are shared, so a plugin veto still applies to a child's calls. `onRunEnd` does not fire for a
+  child, so a plugin that counts runs counts the user's turn once.
 - Nothing is measured yet: the child's cost on a phone, and whether a 6-step child can finish a job at all.
 
 ## Deliberately not defended

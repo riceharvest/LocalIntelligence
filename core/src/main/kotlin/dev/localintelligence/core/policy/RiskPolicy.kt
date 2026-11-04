@@ -101,7 +101,9 @@ class RiskPolicy(
         screen: ScreenScope? = null,
     ): Decision {
         val gated = evaluateGates(definition, args, displayTarget, screen)
-        val decision = if (!requestedByMessage && isGuarded(definition) && definition.risk != ToolRisk.SCREEN_CONTROL) {
+        val decision = if (!requestedByMessage && isGuarded(definition) &&
+            definition.risk != ToolRisk.SCREEN_CONTROL && definition.name !in NOT_REQUESTED_EXEMPT
+        ) {
             notRequested(definition, args, gated)
         } else {
             autoAccepted(definition, gated) ?: gated
@@ -665,6 +667,13 @@ class RiskPolicy(
  * Changing this set changes what asks before running. Keep it in this one place.
  */
 private val PRIVATE_READS = setOf("location.get")
+
+/**
+ * Tools the not-requested guard does not confirm. `task.delegate` only starts a child run: every call
+ * the child makes is still judged on its own against the user's message, so confirming the start would
+ * ask the same question twice. The child's calls are the barrier, not the start.
+ */
+private val NOT_REQUESTED_EXEMPT = setOf("task.delegate")
 
 private fun isGuarded(definition: ToolDefinition): Boolean =
     definition.risk != ToolRisk.READ_ONLY || definition.name in PRIVATE_READS

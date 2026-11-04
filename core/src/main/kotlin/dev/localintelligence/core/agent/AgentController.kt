@@ -1295,8 +1295,8 @@ class AgentController(
      * (one blast radius), grounds only what the user gave the parent, and takes no per-run state from
      * the parent: its own loop detector, no metrics, no memory write, no UI callbacks.
      *
-     * Its hooks are the parent's, so a plugin veto still applies to a subtask's calls. Its run end
-     * reaches the plugins too, so a plugin that counts runs counts subtasks as well.
+     * Its hooks are the parent's, so a plugin veto still applies to a subtask's calls. Its run end does
+     * not reach the plugins (see [measured]), so a plugin that counts runs counts the user's turn once.
      */
     private fun newSubtask(names: Set<String>?): AgentController = AgentController(
         model = model,
@@ -2262,7 +2262,8 @@ class AgentController(
     private suspend fun measured(body: suspend () -> AgentResult): AgentResult {
         val result = guarded { body() }
         lastRunMetrics = metrics?.finish(result is AgentResult.Success)
-        hooks.onRunEnd(result)
+        // A subtask is not a run of its own: a plugin that counts runs must count the user's turn once.
+        if (policyRequest == null) hooks.onRunEnd(result)
         return result
     }
 
