@@ -678,6 +678,22 @@ marked simple reads as the value `SimpleSetup` picks for the phone, or its
 default; the user's Technical value is kept for when they switch back. A run
 reads a frozen snapshot.
 
+**Simple mode, the screens (2026-11-04).** Simple is the whole app for someone who
+has never heard of a model. Its Settings page shows only the theme, the appearance,
+the assistant name, and a Privacy section: App lock, "What I remember" (the memory
+block), Search my phone, Delete my data, the crash report when one exists, and the
+privacy policy. One "Advanced" switch at the bottom sets the mode to Technical; the
+segmented mode switch is shown only in Technical. Every other row and screen is
+Technical only. The Simple list is a screen-side allowlist (`SimpleSettingsColumn`),
+not the `simple` flag: that flag keeps stored values readable in Simple. Simple
+defaults come from `SimpleSetup.values`, and keep-screen-awake is on there. A Search my phone
+source the user never set is on when Android already grants its permission
+(Calendar, Contacts), read in `SettingsStore.get`, and never prompts. The chat's
+reply actions sit in one overflow menu, tool rows and approvals use plain words,
+and run failures use the Simple wording (`transcriptLine(simple = true)`).
+Simple's words avoid model, token, context and the like; technical terms stay in
+Technical's own strings.
+
 **Play build, Simple mode: recommended models only.** The Play build's Simple
 mode limits the Hub to the recommended models (`SimpleSetup.recommendedModels`:
 LFM3 1.7B, LFM2.5 230M and Spark X2.6 4B, plus the default embedding model),

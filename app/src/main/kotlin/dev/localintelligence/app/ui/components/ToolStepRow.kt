@@ -225,6 +225,10 @@ fun PendingToolRow(
     var details by rememberSaveable(pending.toolName, pending.arguments) {
         mutableStateOf(pending.toolName in SHOWN_FIRST || pending.toolName.startsWith(SANDBOX_TOOL_PREFIX))
     }
+    // Simple mode: one plain question with Yes and No. The text a person would send is still shown
+    // for a call that sends it, because that is what the person is approving; no other details.
+    val simple = !LocalTechnicalDetail.current
+    val mustShow = pending.toolName in SHOWN_FIRST || pending.toolName.startsWith(SANDBOX_TOOL_PREFIX)
     // The service flips the run state a moment after a tap, so a second tap in that
     // gap would send a second decision and add a second Approval row.
     var answered by remember(pending) { mutableStateOf(false) }
@@ -246,7 +250,7 @@ fun PendingToolRow(
                 Text(approvalQuestion(pending.toolName), style = MaterialTheme.typography.titleMedium)
             }
             RiskLine(pending.risk)
-            AnimatedVisibility(visible = details, enter = enterFor(animate), exit = exitFor(animate)) {
+            AnimatedVisibility(visible = details && (!simple || mustShow), enter = enterFor(animate), exit = exitFor(animate)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (pending.justification.isNotBlank()) {
                         Text(
@@ -268,7 +272,7 @@ fun PendingToolRow(
                     },
                     enabled = !answered,
                     modifier = Modifier.semantics { contentDescription = "Allow: $action" },
-                ) { Text(stringResource(R.string.allow)) }
+                ) { Text(if (simple) stringResource(R.string.simple_yes) else stringResource(R.string.allow)) }
                 TextButton(
                     onClick = {
                         answered = true
@@ -276,9 +280,11 @@ fun PendingToolRow(
                     },
                     enabled = !answered,
                     modifier = Modifier.semantics { contentDescription = "Don't allow: $action" },
-                ) { Text(stringResource(R.string.don_t_allow_2)) }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = { details = !details }) { Text(if (details) stringResource(R.string.hide_details) else stringResource(R.string.details_2)) }
+                ) { Text(if (simple) stringResource(R.string.simple_no) else stringResource(R.string.don_t_allow_2)) }
+                if (!simple) {
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { details = !details }) { Text(if (details) stringResource(R.string.hide_details) else stringResource(R.string.details_2)) }
+                }
             }
         }
     }
@@ -395,7 +401,11 @@ fun ToolCallGroup(
         ) {
             MarkStack(steps.map { markFor(it.toolName) })
             Text(
-                text = (if (live) "Using " else "Used ") + "${steps.size} tools",
+                text = if (!LocalTechnicalDetail.current) {
+                    stringResource(if (live) R.string.working_on_it else R.string.simple_steps_done)
+                } else {
+                    (if (live) "Using " else "Used ") + "${steps.size} tools"
+                },
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
@@ -754,8 +764,11 @@ internal fun stateOf(step: ChatMessage.ToolStep): ToolRowState = when {
 
 @Composable
 private fun summaryOf(step: ChatMessage.ToolStep, state: ToolRowState): String = when (state) {
-    ToolRowState.Refused -> firstLine(step.detail).ifBlank { stringResource(R.string.tool_not_run) }
-    ToolRowState.Failed -> firstLine(step.observation.orEmpty()).ifBlank { stringResource(R.string.tool_failed) }
+    // Simple mode never shows a raw error line: the row says plainly that the step did not finish.
+    ToolRowState.Refused -> if (!LocalTechnicalDetail.current) stringResource(R.string.simple_step_not_run)
+        else firstLine(step.detail).ifBlank { stringResource(R.string.tool_not_run) }
+    ToolRowState.Failed -> if (!LocalTechnicalDetail.current) stringResource(R.string.simple_step_not_finished)
+        else firstLine(step.observation.orEmpty()).ifBlank { stringResource(R.string.tool_failed) }
     ToolRowState.Done -> firstLine(step.observation.orEmpty()).ifBlank { stringResource(R.string.tool_done) }
     ToolRowState.Awaiting -> stringResource(R.string.tool_waiting_for_approval)
     ToolRowState.Running -> stringResource(R.string.tool_running)

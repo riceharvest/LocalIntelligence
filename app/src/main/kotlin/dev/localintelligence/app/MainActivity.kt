@@ -166,6 +166,7 @@ class MainActivity : FragmentActivity() {
                             capabilities = { container.residentBackend().capabilities },
                             speaker = container.speaker,
                             readRepliesAloud = { container.settings[CoreSettings.READ_REPLIES_ALOUD] },
+                            simpleMode = { container.settings.mode == SettingsMode.SIMPLE },
                             dictation = LiveDictation(applicationContext),
                             handsFreeSilence = { container.settings[CoreSettings.HANDS_FREE_SILENCE] },
                             // Picked pictures are read again from their URIs after process death.

@@ -147,6 +147,8 @@ class ChatViewModel(
     private val decodeAudio: suspend (String, suspend (ByteArray) -> Boolean) -> Unit = { _, _ -> },
     /** Where a saved transcript goes. Null in a host without the document store. */
     private val documents: DocumentStore? = null,
+    /** True in Simple mode, so a run that failed reads in plain words. Read when the notice is written. */
+    private val simpleMode: () -> Boolean = { false },
 ) : ViewModel() {
 
     private val scope: CoroutineScope = scopeOverride ?: viewModelScope
@@ -842,8 +844,8 @@ class ChatViewModel(
         // "The text above" is only true when some text was drawn above the notice.
         val hasPartialText = lastGeneration != null && GenerationProse.display(lastGeneration.detail).isNotBlank()
         val notice = when (outcome) {
-            is RunOutcome.Cancelled -> if (hasPartialText) CANCELLED_MID_ANSWER else outcome.transcriptLine()
-            else -> outcome.transcriptLine()
+            is RunOutcome.Cancelled -> if (hasPartialText) CANCELLED_MID_ANSWER else outcome.transcriptLine(simpleMode())
+            else -> outcome.transcriptLine(simpleMode())
         }
         appendRows(listOf(ChatMessage.Notice(notice)))
     }
@@ -1389,6 +1391,8 @@ class ChatViewModel(
         private val transcriptionForeground: (Boolean) -> Unit = {},
         private val decodeAudio: suspend (String, suspend (ByteArray) -> Boolean) -> Unit = { _, _ -> },
         private val documents: DocumentStore? = null,
+        /** True in Simple mode, so a run that failed reads in plain words. Read when the notice is written. */
+        private val simpleMode: () -> Boolean = { false },
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T = build(modelClass, SavedStateHandle())
 
@@ -1418,6 +1422,7 @@ class ChatViewModel(
                 transcriptionForeground = transcriptionForeground,
                 decodeAudio = decodeAudio,
                 documents = documents,
+                simpleMode = simpleMode,
             ) as T
         }
     }
@@ -1655,11 +1660,12 @@ sealed interface ChatMessage {
  * same text, and the trace screen renders it verbatim. So the chat states what
  * happened and where the detail is, and the developer still gets the original.
  */
-internal fun RunOutcome.transcriptLine(): String = when (this) {
+internal fun RunOutcome.transcriptLine(simple: Boolean = false): String = when (this) {
     // The runtime's reason ("no valid action in 3 attempts", an exception name)
     // is for the Trace screen, which keeps it. The chat says what the user can do.
+    // Simple mode never says "model", which a phone user does not know the word for.
     is RunOutcome.Failed -> if (reason.contains(CONTEXT_TOO_SMALL, ignoreCase = true)) {
-        "That is too long for this model. Try a shorter message."
+        if (simple) "That message is too long. Try a shorter one." else "That is too long for this model. Try a shorter message."
     } else {
         "Something went wrong. Try again."
     }

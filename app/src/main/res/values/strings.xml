@@ -1336,4 +1336,20 @@
     <string name="phone_search_index_now">Refresh now</string>
     <string name="phone_search_index_done">Refreshed.</string>
     <string name="phone_search_index_failed">The refresh failed. Try again later.</string>
+    <string name="simple_privacy">Privacy</string>
+    <string name="what_i_remember">What I remember</string>
+    <string name="what_i_remember_help">Notes the assistant keeps and reads each time it answers. Edit them here, or ask it to remember something.</string>
+    <string name="delete_my_data">Delete my data</string>
+    <string name="delete_my_data_question">Delete all my data?</string>
+    <string name="delete_my_data_text">Chats, memory, settings and downloaded models are removed from this phone, and the app closes. This cannot be undone.</string>
+    <string name="advanced">Advanced</string>
+    <string name="advanced_help">Shows every setting and the extra features. Most people never need it.</string>
+    <string name="getting_ready">Getting ready</string>
+    <string name="get_started_plain">Get started</string>
+    <string name="download_is_about_stays_on_phone">The download is about %1$s. It stays on your phone.</string>
+    <string name="simple_steps_done">Looked into it</string>
+    <string name="simple_yes">Yes</string>
+    <string name="simple_no">No</string>
+    <string name="simple_step_not_finished">Didn\'t finish this step</string>
+    <string name="simple_step_not_run">This step was not run</string>
 </resources>

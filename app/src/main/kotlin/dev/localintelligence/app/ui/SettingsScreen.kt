@@ -3,6 +3,7 @@ package dev.localintelligence.app.ui
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
 import android.Manifest
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.Assistant
@@ -123,6 +125,7 @@ import dev.localintelligence.app.ui.components.openPermissionScreen
 import dev.localintelligence.core.plugin.AgentPlugin
 import androidx.compose.material.icons.filled.Star
 import dev.localintelligence.core.persona.Persona
+import dev.localintelligence.core.memory.MemoryBlock
 import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingApplies
@@ -219,6 +222,18 @@ fun SettingsScreen(
             // Read here, not above the Scaffold: only this block recomposes on a write,
             // so a value read outside it would keep the old mode.
             val technical = store.mode == SettingsMode.TECHNICAL
+            if (!technical) {
+                SimpleSettingsColumn(
+                    store = store,
+                    onOpenPhoneSearch = onOpenPhoneSearch,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .verticalScroll(scroll)
+                        .padding(16.dp),
+                )
+                return@key
+            }
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -363,6 +378,73 @@ private const val PRIVACY_POLICY_URL = "https://riceharvest.github.io/LocalIntel
 private fun openUrl(context: Context, url: String) {
     runCatching {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}
+
+/**
+ * Simple mode's whole settings page: the look, the privacy switches, and one switch to Technical
+ * mode at the bottom. Nothing else is listed here. Technical mode keeps every row, unchanged.
+ */
+@Composable
+private fun SimpleSettingsColumn(
+    store: SettingsStore,
+    onOpenPhoneSearch: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    var asking by remember { mutableStateOf(false) }
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                SettingRow(store, CoreSettings.ASSISTANT_NAME, technical = false)
+                SettingRow(store, CoreSettings.THEME_COLOR, technical = false)
+                SettingRow(store, CoreSettings.APPEARANCE, technical = false)
+            }
+        }
+
+        SectionHeader(stringResource(R.string.simple_privacy))
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                SettingRow(store, CoreSettings.APP_LOCK, technical = false)
+                TextSettingRow(
+                    store,
+                    MemoryBlock.TEXT,
+                    help = stringResource(R.string.what_i_remember_help),
+                    note = null,
+                    title = stringResource(R.string.what_i_remember),
+                )
+            }
+        }
+        Card(modifier = Modifier.fillMaxWidth()) {
+            onOpenPhoneSearch?.let { NavRow(Icons.Filled.Search, stringResource(R.string.phone_search_title), it) }
+            NavRow(Icons.Filled.Delete, stringResource(R.string.delete_my_data)) { asking = true }
+            NavRow(Icons.Filled.Info, stringResource(R.string.privacy_policy)) { openUrl(context, PRIVACY_POLICY_URL) }
+        }
+        CrashReportRow()
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            SwitchRow(
+                title = stringResource(R.string.advanced),
+                help = stringResource(R.string.advanced_help),
+                checked = false,
+            ) { store.set(CoreSettings.MODE, SettingsMode.TECHNICAL.id) }
+        }
+    }
+
+    if (asking) {
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text(stringResource(R.string.delete_my_data_question)) },
+            text = { Text(stringResource(R.string.delete_my_data_text)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    asking = false
+                    // Clears this app's own files, settings and database, and the process ends with it.
+                    (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).clearApplicationUserData()
+                }) { Text(stringResource(R.string.delete)) }
+            },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
+        )
     }
 }
 
@@ -684,7 +766,14 @@ private const val SHORT_TEXT = 80
  * and drop the cursor. The draft lives here until Save, which is the one write.
  */
 @Composable
-private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: String, note: String?) {
+private fun TextSettingRow(
+    store: SettingsStore,
+    def: SettingDef.Text,
+    help: String,
+    note: String?,
+    /** The label to show instead of the setting's own; Simple mode names the memory block "What I remember". */
+    title: String? = null,
+) {
     val stored = store.stored(def)
     // Saved, not remembered: an unsaved draft must survive a rotation. Keyed on [stored] so
     // a Save or Clear still resets the field to the new stored value.
@@ -695,7 +784,7 @@ private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: Str
         null
     }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        RowTitle(SettingText.title(LocalContext.current, def), help, note = note)
+        RowTitle(title ?: SettingText.title(LocalContext.current, def), help, note = note)
         // A name-sized value gets one line; a note gets room to write.
         val short = def.maxLength <= SHORT_TEXT
         OutlinedTextField(
