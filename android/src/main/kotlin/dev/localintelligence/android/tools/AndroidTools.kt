@@ -6,6 +6,7 @@ import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.android.tools.alarm.alarmTools
 import dev.localintelligence.android.tools.apps.appTools
 import dev.localintelligence.android.tools.calendar.calendarTools
+import dev.localintelligence.android.tools.subtask.subtaskTools
 import dev.localintelligence.android.tools.clipboard.clipboardTools
 import dev.localintelligence.android.tools.contacts.contactsTools
 import dev.localintelligence.android.tools.device.deviceTools
@@ -121,6 +122,7 @@ fun androidToolPlugins(context: Context, settings: SettingsReader): List<AgentPl
         },
         ToolFamily("tools.location", "Location", "Current approximate location") { locationTools(app, grant) },
         ToolFamily("tools.drafts", "Drafts", "Open a message or email draft for you to send") { draftTools(app) },
+        ToolFamily("tools.subtask", "Subtasks", "Hand a job to a helper run on this model") { subtaskTools() },
         // Not a user switch: a long result's preview tells the model to call this tool,
         // so turning it off would leave that instruction pointing at nothing. The
         // Settings screen skips it; see OBSERVATIONS_FAMILY_ID.

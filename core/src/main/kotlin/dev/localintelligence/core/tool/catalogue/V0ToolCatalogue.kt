@@ -2054,6 +2054,32 @@ object V0ToolCatalogue {
             tags = setOf("photo", "photos", "picture", "pictures", "image", "gallery", "find my photo", "foto"),
             requiredPermission = null,
         ),
+
+        // ------------------------------------------------------------- subtasks
+        // Runs in the agent loop (AgentController.delegate), never in the tool. REVERSIBLE, the same tier
+        // as any other call that changes nothing outside the app: the subtask's own calls keep their
+        // own tiers, and the policy judges them against the user's message, not the goal.
+        ToolDefinition(
+            name = "task.delegate",
+            description = "Hands one self-contained job to a helper run on this model, with its own " +
+                "steps and only the tools you name. Returns only the helper's short final answer.",
+            category = "subtask",
+            schema = objSchema(required = listOf("goal")) {
+                putJsonObject("goal") {
+                    put("type", "string")
+                    put("maxLength", 400)
+                    put("description", "The job, in full words: what to find or do, and what to answer.")
+                }
+                putJsonObject("tools") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "Optional. Comma-separated tool names the helper may use, such as web.search,web.fetch.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            tags = setOf("subtask", "delegate", "sub-task", "helper run"),
+            requiredPermission = null,
+        ),
     )
 
     init {

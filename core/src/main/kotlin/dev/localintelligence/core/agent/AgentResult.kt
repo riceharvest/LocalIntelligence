@@ -70,6 +70,11 @@ data class StepTrace(
      * Null on every other kind and when the model did not think.
      */
     val thought: String? = null,
+    /**
+     * On a TOOL_CALL row for `task.delegate`: the subtask's own steps, folded under that row. Shown to
+     * the user only. The parent's model never sees them; it gets the subtask's capped answer.
+     */
+    val children: List<StepTrace> = emptyList(),
 ) {
     enum class Kind { GENERATION, TOOL_CALL, OBSERVATION, MALFORMED, COMPACTION }
 }

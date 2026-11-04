@@ -349,6 +349,40 @@ Mitigations in code:
   OpenAI fields (`stop`, `n`, `logprobs`, `tools`) are ignored or refused, so a client cannot
   rely on them.
 
+### T13. A subtask acts beyond what the user asked — mitigated, with stated gaps
+
+`task.delegate` (`AgentController.delegate`, `Subtask.kt`) runs a child run on the same model with its
+own session, a 6-step cap, and the tools the model named. It is `REVERSIBLE`, and because no message
+names it, the policy asks before the first one runs (`NOT_REQUESTED`).
+
+**Threat.** A model could hand a job to a subtask to get around a confirmation: a child calls a tool the
+user never asked for, or a tool the parent may not call, or it invents a phone number the user never
+gave, or it reads outside its own goal and steers the parent with the answer.
+
+**Mitigations.**
+- The child shares the parent's `RiskPolicy`, so one blast radius covers both. The "not requested" guard
+  judges every child call against the parent's own user message, never the goal the model wrote. A goal
+  that names a tool cannot grant it.
+- A child's grounded phone numbers are the parent's, not the goal's. A number written into the goal is
+  refused like any other ungrounded number.
+- A child that needs a confirmation raises it to the user as a normal card. The answer is forwarded to the
+  child. Declining is handled the same way as in a run of the user's own.
+- The child's registry drops `task.delegate`, and the loop refuses it again. There is no nesting.
+- Only the child's answer, capped at 600 characters, comes back, and it is fenced as untrusted text
+  (`task.delegate` uses the default `NETWORK` origin). The child's steps are shown to the user, never
+  sent to the parent's model.
+- A child gets no memory write (`turnRecorder` is null), no metrics, and no UI callbacks of its own.
+- Stop cancels the running or parked child.
+
+**Stated gaps.**
+- A child's model-visible tools are the parent's list, not a fixed safe list, when the model names none.
+  Each of those calls is still judged by the policy, but the set of tools a child can reach is wider than a
+  narrow allow-list would give. The user sees each guarded call.
+- The child reads memories for its own goal. Those are the same user's memories, but they are read for a
+  job the user did not phrase.
+- Plugin hooks are shared. A plugin counting runs also counts subtasks, and a plugin veto still applies.
+- Nothing is measured yet: the child's cost on a phone, and whether a 6-step child can finish a job at all.
+
 ## Deliberately not defended
 
 - **A hostile local model file.** Anyone who can place a GGUF in app storage can
