@@ -12,6 +12,7 @@ import dev.localintelligence.app.data.TaskCadence
 import dev.localintelligence.app.data.TaskReadiness
 import dev.localintelligence.app.data.intentForTaskAction
 import dev.localintelligence.app.data.readTaskReadiness
+import dev.localintelligence.app.R
 import dev.localintelligence.app.execution.ScheduledRunRegistry
 import dev.localintelligence.app.execution.ScheduledTaskController
 import dev.localintelligence.app.execution.TaskAlarmScheduler
@@ -127,7 +128,7 @@ class ScheduleViewModel(
      */
     fun create(prompt: String, cadence: TaskCadence) {
         if (prompt.isBlank()) {
-            _state.value = _state.value.copy(notice = "Type what the task should do first.")
+            _state.value = _state.value.copy(notice = context.getString(R.string.sched_type_first))
             return
         }
         viewModelScope.launch {
@@ -137,13 +138,11 @@ class ScheduleViewModel(
             val isFull = _state.value.isFull
             val notice = when {
                 created != null -> null
-                isFull -> "There are already ${ScheduledTaskController.MAX_TASKS} " +
-                    "scheduled tasks. Delete one to add another."
+                isFull -> context.getString(R.string.sched_full, ScheduledTaskController.MAX_TASKS)
                 // The two refusal causes are already visible in the blockers
                 // list above the form, so the notice names the cause rather
                 // than shrugging with a generic failure.
-                else -> "Android would not schedule this task. Check the " +
-                    "blockers above — exact alarms have to be allowed for this app."
+                else -> context.getString(R.string.sched_android_refused)
             }
             val tasks = withContext(Dispatchers.IO) { store.all() }
             _state.value = _state.value.copy(
@@ -187,9 +186,8 @@ class ScheduleViewModel(
                 notice = when {
                     ok -> null
                     // Only name exact alarms when they really are the cause (#174).
-                    !exactAllowed -> "Could not resume: Android is not allowing this app to " +
-                        "schedule exact alarms. See the blockers above."
-                    else -> "Could not resume: this task has no later time to run at."
+                    !exactAllowed -> context.getString(R.string.sched_resume_exact_alarms)
+                    else -> context.getString(R.string.sched_resume_no_time)
                 },
             )
         }

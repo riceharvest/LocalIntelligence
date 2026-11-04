@@ -376,6 +376,7 @@ class ExecutionService : Service() {
         val unattended = scheduledTaskId != null || replyChat != null
         readinessInFlight = null
         val agent = AgentViewModel(
+            context = applicationContext,
             // Called by AgentViewModel only after the model is ready, so the
             // controller binds to the backend that is actually loaded.
             newController = {
@@ -448,7 +449,7 @@ class ExecutionService : Service() {
                 if (!unattended && ready.canRun) container.markRunInFlight()
                 ready
             } else {
-                ModelAvailability.Failed("The message to replace is no longer the last one. Nothing was run.")
+                ModelAvailability.Failed(getString(R.string.run_replace_not_last))
             }
         }
     }
@@ -468,7 +469,7 @@ class ExecutionService : Service() {
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(mainActivityIntent())
-            .addAction(0, "Stop", stop)
+            .addAction(0, getString(R.string.stop), stop)
             .build()
     }
 
@@ -479,12 +480,12 @@ class ExecutionService : Service() {
     private fun watchNotificationText() {
         if (notificationWatcher?.isActive == true) return
         notificationWatcher = serviceScope.launch {
-            var last = NOTIFICATION_TEXT
+            var last = getString(R.string.notif_working_request)
             sinks.state.collect { state ->
                 val text = if (state is RunState.AwaitingApproval) {
                     getString(R.string.waiting_for_your_ok) + state.description.ifBlank { state.toolName }
                 } else {
-                    NOTIFICATION_TEXT
+                    getString(R.string.notif_working_request)
                 }
                 if (text != last) {
                     last = text
@@ -500,7 +501,7 @@ class ExecutionService : Service() {
     private var notificationWatcher: Job? = null
 
     private fun startTaskForeground() {
-        val notification = runNotification(NOTIFICATION_TEXT)
+        val notification = runNotification(getString(R.string.notif_working_request))
         watchNotificationText()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -586,6 +587,7 @@ class ExecutionService : Service() {
                     container.settings,
                     chat,
                     TelegramReplies.outcomeText(
+                        applicationContext,
                         outcome.outcome,
                         sinks.trace.value,
                         readinessInFlight,
@@ -631,7 +633,7 @@ class ExecutionService : Service() {
      */
     private fun reportRefusal(startId: Int, task: String, scheduledTaskId: String?, replyChat: Long?) {
         replyChat?.let {
-            TelegramReplies.send(container.settings, it, BUSY_REPLY)
+            TelegramReplies.send(container.settings, it, getString(R.string.telegram_busy_reply))
         }
         if (scheduledTaskId != null) {
             // Best effort: a failure to record must not crash the receiver path.
@@ -640,7 +642,7 @@ class ExecutionService : Service() {
                 val current = store.byId(scheduledTaskId) ?: return@runCatching
                 store.upsert(
                     current.copy(
-                        lastResult = "Skipped: another task was already running.",
+                        lastResult = getString(R.string.schedule_skipped_busy),
                     ),
                 )
             }.onFailure { Log.w(TAG, "could not record refused schedule: ${it.message}") }
@@ -710,14 +712,14 @@ class ExecutionService : Service() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            CHANNEL_NAME,
+            getString(R.string.notif_channel_assistant_work),
             // LOW: this is a progress indicator, not something to interrupt for.
             NotificationManager.IMPORTANCE_LOW,
         ).apply { setShowBadge(false) }
         // DEFAULT: a finished scheduled run is news the user asked to hear about.
         val results = NotificationChannel(
             RESULT_CHANNEL_ID,
-            RESULT_CHANNEL_NAME,
+            getString(R.string.notif_channel_scheduled_results),
             NotificationManager.IMPORTANCE_DEFAULT,
         )
         val manager = getSystemService(NotificationManager::class.java)
@@ -752,7 +754,6 @@ class ExecutionService : Service() {
         /** The newest user turn a retry or edit replaces; see [AgentGateway.start]. */
         const val EXTRA_REPLACING = "replacing"
         private const val NO_REPLY_CHAT = Long.MIN_VALUE
-        private const val BUSY_REPLY = "The phone is already running a task. Send it again when that one has finished."
 
         /**
          * Starts a run. Always `startForegroundService`, so `onStartCommand` is
@@ -845,21 +846,13 @@ class ExecutionService : Service() {
 
         /** Private: the channel is an implementation detail of this service. */
         private const val CHANNEL_ID = "execution"
-        private const val CHANNEL_NAME = "Assistant at work"
         private const val NOTIFICATION_ID = 41
 
         /** Its own channel, so results can be silenced without silencing progress. */
         private const val RESULT_CHANNEL_ID = "scheduled_results"
-        private const val RESULT_CHANNEL_NAME = "Scheduled task results"
 
         /** Longest prompt shown as a result notification's title. */
         private const val TITLE_CHARS = 60
-
-        /**
-         * Hardcoded rather than a string resource. A real string lands with the
-         * localisation pass; this constant is the notification body only.
-         */
-        private const val NOTIFICATION_TEXT = "Working on your request…"
     }
 }
 

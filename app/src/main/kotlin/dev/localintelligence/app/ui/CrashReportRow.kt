@@ -72,7 +72,7 @@ fun CrashReportRow() {
 
     if (previewing) {
         val body by produceState<String?>(initialValue = null, file) {
-            value = withContext(Dispatchers.IO) { CrashReports.preview(file) }
+            value = withContext(Dispatchers.IO) { CrashReports.preview(context, file) }
         }
         AlertDialog(
             onDismissRequest = { previewing = false },

@@ -2,6 +2,7 @@ package dev.localintelligence.app.execution
 
 import android.content.Context
 import dev.localintelligence.app.AgentViewModel
+import dev.localintelligence.app.R
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.RunOutcome
 import dev.localintelligence.app.RunState
@@ -108,8 +109,8 @@ internal object ScheduledRunReporter {
         val current = store.byId(id) ?: return null
         // The run's own sentence stays: the answer may be exactly what the user
         // scheduled it for. The skipped action is added to it, not put in its place.
-        val result = describe(outcome.outcome, trace, readiness) +
-            if (approvalDeclined) APPROVAL_SKIPPED else ""
+        val result = describe(context, outcome.outcome, trace, readiness) +
+            if (approvalDeclined) " " + context.getString(R.string.sched_approval_skipped) else ""
 
         val written = current.copy(
             lastResult = carryScheduleWarning(current.lastResult, result),
@@ -132,7 +133,7 @@ internal object ScheduledRunReporter {
         val live = ScheduledRunRegistry.runningTaskId
         for (task in store.all()) {
             if (task.lastResult != PENDING || task.id == live) continue
-            store.upsert(task.copy(lastResult = CANCELLED_INTERRUPTED))
+            store.upsert(task.copy(lastResult = context.getString(R.string.sched_cancelled_interrupted)))
         }
     }
 
@@ -144,13 +145,14 @@ internal object ScheduledRunReporter {
      * the generic failure sentence.
      */
     fun describe(
+        context: Context,
         outcome: RunOutcome,
         trace: List<StepTrace>,
         readiness: ModelAvailability?,
     ): String = when (outcome) {
         is RunOutcome.Answer -> ANSWER_PREFIX + oneLine(outcome.text)
 
-        RunOutcome.Cancelled -> CANCELLED_USER
+        RunOutcome.Cancelled -> context.getString(R.string.sched_cancelled_user)
 
         is RunOutcome.Failed ->
             when {
@@ -158,7 +160,7 @@ internal object ScheduledRunReporter {
                 // `AgentViewModel` publishes this as a `Stop` carrying a
                 // constant, so this is an identity check against a named
                 // constant, not a guess at a message.
-                outcome.reason == AgentViewModel.CANCELLED_REASON -> CANCELLED_INTERRUPTED
+                outcome.reason == AgentViewModel.CANCELLED_REASON -> context.getString(R.string.sched_cancelled_interrupted)
 
                 // Blocked before the loop ever started: no model chosen, or
                 // the RAM gate refused the load. `readiness` is recorded by the
@@ -168,21 +170,21 @@ internal object ScheduledRunReporter {
                 // guard above has already excluded — the `?:` is for the
                 // compiler, not for a case that can happen.
                 readiness != null && !readiness.canRun ->
-                    NOT_RUN + oneLine(readiness.blockingReason() ?: NO_REASON)
+                    NOT_RUN + oneLine(readiness.blockingReason(context) ?: context.getString(R.string.sched_no_reason))
 
                 // No answer, and something was refused along the way. That is
                 // the real reason the user has nothing to read.
-                else -> refusalOrNull(trace)?.let { REFUSED_PREFIX + oneLine(it) }
+                else -> refusalOrNull(context, trace)?.let { REFUSED_PREFIX + oneLine(it) }
                     ?: FAILED_PREFIX + if (outcome.reason.contains("context window too small", ignoreCase = true)) {
-                        TOO_LONG
+                        context.getString(R.string.sched_too_long)
                     } else {
-                        GENERIC_FAILURE
+                        context.getString(R.string.plain_something_went_wrong)
                     }
             }
 
         RunOutcome.StepLimitReached ->
-            refusalOrNull(trace)?.let { REFUSED_PREFIX + oneLine(it) }
-                ?: FAILED_PREFIX + STEP_LIMIT_REASON
+            refusalOrNull(context, trace)?.let { REFUSED_PREFIX + oneLine(it) }
+                ?: FAILED_PREFIX + context.getString(R.string.sched_step_limit)
     }
 
     /**
@@ -196,30 +198,31 @@ internal object ScheduledRunReporter {
      * `:core` degrades to a vaguer but still-true sentence instead of to
      * `Refused:`.
      */
-    private fun refusalOrNull(trace: List<StepTrace>): String? =
+    private fun refusalOrNull(context: Context, trace: List<StepTrace>): String? =
         trace.lastOrNull { isRefusal(it) }?.let { entry ->
             val tool = entry.toolName
                 ?: entry.detail.removePrefix(REFUSED_DETAIL_PREFIX).substringBefore(':').trim()
-            "Not allowed: " + toolPhrase(tool)
+            context.getString(R.string.sched_not_allowed, toolPhrase(context, tool))
         }
 
-    private val TOOL_PHRASES = mapOf(
-        "files.delete" to "delete a file",
-        "files.write_text" to "write a file",
-        "files.read_text" to "read a file",
-        "files.list" to "list files",
-        "alarm.create" to "set an alarm",
-        "alarm.cancel" to "cancel an alarm",
-        "calendar.create" to "add a calendar event",
-        "notifications.reply" to "reply to a notification",
-        "message.draft" to "draft a message",
-        "web.fetch" to "open a web page",
-        "web.search" to "search the web",
+    private val TOOL_PHRASES: Map<String, Int> = mapOf(
+        "files.delete" to R.string.sched_tool_delete_file,
+        "files.write_text" to R.string.sched_tool_write_file,
+        "files.read_text" to R.string.sched_tool_read_file,
+        "files.list" to R.string.sched_tool_list_files,
+        "alarm.create" to R.string.sched_tool_set_alarm,
+        "alarm.cancel" to R.string.sched_tool_cancel_alarm,
+        "calendar.create" to R.string.sched_tool_add_calendar_event,
+        "notifications.reply" to R.string.sched_tool_reply_notification,
+        "message.draft" to R.string.sched_tool_draft_message,
+        "web.fetch" to R.string.sched_tool_open_web_page,
+        "web.search" to R.string.sched_tool_search_web,
     )
 
     /** Plain words for a tool id: the shipped ones by map, others from the last segment. */
-    private fun toolPhrase(tool: String): String =
-        TOOL_PHRASES[tool] ?: tool.substringAfterLast('.').replace('_', ' ').ifBlank { "do that" }
+    private fun toolPhrase(context: Context, tool: String): String =
+        TOOL_PHRASES[tool]?.let { context.getString(it) }
+            ?: tool.substringAfterLast('.').replace('_', ' ').ifBlank { context.getString(R.string.sched_tool_do_that) }
 
     /** The stored result as a notification body: no machine prefix for answers and failures. */
     fun notificationBody(result: String): String {
@@ -287,33 +290,6 @@ internal object ScheduledRunReporter {
     const val REFUSED_PREFIX = "Refused: "
     const val FAILED_PREFIX = "Failed: "
     const val NOT_RUN = "Did not run: "
-
-    /** Appended when a risky step was declined because no one was there to approve it. */
-    const val APPROVAL_SKIPPED = " An action that needed your approval was skipped."
-
-    /**
-     * Unreachable in practice — [blockingReason] is non-null for every
-     * availability that is not [dev.localintelligence.app.ModelAvailability.Ready].
-     * It exists so that a future case added to the sealed type degrades to an
-     * honest sentence instead of to `Did not run: null`.
-     */
-    private const val NO_REASON = "the model was not ready."
-
-    private const val CANCELLED_USER =
-        "Cancelled: stopped before it finished."
-    private const val CANCELLED_INTERRUPTED =
-        "Cancelled: the run was interrupted before it finished."
-
-    /**
-     * `RunOutcome.notice` already owns this sentence for the transcript. It is
-     * restated rather than imported because that property is UI wording on a
-     * type the reporter reads as data, and the field is persisted — it has to
-     * mean the same thing in six months, with or without the UI.
-     */
-    private const val STEP_LIMIT_REASON = "Couldn't finish that task."
-
-    private const val GENERIC_FAILURE = "Something went wrong. Try again."
-    private const val TOO_LONG = "That was too long for this model."
 
     private const val REFUSED_DETAIL_PREFIX = "refused "
     private const val EM_DASH_SEPARATOR = " — "

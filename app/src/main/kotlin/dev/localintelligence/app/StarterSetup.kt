@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import android.content.Context
 import android.util.Log
 import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
@@ -88,7 +89,7 @@ sealed interface SetupState {
  * - [stopped] on any other `Stopped`, [describe] its error; [run] step 2 (listing failed or the
  *   file is missing), step 3 (plan refused), and [attempt]'s catch (network): -> `Failed`.
  * - [download] `Done`: -> `Preparing` in [loadDownloaded]; [adopt] returns null or not
- *   chat-ready -> `Failed(COULD_NOT_START)`.
+ *   chat-ready -> `Failed(context.getString(R.string.setup_starter_would_not_start))`.
  * - [loadDownloaded] after [awaitPrefix] returns: -> `Ready`.
  * - the availability observer in `init`: `Ready` when the model becomes ready some other way
  *   (from `Idle` or `Failed` only); `Idle` from disk when the model is removed while `Ready`.
@@ -104,6 +105,7 @@ sealed interface SetupState {
  *   Try again, or a relaunch (which reads `onDisk`), adopts it again.
  */
 class StarterSetup(
+    private val context: Context,
     private val scope: CoroutineScope,
     private val suggestion: SuggestedModel,
     private val client: HuggingFaceClient,
@@ -202,7 +204,7 @@ class StarterSetup(
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "first-run setup failed", e)
-            _state.value = SetupState.Failed(NETWORK_FAILED)
+            _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed))
         } finally {
             // A cancel can end the job before the downloader reports anything. The bytes on disk are the truth.
             _state.update { if (it is SetupState.Downloading) idleFromDisk() else it }
@@ -223,7 +225,7 @@ class StarterSetup(
         }
         val file = files.firstOrNull { it.fileName == suggestion.file }
         if (file == null) {
-            _state.value = SetupState.Failed(NOT_FOUND)
+            _state.value = SetupState.Failed(context.getString(R.string.setup_not_found))
             return
         }
 
@@ -253,7 +255,7 @@ class StarterSetup(
         when (val end = download(file, plan)) {
             is DownloadProgress.Done -> loadDownloaded(downloader.localFileFor(file))
             is DownloadProgress.Stopped -> stopped(end)
-            else -> _state.value = SetupState.Failed(NETWORK_FAILED)
+            else -> _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed))
         }
     }
 
@@ -277,7 +279,7 @@ class StarterSetup(
                 false
             }
             else -> {
-                _state.value = SetupState.Failed(NETWORK_FAILED)
+                _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed))
                 false
             }
         }
@@ -315,7 +317,7 @@ class StarterSetup(
             null
         }
         if (registered == null || !registered.chatReady) {
-            _state.value = SetupState.Failed(COULD_NOT_START)
+            _state.value = SetupState.Failed(context.getString(R.string.setup_starter_would_not_start))
             return
         }
         awaitPrefix()
@@ -330,19 +332,19 @@ class StarterSetup(
     /** The one plain sentence for a download that stopped. Never a file name, a code or a size we did not compute. */
     private fun describe(error: HubError): String = when (error) {
         is HubError.InsufficientStorage -> storageSentence(error)
-        is HubError.ChecksumMismatch -> "The download was damaged, so it was removed. Try again."
-        is HubError.InvalidInput -> COULD_NOT_SAVE
-        else -> NETWORK_FAILED
+        is HubError.ChecksumMismatch -> context.getString(R.string.setup_checksum_damaged)
+        is HubError.InvalidInput -> context.getString(R.string.setup_could_not_save)
+        else -> context.getString(R.string.setup_network_failed)
     }
 
     /** The sentence for a plan that refuses the download before it starts. */
     private fun refusal(reject: HubError): String = when (reject) {
         is HubError.InsufficientStorage -> storageSentence(reject)
-        else -> "This phone can't run this model."
+        else -> context.getString(R.string.setup_starter_cannot_run)
     }
 
     private fun storageSentence(error: HubError.InsufficientStorage): String =
-        "Free up ${formatBytes(error.neededBytes - error.availableBytes)} of storage, then try again."
+        context.getString(R.string.setup_free_storage, formatBytes(error.neededBytes - error.availableBytes))
 
     /** `Idle` as the disk says it is. Reads two file lengths, so it is cheap enough for the main thread. */
     private fun idleFromDisk(): SetupState.Idle {
@@ -357,9 +359,5 @@ class StarterSetup(
 
     private companion object {
         const val TAG = "StarterSetup"
-        const val NETWORK_FAILED = "Couldn't download. Check your internet connection and try again."
-        const val NOT_FOUND = "Couldn't find the model to download. Try again later."
-        const val COULD_NOT_START = "The model downloaded but would not start on this phone."
-        const val COULD_NOT_SAVE = "The download could not be saved. Free up some storage and try again."
     }
 }
