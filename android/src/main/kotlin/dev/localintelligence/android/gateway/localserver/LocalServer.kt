@@ -94,7 +94,7 @@ interface LocalServerEngine {
  * ## Why loopback only
  *
  * Bound to 127.0.0.1, nothing on the network can reach it. Other apps on the phone still can, which is
- * why the bearer token is the only barrier (`docs/threat-model.md` T11).
+ * why the bearer token is the only barrier (`docs/threat-model.md` T12).
  *
  * ## Limits
  *
