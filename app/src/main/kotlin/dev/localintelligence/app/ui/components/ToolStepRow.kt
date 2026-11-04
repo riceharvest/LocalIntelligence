@@ -280,13 +280,15 @@ fun PendingToolRow(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Name the action and the tool, so TalkBack does not read a bare "Allow".
                 val action = verbFor(pending.toolName).base
+                val allowLabel = stringResource(R.string.tool_row_a11y_allow, action)
+                val dontAllowLabel = stringResource(R.string.tool_row_a11y_dont_allow, action)
                 Button(
                     onClick = {
                         answered = true
                         onApprove()
                     },
                     enabled = !answered,
-                    modifier = Modifier.semantics { contentDescription = "Allow: $action" },
+                    modifier = Modifier.semantics { contentDescription = allowLabel },
                 ) { Text(if (simple) stringResource(R.string.simple_yes) else stringResource(R.string.allow)) }
                 TextButton(
                     onClick = {
@@ -294,7 +296,7 @@ fun PendingToolRow(
                         onDecline()
                     },
                     enabled = !answered,
-                    modifier = Modifier.semantics { contentDescription = "Don't allow: $action" },
+                    modifier = Modifier.semantics { contentDescription = dontAllowLabel },
                 ) { Text(if (simple) stringResource(R.string.simple_no) else stringResource(R.string.don_t_allow_2)) }
                 if (!simple) {
                     Spacer(Modifier.weight(1f))
@@ -393,6 +395,8 @@ fun ToolCallGroup(
     } else {
         (if (live) "Using " else "Used ") + "${steps.size} tools"
     }
+    val foldedHint = stringResource(R.string.tool_group_a11y_folded)
+    val unfoldedHint = stringResource(R.string.tool_group_a11y_unfolded)
     LaunchedEffect(finished, autoCollapse) {
         if (finished && autoCollapse && !userChose) {
             delay(AUTO_FOLD_DELAY_MS)
@@ -413,7 +417,7 @@ fun ToolCallGroup(
                 .semantics(mergeDescendants = true) {
                     contentDescription = buildString {
                         append(groupText)
-                        append(if (collapsed) ". Folded. Double tap to expand." else ". Double tap to fold.")
+                        append(if (collapsed) foldedHint else unfoldedHint)
                     }
                 },
             verticalAlignment = Alignment.CenterVertically,
@@ -467,7 +471,7 @@ private fun ToolRow(
 ) {
     val verb = verbFor(toolName)
     val title = when (state) {
-        ToolRowState.Running -> verb.present + "…"
+        ToolRowState.Running -> stringResource(R.string.tool_running_more, verb.present)
         ToolRowState.Awaiting -> verb.present
         ToolRowState.Failed -> stringResource(R.string.couldn_t_2) + verb.base
         ToolRowState.Refused -> stringResource(R.string.didn_t_2) + verb.base
@@ -475,6 +479,12 @@ private fun ToolRow(
     }
     val duration = formatDuration(durationMs)
     val tap = if (expanded != null) Modifier.clickable(onClick = onToggle) else Modifier
+    val detailHint = when (expanded) {
+        null -> ""
+        true -> stringResource(R.string.tool_row_a11y_details_open)
+        false -> stringResource(R.string.tool_row_a11y_details_closed)
+    }
+    val stateWord = stringResource(state.wordRes)
 
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -485,12 +495,10 @@ private fun ToolRow(
                 .padding(horizontal = 4.dp, vertical = 6.dp)
                 .semantics(mergeDescendants = true) {
                     contentDescription = buildString {
-                        append(title).append(". ").append(state.word).append(". ")
+                        append(title).append(". ").append(stateWord).append(". ")
                         append(summary)
                         duration?.let { append(". ").append(it) }
-                        if (expanded != null) {
-                            append(if (expanded) ". Showing details. Double tap to hide." else ". Double tap to show details.")
-                        }
+                        append(detailHint)
                     }
                 },
             verticalAlignment = Alignment.CenterVertically,
@@ -578,7 +586,7 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
     ) {
         Column(Modifier.padding(10.dp)) {
             Text(
-                text = listOfNotNull(step.toolName.ifBlank { "tool call" }, formatDuration(step.durationMs))
+                text = listOfNotNull(step.toolName.ifBlank { stringResource(R.string.tool_call_fallback) }, formatDuration(step.durationMs))
                     .joinToString(" · "),
                 style = MaterialTheme.typography.labelSmall,
                 fontFamily = FontFamily.Monospace,
@@ -616,7 +624,7 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),
             )
-            val lines = output.ifBlank { "(no output)" }.lines()
+            val lines = output.ifBlank { stringResource(R.string.tool_no_output) }.lines()
             val shown = if (showAll || lines.size <= OUTPUT_FOLD_LINES) {
                 lines.joinToString("\n")
             } else {
@@ -640,6 +648,7 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
 /** The status shape. Each state has its own silhouette, not just its own colour. */
 @Composable
 private fun StatusShape(state: ToolRowState) {
+    val stateWord = stringResource(state.wordRes)
     val tint = when (state) {
         ToolRowState.Running -> MaterialTheme.colorScheme.primary
         ToolRowState.Done -> MaterialTheme.colorScheme.primary
@@ -649,7 +658,7 @@ private fun StatusShape(state: ToolRowState) {
     }
     when (state) {
         ToolRowState.Running -> CircularProgressIndicator(
-            modifier = Modifier.size(16.dp).semantics { contentDescription = state.word },
+            modifier = Modifier.size(16.dp).semantics { contentDescription = stateWord },
             strokeWidth = 2.dp,
             color = tint,
         )
@@ -660,7 +669,7 @@ private fun StatusShape(state: ToolRowState) {
                 ToolRowState.Awaiting -> Icons.Filled.Shield
                 else -> Icons.Filled.Block
             },
-            contentDescription = state.word,
+            contentDescription = stateWord,
             tint = tint,
             modifier = Modifier.size(18.dp),
         )
@@ -771,12 +780,12 @@ internal fun groupToolCalls(messages: List<ChatMessage>): List<TranscriptEntry> 
 }
 
 /** Where a row sits in its lifecycle, derived from what the runtime reports. */
-internal enum class ToolRowState(val word: String) {
-    Running("running"),
-    Done("done"),
-    Failed("failed"),
-    Awaiting("waiting for approval"),
-    Refused("refused"),
+internal enum class ToolRowState(@StringRes val wordRes: Int) {
+    Running(R.string.tool_state_running),
+    Done(R.string.tool_state_done),
+    Failed(R.string.tool_state_failed),
+    Awaiting(R.string.tool_state_waiting),
+    Refused(R.string.tool_state_refused),
 }
 
 internal fun stateOf(step: ChatMessage.ToolStep): ToolRowState = when {

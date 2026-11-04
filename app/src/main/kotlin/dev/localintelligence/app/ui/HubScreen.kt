@@ -215,10 +215,11 @@ fun HubScreen(
                     // control that cannot say what it is waiting for, and this
                     // one waits on somebody else's server. Announced as a live
                     // region so a screen-reader user hears the wait start.
+                    val asking = stringResource(R.string.hub_a11y_asking_hf)
                     CircularProgressIndicator(
                         modifier = Modifier
                             .height(24.dp)
-                            .semantics { contentDescription = "Asking HuggingFace for this repository" },
+                            .semantics { contentDescription = asking },
                     )
                 }
             }
@@ -243,7 +244,7 @@ fun HubScreen(
             }
             item {
                 Text(
-                    stringResource(R.string.other_models_switch_to_technical_mode),
+                    stringResource(R.string.simple_hub_more_choices),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -510,10 +511,11 @@ fun HubScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
+                            val starting = stringResource(R.string.hub_a11y_starting_download)
                             CircularProgressIndicator(
                                 modifier = Modifier
                                     .height(24.dp)
-                                    .semantics { contentDescription = "Starting the download" },
+                                    .semantics { contentDescription = starting },
                             )
                             Text(stringResource(R.string.starting_download))
                         }

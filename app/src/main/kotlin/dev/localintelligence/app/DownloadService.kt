@@ -15,6 +15,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import dev.localintelligence.core.hub.DownloadProgress
+import dev.localintelligence.core.settings.SettingsMode
+import dev.localintelligence.core.settings.mode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -140,7 +142,7 @@ class DownloadService : Service() {
             else -> null to (state?.fileName ?: getString(R.string.starting_2))
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.notif_downloading_model))
+            .setContentTitle(getString(simpleOr(R.string.notif_downloading_model, R.string.simple_notif_downloading)))
             .setContentText(text)
             .setSmallIcon(R.mipmap.ic_launcher)
             // Indeterminate until the first progress event, or when the server did not say the size.
@@ -159,7 +161,7 @@ class DownloadService : Service() {
         // Off when the user has disabled notifications; the download's state is still in the app.
         if (!manager.areNotificationsEnabled()) return
         val notification = NotificationCompat.Builder(this, RESULT_CHANNEL_ID)
-            .setContentTitle(getString(R.string.notif_model_download))
+            .setContentTitle(getString(simpleOr(R.string.notif_model_download, R.string.simple_notif_download)))
             .setContentText(text)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setAutoCancel(true)
@@ -187,13 +189,17 @@ class DownloadService : Service() {
     private fun createChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         // LOW: progress is not something to interrupt for. The result gets its own channel, so it can be silenced without silencing progress.
-        val progress = NotificationChannel(CHANNEL_ID, getString(R.string.notif_channel_model_downloads), NotificationManager.IMPORTANCE_LOW)
+        val progress = NotificationChannel(CHANNEL_ID, getString(simpleOr(R.string.notif_channel_model_downloads, R.string.simple_notif_channel_downloads)), NotificationManager.IMPORTANCE_LOW)
             .apply { setShowBadge(false) }
-        val results = NotificationChannel(RESULT_CHANNEL_ID, getString(R.string.notif_channel_model_download_results), NotificationManager.IMPORTANCE_DEFAULT)
+        val results = NotificationChannel(RESULT_CHANNEL_ID, getString(simpleOr(R.string.notif_channel_model_download_results, R.string.simple_notif_channel_download_results)), NotificationManager.IMPORTANCE_DEFAULT)
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(progress)
         manager.createNotificationChannel(results)
     }
+
+    /** The Technical wording, or the Simple wording when the mode is Simple (the default). */
+    private fun simpleOr(technical: Int, simple: Int): Int =
+        if ((application as LocalIntelligenceApp).container.settings.mode == SettingsMode.TECHNICAL) technical else simple
 
     companion object {
         const val ACTION_START = "dev.localintelligence.app.DOWNLOAD_START"

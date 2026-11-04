@@ -331,13 +331,14 @@ private fun ComposerField(
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val fieldName = stringResource(R.string.message_field_a11y)
     OutlinedTextField(
         value = input,
         onValueChange = onInputChange,
         // No floating label, which made the field look like a form. The name a
         // screen reader announces is set here instead, so the field is never
         // unlabelled once the placeholder is gone.
-        modifier = modifier.semantics { contentDescription = "Message" },
+        modifier = modifier.semantics { contentDescription = fieldName },
         placeholder = { Text(stringResource(R.string.ask_anything)) },
         shape = RoundedCornerShape(24.dp),
         // Multi-line on purpose. `maxLines > 1` makes the platform coerce the
