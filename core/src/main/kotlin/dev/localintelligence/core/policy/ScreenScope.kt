@@ -84,5 +84,8 @@ object ScreenControl {
         "com.android.packageinstaller",
         "com.google.android.permissioncontroller",
         "com.android.permissioncontroller",
+        // Xiaomi HyperOS/MIUI keep app permissions and autostart outside Settings.
+        "com.miui.securitycenter",
+        "com.lbe.security.miui",
     )
 }
