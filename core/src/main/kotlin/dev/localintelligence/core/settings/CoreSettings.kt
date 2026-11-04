@@ -8,6 +8,7 @@ import dev.localintelligence.core.settings.SettingDef.Choice
 import dev.localintelligence.core.settings.SettingDef.FloatValue
 import dev.localintelligence.core.settings.SettingDef.IntValue
 import dev.localintelligence.core.settings.SettingDef.Secret
+import dev.localintelligence.core.settings.SettingDef.Text
 import dev.localintelligence.core.settings.SettingDef.Toggle
 
 /**
@@ -428,6 +429,48 @@ object CoreSettings {
         "approvals.external_task_token", "Token for other apps",
         "Required, with the setting above, to start a scheduled task from another app.",
         SettingSection.APPROVALS,
+    )
+
+    // ---------------------------------------------------------------- search my phone
+    // One switch per source, all off by default. These rows are deliberately NOT in [all]: the
+    // Search my phone screen shows them in both modes, and the generic list would show them twice.
+    // Read them with the operator as usual; they are simple, so Simple mode reads the stored value.
+
+    val PHONE_INDEX_NOTIFICATIONS = Toggle(
+        "phone_index.notifications", "Notifications",
+        "Keeps the notifications that arrive from now on, so Search my phone can find them. Older ones are not read.",
+        SettingSection.GENERAL, default = false, simple = true, applies = SettingApplies.NOW,
+    )
+    val PHONE_INDEX_MESSAGES = Toggle(
+        "phone_index.messages", "Texts",
+        "Indexes your texts. Only while LocalIntelligence is the default assistant app.",
+        SettingSection.GENERAL, default = false, simple = true, applies = SettingApplies.NOW,
+    )
+    val PHONE_INDEX_CALENDAR = Toggle(
+        "phone_index.calendar", "Calendar",
+        "Indexes events from 30 days ago to a year ahead.",
+        SettingSection.GENERAL, default = false, simple = true, applies = SettingApplies.NOW,
+    )
+    val PHONE_INDEX_CONTACTS = Toggle(
+        "phone_index.contacts", "Contact names",
+        "Indexes contact names only, never phone numbers or addresses.",
+        SettingSection.GENERAL, default = false, simple = true, applies = SettingApplies.NOW,
+    )
+    val PHONE_INDEX_FILES = Toggle(
+        "phone_index.files", "Files in a folder",
+        "Indexes the text files in the folder you pick. Off until a folder is chosen.",
+        SettingSection.GENERAL, default = false, simple = true, applies = SettingApplies.NOW,
+    )
+    val PHONE_INDEX_PHOTOS = Toggle(
+        "phone_index.photos", "Photo captions",
+        "Searches the captions from Photo search. Turn on Photo search first.",
+        SettingSection.GENERAL, default = false, simple = true, applies = SettingApplies.NOW,
+    )
+    /** The folder the Files source reads, as a content:// tree URI string. Empty means none chosen. */
+    val PHONE_INDEX_FILES_FOLDER = Text(
+        "phone_index.files_folder", "Folder for Files",
+        "The folder whose text files are indexed. Chosen with the folder picker.",
+        SettingSection.GENERAL, default = "", maxLength = 2048, simple = true, applies = SettingApplies.NOW,
     )
 
     val all: List<SettingDef<*>> = listOf(

@@ -7,8 +7,12 @@ import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import dev.localintelligence.app.BuildConfig
+import dev.localintelligence.app.R
 import java.io.File
 import java.io.InputStream
 import java.time.Instant
@@ -40,6 +44,9 @@ object CrashReports {
     private const val DIR_NAME = "crash"
     private const val REPORT_SUFFIX = ".txt"
     private const val WATERMARK = ".exit-read-until"
+
+    /** The description Android 17 writes for a process killed by the per-app memory limit. */
+    private const val MEMORY_LIMIT_TAG = "MemoryLimiter:AnonSwap"
 
     /** Enough for the thread dump that matters in an ANR, small enough to write during a crash. */
     private const val TRACE_LIMIT = 64 * 1024
@@ -142,6 +149,13 @@ object CrashReports {
             .forEach { exit ->
                 if (exit.timestamp <= since) return@forEach
                 newest = maxOf(newest, exit.timestamp)
+                // Android 17 per-app memory limit. The system reports it only in the description,
+                // with no reason code of its own, so the match is on the text. Shown once, as a
+                // plain line, because a memory kill is not a crash the person can send anywhere.
+                if (exit.description?.contains(MEMORY_LIMIT_TAG) == true) {
+                    notifyMemoryLimit(app)
+                    return@forEach
+                }
                 val kind = when (exit.reason) {
                     ApplicationExitInfo.REASON_ANR -> Kind.ANR
                     ApplicationExitInfo.REASON_CRASH_NATIVE -> Kind.NATIVE
@@ -156,6 +170,17 @@ object CrashReports {
                 }
             }
         if (newest > since) mark.writeText(newest.toString())
+    }
+
+    /**
+     * Posts the one-line notice on the main thread. The import runs on a background thread, and a toast
+     * may only be shown from the main one. A toast that the system refuses to show from a background
+     * start is dropped silently; the next foreground start after the kill shows it.
+     */
+    private fun notifyMemoryLimit(app: Application) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(app, app.getString(R.string.memory_limit_notice), Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun write(

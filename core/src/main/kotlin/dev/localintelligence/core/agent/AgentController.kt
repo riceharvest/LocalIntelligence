@@ -47,6 +47,8 @@ import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.ToolRequest
 import dev.localintelligence.core.tool.ToolSelector
+import dev.localintelligence.core.tool.ArgumentCoercion
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlin.math.min
 import dev.localintelligence.core.compaction.RetainedHistory
@@ -101,9 +103,9 @@ private const val TERMINATE_MARKER = "You have made no progress"
  * WHY A FIXED SET: the listed tools sit in the prompt's cached prefix. Measured on
  * a Samsung A05s with LFM3-1.7B: a list that differed per conversation prefilled
  * 842 new tokens (81 s) on the first message, against 33-38 s before; with the same
- * list every time, a new chat prefills only its own user turn. These nine are the
- * everyday tools, about 1,330 tokens of schema together. The picker's other picks
- * are described in the turn and are callable (see [planNativeTurnTools]).
+ * list every time, a new chat prefills only its own user turn. These ten are the
+ * everyday tools, about 1,330 tokens of schema together before todo.update was added.
+ * The picker's other picks are described in the turn and are callable (see [planNativeTurnTools]).
  *
  * WHY weather.get: from tools.find's listing alone, LFM3-1.7B answered "What's the
  * weather in Utrecht tomorrow?" with web searches in 2 of 6 runs; listed, it called
@@ -119,6 +121,7 @@ val NATIVE_CORE_TOOLS: List<String> = listOf(
     "calendar.search",
     "location.get",
     "weather.get",
+    "todo.update",
 )
 
 class AgentController(
@@ -332,6 +335,9 @@ class AgentController(
     private var step: Int = 0
     private var malformedStreak: Int = 0
 
+    /** Repetition loops this run has already answered with a correction. A second one ends the run. */
+    private var repetitionStrikes: Int = 0
+
     /** Whether this run saved a tool result under an `obs#` handle (see [truncate]). Reset per run. */
     private var savedObservation: Boolean = false
 
@@ -458,6 +464,10 @@ class AgentController(
         // conversations, so a user who legitimately deleted 19 things today
         // could not delete one more tomorrow without a reinstall.
         riskPolicy.resetTask()
+        // The task list is kept only while it is unfinished: a finished list belongs to the last
+        // task, and would be read back into this message as if it were still open.
+        if (!sessions.todos.hasOpen) sessions.todos.clear()
+        repetitionStrikes = 0
         metrics?.beginStep(0)
         // The turn is rendered once: the task comes first, then the clock (for a
         // time-related task), the memories found for it and matched skill hints,
@@ -665,9 +675,10 @@ class AgentController(
             // A turn boundary: the one place a compaction costs nothing extra,
             // because the new user turn has to be prefilled anyway.
             if (step == 1) compactIfNeeded(boundary = true, visible = visible)
-            // Stream only when somebody is listening. generate() is the same
-            // code path with a null sink, so this is not a second implementation
-            // to keep in sync - it is the same call with the callback attached.
+            // Stream whenever the backend can. generate() is the same code path
+            // with a null sink, so this is not a second implementation to keep in
+            // sync. Streaming is what lets the repetition watch below cut a loop
+            // while it forms, rather than after the whole output budget is spent.
             // What the model may call: the listed tools plus any it found with
             // tools.find, which the prompt does not list (their descriptions are
             // in the lookup's result). With tool lookup on, every enabled tool.
@@ -678,13 +689,22 @@ class AgentController(
             // backend that cannot stream still works, it just returns one blob:
             // capability detection, not a cast that throws on a cold path.
             val streaming = model as? StreamingModelBackend
-            val generation = if (onToken != null && streaming != null) {
+            // Set by the watch when the reply has become a repetition loop. The watch
+            // cancels the generation through model.cancel(), not this.cancel(), which
+            // would be sticky for the whole run.
+            val loopTripped = AtomicBoolean(false)
+            val watch = RepetitionWatch()
+            val generation = if (streaming != null) {
                 streaming.generateStreaming(request) { token ->
                     // A sink that throws must not kill the run: the model has
                     // already produced the token and the transcript still needs
                     // it. Swallowing here keeps a UI bug from turning into a
                     // failed generation the user cannot explain.
-                    runCatching { onToken(token) }
+                    if (onToken != null) runCatching { onToken(token) }
+                    if (!loopTripped.get() && watch.feed(token)) {
+                        loopTripped.set(true)
+                        model.cancel()
+                    }
                 }
             } else {
                 model.generate(request)
@@ -701,7 +721,15 @@ class AgentController(
                 parsedAction is ActionParseResult.Parsed &&
                 parsedAction.action is AgentAction.CallTool &&
                 !generation.text.contains("</tool>")
-            val parsed = if (cutToolCall) {
+            // A loop is found while the reply streamed, or in the finished text (a backend
+            // that cannot stream, or a reply cut by the output limit). A reply the user
+            // cancelled is never judged: its text is the answer they were reading.
+            val repeating = loopTripped.get() ||
+                (generation.stopReason != StopReason.CANCELLED && generation.stopReason != StopReason.ERROR &&
+                    RepetitionGuard.isLooping(generation.text))
+            val parsed = if (repeating) {
+                ActionParseResult.Malformed(REPETITION_REASON, generation.text)
+            } else if (cutToolCall) {
                 ActionParseResult.Malformed(
                     "the output limit cut the tool call short. Reply with a shorter <tool> call.",
                     generation.text,
@@ -715,7 +743,7 @@ class AgentController(
             // not drawn as an answer (ChatViewModel.renderTrace), so a reply the loop asks
             // the model to redo never stays on screen. A stopped generation is not judged:
             // it returns below, and its row is kept as the partial answer it was.
-            val stopped = generation.stopReason == StopReason.CANCELLED ||
+            val stopped = (generation.stopReason == StopReason.CANCELLED && !loopTripped.get()) ||
                 generation.stopReason == StopReason.ERROR
             val idRetry = !stopped && !handleRetried && savedObservation &&
                 parsed is ActionParseResult.Parsed &&
@@ -730,14 +758,14 @@ class AgentController(
                 step, StepTrace.Kind.GENERATION,
                 // An unfinished generation is kept whole: it is bounded by the output limit,
                 // and it is the partial answer the user was reading when they stopped.
-                if (completed) generation.text.take(TRACE_DETAIL_CHARS) else generation.text,
+                if (completed || repeating) generation.text.take(TRACE_DETAIL_CHARS) else generation.text,
                 generation.prefillMs + generation.decodeMs, completed && rejection == null,
                 thought = generation.thought ?: GenerationProse.thought(generation.text).takeIf { it.isNotEmpty() },
                 speed = ReplySpeed(generation.promptTokens, generation.completionTokens, generation.prefillMs, generation.decodeMs),
             )
 
             when (generation.stopReason) {
-                StopReason.CANCELLED -> return AgentResult.Cancelled
+                StopReason.CANCELLED -> if (!loopTripped.get()) return AgentResult.Cancelled
                 StopReason.ERROR -> return Stop("model failed: ${generation.text.take(120)}", trace.toList())
                 else -> Unit
             }
@@ -755,7 +783,17 @@ class AgentController(
             }
 
             when (parsed) {
-                is ActionParseResult.Malformed -> {
+                is ActionParseResult.Malformed -> if (repeating) {
+                    // Judged like a malformed reply, once. A second loop in the same run ends
+                    // the answer with a plain message, because the model has already been told.
+                    trace += StepTrace(step, StepTrace.Kind.MALFORMED, parsed.reason, success = false)
+                    if (repetitionStrikes > 0) return Stop(REPETITION_STOP, trace.toList())
+                    repetitionStrikes += 1
+                    sessions.observe(
+                        "That reply repeated the same text and was not used. Answer once, in fewer words. " +
+                            actionHint(callable),
+                    )
+                } else {
                     malformedStreak += 1
                     trace += StepTrace(step, StepTrace.Kind.MALFORMED, parsed.reason, success = false)
                     if (malformedStreak >= config.maxMalformedRetries) {
@@ -791,7 +829,7 @@ class AgentController(
 
                         is AgentAction.CallTool -> {
                             sessions.recordCall(generation.text)
-                            handleCall(action, callable, generation.text)?.let { return it }
+                            handleCall(coerceCall(action, callable), callable, generation.text)?.let { return it }
                         }
                     }
                 }
@@ -884,7 +922,8 @@ class AgentController(
         // WHY the message and not the model: the model chooses these calls itself, even when
         // the message needs no tool (measured: "What is 17 times 23?" set a real timer). A tool
         // whose name or tags the message does not mention is one the user did not ask for.
-        val requested = ToolRequest.asksFor(task, tool.definition)
+        // The task list is the runtime's own bookkeeping, not an action the message must name.
+        val requested = ToolRequest.asksFor(task, tool.definition) || tool.definition.name == TodoList.TOOL_NAME
         // Screen tools resolve the index against the live screen. The result is the app and the
         // control the policy judges, and it is kept with the parked call so an approval records the
         // grant for the app the person was shown.
@@ -1618,6 +1657,7 @@ class AgentController(
         visible: List<AgentTool>,
         task: String = this.task,
         history: List<ChatMessage> = withWorkingSummary(sessions.messages),
+        withTodos: Boolean = true,
     ): List<ChatMessage> {
         // The working state goes in BEFORE the builder, because
         // [DefaultContextBuilder] recognises a summary by position and prefix
@@ -1634,7 +1674,21 @@ class AgentController(
             // prompt.
             history
         }
-        return built
+        return if (withTodos) withTodoList(built) else built
+    }
+
+    /**
+     * [prompt] with the task list at its end, as a note from the runtime (see [TodoList.render]).
+     *
+     * WHY AT THE END: after the task and every step of this run, so the new text lands where the
+     * prompt grows and the cached prefix before it does not change. WHY ONLY WHILE THERE IS A LIST:
+     * a model that never writes one gets exactly the prompt it always did. WHY NOT WHEN THE TOOL IS
+     * OFF: the list would be shown with no way to change it.
+     */
+    private fun withTodoList(prompt: List<ChatMessage>): List<ChatMessage> {
+        if (!sessions.todos.hasItems || tools.byName(TodoList.TOOL_NAME) == null) return prompt
+        val block = sessions.todos.render() ?: return prompt
+        return prompt + ChatMessage.User(block, note = true)
     }
 
     private fun request(
@@ -1767,6 +1821,17 @@ class AgentController(
     }
 
 
+    /**
+     * [action] with its arguments coerced to the types the tool's schema declares (see
+     * [ArgumentCoercion]). Done before the validator, so every later decision reads the
+     * arguments the tool will run with, and the confirmation binds to those.
+     */
+    private fun coerceCall(action: AgentAction.CallTool, visible: List<AgentTool>): AgentAction.CallTool {
+        val schema = visible.firstOrNull { it.definition.name == action.name }?.definition?.schema ?: return action
+        val fixed = ArgumentCoercion.coerce(schema, action.arguments)
+        return if (fixed === action.arguments) action else action.copy(arguments = fixed)
+    }
+
     private fun compactArgs(args: ToolArgs): String =
         args.entries.take(6)
             .joinToString(", ", "{", "}") { (key, value) -> "$key=${value.toString().take(40)}" }
@@ -1875,6 +1940,7 @@ class AgentController(
             core,
             task = PREFIX_TASK,
             history = listOf(ChatMessage.User(PREFIX_TASK)),
+            withTodos = false,
         )
         // No media: an attachment belongs to a real message, and the prefix must not carry one.
         model.warmPrefix(request(prompt, core, core).copy(media = emptyList()))
@@ -2223,6 +2289,12 @@ class AgentController(
         const val HANDLE_CORRECTION = "Your reply named an internal id, which the user must never see. " +
             "Read the saved result with observations.read and the id from its obs# line, for the rest of " +
             "the page, or answer from what you already have. Do not mention ids or observations to the user."
+
+        /** Why a reply that looped is rejected. The model reads it in the correction, and the trace shows it. */
+        const val REPETITION_REASON = "the reply repeated the same text over and over"
+
+        /** How a run ends after a second loop. The user sees a failed run with this reason. */
+        const val REPETITION_STOP = "The reply kept repeating the same text, so the answer was stopped."
 
         /** What the user is told when, after the one retry, nothing of the reply is left to show. */
         const val HANDLE_FALLBACK = "I couldn't read far enough into that page."
