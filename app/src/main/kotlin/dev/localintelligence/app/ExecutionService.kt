@@ -377,6 +377,9 @@ class ExecutionService : Service() {
                         sinks.streamingText.value = ""
                         sinks.runningTool.value = null
                     },
+                    // A rejected reply was streamed into the live bubble; clear it before the
+                    // model is asked again, so the redo is the only text on screen.
+                    onGenerationRejected = { sinks.streamingText.value = "" },
                 )
             },
             scope = serviceScope,
