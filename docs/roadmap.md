@@ -415,7 +415,7 @@ or `ChatViewModel`; a search of the source, not a device check):
       Produce an AAB for Play. versionCode is 1 and versionName 0.1.0 today.
 [ ] Run .github/scripts/check-16k-alignment.sh on the release AAB/APK before each upload
       (Play needs 16 KB alignment for apps targeting Android 15+; the script exists
-      [#259 era] but no workflow runs it, and the roadmap rule is no CI workflows, so
+      (commit 1861abf) but no workflow runs it, and the roadmap rule is no CI workflows, so
       it is a manual step in the release script).
 [ ] Target API: already 36. New apps and updates must target API 36 from 2026-08-31
       [https://developer.android.com/google/play/requirements/target-sdk].
@@ -499,7 +499,7 @@ or `ChatViewModel`; a search of the source, not a device check):
 [ ] Move user-visible strings out of Kotlin into resources. strings.xml has 4 entries
       and the source has 178 `Text("...")` calls. English-only is acceptable for v1; doing
       the move now is cheap and every later string makes it dearer.
-[ ] Dutch UI is not a v1 blocker. Play lists apps in English with no UI translation, and
+[ ] Dutch UI is not a v1 blocker. Nothing in Play's rules requires a translated UI, and
       the Model test plan has no Dutch task. Do the Dutch store listing (text only) at
       launch, the Dutch UI in v1.1. How well LFM3-1.7B answers in Dutch is unmeasured:
       add three Dutch tasks to the Model test plan.
