@@ -50,7 +50,9 @@ one exception is a report you choose to send, described below.</p>
   <li>Text messages and the call log, only while LocalIntelligence is your default digital assistant.</li>
   <li>Approximate location, for weather and nearby places.</li>
   <li>The microphone, for dictation, hands-free mode and the optional wake word. Audio is processed on
-      the phone and is not stored or sent anywhere, unless you chose a remote model that takes voice.</li>
+      the phone and is not stored or sent anywhere, unless you chose a remote model that takes voice. The
+      exception is dictation on a phone with no on-device speech recognition: it then uses your phone's system
+      speech service, which may send the audio to that service's provider.</li>
   <li>Notifications (if you allow notification access), screen-time totals, the clipboard, and files
       you pick.</li>
   <li>Full build only: the screen of other apps while you let the assistant control them, and all
@@ -67,7 +69,8 @@ handles it under its own privacy policy.</p>
   <li><strong>Model downloads</strong> from Hugging Face, and skills or plugins from a link you give:
       the file request.</li>
   <li><strong>Weather, places and Wikipedia</strong> (Open-Meteo, OpenStreetMap Nominatim, Wikipedia):
-      the place name or search words the assistant looks up.</li>
+      the place name or search words the assistant looks up. Weather with no place named sends your
+      phone's location to Open-Meteo instead.</li>
   <li><strong>Opening a web page</strong> you approve: the request to that site.</li>
   <li><strong>Update check</strong> (full build only): when you tap "Check for updates" and confirm, a request
       to GitHub for the latest release's version and notes. GitHub receives it as any web request from
