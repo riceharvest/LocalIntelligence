@@ -233,100 +233,100 @@ fun SettingsScreen(
                         .verticalScroll(scroll)
                         .padding(16.dp),
                 )
-                return@key
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(scroll)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                ModeSwitch(store)
-                if (!technical) chatGptRow?.invoke()
-                if (!technical && !suggestionInstalled) SuggestionCard(suggestion) { onOpenHub(suggestion.repo, suggestion.file) }
-                suggestion.alternative?.takeIf { !technical && !alternativeInstalled }?.let { alt ->
-                    AlternativeCard(alt) { onOpenHub(alt.repo, alt.file) }
-                }
-
-                val context = LocalContext.current
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    onNewChat?.let { NewChatRow(it, loadPersonas) }
-                    NavRow(Icons.Filled.Memory, stringResource(R.string.models), onOpenModels)
-                    NavRow(Icons.Filled.AutoAwesome, stringResource(R.string.skills), onOpenSkills)
-                    NavRow(Icons.Filled.Person, stringResource(R.string.personas), onOpenPersonas)
-                    NavRow(Icons.Filled.Description, stringResource(R.string.documents), onOpenDocuments)
-                    onOpenPhotos?.let { NavRow(Icons.Filled.PhotoLibrary, stringResource(R.string.photo_search), it) }
-                    onOpenPhoneSearch?.let { NavRow(Icons.Filled.Search, stringResource(R.string.phone_search_title), it) }
-                    NavRow(Icons.Filled.Schedule, stringResource(R.string.schedule_shortcut_long), onOpenSchedule)
-                    onOpenExtras?.let { NavRow(Icons.Filled.Star, stringResource(R.string.extras), it) }
-                    NavRow(Icons.Filled.Lock, stringResource(R.string.permissions_title)) { openPermissionScreen(context) }
-                    NavRow(Icons.Filled.Assistant, stringResource(R.string.set_as_phone_assistant)) { openAssistantSettings(context) }
-                    if (technical) NavRow(Icons.Filled.Extension, stringResource(R.string.script_plugins), onOpenScripts)
-                    onOpenDesktop?.let { NavRow(Icons.AutoMirrored.Filled.Send, stringResource(R.string.desktop_settings_row), it) }
-                    onExportChat?.let { ExportRow(it) }
-                }
-
-                val rows = (CoreSettings.all + plugins.flatMap { it.settings })
-                    .filter { it !== CoreSettings.MODE && (technical || (it.simple && it.section == SettingSection.GENERAL)) }
-                for (section in SettingSection.entries) {
-                    val inSection = rows.filter { it.section == section }
-                    // The speed test sits under the Model section's rows (Compute, GPU
-                    // layers), Technical mode only.
-                    val speedTestHere = technical && speedTest != null && section == SettingSection.MODEL
-                    if (inSection.isEmpty() && !speedTestHere) continue
-                    SectionHeader(SettingText.section(LocalContext.current, section))
-                    inSection.forEach { def ->
-                        // The Add a server helper sits above the first remote MCP address row.
-                        if (def === McpSettings.urls[0]) McpAddServerRow(store)
-                        // The Telegram block sits above its token row.
-                        if (def === TelegramSettings.TOKEN) TelegramPanel(store)
-                        // The local server's address, Copy and Regenerate sit above its token row.
-                        if (def === LocalServerSettings.TOKEN) LocalServerPanel(store)
-                        SettingRow(store, def, technical)
-                    }
-                    if (speedTestHere) speedTest?.let { SpeedTestRow(it) }
-                }
-
-                if (technical) {
-                    SectionHeader(stringResource(R.string.plugins))
-                    // Screen control's setup card sits above its switch. The plugin exists only in the full build.
-                    if (plugins.any { it.id == ScreenControl.PLUGIN_ID }) {
-                        ScreenControlSetupCard()
-                    }
-                    // Script plugins have their own screen, with the same switch, so they are not repeated here.
-                    // Saved results are always on: every long tool result's preview names their tool.
-                    plugins.filterNot { it is ScriptPlugin || it.id == OBSERVATIONS_FAMILY_ID || it.id == TODO_FAMILY_ID }.forEach { plugin ->
-                        SwitchRow(
-                            title = plugin.title,
-                            help = plugin.summary,
-                            checked = store.isPluginEnabled(plugin),
-                            onChange = { store.setPluginEnabled(plugin, it) },
-                        )
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .verticalScroll(scroll)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ModeSwitch(store)
+                    if (!technical) chatGptRow?.invoke()
+                    if (!technical && !suggestionInstalled) SuggestionCard(suggestion) { onOpenHub(suggestion.repo, suggestion.file) }
+                    suggestion.alternative?.takeIf { !technical && !alternativeInstalled }?.let { alt ->
+                        AlternativeCard(alt) { onOpenHub(alt.repo, alt.file) }
                     }
 
-                    generatedMedia?.let { dir ->
-                        SectionHeader(stringResource(R.string.storage))
-                        GeneratedMediaRow(dir)
-                    }
-
-                    SectionHeader(stringResource(R.string.diagnostics))
+                    val context = LocalContext.current
                     Card(modifier = Modifier.fillMaxWidth()) {
-                        NavRow(Icons.Filled.Timeline, stringResource(R.string.last_run_trace), onOpenTrace)
-                        NavRow(Icons.Filled.Shield, stringResource(R.string.what_is_filtered), onOpenRedaction)
-                        NavRow(Icons.Filled.HealthAndSafety, stringResource(R.string.self_check), onOpenSelfCheck)
+                        onNewChat?.let { NewChatRow(it, loadPersonas) }
+                        NavRow(Icons.Filled.Memory, stringResource(R.string.models), onOpenModels)
+                        NavRow(Icons.Filled.AutoAwesome, stringResource(R.string.skills), onOpenSkills)
+                        NavRow(Icons.Filled.Person, stringResource(R.string.personas), onOpenPersonas)
+                        NavRow(Icons.Filled.Description, stringResource(R.string.documents), onOpenDocuments)
+                        onOpenPhotos?.let { NavRow(Icons.Filled.PhotoLibrary, stringResource(R.string.photo_search), it) }
+                        onOpenPhoneSearch?.let { NavRow(Icons.Filled.Search, stringResource(R.string.phone_search_title), it) }
+                        NavRow(Icons.Filled.Schedule, stringResource(R.string.schedule_shortcut_long), onOpenSchedule)
+                        onOpenExtras?.let { NavRow(Icons.Filled.Star, stringResource(R.string.extras), it) }
+                        NavRow(Icons.Filled.Lock, stringResource(R.string.permissions_title)) { openPermissionScreen(context) }
+                        NavRow(Icons.Filled.Assistant, stringResource(R.string.set_as_phone_assistant)) { openAssistantSettings(context) }
+                        if (technical) NavRow(Icons.Filled.Extension, stringResource(R.string.script_plugins), onOpenScripts)
+                        onOpenDesktop?.let { NavRow(Icons.AutoMirrored.Filled.Send, stringResource(R.string.desktop_settings_row), it) }
+                        onExportChat?.let { ExportRow(it) }
                     }
-                }
 
-                // Shows only while a crash report is on the phone.
-                CrashReportRow()
+                    val rows = (CoreSettings.all + plugins.flatMap { it.settings })
+                        .filter { it !== CoreSettings.MODE && (technical || (it.simple && it.section == SettingSection.GENERAL)) }
+                    for (section in SettingSection.entries) {
+                        val inSection = rows.filter { it.section == section }
+                        // The speed test sits under the Model section's rows (Compute, GPU
+                        // layers), Technical mode only.
+                        val speedTestHere = technical && speedTest != null && section == SettingSection.MODEL
+                        if (inSection.isEmpty() && !speedTestHere) continue
+                        SectionHeader(SettingText.section(LocalContext.current, section))
+                        inSection.forEach { def ->
+                            // The Add a server helper sits above the first remote MCP address row.
+                            if (def === McpSettings.urls[0]) McpAddServerRow(store)
+                            // The Telegram block sits above its token row.
+                            if (def === TelegramSettings.TOKEN) TelegramPanel(store)
+                            // The local server's address, Copy and Regenerate sit above its token row.
+                            if (def === LocalServerSettings.TOKEN) LocalServerPanel(store)
+                            SettingRow(store, def, technical)
+                        }
+                        if (speedTestHere) speedTest?.let { SpeedTestRow(it) }
+                    }
 
-                // Both modes: the policy describes the app, and a Simple user has the same data.
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    NavRow(Icons.Filled.Info, stringResource(R.string.privacy_policy)) { openUrl(context, PRIVACY_POLICY_URL) }
-                    // Full build only; the Play build's stub draws nothing. Both modes, like the privacy row.
-                    UpdateCheckRow()
+                    if (technical) {
+                        SectionHeader(stringResource(R.string.plugins))
+                        // Screen control's setup card sits above its switch. The plugin exists only in the full build.
+                        if (plugins.any { it.id == ScreenControl.PLUGIN_ID }) {
+                            ScreenControlSetupCard()
+                        }
+                        // Script plugins have their own screen, with the same switch, so they are not repeated here.
+                        // Saved results are always on: every long tool result's preview names their tool.
+                        plugins.filterNot { it is ScriptPlugin || it.id == OBSERVATIONS_FAMILY_ID || it.id == TODO_FAMILY_ID }.forEach { plugin ->
+                            SwitchRow(
+                                title = plugin.title,
+                                help = plugin.summary,
+                                checked = store.isPluginEnabled(plugin),
+                                onChange = { store.setPluginEnabled(plugin, it) },
+                            )
+                        }
+
+                        generatedMedia?.let { dir ->
+                            SectionHeader(stringResource(R.string.storage))
+                            GeneratedMediaRow(dir)
+                        }
+
+                        SectionHeader(stringResource(R.string.diagnostics))
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            NavRow(Icons.Filled.Timeline, stringResource(R.string.last_run_trace), onOpenTrace)
+                            NavRow(Icons.Filled.Shield, stringResource(R.string.what_is_filtered), onOpenRedaction)
+                            NavRow(Icons.Filled.HealthAndSafety, stringResource(R.string.self_check), onOpenSelfCheck)
+                        }
+                    }
+
+                    // Shows only while a crash report is on the phone.
+                    CrashReportRow()
+
+                    // Both modes: the policy describes the app, and a Simple user has the same data.
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        NavRow(Icons.Filled.Info, stringResource(R.string.privacy_policy)) { openUrl(context, PRIVACY_POLICY_URL) }
+                        // Full build only; the Play build's stub draws nothing. Both modes, like the privacy row.
+                        UpdateCheckRow()
+                    }
                 }
             }
         }
