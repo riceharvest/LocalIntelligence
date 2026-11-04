@@ -42,25 +42,16 @@ the `declineApprovals` loop). Nothing in the code passes `requestedByMessage = f
 
 ### Declaration text (for the form)
 
-**DO NOT SUBMIT this text as it stands.** It describes the behaviour the owner wants, and the
-code does not yet do it. The owner must first choose one of these:
-
-- (a) Keep the tools in scheduled and Telegram runs. Then the text below stands, with the last two
-  sentences as written.
-- (b) Leave `sms.search`, `sms.send` and `calls.recent` out of unattended runs. That is a code change
-  in `AppContainer.kt` (`pluginTools`, where screen control is already filtered out for `background`).
-  Then delete the "scheduled" and "Telegram" sentences below.
+Owner's decision (2026-11-04): in the Play build, scheduled and Telegram-started runs do not get
+`sms.search`, `sms.send` or `calls.recent` (`AppContainer.kt`, `pluginTools`). The full build keeps them.
 
 > LocalIntelligence is an on-device AI assistant that a person can choose as the phone's default
 > digital assistant app. Only while it holds that role, it can search the texts on the phone, list
-> recent calls, or send one text message. Sending always asks the person to confirm the recipient
-> and the text first, and an unattended run cannot send. Texts and call entries are shown to the
-> person. They leave the phone in these cases only: a remote model provider the person turned on
-> receives them as part of a request; or a private Telegram chat the person linked receives the
-> assistant's reply to a request from that chat. The developer does not receive texts or call
-> history. Scheduled tasks that the person has set up can also search texts and read the call log
-> without asking each time, and their answers are kept on the phone unless a remote model or a linked
-> Telegram chat receives them.
+> recent calls, or send one text message, and only in a request the person started in the app.
+> Sending always asks the person to confirm the recipient and the text first. Scheduled tasks and
+> other unattended runs cannot use these features. Texts and call entries are shown to the person.
+> They leave the phone in one case only: a remote model provider the person turned on receives them
+> as part of a request. The developer does not receive texts or call history.
 
 ### Steps for the reviewers to set the default assistant
 
