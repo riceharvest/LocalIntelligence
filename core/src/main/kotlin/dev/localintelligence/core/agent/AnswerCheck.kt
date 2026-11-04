@@ -20,7 +20,8 @@ package dev.localintelligence.core.agent
  *
  *  - A number is a run of digits, optionally joined by `,` or `.` (thousands or decimal marks).
  *    Its key is the digits alone, so "160,341" and "160.341" are the same value. Only numbers
- *    with two or more digits in the key are checked.
+ *    with two or more digits in the key are checked. Minutes on a clock ("7:00", the user said "at 7")
+ *    and values that are only zeros are not, as they are how a time is written, not a claim.
  *  - A name is two or more consecutive capitalised words of 3+ letters each. Each word must
  *    appear as a word in a source. The name rule is skipped entirely for text with no Latin
  *    letters (Arabic, Thai, Cyrillic and so on), where the check cannot tell a name from prose.
@@ -61,7 +62,8 @@ object AnswerCheck {
     fun unsupported(answer: String, sourced: (String) -> Boolean): String? {
         for (m in NUMBER.findAll(answer)) {
             val key = digitsOf(m.value)
-            if (key.length >= 2 && !sourced("#$key")) return m.value
+            val clockMinutes = m.range.first > 0 && answer[m.range.first - 1] == ':'
+            if (key.length >= 2 && !clockMinutes && key.any { it != '0' } && !sourced("#$key")) return m.value
         }
         if (LATIN.containsMatchIn(answer)) {
             for (m in NAME_RUN.findAll(answer)) {

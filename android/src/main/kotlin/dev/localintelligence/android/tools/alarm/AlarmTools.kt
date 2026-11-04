@@ -600,6 +600,7 @@ object AlarmDescriptions {
 }
 
 private const val ONE_DAY_MILLIS = 24L * 60 * 60 * 1000
+private const val SMALL_HOURS_END = 5
 
 // =====================================================================================
 // The platform seam
@@ -832,10 +833,13 @@ class AlarmCreateTool(
                 val at = platform.nowMillis()
                 val trigger = AlarmTimes.plan(at, ZoneId.systemDefault(), hour, minute, dayOffset).triggerAtMillis
                 val label = (ArgCoerce.string(args, "label") as? ArgResult.Present)?.value?.trim()?.takeIf { it.isNotEmpty() }
-                if (trigger > at && trigger - at <= ONE_DAY_MILLIS && platform.setInClockApp(hour, minute, label)) {
+                // "Tomorrow at 7" said at half past midnight means the coming morning, which is the clock's next occurrence.
+                val smallHours = dayOffset == 1 && Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).hour < SMALL_HOURS_END
+                val reachable = trigger > at && (trigger - at <= ONE_DAY_MILLIS || smallHours)
+                if (reachable && platform.setInClockApp(hour, minute, label)) {
                     return@guarded ToolResult(
                         success = true,
-                        observation = "Set an alarm for %02d:%02d in the clock app. It can be changed or cancelled there."
+                        observation = "Set an alarm for %02d:%02d in the clock app. It rings the next time the clock shows that, and can be changed or cancelled there."
                             .format(Locale.ROOT, hour, minute),
                         data = buildJsonObject {
                             put("hour", hour)

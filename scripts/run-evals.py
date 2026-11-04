@@ -65,7 +65,7 @@ APPROVE_ON_DEVICE = {
     "timer.set", "alarm.create", "alarm.list", "message.draft", "email.draft", "phone.volume",
     "phone.dnd", "phone.flashlight", "maps.navigate", "device.battery", "device.info",
     "calendar.search", "contacts.search", "location.get", "web.search", "web.fetch",
-    "weather.get", "tools.find", "observations.read", "history.search",
+    "weather.get", "tools.find", "observations.read", "history.search", "phone.media",
 }
 
 

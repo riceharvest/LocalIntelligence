@@ -487,6 +487,7 @@ class AgentController(
         savedObservation = false
         handleRetried = false
         answerRetried = false
+        heldReply = null
         pending = null
         lastPrompt = emptyList()
         loopDetector.reset()
@@ -515,6 +516,7 @@ class AgentController(
         savedObservation = false
         handleRetried = false
         answerRetried = false
+        heldReply = null
         pending = null
         // A scoped skill narrows what this run lists and may call. Set per run, from the task, before
         // the tool list is planned: the session is shared, so a scope left from an earlier run must not stay.
@@ -867,11 +869,20 @@ class AgentController(
 
             when (generation.stopReason) {
                 StopReason.CANCELLED -> if (!loopTripped.get()) return AgentResult.Cancelled
-                StopReason.ERROR -> return Stop("model failed: ${generation.text.take(120)}", trace.toList())
+                StopReason.ERROR -> heldReply?.let { return deliverHeld(it) }
+                    ?: return Stop("model failed: ${generation.text.take(120)}", trace.toList())
                 else -> Unit
             }
             // A Stop that landed before the generation began is not reported as CANCELLED.
             if (cancelled) return AgentResult.Cancelled
+
+            // The answer check may improve a reply but must never cost one. The retry is a reply or nothing:
+            // a tool call here repeated the action (a second timer), and then the loop detector ended the run.
+            heldReply?.let { held ->
+                val retried = parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond
+                if (!retried) return deliverHeld(held)
+                heldReply = null
+            }
 
             if (rejection != null) {
                 log("rejected the reply at step $step: $rejection")
@@ -917,6 +928,7 @@ class AgentController(
                             // Same shape as the id retry: once per run, the reply is not recorded,
                             // and the model is told which value it cannot source.
                             answerRetried = true
+                            heldReply = HeldReply(action.text, generation.text)
                             sessions.observe(answerCorrection(unsupported))
                         } else {
                             val text = if (savedObservation && INTERNAL_HANDLE_RE.containsMatchIn(action.text)) {
@@ -935,6 +947,7 @@ class AgentController(
 
                         is AgentAction.CallTool -> {
                             sessions.recordCall(generation.text)
+                            sessions.groundArguments(action.arguments.toString())
                             handleCall(coerceCall(action, callable), callable, generation.text)?.let { return it }
                         }
                     }
@@ -943,7 +956,21 @@ class AgentController(
 
             compactIfNeeded(boundary = false, visible = visible)
         }
+        heldReply?.let { return deliverHeld(it) }
         return AgentResult.StepLimitReached
+    }
+
+    /** The reply the answer check asked about, kept for when the retry does not give a better one. */
+    private class HeldReply(val text: String, val rendered: String)
+
+    private var heldReply: HeldReply? = null
+
+    private fun deliverHeld(held: HeldReply): AgentResult {
+        heldReply = null
+        log("answer check: the retry was not a reply, keeping the first answer")
+        sessions.appendAssistant(held.text, rendered = held.rendered)
+        rememberTurn()
+        return AgentResult.Success(held.text, trace.toList())
     }
 
     /**
@@ -2634,7 +2661,7 @@ class AgentController(
         /** The one-time note when the answer check finds a value with no source in the window. */
         fun answerCorrection(value: String): String =
             "Your reply gives \"$value\", and no tool result or message in this conversation shows it. " +
-                "Check it against the tool results. If it is there, keep it and say where it came from; " +
+                "Check it against the tool results and reply now, without calling a tool. If it is there, keep it; " +
                 "if not, correct it or leave it out. Do not mention this check to the user."
 
         /** Why a reply that looped is rejected. The model reads it in the correction, and the trace shows it. */
