@@ -1554,4 +1554,14 @@
     <string name="model_none_add">Add a model to start chatting. Everything stays on your phone.</string>
     <string name="model_getting_ready">Getting the model ready…</string>
     <string name="crash_preview_more">\n\n... %1$d more characters. The share includes the whole report.</string>
+    <string name="run_replace_needs_service">Replacing a message needs the assistant service.</string>
+    <string name="run_waiting_approval">Waiting for your approval.</string>
+    <string name="run_done">Done.</string>
+    <string name="run_step_limit_stopped">Stopped: the agent used all of its steps.</string>
+    <string name="run_stopped_at_request">Stopped at your request.</string>
+    <string name="sched_type_first">Type what the task should do first.</string>
+    <string name="sched_full">There are already %1$d scheduled tasks. Delete one to add another.</string>
+    <string name="sched_android_refused">Android would not schedule this task. Check the blockers above — exact alarms have to be allowed for this app.</string>
+    <string name="sched_resume_exact_alarms">Could not resume: Android is not allowing this app to schedule exact alarms. See the blockers above.</string>
+    <string name="sched_resume_no_time">Could not resume: this task has no later time to run at.</string>
 </resources>

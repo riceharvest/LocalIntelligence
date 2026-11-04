@@ -418,7 +418,7 @@ fun ChatScreen(
     // While the runtime waits on an approval, the call's own row (with its
     // Allow and Deny) says so, so the progress line stays silent to avoid saying it twice.
     val awaiting = runState as? RunState.AwaitingApproval
-    val progress = if (awaiting != null) null else progressLine(runState, stringResource(R.string.working_on_it))
+    val progress = if (awaiting != null) null else progressLine(runState, stringResource(R.string.working_on_it), LocalContext.current)
     val entries = remember(messages) { groupToolCalls(messages) }
     val animate = rememberMotionEnabled()
     val rowCount = messages.size +
@@ -1041,11 +1041,11 @@ private fun NoticeLine(text: String) {
  * `AgentAction` is `Respond | CallTool` and the model has no thought channel to
  * report. A "thinking…" label would be a narration the system cannot back.
  */
-private fun progressLine(state: RunState, working: String): String? = when (state) {
+private fun progressLine(state: RunState, working: String, context: Context): String? = when (state) {
     RunState.Idle, is RunState.Finished -> null
-    RunState.LoadingModel -> state.progressLabel
+    RunState.LoadingModel -> state.progressLabel(context)
     RunState.Running -> working
-    is RunState.AwaitingApproval -> state.progressLabel
+    is RunState.AwaitingApproval -> state.progressLabel(context)
 }
 
 /**

@@ -20,6 +20,7 @@ import dev.localintelligence.app.R
 import dev.localintelligence.android.tools.phonesearch.PhoneSearchLink
 import dev.localintelligence.android.tools.phonesearch.PhoneSearchLinks
 import dev.localintelligence.app.RunOutcome
+import dev.localintelligence.app.notice
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.RunningTool
 import dev.localintelligence.app.blockingReason
@@ -33,7 +34,6 @@ import dev.localintelligence.app.media.PendingAttachment
 import dev.localintelligence.app.media.PendingAttachments
 import dev.localintelligence.app.media.ShownAttachment
 import dev.localintelligence.app.media.VoiceClipRecorder
-import dev.localintelligence.app.notice
 import dev.localintelligence.app.speech.Speaker
 import dev.localintelligence.app.photos.PhotoSearchHits
 import dev.localintelligence.core.agent.REPETITION_STOP_REASON
@@ -862,8 +862,8 @@ class ChatViewModel(
         // "The text above" is only true when some text was drawn above the notice.
         val hasPartialText = lastGeneration != null && GenerationProse.display(lastGeneration.detail).isNotBlank()
         val notice = when (outcome) {
-            is RunOutcome.Cancelled -> if (hasPartialText) CANCELLED_MID_ANSWER else outcome.transcriptLine(plainFailure)
-            else -> outcome.transcriptLine(plainFailure)
+            is RunOutcome.Cancelled -> if (hasPartialText) CANCELLED_MID_ANSWER else outcome.transcriptLine(context, plainFailure)
+            else -> outcome.transcriptLine(context, plainFailure)
         }
         // A repetition stop is not a failure to explain: say what happened, in the app's own words.
         val repeated = outcome is RunOutcome.Failed && outcome.reason == REPETITION_STOP_REASON
@@ -1692,7 +1692,7 @@ sealed interface ChatMessage {
  * same text, and the trace screen renders it verbatim. So the chat states what
  * happened and where the detail is, and the developer still gets the original.
  */
-internal fun RunOutcome.transcriptLine(plainFailure: (String) -> String? = { null }): String = when (this) {
+internal fun RunOutcome.transcriptLine(context: Context, plainFailure: (String) -> String? = { null }): String = when (this) {
     // The runtime's reason ("no valid action in 3 attempts", an exception name)
     // is for the Trace screen, which keeps it. The chat says what the user can do.
     // Simple mode (plainFailure returns a sentence) never shows the raw reason or "model".
@@ -1703,7 +1703,7 @@ internal fun RunOutcome.transcriptLine(plainFailure: (String) -> String? = { nul
     }
     RunOutcome.StepLimitReached -> "I couldn't finish that. Try asking for one thing at a time."
     RunOutcome.Cancelled -> "Stopped."
-    is RunOutcome.Answer -> notice
+    is RunOutcome.Answer -> notice(context)
 }
 
 /** The English text of a repetition stop, for the export. The chat shows the string resource instead. */

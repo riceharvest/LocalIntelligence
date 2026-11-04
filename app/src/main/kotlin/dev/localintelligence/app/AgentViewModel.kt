@@ -108,7 +108,7 @@ class AgentViewModel(
         // on top of the turn the user asked to replace.
         if (replacing != null) {
             attachments?.clear()
-            publish(AgentResult.Stop(reason = "Replacing a message needs the assistant service.", trace = emptyList()))
+            publish(AgentResult.Stop(reason = context.getString(R.string.run_replace_needs_service), trace = emptyList()))
             return
         }
         takeQueuedMedia()
@@ -516,13 +516,12 @@ sealed interface RunState {
      * happening. `LoadingModel` gets real words because the wait is long enough
      * that a bare spinner reads as a hang.
      */
-    val progressLabel: String?
-        get() = when (this) {
-            Idle, is Finished -> null
-            LoadingModel -> "Getting the model ready…"
-            Running -> null
-            is AwaitingApproval -> "Waiting for your approval."
-        }
+    fun progressLabel(context: Context): String? = when (this) {
+        Idle, is Finished -> null
+        LoadingModel -> context.getString(R.string.model_getting_ready)
+        Running -> null
+        is AwaitingApproval -> context.getString(R.string.run_waiting_approval)
+    }
 
     /** The loop is running. [AgentGateway.cancel] is the only way out. */
     data object Running : RunState
@@ -594,10 +593,9 @@ val RunState.isActive: Boolean
     get() = !isTerminal
 
 /** One line for the transcript notice. */
-val RunOutcome.notice: String
-    get() = when (this) {
-        is RunOutcome.Answer -> "Done."
-        is RunOutcome.Failed -> reason
-        RunOutcome.StepLimitReached -> "Stopped: the agent used all of its steps."
-        RunOutcome.Cancelled -> "Stopped at your request."
-    }
+fun RunOutcome.notice(context: Context): String = when (this) {
+    is RunOutcome.Answer -> context.getString(R.string.run_done)
+    is RunOutcome.Failed -> reason
+    RunOutcome.StepLimitReached -> context.getString(R.string.run_step_limit_stopped)
+    RunOutcome.Cancelled -> context.getString(R.string.run_stopped_at_request)
+}
