@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
@@ -172,6 +173,11 @@ fun ChatScreen(
                 },
             )
         }
+    }
+    // The reply the user is reporting, or null. Saved, so a rotation does not close the sheet.
+    var reportingReply by rememberSaveable { mutableStateOf<String?>(null) }
+    reportingReply?.let { reply ->
+        ReplyReportSheet(viewModel = viewModel, reply = reply, onDismiss = { reportingReply = null })
     }
     val runState by viewModel.runState.collectAsStateWithLifecycle()
     val speakingText by viewModel.speakingText.collectAsStateWithLifecycle()
@@ -430,6 +436,7 @@ fun ChatScreen(
                             text = message.text,
                             speaking = speakingText == message.text,
                             onSpeak = { viewModel.toggleSpeak(message.text) },
+                            onReport = { reportingReply = message.text },
                             onSaveAsSkill = if (skills != null && skillDraft != null && message === messages.last()) {
                                 { editingSkill = skillDraft }
                             } else {
@@ -543,6 +550,7 @@ private fun AssistantBubble(
     text: String,
     speaking: Boolean,
     onSpeak: () -> Unit,
+    onReport: () -> Unit,
     onSaveAsSkill: (() -> Unit)? = null,
 ) {
     val clipboard = LocalClipboardManager.current
@@ -566,6 +574,11 @@ private fun AssistantBubble(
                     contentDescription = if (speaking) "Stop reading" else "Read aloud",
                     modifier = Modifier.size(20.dp),
                 )
+            }
+            // In-app reporting, required by Play's AI content policy. Only on finished replies:
+            // this bubble is never drawn for the streaming text.
+            IconButton(onClick = onReport) {
+                Icon(Icons.Filled.Flag, contentDescription = "Report reply", modifier = Modifier.size(20.dp))
             }
             if (onSaveAsSkill != null) {
                 Box {

@@ -31,6 +31,13 @@ android {
         // no billing or backend call. Set it with -PextrasBackendUrl=https://... when the
         // Worker is deployed; it is never a secret.
         buildConfigField("String", "EXTRAS_BACKEND_URL", "\"${(findProperty("extrasBackendUrl") as? String).orEmpty()}\"")
+
+        // The reply-report form (Play's AI content policy needs in-app reporting). Both are
+        // public identifiers, not secrets. The defaults are the owner's form; -PreportFormUrl and
+        // -PreportFormEntry override them. Empty values make a report say "not set up in this build".
+        buildConfigField("String", "REPORT_FORM_URL", "\"${(findProperty("reportFormUrl") as? String)
+            ?: "https://docs.google.com/forms/d/e/1FAIpQLSce98cRSCHqOMjlOexJvYeDDqlKNox4i40oHUqvG3X20H_-Lg/formResponse"}\"")
+        buildConfigField("String", "REPORT_FORM_ENTRY", "\"${(findProperty("reportFormEntry") as? String) ?: "entry.959047461"}\"")
     }
 
     // Two distributions (docs/adr/0002-play-and-full-builds.md): Play ships what Google Play

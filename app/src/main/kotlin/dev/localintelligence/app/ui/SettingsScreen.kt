@@ -1,6 +1,9 @@
 package dev.localintelligence.app.ui
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.Assistant
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -266,6 +270,11 @@ fun SettingsScreen(
                         NavRow(Icons.Filled.HealthAndSafety, "Self-check", onOpenSelfCheck)
                     }
                 }
+
+                // Both modes: the policy describes the app, and a Simple user has the same data.
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    NavRow(Icons.Filled.Info, "Privacy policy") { openUrl(context, PRIVACY_POLICY_URL) }
+                }
             }
         }
     }
@@ -308,6 +317,15 @@ private fun GeneratedMediaRow(dir: File) {
             },
             dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
         )
+    }
+}
+
+private const val PRIVACY_POLICY_URL = "https://riceharvest.github.io/LocalIntelligence/privacy.html"
+
+/** Opens [url] in the browser. Quietly does nothing when no app can open a web link. */
+private fun openUrl(context: Context, url: String) {
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 }
 

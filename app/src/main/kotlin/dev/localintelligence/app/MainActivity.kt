@@ -62,6 +62,7 @@ import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.HandsFreePhase
 import dev.localintelligence.app.ui.DocumentsScreen
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
+import dev.localintelligence.android.report.ReplyReportSender
 import dev.localintelligence.app.ui.HubScreen
 import dev.localintelligence.app.ui.components.SearchModelCard
 import dev.localintelligence.app.ui.HubViewModel
@@ -157,6 +158,8 @@ class MainActivity : ComponentActivity() {
                             handsFreeSilence = { container.settings[CoreSettings.HANDS_FREE_SILENCE] },
                             // Picked pictures are read again from their URIs after process death.
                             readPicture = { encodePickedPicture(applicationContext.contentResolver, Uri.parse(it)) },
+                            // The developer's report form. A build without one reports "not set up".
+                            reportSender = ReplyReportSender(BuildConfig.REPORT_FORM_URL, BuildConfig.REPORT_FORM_ENTRY),
                         )
                     },
                 )
