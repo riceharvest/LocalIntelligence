@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
@@ -153,6 +154,8 @@ fun SettingsScreen(
     onOpenDocuments: () -> Unit = {},
     /** Opens the script plugins screen. Defaulted, like [onOpenSkills]. */
     onOpenScripts: () -> Unit = {},
+    /** Opens the Photo search screen. Null hides the row: the row exists only in the full build. */
+    onOpenPhotos: (() -> Unit)? = null,
     /** The ChatGPT row, shown in Simple mode. Null hides it. */
     chatGptRow: (@Composable () -> Unit)? = null,
     /** The folder of generated images and videos, for the Storage row. Null hides the row. */
@@ -214,6 +217,7 @@ fun SettingsScreen(
                     NavRow(Icons.Filled.Memory, "Models", onOpenModels)
                     NavRow(Icons.Filled.AutoAwesome, "Skills", onOpenSkills)
                     NavRow(Icons.Filled.Description, "Documents", onOpenDocuments)
+                    onOpenPhotos?.let { NavRow(Icons.Filled.PhotoLibrary, "Photo search", it) }
                     NavRow(Icons.Filled.Schedule, "Scheduled tasks", onOpenSchedule)
                     onOpenExtras?.let { NavRow(Icons.Filled.Star, "Extras", it) }
                     NavRow(Icons.Filled.Lock, "Permissions") { openPermissionScreen(context) }

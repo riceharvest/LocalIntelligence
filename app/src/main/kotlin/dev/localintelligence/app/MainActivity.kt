@@ -68,6 +68,8 @@ import dev.localintelligence.app.ui.components.SearchModelCard
 import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.ModelManagerScreen
+import dev.localintelligence.app.photos.PHOTO_SEARCH_PLUGIN_ID
+import dev.localintelligence.app.ui.PhotoSearchScreen
 import dev.localintelligence.app.ui.ScriptPluginsScreen
 import dev.localintelligence.app.ui.ExtrasScreen
 import dev.localintelligence.app.extras.ExtrasBilling
@@ -607,6 +609,11 @@ class MainActivity : ComponentActivity() {
                             generatedMedia = generatedMediaDir(applicationContext),
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
                             onOpenScripts = { nav.navigate(ROUTE_SCRIPTS) },
+                            onOpenPhotos = if (container.plugins.any { it.id == PHOTO_SEARCH_PLUGIN_ID }) {
+                                { nav.navigate(ROUTE_PHOTOS) }
+                            } else {
+                                null
+                            },
                             chatGptRow = { ChatGptSettingsCard(container) },
                             onOpenModels = { nav.navigate(ROUTE_MODELS) },
                             onOpenExtras = if (ExtrasBilling.enabled) {
@@ -673,6 +680,17 @@ class MainActivity : ComponentActivity() {
                             store = container.settings,
                             repository = container.scriptRepository,
                             runner = container.scriptRunner,
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
+                    composable(ROUTE_PHOTOS) {
+                        // Read in composition so the model and the run state are current when the screen opens.
+                        val runState by chat.runState.collectAsStateWithLifecycle()
+                        PhotoSearchScreen(
+                            index = container.photoSearch,
+                            visionReady = container.localVisionBackend() != null,
+                            chatBusy = { runState.isActive },
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -749,6 +767,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_SCRIPTS = "scripts"
         const val ROUTE_EXTRAS = "extras"
         const val ROUTE_DOCUMENTS = "documents"
+        const val ROUTE_PHOTOS = "photos"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
         const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"
