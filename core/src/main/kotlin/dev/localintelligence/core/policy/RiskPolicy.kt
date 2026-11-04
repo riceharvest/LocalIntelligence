@@ -30,6 +30,21 @@ import dev.localintelligence.core.tool.ToolRisk
  *     action with no target. The user is asked to approve a call that cannot
  *     mean anything, which is how a safety dialog trains people to click through
  *     it.
+ *  2c. [ToolRisk.SCREEN_CONTROL] (screen tools, full build only). Rules a–g of
+ *     docs/adr/0003-screen-control-approval-per-app.md, in this order:
+ *       a. background or unattended run → BLOCK. The full build does not offer the tools
+ *          there at all; this is the backstop.
+ *       b. no scope (the index did not resolve on the live screen) → BLOCK, "read the screen again".
+ *       c. blocked package (own ids, Settings, SystemUI, the package installer and permission
+ *          dialogs, or the user's list) → BLOCK.
+ *       d. `screen.type` into a password field → BLOCK. The user types secrets themselves.
+ *       e. a control labelled with a guarded word (send, pay, buy, delete, install...) →
+ *          REQUIRE_CONFIRMATION every time, naming the control and the app.
+ *       f. app already approved in this run → EXECUTE.
+ *       g. otherwise → REQUIRE_CONFIRMATION, "Let the assistant see and use <App> for this request?".
+ *          On approval the controller records the grant for the run (see [grantScreen]).
+ *     SCREEN_CONTROL is never auto-accepted, and [notRequested] does not apply to it: the
+ *     per-app grant is the question the person is asked, not whether the message named the tool.
  *  3. Permission not granted → REQUIRE_PERMISSION. Distinct from BLOCK
  *     because the remedy is a system dialog, not refusal.
  *  4. Path escape → REQUIRE_CONFIRMATION. Escalated even for tiers that would
@@ -74,15 +89,19 @@ class RiskPolicy(
      * (the controller scores the tool against the message). Only a guarded tool is affected:
      * it is confirmed first and never auto-accepted. A call the message asked for is judged as
      * before.
+     *
+     * [screen] is the app and control a screen tool resolved for this call, or null. Only a
+     * SCREEN_CONTROL tool reads it; see the rules at step 2c.
      */
     fun evaluate(
         definition: ToolDefinition,
         args: ToolArgs,
         displayTarget: String? = null,
         requestedByMessage: Boolean = true,
+        screen: ScreenScope? = null,
     ): Decision {
-        val gated = evaluateGates(definition, args, displayTarget)
-        val decision = if (!requestedByMessage && isGuarded(definition)) {
+        val gated = evaluateGates(definition, args, displayTarget, screen)
+        val decision = if (!requestedByMessage && isGuarded(definition) && definition.risk != ToolRisk.SCREEN_CONTROL) {
             notRequested(definition, args, gated)
         } else {
             autoAccepted(definition, gated) ?: gated
@@ -129,6 +148,9 @@ class RiskPolicy(
      */
     private fun autoAccepted(definition: ToolDefinition, gated: Decision): Decision? {
         if (gated.outcome != PolicyOutcome.REQUIRE_CONFIRMATION) return null
+        // Screen control is never auto-accepted, whatever tier or Approvals setting: a confirmation
+        // for it is the per-app approval the person gave, and it is asked every time it is needed.
+        if (definition.risk == ToolRisk.SCREEN_CONTROL) return null
         // A tool named here is never auto-accepted, whatever tier it is in: the user's
         // "send without asking" does not reach a text or a call the phone places.
         if (definition.name in config.neverAutoAccept) return null
@@ -140,7 +162,12 @@ class RiskPolicy(
         )
     }
 
-    private fun evaluateGates(definition: ToolDefinition, args: ToolArgs, displayTarget: String?): Decision {
+    private fun evaluateGates(
+        definition: ToolDefinition,
+        args: ToolArgs,
+        displayTarget: String?,
+        screen: ScreenScope?,
+    ): Decision {
         // (1) Privileged is unconditional and comes first so that no later
         //     step — including a permissive caller rule — can reach it.
         if (definition.risk == ToolRisk.PRIVILEGED) {
@@ -205,6 +232,13 @@ class RiskPolicy(
                     "it requires, so it was not run. Call it again with those arguments. Do not " +
                     "guess a value for one you were not given.",
             )
+        }
+
+        // (2c) Screen control. Rules a–g decide here, and only an app already granted in this
+        //      run (rule f) falls through. It then reaches the blast-radius check, and
+        //      `tierDecision` lets it run. Nothing here can be widened by configuration.
+        if (definition.risk == ToolRisk.SCREEN_CONTROL) {
+            screenGate(definition, args, screen)?.let { return it }
         }
 
         // (4) Path escape. Applies to every tier, because a REVERSIBLE write
@@ -419,12 +453,91 @@ class RiskPolicy(
      * are gated, and the unrecognised case is a BLOCK rather than a
      * confirmation — a tool nobody classified has not earned a dialog.
      */
+    /**
+     * The screen-control rules a–g. Returns the decision for a–e and g, and null for rule f,
+     * which lets the call continue to the blast-radius check and then run.
+     *
+     * Order matters: the first rule that matches decides, so an unattended run is refused before
+     * anything about the screen is read, and a guarded control asks even for an approved app.
+     */
+    private fun screenGate(definition: ToolDefinition, args: ToolArgs, screen: ScreenScope?): Decision? {
+        // (a) Backstop for a background or unattended run.
+        if (!config.screenControlAllowed) {
+            return decide(
+                definition, args, PolicyOutcome.BLOCK, PolicyRule.SCREEN_CONTROL_UNATTENDED,
+                "${definition.name} needs the screen, and a background or scheduled run cannot ask " +
+                    "about an app. Do this in a chat instead.",
+            )
+        }
+        // (b) The index did not resolve. The model acts on a screen that has changed, so it reads again.
+        if (screen == null) {
+            return decide(
+                definition, args, PolicyOutcome.BLOCK, PolicyRule.SCREEN_NO_SCOPE,
+                "${definition.name} did not find that item on the screen, so it was not run. " +
+                    "Read the screen again with screen.read, then use a number from that reading.",
+            )
+        }
+        // (c) Blocked app. A package name is compared in lowercase, as the config holds it.
+        val pkg = screen.packageName.lowercase()
+        if (pkg in config.screenBlockedPackages) {
+            return decide(
+                definition, args, PolicyOutcome.BLOCK, PolicyRule.SCREEN_BLOCKED_APP,
+                "${screen.appLabel} is an app the assistant does not use on screen, so it was not run. " +
+                    "Do the step in that app yourself, or ask the user to.",
+            )
+        }
+        // (d) A password field. Typed secrets come from the user, never from the model.
+        if (definition.name == ScreenControl.TYPE_TOOL && screen.isPassword) {
+            return decide(
+                definition, args, PolicyOutcome.BLOCK, PolicyRule.SCREEN_PASSWORD_FIELD,
+                "That is a password field in ${screen.appLabel}, so nothing was typed. Ask the user to " +
+                    "type their password themselves.",
+            )
+        }
+        // (e) A control that acts on the world asks every time, whatever was approved before.
+        val guarded = guardedWordIn(screen.controlLabel, screen.controlDescription)
+        if (guarded != null) {
+            return decide(
+                definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.SCREEN_GUARDED_CONTROL,
+                "${definition.name} would act on \"${screen.controlLabel.ifBlank { screen.controlDescription }}\" " +
+                    "in ${screen.appLabel}. That control can ${guarded.verb}, so it asks every time.",
+            )
+        }
+        // (f) Approved for this app in this run.
+        if (tracker.screenGranted(pkg)) return null
+        // (g) First use of this app in this run.
+        return decide(
+            definition, args, PolicyOutcome.REQUIRE_CONFIRMATION, PolicyRule.SCREEN_APP_NOT_GRANTED,
+            "Let the assistant see and use ${screen.appLabel} for this request? It can read and tap " +
+                "in that app until this request ends.",
+        )
+    }
+
+    /** The first guarded word in a control's label or description, with what it means, or null. */
+    private fun guardedWordIn(label: String, description: String): GuardedWord? {
+        val words = (label + " " + description).lowercase().split(Regex("[^\\p{L}]+")).filter { it.isNotEmpty() }
+        val hit = words.firstOrNull { it in ScreenControl.GUARDED_WORDS } ?: return null
+        return GuardedWord(hit, ScreenControl.verbFor(hit))
+    }
+
+    private data class GuardedWord(val word: String, val verb: String)
+
     private fun tierDecision(
         definition: ToolDefinition,
         args: ToolArgs,
         analysis: ArgumentAnalysis,
     ): Decision {
         val risk = definition.risk
+        // A screen call reaches here only when rule f granted its app. It runs on that grant
+        // and not on the config, so autoExecuteTiers cannot widen it, and the floor below is
+        // not applied to it: the floor for this tier is the per-app confirmation in screenGate.
+        if (risk == ToolRisk.SCREEN_CONTROL) {
+            return decide(
+                definition, args, PolicyOutcome.EXECUTE, PolicyRule.SCREEN_APP_GRANTED,
+                "${definition.name} acts in an app you already approved for this request, and it is " +
+                    "not a guarded control.",
+            )
+        }
         val floor = tierFloor(risk)
         val base = if (risk in config.autoExecuteTiers &&
             Decision.restrictiveness(PolicyOutcome.EXECUTE) >= Decision.restrictiveness(floor)
@@ -474,6 +587,7 @@ class RiskPolicy(
         ToolRisk.DESTRUCTIVE -> PolicyOutcome.REQUIRE_CONFIRMATION
         ToolRisk.EXTERNAL_COMMUNICATION -> PolicyOutcome.REQUIRE_CONFIRMATION
         ToolRisk.NETWORK_EGRESS -> PolicyOutcome.REQUIRE_CONFIRMATION
+        ToolRisk.SCREEN_CONTROL -> PolicyOutcome.REQUIRE_CONFIRMATION
         else -> PolicyOutcome.EXECUTE
     }
 
@@ -523,6 +637,13 @@ class RiskPolicy(
 
     /** Records that a human approved a gated call. */
     fun recordConfirmed(risk: ToolRisk) = tracker.recordConfirmed(risk)
+
+    /**
+     * Records that the user approved screen control in [packageName] for this run. Called by the
+     * controller on approval of a rule-g confirmation only; a guarded-control approval does not
+     * grant the whole app, so the next call in it is asked again.
+     */
+    fun grantScreen(packageName: String) = tracker.grantScreen(packageName.lowercase())
 
     /** Clears per-task counters. MUST be called at the start of every task. */
     fun resetTask() = tracker.reset()

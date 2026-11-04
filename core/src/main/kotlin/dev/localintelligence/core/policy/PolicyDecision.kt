@@ -90,6 +90,27 @@ enum class PolicyRule {
      * ask for it. The call is confirmed first and is never auto-accepted, whatever the approvals say.
      */
     NOT_REQUESTED,
+
+    /** Screen control was called in a background or unattended run, where nobody can approve an app. */
+    SCREEN_CONTROL_UNATTENDED,
+
+    /** The screen call's index did not resolve to an element on the live screen. */
+    SCREEN_NO_SCOPE,
+
+    /** The app is one screen control never uses: the app's own screens, Settings, a permission dialog or a user block. */
+    SCREEN_BLOCKED_APP,
+
+    /** A text is being typed into a password field. The user types their own secrets. */
+    SCREEN_PASSWORD_FIELD,
+
+    /** The control is labelled with a word that acts on the world (send, pay, delete...). Asked every time. */
+    SCREEN_GUARDED_CONTROL,
+
+    /** The app is not yet approved for screen control in this run, so the user is asked once for the app. */
+    SCREEN_APP_NOT_GRANTED,
+
+    /** The app was approved for screen control in this run, so the call runs. */
+    SCREEN_APP_GRANTED,
 }
 
 /**

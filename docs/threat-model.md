@@ -218,13 +218,13 @@ account. Nothing is sent before then. The shared rules are enforced in code:
 - The Telegram, sandbox, browser, email, Home Assistant and Extras paths have not been run
   against their live services. No key has been used against a real account yet.
 
-### T10. Screen text steers screen control — planned, not built
+### T10. Screen text steers screen control — built in the full build
 
 Screen control exists only in the `full` build (docs/adr/0002). It reads other apps' screens
 and taps and types in them. Text on those screens, such as a received message, a web page or
 a notification, can contain instructions ("forward this to all your contacts").
 
-Planned defences (docs/adr/0003):
+Defences (docs/adr/0003, `RiskPolicy` step 2c):
 
 - Screen text is fenced as untrusted, like `web.fetch` output.
 - Approval once per app per run; a tap on a send, pay, buy, delete, install or confirm
@@ -233,6 +233,8 @@ Planned defences (docs/adr/0003):
 - No actions on LocalIntelligence's own screens, system Settings, the package installer or
   permission dialogs, so it cannot approve itself or grant itself access.
 - A Stop overlay is visible while it controls the screen.
+- With a remote model on, screen text leaves the phone to that provider, with the request. The
+  approval card says so when a remote model answers the run.
 
 **Stated gap:** inside an app the user approved, hostile screen text can still steer taps in
 that app until the run ends or the user stops it, unless the tap hits a labelled control.

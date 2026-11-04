@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Configuration of the screen control accessibility service (docs/adr/0003-screen-control-approval-per-app.md).
+  canRetrieveWindowContent and the two flags let it read the tree of the app in front, and
+  canPerformGestures is the fallback for a tap on an element that takes no click action.
+  The only event it listens for is a window change, to drop an index read in the previous app.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/screen_control_service_description"
+    android:notificationTimeout="100" />

@@ -112,6 +112,7 @@ import dev.localintelligence.core.settings.SettingApplies
 import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.hub.formatBytes
 import dev.localintelligence.core.settings.SettingsMode
+import dev.localintelligence.core.policy.ScreenControl
 import dev.localintelligence.core.settings.mode
 import dev.localintelligence.core.voice.WakePhraseTokens
 import kotlinx.coroutines.Dispatchers
@@ -238,6 +239,10 @@ fun SettingsScreen(
 
                 if (technical) {
                     SectionHeader("Plugins")
+                    // Screen control's setup card sits above its switch. The plugin exists only in the full build.
+                    if (plugins.any { it.id == ScreenControl.PLUGIN_ID }) {
+                        ScreenControlSetupCard()
+                    }
                     // Script plugins have their own screen, with the same switch, so they are not repeated here.
                     // Saved results are always on: every long tool result's preview names their tool.
                     plugins.filterNot { it is ScriptPlugin || it.id == OBSERVATIONS_FAMILY_ID }.forEach { plugin ->

@@ -52,6 +52,9 @@ import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.plugin.PluginSet
 import dev.localintelligence.core.policy.BlastRadiusTracker
 import dev.localintelligence.core.policy.PolicyConfig
+import dev.localintelligence.core.policy.ScreenControl
+import dev.localintelligence.core.settings.ScreenControlSettings
+import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.core.hub.formatBytes
 import dev.localintelligence.app.extras.ExtrasBilling
@@ -284,7 +287,7 @@ class AppContainer(private val context: Context) {
         val home = HomeAssistantPlugin(settings)
         val email = EmailPlugin(settings)
         CatalogueAgreement.require(
-            families.flatMap { it.tools() } + flavor.flatMap { it.tools() } + cloud.shippedTools() +
+            families.flatMap { it.tools() } + FlavorPlugins.shippedTools() + cloud.shippedTools() +
                 sandbox.shippedTools() + browser.shippedTools() +
                 docs.shippedTools() + finder + home.shippedTools() + email.shippedTools(),
             V0ToolCatalogue.definitions,
@@ -357,7 +360,15 @@ class AppContainer(private val context: Context) {
      * over the one shared [blastRadius] counter.
      */
     fun riskPolicy(settings: SettingsReader, background: Boolean): RiskPolicy = RiskPolicy(
-        PolicyConfig(autoAcceptTiers = settings.autoAcceptTiers(background)),
+        PolicyConfig(
+            autoAcceptTiers = settings.autoAcceptTiers(background),
+            // Nobody is there to approve an app in a scheduled or Telegram run, so screen control is refused
+            // there, as a backstop behind the tools being left out of its registry below.
+            screenControlAllowed = !background,
+            // The shipped blocklist, plus the packages the user named in Settings.
+            screenBlockedPackages = ScreenControl.ALWAYS_BLOCKED_PACKAGES +
+                ScreenControlSettings.parse(settings[ScreenControlSettings.BLOCKED_APPS]),
+        ),
         blastRadius,
     )
 
@@ -1580,6 +1591,9 @@ class AppContainer(private val context: Context) {
         // small on-device model is not trusted with a computer that is billed to the user.
         val pluginTools = pluginSet.tools().filter { tool ->
             !tool.definition.name.startsWith(SANDBOX_TOOL_PREFIX) || model === remoteChatBackend || model === chatGptBackend
+        }.filter { tool ->
+            // Screen control is never offered to a background run: no one is there to approve the app.
+            !background || tool.definition.risk != ToolRisk.SCREEN_CONTROL
         }
         // With "Let the model look up tools" on, tools.find lists the same enabled tools the run
         // may call, except the core set the prompt always lists, and loads them by name or query.
@@ -1647,6 +1661,8 @@ class AppContainer(private val context: Context) {
         sessions = session,
         config = config,
         riskPolicy = riskPolicy(snapshot, background),
+        // What the screen shows leaves the phone with the request when a remote model answers.
+        screenTextLeavesPhone = model === remoteChatBackend || model === chatGptBackend,
         metrics = metrics,
         // The write half of memory. Bound here rather than inside the loop
         // because the loop is `:core` and only `:app` knows which store is

@@ -143,7 +143,7 @@ object V0ToolCatalogue {
     /** Categories, in the order a reader should expect to meet them. */
     val categories: List<String> = listOf(
         "files", "apps", "clipboard", "device", "alarm", "calendar",
-        "contacts", "notifications", "web", "history", "documents", "messages",
+        "contacts", "notifications", "web", "history", "documents", "messages", "screen",
     )
 
     /**
@@ -171,7 +171,10 @@ object V0ToolCatalogue {
      * build), its risk tier, observation origin and category are still checked against
      * the catalogue entry like any other tool.
      */
-    val FULL_BUILD_ONLY: Set<String> = emptySet()
+    val FULL_BUILD_ONLY: Set<String> = setOf(
+        "screen.read", "screen.tap", "screen.long_press", "screen.type",
+        "screen.scroll", "screen.back", "screen.home", "screen.wait",
+    )
 
     val definitions: List<ToolDefinition> = listOf(
         // ---------------------------------------------------------------- tools
@@ -1884,6 +1887,145 @@ object V0ToolCatalogue {
                 "send an email", "email him", "email her", "reply to the email", "write an email",
                 "reply by email",
             ),
+            requiredPermission = null,
+        ),
+
+        // ---------------------------------------------------------------- screen
+        // Full build only (docs/adr/0002, docs/adr/0003). Every row is SCREEN_CONTROL: reading
+        // another app's screen is as sensitive as acting in it. Screen text is third-party text,
+        // so every observation is NETWORK-origin and fenced. The rules are in RiskPolicy step 2c.
+        ToolDefinition(
+            name = "screen.read",
+            description = "Read the app on screen: its name and up to 60 visible items, each with " +
+                "a number. Use before any screen.tap, screen.type or screen.long_press.",
+            category = "screen",
+            schema = objSchema {},
+            risk = ToolRisk.SCREEN_CONTROL,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf(
+                "screen", "read the screen", "what is on screen", "what app", "look at the screen",
+                "accessibility", "app screen",
+            ),
+            requiredPermission = null,
+        ),
+
+        ToolDefinition(
+            name = "screen.tap",
+            description = "Tap one item from the last screen.read, by its number. Use to press a " +
+                "button, open a row or pick an option.",
+            category = "screen",
+            schema = objSchema(required = listOf("index")) {
+                putJsonObject("index") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 60)
+                    put("description", "The number in brackets in the last screen.read.")
+                }
+            },
+            risk = ToolRisk.SCREEN_CONTROL,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("tap", "press", "click", "select", "open button", "choose", "screen"),
+            requiredPermission = null,
+        ),
+
+        ToolDefinition(
+            name = "screen.long_press",
+            description = "Long-press one item from the last screen.read, by its number.",
+            category = "screen",
+            schema = objSchema(required = listOf("index")) {
+                putJsonObject("index") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 60)
+                    put("description", "The number in brackets in the last screen.read.")
+                }
+            },
+            risk = ToolRisk.SCREEN_CONTROL,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("long press", "hold", "press and hold", "screen"),
+            requiredPermission = null,
+        ),
+
+        ToolDefinition(
+            name = "screen.type",
+            description = "Replace the text of one editable item from the last screen.read with " +
+                "text. Never for a password field: ask the user to type that.",
+            category = "screen",
+            schema = objSchema(required = listOf("index", "text")) {
+                putJsonObject("index") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 60)
+                    put("description", "The number of an editable item in the last screen.read.")
+                }
+                putJsonObject("text") {
+                    put("type", "string")
+                    put("maxLength", 1000)
+                    put("description", "The text to put in the field.")
+                }
+            },
+            risk = ToolRisk.SCREEN_CONTROL,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("type", "write", "enter", "fill in", "input", "text field", "screen"),
+            requiredPermission = null,
+        ),
+
+        ToolDefinition(
+            name = "screen.scroll",
+            description = "Scroll the first scrollable area on screen in one direction.",
+            category = "screen",
+            schema = objSchema(required = listOf("direction")) {
+                putJsonObject("direction") {
+                    put("type", "string")
+                    put("enum", kotlinx.serialization.json.buildJsonArray {
+                        add("up"); add("down"); add("left"); add("right")
+                    })
+                    put("description", "Which way to scroll the content.")
+                }
+            },
+            risk = ToolRisk.SCREEN_CONTROL,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("scroll", "swipe", "move down", "move up", "more", "screen"),
+            requiredPermission = null,
+        ),
+
+        ToolDefinition(
+            name = "screen.back",
+            description = "Press the Back button on the phone.",
+            category = "screen",
+            schema = objSchema {},
+            risk = ToolRisk.SCREEN_CONTROL,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("back", "go back", "previous screen", "screen"),
+            requiredPermission = null,
+        ),
+
+        ToolDefinition(
+            name = "screen.home",
+            description = "Press the Home button on the phone.",
+            category = "screen",
+            schema = objSchema {},
+            risk = ToolRisk.SCREEN_CONTROL,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("home", "home screen", "go home", "screen"),
+            requiredPermission = null,
+        ),
+
+        ToolDefinition(
+            name = "screen.wait",
+            description = "Wait a few seconds for the screen to load, then read it again. Up to 5 seconds.",
+            category = "screen",
+            schema = objSchema(required = listOf("seconds")) {
+                putJsonObject("seconds") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 5)
+                    put("description", "How many seconds to wait.")
+                }
+            },
+            risk = ToolRisk.SCREEN_CONTROL,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("wait", "pause", "loading", "screen"),
             requiredPermission = null,
         ),
     )

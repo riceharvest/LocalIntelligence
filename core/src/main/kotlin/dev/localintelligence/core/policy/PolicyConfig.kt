@@ -152,6 +152,19 @@ data class PolicyConfig(
      * for outside messages must not send a text to a stranger unseen.
      */
     val neverAutoAccept: Set<String> = DEFAULT_NEVER_AUTO_ACCEPT,
+
+    /**
+     * Whether screen-control calls may be considered at all. False for a background or
+     * unattended run, where nobody is there to approve an app. The full build also leaves the
+     * `screen.*` tools out of such a run's registry; this is the backstop behind that.
+     */
+    val screenControlAllowed: Boolean = true,
+
+    /**
+     * Packages screen control never acts in, lowercase. The shipped set is
+     * [ScreenControl.ALWAYS_BLOCKED_PACKAGES]; `AppContainer` adds the user's own list.
+     */
+    val screenBlockedPackages: Set<String> = ScreenControl.ALWAYS_BLOCKED_PACKAGES,
 ) {
     companion object {
         /**

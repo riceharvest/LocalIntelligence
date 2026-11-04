@@ -3,6 +3,7 @@ package dev.localintelligence.app
 import android.content.Context
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.SettingsReader
+import dev.localintelligence.core.tool.AgentTool
 
 /**
  * Flavor-only plugins for the `play` build (`docs/adr/0002-play-and-full-builds.md`).
@@ -14,4 +15,7 @@ import dev.localintelligence.core.settings.SettingsReader
  */
 object FlavorPlugins {
     fun plugins(context: Context, settings: SettingsReader): List<AgentPlugin> = emptyList()
+
+    /** Every tool this flavor ships, for the catalogue check. The Play build ships none. */
+    fun shippedTools(): List<AgentTool> = emptyList()
 }
