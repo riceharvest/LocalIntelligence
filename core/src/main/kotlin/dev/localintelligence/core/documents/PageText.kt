@@ -62,118 +62,104 @@ object HtmlEntities {
     private fun safeChar(cp: Int): String = if (cp in 0xD800..0xDFFF) "�" else String(Character.toChars(cp))
 }
 
+
 /**
  * Main text of an HTML page, for `web.fetch`.
  *
- * A port of the benchmark's reference extractor (`hand.py`): a linear tag scanner, an explicit
- * stack, and per-line rules that keep the article and drop menus, language lists and
- * link-heavy lines. The point is that a page's navigation does not fill the preview.
+ * A port of the Firecrawl method the benchmark chose (`hand3.py`, which uses `hand2.py`'s scanner):
+ * the page's `onlyMainContent` rules on a linear scanner. Elements that Firecrawl excludes (header,
+ * footer, nav, aside, and classes or ids such as sidebar, ad, share, cookie) are detached unless they
+ * hold `#main`; hidden elements are dropped. The text that was detached is returned after the main
+ * text, behind [OTHER_TEXT_MARKER], so the model can still read it with `observations.read`.
  *
- * Only the differences listed in the KDoc of each function are intended; the constants,
- * regexes and the order of decisions are the reference's.
- *
- * No recursion anywhere, and no regex that backtracks past a tag, so a hostile page costs
- * time linear in its size.
+ * No recursion, no regex that backtracks past a tag, and a depth cap, so a hostile page costs time
+ * linear in its size.
  */
 object PageText {
 
+    /** Separates the main text from the detached text in [fullText]. Also what the previews look for. */
+    const val OTHER_TEXT_MARKER: String = "\n\nOther text on the page:\n"
+
     /**
-     * Open tags deeper than this are not pushed on the stack. WHY: a page can nest tags
-     * without end, and the stack is walked on every close tag. Past the cap an open tag
-     * simply gets no effect, which is the same as a tag the extractor does not know.
+     * Open elements deeper than this are not tracked. WHY: a page can nest tags without end, and the
+     * open-element path is copied for every line. Past the cap an element has no effect.
      */
     private const val MAX_DEPTH = 512
 
-    private val SKIP = setOf(
-        "script", "style", "noscript", "template", "svg", "math", "head", "iframe", "canvas", "object",
-        "embed", "button", "textarea", "video", "audio", "map", "picture",
-    )
     private val VOID = setOf(
         "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr",
     )
+    private val RAW_TEXT = setOf("script", "style", "textarea", "title")
+    private val REMOVE = setOf(
+        "script", "style", "noscript", "head", "template", "svg", "math", "iframe", "canvas", "object", "embed",
+        "video", "audio", "map", "picture", "select", "textarea", "button",
+    )
+    private val EX_TAGS = setOf("header", "footer", "nav", "aside")
+    private val EX_CLASS = setOf(
+        "header", "top", "navbar", "footer", "bottom", "sidebar", "side", "aside", "modal", "popup", "overlay", "ad",
+        "ads", "advert", "lang-selector", "language", "social", "social-media", "social-links", "menu", "navigation",
+        "breadcrumbs", "share", "widget", "cookie", "fc-decoration", "grecaptcha-badge",
+    )
+    private val EX_ID = setOf(
+        "header", "footer", "sidebar", "modal", "ad", "language-selector", "social", "nav", "breadcrumbs", "share",
+        "widget", "cookie",
+    )
+    private val FORCE_ID = setOf("main")
+    private val HIDDEN_CLASSES = setOf("hidden", "sr-only", "visually-hidden", "screen-reader-text")
     private val BLOCK = setOf(
         "p", "div", "br", "li", "ul", "ol", "dl", "dt", "dd", "tr", "table", "thead", "tbody", "tfoot", "caption",
         "h1", "h2", "h3", "h4", "h5", "h6", "section", "article", "main", "header", "footer", "nav", "aside",
         "blockquote", "pre", "hr", "figure", "figcaption", "form", "address", "details", "summary", "center", "menu",
         "dialog",
     )
-    private val HEAD = setOf("h1", "h2", "h3", "h4", "h5", "h6")
-    private val BOILER_TAGS = setOf("nav", "footer", "aside", "menu", "dialog", "select")
-    private val BOILER_ROLES = setOf(
-        "navigation", "banner", "contentinfo", "complementary", "search", "menu", "menubar", "dialog", "alert",
+    private val PREFIX = mapOf(
+        "h1" to "# ", "h2" to "## ", "h3" to "### ", "h4" to "#### ", "h5" to "##### ", "h6" to "###### ", "li" to "- ",
     )
-    private val RAW_TEXT = setOf("script", "style", "textarea", "title")
 
-    private val BOILER = Regex(
-        """(^|[-_ ])(nav|navbar|navigation|menu|breadcrumbs?|sidebar|sidenav|footer|masthead|cookies?|consent|popup|modal|""" +
-            """newsletter|share|sharing|social|sponsor(ed)?|promo|adverts?|advertisement|ads?|related|recommend(ed|ations)?|""" +
-            """langlinks|interlanguage|lang-selector|language-selector|toc|catlinks|navbox|vector-menu|vector-toc|""" +
-            """vector-dropdown|mw-portlet|mw-editsection|reflist|references|skip-link|signup|subscribe)($|[-_ ])""",
-        RegexOption.IGNORE_CASE,
-    )
-    private val HIDDEN = Regex(
-        """(^|[-_ ])(hidden|sr-only|visually-hidden|screen-reader-text|d-none)($|[-_ ])""",
-        RegexOption.IGNORE_CASE,
-    )
-    private val MAIN = Regex(
-        """(^|[-_ ])(article|article-body|articlebody|article-content|post-content|post-body|entry-content|""" +
-            """story-body|markdown-body|mw-parser-output|main-content|content-main|page-content|product-description)($|[-_ ])""",
-        RegexOption.IGNORE_CASE,
-    )
-    private val ATTR = Regex(
-        """([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?""",
-    )
+    private val ATTR = Regex("""([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?""")
 
     /**
-     * Whitespace as Python's `\s` sees it (Unicode, plus the file separators U+001C..U+001F),
-     * so a no-break space collapses the same way the reference collapses it.
+     * Whitespace as Python's `\s` sees it (Unicode, plus U+001C..U+001F), so a no-break space collapses
+     * the same way the reference collapses it.
      */
     private val WS: Pattern = Pattern.compile("[\\s\\x1C-\\x1F]+", Pattern.UNICODE_CHARACTER_CLASS)
 
-    /** Main text of [html]: the title, then the main lines, then "Other text on the page:" and the rest. */
+    /** Main text of [html]: the title, the main lines, then [OTHER_TEXT_MARKER] and the detached lines when there are any. */
     fun fullText(html: String): String {
         val e = extract(html)
-        val head = (if (e.title.isNotEmpty()) e.title + "\n" else "") + e.primary.joinToString("\n") { it.text }
+        val head = (if (e.title.isNotEmpty()) e.title + "\n" else "") + e.main.joinToString("\n")
         if (e.rest.isEmpty()) return head
-        return head + "\n\nOther text on the page:\n" + e.rest.joinToString("\n") { it.text }
+        return head + OTHER_TEXT_MARKER + e.rest.joinToString("\n")
     }
-
-    private class Tok(val kind: Kind, val name: String = "", val attrs: Map<String, String> = emptyMap(), val text: String = "")
 
     private enum class Kind { TEXT, OPEN, CLOSE, VOID, TITLE }
 
-    /** One visible line of text, with what the line-level rules need to know about where it sat. */
-    private class Line(
-        val text: String,
-        val links: Int,
-        val boiler: Boolean,
-        val main: Boolean,
-        val table: Boolean,
-        val head: Boolean,
-    ) {
-        /** Length in code points, as the reference counts it. */
-        val len: Int = text.codePointCount(0, text.length)
-    }
+    private class Tok(val kind: Kind, val name: String = "", val attrs: Map<String, String> = emptyMap(), val text: String = "")
 
-    /** One open element: what it added to the skip, boiler and main counters, so a close can take it back. */
-    private class Frame(val name: String, val skip: Int, val boiler: Int, val main: Int)
+    /** An open element on the stack: its name and whether its text is hidden. */
+    private class Frame(val name: String, val hidden: Int)
 
-    private class Extracted(val title: String, val primary: List<Line>, val rest: List<Line>)
+    /** A line of text and the ids of the elements that contained it. */
+    private class Out(val text: String, val path: IntArray)
+
+    private class Extracted(val title: String, val main: List<String>, val rest: List<String>)
+
+    private fun collapse(s: String): String = WS.matcher(s).replaceAll(" ")
+
+    /** Lengths of the lines, summed. */
+    private fun total(lines: List<String>): Int = lines.sumOf { it.length }
 
     /**
-     * Linear tag scanner: yields text and tags, skips comments and declarations, and blanks
-     * out the bodies of script, style, textarea and title.
-     *
-     * Stray quotes: the reference returns when a tag's `>` is not found outside quotes, which
-     * loses the rest of the page. Here that tag ends at the first `>` after its name, and quotes
-     * are ignored from then on. WHY the flag: it keeps a hostile page linear, because the
-     * quote-aware search runs to the end of the page at most once.
+     * Linear tag scanner (the scanner of `hand2.py`). A quote opens a value only right after `=`, as in
+     * the HTML spec, so `<a href="x"">` cannot swallow the page. An unclosed value ends the tag at the
+     * first `>`, and from then on quotes are not trusted for the rest of the page: that is what keeps a
+     * hostile page linear.
      */
     private fun scan(src: String): List<Tok> {
         val out = ArrayList<Tok>()
         val n = src.length
         var i = 0
-        var quotesOff = false
+        var plain = false
         while (i < n) {
             val lt = src.indexOf('<', i)
             if (lt < 0) {
@@ -201,12 +187,30 @@ object PageText {
             var k = j
             while (k < n && (src[k].isLetterOrDigit() || src[k] == '-' || src[k] == '_' || src[k] == ':')) k++
             val name = src.substring(j, k).lowercase()
-            var m = if (quotesOff) -1 else tagEnd(src, k)
-            if (m < 0) {
-                quotesOff = true
-                m = src.indexOf('>', k)
-                if (m < 0) return out
+            var m = k
+            while (m < n) {
+                val c = src[m]
+                if (c == '>') break
+                if (c == '=' && !plain) {
+                    var v = m + 1
+                    while (v < n && src[v] in " \t\r\n\u000C") v++
+                    if (v < n && (src[v] == '"' || src[v] == '\'')) {
+                        val e = src.indexOf(src[v], v + 1)
+                        if (e < 0) {
+                            // An unclosed value: end the tag at the first ">", and stop trusting quotes.
+                            plain = true
+                            m = k
+                            continue
+                        }
+                        m = e + 1
+                        continue
+                    }
+                    m = v
+                    continue
+                }
+                m++
             }
+            if (m >= n) return out
             val raw = src.substring(k, m)
             if (closing) {
                 out.add(Tok(Kind.CLOSE, name = name))
@@ -223,74 +227,59 @@ object PageText {
             if (!closing && name in RAW_TEXT && !raw.endsWith("/")) {
                 // WHY indexOf(ignoreCase): lowercasing the whole page for every raw-text tag is quadratic.
                 val e = src.indexOf("</$name", i, ignoreCase = true)
-                if (name == "title") {
-                    out.add(Tok(Kind.TITLE, text = src.substring(i, if (e >= 0) e else n)))
-                }
+                if (name == "title") out.add(Tok(Kind.TITLE, text = src.substring(i, if (e >= 0) e else n)))
                 i = if (e < 0) n else e
             }
         }
         return out
     }
 
-    /** Index of the first `>` at or after [from] that is outside quotes, or -1 when there is none. */
-    private fun tagEnd(src: String, from: Int): Int {
-        var quote = '\u0000'
-        var p = from
-        while (p < src.length) {
-            val c = src[p]
-            if (quote != '\u0000') {
-                if (c == quote) quote = '\u0000'
-            } else if (c == '"' || c == '\'') {
-                quote = c
-            } else if (c == '>') {
-                return p
-            }
-            p++
-        }
-        return -1
-    }
-
-    private fun collapse(s: String): String = WS.matcher(s).replaceAll(" ")
-
-    /** Visible lines in document order, with the title. */
-    private fun linesOf(src: String): Pair<String, List<Line>> {
+    /**
+     * The page's lines with their element paths, split into main text and detached text.
+     *
+     * [strict] false removes only script and style, and [dropHidden] false keeps hidden elements. The
+     * extractor uses that second, looser reading once when the strict one finds almost nothing.
+     */
+    private fun linesOf(src: String, dropHidden: Boolean = true, strict: Boolean = true): Extracted {
+        val excluded = ArrayList<Boolean>()
+        val parent = ArrayList<Int>()
+        val forced = ArrayList<Int>()
         val stack = ArrayList<Frame>()
+        val path = ArrayList<Int>()
         var skip = 0
-        var boiler = 0
-        var main = 0
-        var table = 0
-        var linkd = 0
-        var heading = 0
         val buf = StringBuilder()
-        var linkChars = 0
-        val out = ArrayList<Line>()
+        var kindPrefix = ""
+        val out = ArrayList<Out>()
         var title = ""
 
         fun flush() {
-            var t = collapse(buf.toString()).trim { it == ' ' || it == '|' }
+            var t = collapse(buf.toString())
             t = HtmlEntities.decode(t)
             // WHY after decoding: an entity can produce a control character (`&#8203;`), and a line
             // must not carry one into an observation.
-            t = HtmlEntities.stripControl(t)
-            if (t.isNotEmpty()) {
-                out.add(Line(t, linkChars, boiler > 0, main > 0, table > 0, heading > 0))
-            }
+            t = HtmlEntities.stripControl(t).trim { it == ' ' || it == '|' }
+            if (t.isNotEmpty()) out.add(Out(kindPrefix + t, path.toIntArray()))
             buf.setLength(0)
-            linkChars = 0
+            kindPrefix = ""
+        }
+
+        fun popTo(name: String?) {
+            while (stack.isNotEmpty()) {
+                val s = stack.removeAt(stack.size - 1)
+                skip -= s.hidden
+                path.removeAt(path.size - 1)
+                if (name != null && s.name == name) break
+            }
         }
 
         for (tok in scan(src)) {
             when (tok.kind) {
                 Kind.TITLE -> {
-                    // WHY stripControl: the title is the first thing in the observation, same as a line.
                     title = HtmlEntities.stripControl(collapse(HtmlEntities.decode(tok.text))).trim()
                     continue
                 }
                 Kind.TEXT -> {
-                    if (skip == 0) {
-                        buf.append(tok.text)
-                        if (linkd > 0) linkChars += tok.text.trim().let { it.codePointCount(0, it.length) }
-                    }
+                    if (skip == 0) buf.append(tok.text)
                     continue
                 }
                 else -> Unit
@@ -299,16 +288,7 @@ object PageText {
             if (tok.kind == Kind.CLOSE) {
                 if (stack.none { it.name == name }) continue
                 if (name in BLOCK) flush()
-                while (stack.isNotEmpty()) {
-                    val s = stack.removeAt(stack.size - 1)
-                    skip -= s.skip
-                    boiler -= s.boiler
-                    main -= s.main
-                    if (s.name == "table") table--
-                    if (s.name == "a") linkd--
-                    if (s.name in HEAD) heading--
-                    if (s.name == name) break
-                }
+                popTo(name)
                 if ((name == "td" || name == "th") && skip == 0) buf.append(" | ")
                 if (name in BLOCK) flush()
                 continue
@@ -318,58 +298,64 @@ object PageText {
                 continue
             }
             if (tok.kind == Kind.VOID) continue
+            // The spec lets a page omit </head>: <body> or any block element ends it. A parser does this for free.
+            if ((name == "body" || name in BLOCK) && stack.any { it.name == "head" }) popTo("head")
             if (name in BLOCK) flush()
+            if (name in PREFIX && skip == 0) kindPrefix = PREFIX.getValue(name)
             val attrs = tok.attrs
-            val ci = attrs["class"].orEmpty() + " " + attrs["id"].orEmpty()
+            val classes = attrs["class"].orEmpty().split(WS.toRegex()).filter { it.isNotEmpty() }.toSet()
+            val eid = attrs["id"].orEmpty()
             val style = attrs["style"].orEmpty().replace(" ", "").lowercase()
-            val hid = name in SKIP || attrs.containsKey("hidden") || attrs["aria-hidden"] == "true" ||
-                "display:none" in style || "visibility:hidden" in style ||
-                (name != "html" && name != "body" && HIDDEN.containsMatchIn(ci))
-            val role = attrs["role"].orEmpty().lowercase()
-            val ismain = name == "main" || name == "article" || role == "main" || role == "article" ||
-                MAIN.containsMatchIn(ci) || attrs["itemprop"] == "articleBody"
-            val isb = name in BOILER_TAGS || role in BOILER_ROLES || (name == "header" && main == 0) ||
-                (name !in setOf("html", "body", "main", "article") && !ismain && BOILER.containsMatchIn(ci))
-            val frame = Frame(
-                name = name,
-                skip = if (hid) 1 else 0,
-                // A main element cancels the boiler count it inherits, so text inside an article is kept.
-                boiler = if (ismain) -boiler else if (isb) 1 else 0,
-                main = if (ismain) 1 else 0,
-            )
-            // WHY the cap: past MAX_DEPTH the element is not pushed, and none of its counters apply,
-            // so a close tag can never take back what was never added.
+            val hid = (if (strict) name in REMOVE else name == "script" || name == "style") ||
+                (dropHidden && ("hidden" in attrs || attrs["aria-hidden"] == "true" ||
+                    "display:none" in style || "visibility:hidden" in style ||
+                    classes.any { it in HIDDEN_CLASSES }))
+            val ex = name in EX_TAGS || classes.any { it in EX_CLASS } || eid in EX_ID ||
+                attrs["aria-label"].orEmpty().lowercase() == "cookie consent"
+            // WHY the cap: past MAX_DEPTH an element is not tracked at all, so no close can take back what
+            // was never added.
             if (stack.size >= MAX_DEPTH) continue
-            stack.add(frame)
-            skip += frame.skip
-            boiler += frame.boiler
-            main += frame.main
-            if (name == "table") table++
-            if (name == "a") linkd++
-            if (name in HEAD) heading++
+            val i = excluded.size
+            excluded.add(ex)
+            parent.add(if (path.isEmpty()) -1 else path[path.size - 1])
+            if (eid in FORCE_ID) forced.add(i)
+            val hidden = if (hid) 1 else 0
+            stack.add(Frame(name, hidden))
+            path.add(i)
+            skip += hidden
         }
         flush()
-        return Pair(title, out)
+        // An element holding #main stays: walk up and clear every excluded ancestor.
+        for (i in forced) {
+            var j = i
+            while (j >= 0) {
+                excluded[j] = false
+                j = parent[j]
+            }
+        }
+        val main = ArrayList<String>()
+        val rest = ArrayList<String>()
+        for (o in out) {
+            (if (o.path.any { excluded[it] }) rest else main).add(o.text)
+        }
+        return Extracted(title, main, rest)
     }
 
-    /** jusText's idea: mostly link text, or too short to say anything. Table rows and headings keep short text. */
-    private fun isJunk(ln: Line): Boolean {
-        val n = ln.len
-        val density = ln.links.toDouble() / maxOf(n, 1)
-        if (ln.table || ln.head) return n < 2 || (ln.boiler && density > 0.5)
-        if (density > 0.5) return n < 40 || ln.boiler
-        return n < 25 && ln.links > 0
-    }
-
+    /**
+     * Firecrawl's empty-main rule, and the retry: if main and rest together are under 200 characters,
+     * an unclosed element probably ate the page, so parse once more with hidden elements kept and only
+     * script and style removed. Use that reading when it has more than twice the text.
+     */
     private fun extract(src: String): Extracted {
-        val (title, ls) = linesOf(src)
-        val keep = ls.filterNot { isJunk(it) }
-        val main = keep.filter { it.main && !it.boiler }
-        var primary = if (main.sumOf { it.len } >= 500) main else keep.filter { !it.boiler }
-        // Defuddle/Readability: too little means the filter was wrong.
-        if (primary.sumOf { it.len } < 250) primary = keep.ifEmpty { ls }
-        val ids = HashSet<Line>(primary)
-        val rest = keep.filter { it !in ids && it.len >= 20 }
-        return Extracted(title, primary, rest)
+        var e = linesOf(src)
+        if (total(e.main) + total(e.rest) < 200) {
+            val second = linesOf(src, dropHidden = false, strict = false)
+            if (total(second.main) + total(second.rest) > 2 * (total(e.main) + total(e.rest))) {
+                e = Extracted(second.title.ifEmpty { e.title }, second.main, second.rest)
+            }
+        }
+        // Firecrawl: empty main content falls back to the whole page.
+        if (e.main.joinToString("").isBlank()) return Extracted(e.title, e.main + e.rest, emptyList())
+        return e
     }
 }

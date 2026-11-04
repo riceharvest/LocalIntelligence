@@ -277,7 +277,7 @@ internal class WebSearcher(
                         )
                     }
 
-                    val body = BodyReader.readCapped(opened.body, MAX_BODY_BYTES, context.signal)
+                    val body = BodyReader.readCapped(opened.body, SEARCH_MAX_BODY_BYTES, context.signal)
                     if (body.cancelled) return cancelled()
                     val html = String(body.bytes, WebFetchContent.charsetOf(opened.contentType))
 

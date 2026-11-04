@@ -1,5 +1,6 @@
 package dev.localintelligence.core.tool
 
+import dev.localintelligence.core.documents.PageText
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.catalogue.CatalogueAgreement
 import dev.localintelligence.core.tool.catalogue.V0ToolCatalogue
@@ -289,29 +290,18 @@ object ObservationTruncator {
     fun preview(text: String, budget: Int = DEFAULT_BUDGET_CHARS, id: Long?, keepTail: Boolean = true): String {
         if (budget <= 0) return ""
         if (text.length <= budget) return text
+        if (!keepTail) return headPreview(text, budget, id)
         val footer = if (id == null) "" else
             "[obs#$id: ${groupedCount(text.length)} chars. More: ${ObservationStore.READ_TOOL} " +
                 "with id $id and a query or an offset]"
         // The cut count is at most text.length, so its marker is the longest one possible.
-        // Head only has one line break between head and marker; head and tail have two.
-        val breaks = if (keepTail) 2 else 1
-        val frame = cutMarker(text.length).length + breaks + (if (footer.isEmpty()) 0 else footer.length + 1)
+        val frame = cutMarker(text.length).length + 2 + (if (footer.isEmpty()) 0 else footer.length + 1)
         val room = budget - frame
         if (room < MIN_PREVIEW_ROOM) {
             if (footer.isNotEmpty() && budget - footer.length - 1 >= MIN_PREVIEW_ROOM) {
                 return truncate(text, budget - footer.length - 1) + "\n" + footer
             }
             return truncate(text, budget)
-        }
-        if (!keepTail) {
-            // WHY no tail: for a page whose important text sits at the start (web.fetch puts
-            // the main text first), a tail would show menus and footers. All the room goes to the head.
-            val head = headOf(text, room)
-            val marker = cutMarker(text.length - head.length)
-            return buildString {
-                append(head).append('\n').append(marker)
-                if (footer.isNotEmpty()) append('\n').append(footer)
-            }
         }
         val head = headOf(text, room * 7 / 9)
         val tail = tailOf(text, room - room * 7 / 9)
@@ -320,6 +310,24 @@ object ObservationTruncator {
             append(head).append('\n').append(marker).append('\n').append(tail)
             if (footer.isNotEmpty()) append('\n').append(footer)
         }
+    }
+
+    /**
+     * The start of a page that puts its main text first (web.fetch), up to [budget]. The text after
+     * [PageText.OTHER_TEXT_MARKER] is not shown: it is saved under [id] and the footer says it is there.
+     * WHY no tail: a tail would show menus and footers, which the main text was split from.
+     */
+    private fun headPreview(text: String, budget: Int, id: Long?): String {
+        val split = text.indexOf(PageText.OTHER_TEXT_MARKER)
+        val main = if (split >= 0) text.substring(0, split) else text
+        val footer = if (id == null) "" else
+            "[obs#$id: ${groupedCount(text.length)} chars. More: ${ObservationStore.READ_TOOL} " +
+                "with id $id and a query or an offset" +
+                (if (split >= 0) ". Other page text is in ${ObservationStore.READ_TOOL} too" else "") + "]"
+        val room = budget - (if (footer.isEmpty()) 0 else footer.length + 1)
+        if (room < MIN_PREVIEW_ROOM) return truncate(text, budget)
+        val head = if (main.length <= room) main.trimEnd() else headOf(main, room)
+        return if (footer.isEmpty()) head else head + "\n" + footer
     }
 
     /** Below this much room for text, a head-and-tail split shows too little of either to be worth it. */

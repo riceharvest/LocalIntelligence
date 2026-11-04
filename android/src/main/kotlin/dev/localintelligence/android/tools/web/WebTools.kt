@@ -87,8 +87,11 @@ import javax.net.ssl.SSLException
 // `ToolDefinition.observationOrigin`, and `docs/threat-model.md` (T3).
 // ===========================================================================
 
-/** Hard ceiling on the raw body we will pull off the socket, in bytes. */
-internal const val MAX_BODY_BYTES: Int = 1024 * 1024
+/** Hard ceiling on the raw body web.fetch pulls off the socket, in bytes. */
+internal const val MAX_BODY_BYTES: Int = 2 * 1024 * 1024
+
+/** The search-results page cap. Kept at its old size: search reads a results page, not an article. */
+internal const val SEARCH_MAX_BODY_BYTES: Int = 256 * 1024
 
 /**
  * Characters of page text a fetch returns. Generous on purpose: the agent loop
@@ -1014,26 +1017,33 @@ internal class WebFetcher(
                 } else {
                     declared.contains("html")
                 }
+                // The main text is cut to the budget. The detached text after the marker is kept whole,
+                // because the saved observation must hold it for observations.read; the agent loop
+                // previews the observation to the budget and cuts it when nothing is saved.
                 val text = if (pageHtml) {
                     try {
-                        HtmlText.cutPageText(PageText.fullText(raw), bodyBudget)
+                        val page = PageText.fullText(raw)
+                        val split = page.indexOf(PageText.OTHER_TEXT_MARKER)
+                        val main = HtmlText.cutPageText(if (split >= 0) page.substring(0, split) else page, bodyBudget)
+                        PlainText(
+                            main.text + (if (split >= 0) page.substring(split) else ""),
+                            truncated = main.truncated,
+                            fromHtml = true,
+                        )
                     } catch (e: RuntimeException) {
                         HtmlText.toPlainText(raw, bodyBudget, response?.contentType)
                     }
                 } else {
                     HtmlText.toPlainText(raw, bodyBudget, response?.contentType)
                 }
-                val observation = ObservationTruncator.truncate(
-                    buildString {
-                        append(header)
-                        if (text.text.isEmpty()) {
-                            append("\nThe page had no readable text.")
-                        } else {
-                            append(NEWLINE_SECTION).append(text.text)
-                        }
-                    },
-                    budget,
-                )
+                val observation = buildString {
+                    append(header)
+                    if (text.text.isEmpty()) {
+                        append("\nThe page had no readable text.")
+                    } else {
+                        append(NEWLINE_SECTION).append(text.text)
+                    }
+                }
                 return ToolResult(
                     success = true,
                     observation = observation,
