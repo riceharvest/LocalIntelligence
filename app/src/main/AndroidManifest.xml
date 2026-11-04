@@ -58,6 +58,12 @@
     <!-- App lock: the fingerprint or face option on the lock screen. The PIN works without it. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
+    <!-- Google Tensor and other NPUs. Android 17 blocks an app that targets API 37 and needs the NPU
+         unless it declares this; the name is android.hardware.npu (AOSP android17-release,
+         data/etc/android.hardware.npu.xml), the string behind PackageManager.FEATURE_NEURAL_PROCESSING_UNIT.
+         required=false: a device without an NPU still installs and runs on CPU or GPU. -->
+    <uses-feature android:name="android.hardware.npu" android:required="false" />
+
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
