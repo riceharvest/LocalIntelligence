@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -142,7 +144,7 @@ fun ChatScreen(
      * preferences and the default matches the setting's own default.
      */
     toolCallsAutoCollapse: Boolean = true,
-    /** The skills store. Null hides "Save as skill", for hosts that have no store. */
+    /** The skills store. Null hides stringResource(R.string.save_as_skill), for hosts that have no store. */
     skills: SkillRepository? = null,
     /** The name from Settings, used in the empty chat's first line. Blank: no name. */
     assistantName: String = "",
@@ -165,7 +167,7 @@ fun ChatScreen(
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
     val messages by viewModel.messages.collectAsStateWithLifecycle()
-    // "Save as skill" draft for the answer on screen, if the run used 2+ tools.
+    // stringResource(R.string.save_as_skill) draft for the answer on screen, if the run used 2+ tools.
     // Shown in SkillEditorDialog; nothing is written until the user taps Save.
     val skillDraft = remember(messages) { saveAsSkillDraft(messages) }
     var editingSkill by rememberSaveable { mutableStateOf<String?>(null) }
@@ -174,7 +176,7 @@ fun ChatScreen(
         val dialogContext = LocalContext.current
         if (store != null) {
             SkillEditorDialog(
-                title = "Save as skill",
+                title = stringResource(R.string.save_as_skill),
                 initialText = draft,
                 onDismiss = { editingSkill = null },
                 onConfirm = { text ->
@@ -273,34 +275,34 @@ fun ChatScreen(
     if (attachChoice) {
         AlertDialog(
             onDismissRequest = { attachChoice = false },
-            title = { Text("Attach") },
-            text = { Text("A photo for the model to see, or an audio file to transcribe.") },
+            title = { Text(stringResource(R.string.attach)) },
+            text = { Text(stringResource(R.string.a_photo_for_the_model_to_see_or_an)) },
             confirmButton = {
                 TextButton(onClick = {
                     attachChoice = false
                     pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }) { Text("Photo") }
+                }) { Text(stringResource(R.string.photo)) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     attachChoice = false
                     pickAudio.launch(arrayOf("audio/*"))
-                }) { Text("Audio file") }
+                }) { Text(stringResource(R.string.audio_file)) }
             },
         )
     }
     pendingAudio?.let { uri ->
         AlertDialog(
             onDismissRequest = { pendingAudio = null },
-            title = { Text("Transcribe this recording?") },
-            text = { Text("The text is written into the chat as the model hears it. Stop ends it.") },
+            title = { Text(stringResource(R.string.transcribe_this_recording)) },
+            text = { Text(stringResource(R.string.the_text_is_written_into_the_chat_as)) },
             confirmButton = {
                 TextButton(onClick = {
                     pendingAudio = null
                     viewModel.transcribe(uri)
-                }) { Text("Transcribe") }
+                }) { Text(stringResource(R.string.transcribe)) }
             },
-            dismissButton = { TextButton(onClick = { pendingAudio = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { pendingAudio = null }) { Text(stringResource(R.string.cancel)) } },
         )
     }
     // Hands-free mode needs the same microphone grant as the mic button. It is not
@@ -347,12 +349,12 @@ fun ChatScreen(
         }
     }
     val liveStatus = voiceSeconds?.let { "Recording ${clipLength(it)}" }
-        ?: if (dictating) "Listening…" else null
+        ?: if (dictating) stringResource(R.string.listening) else null
         ?: when (handsFree.phase) {
             HandsFreePhase.Off -> null
-            HandsFreePhase.Listening -> "Listening…"
-            HandsFreePhase.Thinking -> "Thinking…"
-            HandsFreePhase.Speaking -> "Speaking…"
+            HandsFreePhase.Listening -> stringResource(R.string.listening)
+            HandsFreePhase.Thinking -> stringResource(R.string.thinking)
+            HandsFreePhase.Speaking -> stringResource(R.string.speaking)
         }
     // The progress line participates in the count because it is a real row: the
     // auto-scroll has to reach it, or a run that is waiting on a model load
@@ -460,8 +462,8 @@ fun ChatScreen(
                 onOpenSettings = onOpenSettings,
                 showBlockedReason = messages.isNotEmpty(),
                 blockedAction = when (modelState) {
-                    ModelAvailability.None -> "Download a model" to onOpenModels
-                    is ModelAvailability.Failed -> "Choose another model" to onOpenModels
+                    ModelAvailability.None -> stringResource(R.string.download_a_model) to onOpenModels
+                    is ModelAvailability.Failed -> stringResource(R.string.choose_another_model) to onOpenModels
                     else -> null
                 },
             )
@@ -631,7 +633,7 @@ private fun UserBubble(text: String, attached: List<ShownAttachment>, onEdit: ((
     if (onEdit != null) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             IconButton(onClick = onEdit) {
-                Icon(Icons.Filled.Edit, contentDescription = "Edit message", modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.edit_message), modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -669,33 +671,33 @@ private fun AssistantBubble(
                     Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
                 }
             }) {
-                Icon(Icons.Filled.ContentCopy, contentDescription = "Copy", modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.copy), modifier = Modifier.size(18.dp))
             }
             IconButton(onClick = onSpeak) {
                 Icon(
                     imageVector = if (speaking) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
-                    contentDescription = if (speaking) "Stop reading" else "Read aloud",
+                    contentDescription = if (speaking) stringResource(R.string.stop_reading) else stringResource(R.string.read_aloud),
                     modifier = Modifier.size(20.dp),
                 )
             }
             // In-app reporting, required by Play's AI content policy. Only on finished replies:
             // this bubble is never drawn for the streaming text.
             IconButton(onClick = onReport) {
-                Icon(Icons.Filled.Flag, contentDescription = "Report reply", modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.Flag, contentDescription = stringResource(R.string.report_reply), modifier = Modifier.size(20.dp))
             }
             if (onRetry != null) {
                 IconButton(onClick = onRetry) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Retry", modifier = Modifier.size(20.dp))
+                    Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.retry), modifier = Modifier.size(20.dp))
                 }
             }
             if (onSaveAsSkill != null) {
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Filled.MoreHoriz, contentDescription = "More", modifier = Modifier.size(20.dp))
+                        Icon(Icons.Filled.MoreHoriz, contentDescription = stringResource(R.string.more), modifier = Modifier.size(20.dp))
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
-                            text = { Text("Save as skill") },
+                            text = { Text(stringResource(R.string.save_as_skill)) },
                             onClick = {
                                 menuOpen = false
                                 onSaveAsSkill()
@@ -723,7 +725,7 @@ private fun ThoughtRow(thought: String) {
                 modifier = Modifier.size(18.dp),
             )
             Text(
-                "Thought for a moment",
+                stringResource(R.string.thought_for_a_moment),
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(start = 4.dp),
             )
@@ -829,7 +831,7 @@ private fun TranscriptCard(message: ChatMessage.Transcript, onSave: (String) -> 
     val clipboard = LocalClipboardManager.current
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Text(
-            text = if (message.running) "Transcribing…" else "Transcript",
+            text = if (message.running) stringResource(R.string.transcribing) else stringResource(R.string.transcript),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -839,8 +841,8 @@ private fun TranscriptCard(message: ChatMessage.Transcript, onSave: (String) -> 
         )
         if (!message.running && message.text.isNotBlank()) {
             Row {
-                TextButton(onClick = { clipboard.setText(AnnotatedString(message.text)) }) { Text("Copy") }
-                TextButton(onClick = { onSave(message.text) }) { Text("Save as document") }
+                TextButton(onClick = { clipboard.setText(AnnotatedString(message.text)) }) { Text(stringResource(R.string.copy)) }
+                TextButton(onClick = { onSave(message.text) }) { Text(stringResource(R.string.save_as_document)) }
             }
         }
     }
@@ -878,7 +880,7 @@ private fun NoticeLine(text: String) {
 private fun progressLine(state: RunState): String? = when (state) {
     RunState.Idle, is RunState.Finished -> null
     RunState.LoadingModel -> state.progressLabel
-    RunState.Running -> "Working on it…"
+    RunState.Running -> stringResource(R.string.working_on_it)
     is RunState.AwaitingApproval -> state.progressLabel
 }
 
@@ -957,7 +959,7 @@ private fun EmptyState(
                 onClick = onGetSuggested,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text("Download ${suggestion.name} · ${formatBytes(suggestion.sizeBytes)}")
+                Text(stringResource(R.string.download_4, suggestion.name, formatBytes(suggestion.sizeBytes)))
             }
             Text(
                 text = suggestion.reason,
@@ -966,7 +968,7 @@ private fun EmptyState(
                 textAlign = TextAlign.Center,
             )
             TextButton(onClick = onOpenModels, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Other models")
+                Text(stringResource(R.string.other_models))
             }
         } else if (blockedReason != null) {
             // 48dp: the minimum touch target. A plain TextButton would be 40dp
@@ -975,7 +977,7 @@ private fun EmptyState(
                 onClick = onOpenModels,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text(if (isMissingModel) "Download a model" else "Choose another model")
+                Text(if (isMissingModel) stringResource(R.string.download_a_model) else stringResource(R.string.choose_another_model))
             }
         }
     }
@@ -990,16 +992,16 @@ private fun EmptyPersonaRow(personas: List<Persona>, onChoose: (Long?) -> Unit) 
     if (personas.isEmpty()) return
     var choosing by remember { mutableStateOf(false) }
     TextButton(onClick = { choosing = true }, modifier = Modifier.heightIn(min = 48.dp)) {
-        Text("Choose a persona")
+        Text(stringResource(R.string.choose_a_persona))
     }
     if (choosing) {
         var chosen by remember { mutableStateOf<Long?>(null) }
         AlertDialog(
             onDismissRequest = { choosing = false },
-            title = { Text("Choose a persona") },
+            title = { Text(stringResource(R.string.choose_a_persona)) },
             text = {
                 Column {
-                    PersonaChoice("None", selected = chosen == null) { chosen = null }
+                    PersonaChoice(stringResource(R.string.none), selected = chosen == null) { chosen = null }
                     personas.forEach { persona ->
                         PersonaChoice(persona.name, selected = chosen == persona.id) { chosen = persona.id }
                     }
@@ -1009,18 +1011,18 @@ private fun EmptyPersonaRow(personas: List<Persona>, onChoose: (Long?) -> Unit) 
                 TextButton(onClick = {
                     choosing = false
                     onChoose(chosen)
-                }) { Text("Start") }
+                }) { Text(stringResource(R.string.start)) }
             },
-            dismissButton = { TextButton(onClick = { choosing = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { choosing = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }
 
 /** The three first things a new user can ask, tapped to send. */
 private val STARTER_EXAMPLES = listOf(
-    "How much battery do I have?",
-    "Set a timer for 10 minutes",
-    "Wake me up at 7 tomorrow",
+    stringResource(R.string.how_much_battery_do_i_have),
+    stringResource(R.string.set_a_timer_for_10_minutes),
+    stringResource(R.string.wake_me_up_at_7_tomorrow),
 )
 
 /**
@@ -1040,16 +1042,16 @@ private fun StarterPanel(
     when (starter) {
         is SetupState.Idle -> {
             Text(
-                text = "$name runs on your phone. It needs a one-time download to get started.",
+                text = stringResource(R.string.runs_on_your_phone_it_needs_a_one_time, name),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
             val context = LocalContext.current
             val label = when {
-                starter.onDisk -> "Finish setup"
-                starter.keptBytes > 0 -> "Continue setup · ${percentOf(starter.keptBytes, starter.sizeBytes)}%"
-                else -> "Get started · ${formatBytes(starter.sizeBytes)}"
+                starter.onDisk -> stringResource(R.string.finish_setup)
+                starter.keptBytes > 0 -> stringResource(R.string.continue_setup, percentOf(starter.keptBytes, starter.sizeBytes))
+                else -> stringResource(R.string.get_started, formatBytes(starter.sizeBytes))
             }
             Button(onClick = onStart, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(label)
@@ -1058,14 +1060,14 @@ private fun StarterPanel(
             val metered = remember { isOnMeteredNetwork(context) }
             if (metered) {
                 Text(
-                    text = "You're on mobile data. Wi-Fi is better for a download this size.",
+                    text = stringResource(R.string.you_re_on_mobile_data_wi_fi_is_better),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
             }
             TextButton(onClick = onOpenModels, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Other models")
+                Text(stringResource(R.string.other_models))
             }
         }
 
@@ -1080,7 +1082,7 @@ private fun StarterPanel(
             val milestone = percent / 10
             val announced = remember(milestone) { "Setting up, ${milestone * 10} percent" }
             Text(
-                text = "Setting up · $percent%",
+                text = stringResource(R.string.setting_up, percent),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
@@ -1094,26 +1096,26 @@ private fun StarterPanel(
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
-                text = "${formatBytes(starter.bytes)} of ${formatBytes(starter.totalBytes)}",
+                text = stringResource(R.string.of_2, formatBytes(starter.bytes), formatBytes(starter.totalBytes)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
             Text(
-                text = "You can leave the app. It keeps going.",
+                text = stringResource(R.string.you_can_leave_the_app_it_keeps_going),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
             TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Cancel")
+                Text(stringResource(R.string.cancel))
             }
         }
 
         SetupState.Preparing -> {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             Text(
-                text = "Almost ready. This only happens once.",
+                text = stringResource(R.string.almost_ready_this_only_happens_once),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -1130,7 +1132,7 @@ private fun StarterPanel(
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
             Button(onClick = onStart, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Try again")
+                Text(stringResource(R.string.try_again))
             }
         }
 
