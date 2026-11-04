@@ -636,6 +636,7 @@ class AppContainer(private val context: Context) {
         }
         if (history.isEmpty()) return
         val adopted = session.restore(history)
+        settleInterruptedMark(store, id, history, adopted)
         // Everything restored is already on disk, so the writer must not
         // re-append it. With identity-based writing the equivalent is marking
         // those exact message objects as already written, rather than setting a
@@ -896,6 +897,82 @@ class AppContainer(private val context: Context) {
     fun persistRunEnd() {
         val pending = snapshotPendingMessages()
         if (pending.isNotEmpty()) launchWrite(pending)
+        // Any terminal state ends the run, Stop included, so the mark comes off with it.
+        clearRunInFlight()
+    }
+
+    /**
+     * Writes the turns a run has reached so far, without waiting for it to end. Called after each
+     * tool result: a process killed mid-run then leaves its finished steps in the store, and the
+     * Continue offer resumes from them. Same snapshot as [persistRunEnd], so nothing is written twice.
+     */
+    fun persistProgress() {
+        val pending = snapshotPendingMessages()
+        if (pending.isNotEmpty()) launchWrite(pending)
+    }
+
+    /**
+     * Sets the in-flight mark for the conversation, creating its row if needed. A foreground run
+     * calls this as it starts. A mark still set at the next launch means the process died mid-run.
+     */
+    suspend fun markRunInFlight() {
+        val store = sessionStore ?: return
+        try {
+            val id = durableSessionId(store)
+            withContext(Dispatchers.IO) { store.setRunInFlight(id, true) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "Could not mark the run in flight.", t)
+        }
+    }
+
+    /** Clears the in-flight mark in the background. Safe when no conversation row exists yet. */
+    fun clearRunInFlight() = setRunFlag(false)
+
+    /** Withdraws the Continue offer and clears the mark it was based on. */
+    fun dismissInterruptedRun() {
+        runSinks.interruptedRun.value = false
+        setRunFlag(false)
+    }
+
+    private fun setRunFlag(inFlight: Boolean) {
+        val store = sessionStore ?: return
+        val id = pinnedSessionId ?: return
+        appScope.launch {
+            try {
+                withContext(Dispatchers.IO) { store.setRunInFlight(id, inFlight) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                android.util.Log.w(TAG, "Could not update the run mark.", t)
+            }
+        }
+    }
+
+    /**
+     * Decides the launch offer from the mark left by the last process. The offer is due only when
+     * the mark is set AND the restored window ends inside the run (a tool result or the user's turn,
+     * never a finished answer) AND something was adopted. Anything else clears the mark, so a
+     * stale mark is not offered on every later launch.
+     */
+    private suspend fun settleInterruptedMark(store: SessionStore, id: Long, history: List<ChatMessage>, adopted: Int) {
+        val marked = try {
+            withContext(Dispatchers.IO) { store.runInFlight(id) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "Could not read the run mark.", t)
+            return
+        }
+        if (!marked) return
+        val last = history.lastOrNull()
+        val open = last is ChatMessage.ToolObservation || (last is ChatMessage.User && !last.note)
+        if (open && adopted > 0) {
+            runSinks.interruptedRun.value = true
+        } else {
+            setRunFlag(false)
+        }
     }
 
     /**

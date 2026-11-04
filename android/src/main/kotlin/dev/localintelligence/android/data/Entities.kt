@@ -26,6 +26,8 @@ data class SessionEntity(
     @ColumnInfo(name = "title") val title: String? = null,
     /** The persona this chat was started with; null for none. See [PersonaEntity]. Added in version 3. */
     @ColumnInfo(name = "persona_id") val personaId: Long? = null,
+    /** True while a foreground run is going; still true at launch only when the process died mid-run. Added in version 5. */
+    @ColumnInfo(name = "run_in_flight", defaultValue = "0") val runInFlight: Boolean = false,
 )
 
 /**

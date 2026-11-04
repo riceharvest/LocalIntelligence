@@ -173,11 +173,21 @@ class Session(
     val groundedNumbers: MutableSet<String> = LinkedHashSet()
 
     /**
-     * Numbers and names the answer check accepts: [AnswerCheck.tokensIn] of every text
-     * [groundedNumbers] reads. Bounded like it, oldest first out, because a long page can
-     * hold thousands of them and the phone has no room for all.
+     * What the user wrote, as [AnswerCheck.tokensIn] keys. Never evicted for tool text: a value
+     * the user typed is always a valid source. Capped only as a last resort, far above any real
+     * conversation.
      */
-    val groundedTokens: MutableSet<String> = LinkedHashSet()
+    val userTokens: MutableSet<String> = LinkedHashSet()
+
+    /**
+     * What tools returned, as [AnswerCheck.tokensIn] keys. Bounded, oldest out first: a long page
+     * can hold thousands of tokens and the phone has no room for all. Tool text is evicted before
+     * anything the user wrote.
+     */
+    val toolTokens: MutableSet<String> = LinkedHashSet()
+
+    /** True when [key] has a source in the user's words or in a tool result. */
+    fun isSourced(key: String): Boolean = key in userTokens || key in toolTokens
 
     /** What the user wrote (with this turn's memories) and what tools returned; never the model's own words. */
     private fun ground(message: ChatMessage) {
@@ -188,8 +198,17 @@ class Session(
         } ?: return
         groundedNumbers += PhoneNumbers.keysIn(text)
         while (groundedNumbers.size > MAX_GROUNDED_NUMBERS) groundedNumbers.remove(groundedNumbers.first())
-        groundedTokens += AnswerCheck.tokensIn(text)
-        while (groundedTokens.size > MAX_GROUNDED_TOKENS) groundedTokens.remove(groundedTokens.first())
+        when (message) {
+            is ChatMessage.User -> {
+                userTokens += AnswerCheck.tokensIn(text)
+                while (userTokens.size > MAX_USER_TOKENS) userTokens.remove(userTokens.first())
+            }
+            is ChatMessage.ToolObservation -> {
+                toolTokens += AnswerCheck.tokensIn(text)
+                while (toolTokens.size > MAX_TOOL_TOKENS) toolTokens.remove(toolTokens.first())
+            }
+            else -> Unit
+        }
     }
 
     /**
@@ -418,7 +437,7 @@ class Session(
     fun dropLastTurn(): Boolean = locked {
         if (!canDropLastTurn()) return@locked false
         messages.subList(lastUserIndex(), messages.size).clear()
-        groundedTokens.clear(); groundedNumbers.clear()
+        userTokens.clear(); toolTokens.clear(); groundedNumbers.clear()
         messages.forEach(::ground)
         pruneIdentities()
         true
@@ -434,7 +453,7 @@ class Session(
         workingSummary = null
         epochTools.clear()
         discoveredTools.clear()
-        groundedTokens.clear(); groundedNumbers.clear()
+        userTokens.clear(); toolTokens.clear(); groundedNumbers.clear()
     }
 
     /**
@@ -492,7 +511,7 @@ class Session(
         messages.clear()
         messages += adopted
         appendedCount = adopted.size
-        groundedTokens.clear(); groundedNumbers.clear()
+        userTokens.clear(); toolTokens.clear(); groundedNumbers.clear()
         adopted.forEach(::ground)
         pruneIdentities()
         adopted.size
@@ -531,6 +550,7 @@ class Session(
         const val LINE_CHARS = 120
         const val KEYWORD_LIMIT = 12
         const val MAX_GROUNDED_NUMBERS = 64
-        const val MAX_GROUNDED_TOKENS = 8192
+        const val MAX_TOOL_TOKENS = 8192
+        const val MAX_USER_TOKENS = 65536
     }
 }

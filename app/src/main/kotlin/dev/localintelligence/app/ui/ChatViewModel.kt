@@ -179,6 +179,15 @@ class ChatViewModel(
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
 
+    /** The launch offer "That task was interrupted. Continue?". See [RunSinks.interruptedRun]. */
+    val interruptedRun: StateFlow<Boolean> get() = gateway.interruptedRun
+
+    /** Continue: the interrupted run goes on as a normal foreground run. */
+    fun continueInterrupted() = gateway.resumeInterrupted()
+
+    /** Dismiss: the offer goes away and is not shown again for that run. */
+    fun dismissInterrupted() = gateway.dismissInterrupted()
+
     /**
      * Hands-free mode. Declared before the `init` block below, which reads it: the collectors
      * there can run before the constructor returns.

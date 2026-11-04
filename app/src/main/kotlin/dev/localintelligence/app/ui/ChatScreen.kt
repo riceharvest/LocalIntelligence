@@ -241,6 +241,7 @@ fun ChatScreen(
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val voiceSeconds by viewModel.voiceSeconds.collectAsStateWithLifecycle()
     val handsFree by viewModel.handsFree.collectAsStateWithLifecycle()
+    val interrupted by viewModel.interruptedRun.collectAsStateWithLifecycle()
     val handsFreeOn = handsFree.phase != HandsFreePhase.Off
     val canReadAudio = remember(modelState) { viewModel.modelCapabilities().supportsAudioInput }
     val dictation = remember { LiveDictation(context.applicationContext) }
@@ -437,6 +438,13 @@ fun ChatScreen(
         // twice.
         modifier = modifier,
         bottomBar = {
+          Column {
+            if (interrupted) {
+                InterruptedRunOffer(
+                    onContinue = viewModel::continueInterrupted,
+                    onDismiss = viewModel::dismissInterrupted,
+                )
+            }
             ChatComposer(
                 input = input,
                 busy = busy,
@@ -467,6 +475,7 @@ fun ChatScreen(
                     else -> null
                 },
             )
+          }
         },
     ) { padding ->
         LazyColumn(

@@ -32,7 +32,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PhotoCaptionEntity::class,
         PersonaEntity::class,
     ],
-    version = 4,
+    version = 5,
     // Exported to android/schemas and committed: each migration's SQL is copied from
     // there, so a migrated table matches what Room validates on open.
     exportSchema = true,
@@ -66,7 +66,7 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
          */
         fun build(context: Context, name: String = NAME): LocalIntelligenceDatabase =
             Room.databaseBuilder(context.applicationContext, LocalIntelligenceDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
 
         /**
@@ -109,6 +109,17 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `photo_captions` (`uri` TEXT NOT NULL, `caption` TEXT NOT NULL, `indexed_at` INTEGER NOT NULL, `embedding` BLOB, `embedding_model` TEXT, PRIMARY KEY(`uri`))",
                 )
+            }
+        }
+
+        /**
+         * 4 to 5: adds `sessions.run_in_flight`, set while a foreground run is going and cleared when it
+         * ends for any reason. A value still set at the next launch means the process died mid-run, which
+         * is what the Continue offer is for. Default 0, so existing conversations read as not in flight.
+         */
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `run_in_flight` INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

@@ -767,7 +767,7 @@ class AgentController(
                 trace.any { it.kind == StepTrace.Kind.TOOL_CALL }
             ) {
                 val answer = (parsed.action as AgentAction.Respond).text
-                sessions.locked { AnswerCheck.unsupported(answer, sessions.groundedTokens) }
+                sessions.locked { AnswerCheck.unsupported(answer, sessions::isSourced) }
             } else {
                 null
             }

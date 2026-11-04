@@ -63,6 +63,15 @@ class RoomSessionStore(
         messageDao.deleteFromLastUser(sessionId, MessageKind.USER.wire) > 0
     }
 
+    override suspend fun setRunInFlight(sessionId: Long, inFlight: Boolean) = withContext(ioDispatcher) {
+        sessionDao.setRunInFlight(sessionId, inFlight)
+        Unit
+    }
+
+    override suspend fun runInFlight(sessionId: Long): Boolean = withContext(ioDispatcher) {
+        sessionDao.runInFlight(sessionId) ?: false
+    }
+
     /**
      * Wipes sessions, messages and summaries. Memories are deliberately NOT cleared:
      * a cleared conversation history is not the same request as "forget everything I

@@ -1,75 +1,77 @@
 package dev.localintelligence.core.agent
 
 /**
- * The answer check: a number or a proper name in a final answer, given after tool use, must
- * appear in a tool result or in the user's own words. Otherwise the model is told once which
- * value has no source.
+ * The answer check: a number or a name in a final answer, given after tool use, must appear in
+ * a tool result or in the user's own words. Otherwise the model is told once which value has no
+ * source.
  *
  * ## WHY, AND WHY ONLY THESE TWO KINDS
  *
- * A small on-device model that has just read a page will still sometimes quote a price, a
- * count or a person's name it did not read. The phone-number check of [PhoneNumbers] already
- * stops a message going to a number nobody gave; this extends the same idea to what the
- * answer says. Dates, quantities written in words, and general nouns are not checked: they
- * are too many and too often paraphrased to test without a retry on nearly every reply.
+ * A small on-device model that has just read a page will sometimes quote a price, a count or a
+ * person's name it did not read. The phone-number check of [PhoneNumbers] already stops a message
+ * going to a number nobody gave; this extends the same idea to what the answer says.
  *
- * ## THE TWO RULES
+ * The app ships in 21 languages, and capitalisation is not a reliable signal in most of them
+ * (German capitalises every noun; weekdays and months are capitalised in English too). So a single
+ * capitalised word is never checked. A name is checked only as a run of two or more consecutive
+ * capitalised words, which is far rarer in ordinary prose.
  *
- *  - A number is every run of two or more digits. The run is compared on its own, so
- *    "1.250,00" needs "250" and "00" in the source, not the joined digits. Single digits
- *    (list numbers, "2 of 3") are not checked.
- *  - A name is a capitalised word of three or more letters that does not start a sentence
- *    (after `.`, `!`, `?`, `:`, `;`, a line break, or the start of the text). Its lower-case
- *    form must appear as a word in the source. A capitalised common noun that the source
- *    never uses (a weekday, a month, a language in another language) is flagged too; the
- *    retry is once per run and the answer goes through either way, so that cost is accepted.
+ * ## THE RULES
  *
- * Pure, and it never runs on a reply without tool use: the caller decides when to ask.
+ *  - A number is a run of digits, optionally joined by `,` or `.` (thousands or decimal marks).
+ *    Its key is the digits alone, so "160,341" and "160.341" are the same value. Only numbers
+ *    with two or more digits in the key are checked.
+ *  - A name is two or more consecutive capitalised words of 3+ letters each. Each word must
+ *    appear as a word in a source. The name rule is skipped entirely for text with no Latin
+ *    letters (Arabic, Thai, Cyrillic and so on), where the check cannot tell a name from prose.
+ *
+ * Pure, and it never runs on a reply without tools: the caller decides when to ask.
  */
 object AnswerCheck {
 
-    private val DIGIT_RUN = Regex("\\d{2,}")
+    /** Digit runs, joined by a thousands or decimal mark. */
+    private val NUMBER = Regex("\\d+(?:[.,]\\d+)*")
 
-    /** A capitalised word of 3+ letters not preceded by a letter. Unicode-aware for Dutch and German. */
-    private val CAPITALISED = Regex("(?<!\\p{L})\\p{Lu}\\p{Ll}{2,}(?!\\p{L})")
+    /** A capitalised word of 3+ letters. Unicode-aware, so Dutch and German names work. */
+    private const val CAP_WORD = "\\p{Lu}\\p{Ll}{2,}"
 
-    /** Characters that, before a word, mean the word starts a sentence or a list item. */
-    private const val SENTENCE_BREAKS = ".!?:;\n"
+    /** Two or more consecutive capitalised words, separated by single spaces. */
+    private val NAME_RUN = Regex("(?<!\\p{L})$CAP_WORD(?: $CAP_WORD)+(?!\\p{L})")
 
-    /** Every checkable token in [text]: digit runs as `#digits`, names as lower-case words. */
+    /** Any run of letters of three or more, lower-cased: the source words a name is matched against. */
+    private val WORD = Regex("\\p{L}{3,}")
+
+    private val LATIN = Regex("\\p{IsLatin}")
+
+    /** Keys a source text contributes: numbers as `#digits`, and its words in lower case. */
     fun tokensIn(text: String): Set<String> {
         val out = HashSet<String>()
-        for (m in DIGIT_RUN.findAll(text)) out += "#" + m.value
-        for (m in CAPITALISED.findAll(text)) {
-            if (!startsSentence(text, m.range.first)) out += m.value.lowercase()
+        for (m in NUMBER.findAll(text)) {
+            val key = digitsOf(m.value)
+            if (key.length >= 2) out += "#$key"
         }
-        // Source words are also needed for names, which are plain lower-case words.
-        for (m in Regex("\\p{L}{3,}").findAll(text)) out += m.value.lowercase()
+        for (m in WORD.findAll(text)) out += m.value.lowercase()
         return out
     }
 
     /**
-     * The first value in [answer] that [grounded] does not contain, shown as the model would
-     * write it, or null when every checkable value has a source.
+     * The first value in [answer] with no source, shown as written, or null when every checkable
+     * value has one. A value is sourced when [sourced] says so for its key.
      */
-    fun unsupported(answer: String, grounded: Set<String>): String? {
-        for (m in DIGIT_RUN.findAll(answer)) {
-            if ("#" + m.value !in grounded) return m.value
+    fun unsupported(answer: String, sourced: (String) -> Boolean): String? {
+        for (m in NUMBER.findAll(answer)) {
+            val key = digitsOf(m.value)
+            if (key.length >= 2 && !sourced("#$key")) return m.value
         }
-        for (m in CAPITALISED.findAll(answer)) {
-            if (startsSentence(answer, m.range.first)) continue
-            if (m.value.lowercase() !in grounded) return m.value
+        if (LATIN.containsMatchIn(answer)) {
+            for (m in NAME_RUN.findAll(answer)) {
+                val words = m.value.split(' ')
+                val missing = words.firstOrNull { !sourced(it.lowercase()) }
+                if (missing != null) return m.value
+            }
         }
         return null
     }
 
-    private fun startsSentence(text: String, index: Int): Boolean {
-        var i = index - 1
-        while (i >= 0 && (text[i] == ' ' || text[i] == '\t' || text[i] == '"' || text[i] == '(' ||
-                text[i] == '*' || text[i] == '-' || text[i] == '“' || text[i] == '•')
-        ) {
-            i--
-        }
-        return i < 0 || text[i] in SENTENCE_BREAKS
-    }
+    private fun digitsOf(value: String): String = value.filter { it.isDigit() }
 }
