@@ -14,8 +14,8 @@ root:
 | `inspect-apk.sh` | The APK carries both `arm64-v8a` and `x86_64`, contains no NPU/accelerator runtime library, and has a manifest. | `bash .github/scripts/inspect-apk.sh <apk>` |
 | `check-no-new-lint-errors.sh` | After `./gradlew :android:lintDebug :app:lintDebug`, no lint error outside the script's `KNOWN_ERRORS` list. The list is empty; see [lint.md](lint.md). | `bash .github/scripts/check-no-new-lint-errors.sh` |
 
-`<apk>` is `app/build/outputs/apk/debug/app-debug.apk` after
-`./gradlew :app:assembleDebug`.
+`<apk>` is `app/build/outputs/apk/play/debug/app-play-debug.apk` after
+`./gradlew :app:assemblePlayDebug` (or `app/build/outputs/apk/full/debug/app-full-debug.apk` after `./gradlew :app:assembleFullDebug`).
 
 Related: [lint.md](lint.md), and an open native-build defect in
 [open-defect-shared-libs.md](open-defect-shared-libs.md).

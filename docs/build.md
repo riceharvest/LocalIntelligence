@@ -10,10 +10,14 @@ export JAVA_HOME=/path/to/jdk-21
 export ANDROID_HOME=/path/to/android-sdk
 
 git clone --depth 1 --branch b11988 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
-PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assembleDebug
+PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assemblePlayDebug
 ```
 
-The APK lands at `app/build/outputs/apk/debug/app-debug.apk`.
+The APK lands at `app/build/outputs/apk/play/debug/app-play-debug.apk` (or `:app:assembleFullDebug` for `app/build/outputs/apk/full/debug/app-full-debug.apk`).
+
+### Two builds
+
+`:app` has two product flavors on the `dist` dimension (see [docs/adr/0002-play-and-full-builds.md](adr/0002-play-and-full-builds.md)). The `play` flavor (`:app:assemblePlayDebug`, default, package id `dev.localintelligence.app`) ships everything Google Play allows. The `full` flavor (`:app:assembleFullDebug`, package id `dev.localintelligence.app.full`, label "LocalIntelligence Full") is installed outside Google Play alongside the Play app and adds capabilities Play forbids, such as screen control through Accessibility.
 
 ---
 

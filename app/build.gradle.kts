@@ -33,6 +33,23 @@ android {
         buildConfigField("String", "EXTRAS_BACKEND_URL", "\"${(findProperty("extrasBackendUrl") as? String).orEmpty()}\"")
     }
 
+    // Two distributions (docs/adr/0002-play-and-full-builds.md): Play ships what Google Play
+    // allows; full installs side by side with its own package id and adds capabilities Play forbids.
+    flavorDimensions += "dist"
+    productFlavors {
+        create("play") {
+            dimension = "dist"
+            isDefault = true
+            buildConfigField("boolean", "FULL_BUILD", "false")
+        }
+        create("full") {
+            dimension = "dist"
+            applicationIdSuffix = ".full"
+            versionNameSuffix = "-full"
+            buildConfigField("boolean", "FULL_BUILD", "true")
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false

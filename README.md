@@ -76,7 +76,7 @@ everything for that assumption:
 
 **It builds. Almost nothing about it is measured.**
 
-`:app:assembleDebug` produces an installable debug APK from a clean checkout.
+`:app:assemblePlayDebug` (or `:app:assembleFullDebug`) produces an installable debug APK from a clean checkout.
 See [docs/build.md](docs/build.md). Beyond that:
 
 - **There are no tests and no CI.** The test suite and the fake-backed eval harness
@@ -135,10 +135,12 @@ export ANDROID_HOME=/path/to/android-sdk
 # llama.cpp is pinned to tag b11988 and is not vendored.
 git clone --depth 1 --branch b11988 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
 
-PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assembleDebug
+PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assemblePlayDebug
+# Or for the full build (sideloaded outside Google Play; see docs/adr/0002-play-and-full-builds.md):
+PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assembleFullDebug
 ```
 
-Output: `app/build/outputs/apk/debug/app-debug.apk` — **MEASURED** at
+Output: `app/build/outputs/apk/play/debug/app-play-debug.apk` (or `app/build/outputs/apk/full/debug/app-full-debug.apk`) — **MEASURED** at
 ~68.0 MB (64.9 MiB, debug, both ABIs; native libraries compressed, extracted at install).
 
 Full instructions, required SDK components, and two traps that will

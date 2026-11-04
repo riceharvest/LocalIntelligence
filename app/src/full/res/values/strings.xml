@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Distinct from the Play build's label so the two launcher icons are told apart when
+         installed side by side (docs/adr/0002-play-and-full-builds.md). -->
+    <string name="app_name">LocalIntelligence Full</string>
+</resources>

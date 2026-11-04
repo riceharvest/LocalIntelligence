@@ -141,6 +141,7 @@ object CatalogueAgreement {
     fun inspect(
         shipped: List<AgentTool>,
         catalogue: List<ToolDefinition>,
+        fullBuildOnly: Set<String> = V0ToolCatalogue.FULL_BUILD_ONLY,
     ): CatalogueDrift {
         val shippedByName = shipped.associateBy { it.definition.name }
         val catalogueByName = catalogue.associateBy { it.name }
@@ -150,7 +151,12 @@ object CatalogueAgreement {
                 it in catalogueByName || it.startsWith(DYNAMIC_TOOL_PREFIX) || it.startsWith(SCRIPT_TOOL_PREFIX)
             }
             .sorted()
-        val unimplemented = catalogueByName.keys.filterNot { it in shippedByName }.sorted()
+        // Full-build-only tools (V0ToolCatalogue.FULL_BUILD_ONLY) are absent from the Play
+        // build by design; when shipped in the full build they still go through the risk,
+        // origin and category checks below.
+        val unimplemented = catalogueByName.keys
+            .filterNot { it in shippedByName || it in fullBuildOnly }
+            .sorted()
 
         val riskTierMismatch = mutableListOf<String>()
         val observationOriginMismatch = mutableListOf<String>()
