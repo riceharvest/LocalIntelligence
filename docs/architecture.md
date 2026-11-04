@@ -52,10 +52,11 @@ Target tasks:
 
 Autonomous coding, browser computer-use, multi-agent, long-running autonomous agents,
 Linux environment, Python, Git, skills marketplace, voice assistant,
-Accessibility automation, root/Shizuku, cloud sync.
+root/Shizuku, cloud sync.
 
-Screen control of other apps (Accessibility, Shizuku) stays out. Google Play forbids an AI
-that plans its own actions from using AccessibilityService, so this app does not build it.
+Screen control of other apps stays out of the Play build. Google Play forbids an AI that
+plans its own actions from using AccessibilityService, so screen control through
+Accessibility goes only in the `full` build, installed outside Play (docs/adr/0002).
 
 Two things from the earlier list now exist, each fenced:
 

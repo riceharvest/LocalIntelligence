@@ -1,0 +1,3 @@
+# Simple mode holds only what works with no key, account or setup
+
+Simple mode is the default, and the bar is a consumer assistant: one tap to start, nothing to operate. A feature is shown in Simple mode only if it works out of the box. Anything that needs a key, an account or setup lives in Technical mode, where the user can paste their own key. The paid Extras subscription is the only way a keyed feature reaches Simple mode, because then the app supplies the key. This is why features such as web search keys, sandboxes, Home Assistant and email are missing from Simple mode even though they are built.

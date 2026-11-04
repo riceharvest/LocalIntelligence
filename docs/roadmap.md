@@ -257,21 +257,27 @@ in brackets.
 
 Open:
 [ ] the vertical slice and every feature above on the Pixel 10 Pro (final pass)
-[ ] llama.cpp CPU build targets plain armv8-a: no dotprod/fp16/i8mm, no repack.
-      Likely the biggest speed win left. Options: GGML_CPU_ALL_VARIANTS with
-      runtime-loaded backends, or one armv8.2+ build (drops armv8.0 phones).
+[?] llama.cpp CPU variants for every ARM level, picked at runtime
+      (GGML_BACKEND_DL + GGML_CPU_ALL_VARIANTS), plus Vulkan and OpenCL      [#102]
 [?] OpenRouter as an optional remote chat model (same key)
-[ ] external plugins as sandboxed scripts (DeepSeek Harness style); skills and
-      MCP cover the declarative and remote cases today
-[ ] document search with embeddings (EmbeddingGemma 2) next to BM25
-[ ] wake word: not built; it needs an always-on keyword model. Hands-free starts with a tap
-[ ] LFM3 on the Tensor NPU: needs a Tensor-compiled build (Google's Tensor SDK, beta)
+[?] external plugins as sandboxed scripts (DeepSeek Harness style); see
+      architecture.md §18b "Script plugins"                                 [#97]
+[ ] document search with embeddings (EmbeddingGemma 2, 0.31 GB, one-tap download with the
+      first document) next to BM25
+[ ] wake word: "Hey <assistant name>" with sherpa-onnx open-vocabulary keyword spotting,
+      off by default. The keyword encoding must run in the app for any name; if it can't,
+      use one fixed phrase. Android 14+ won't start a microphone service from the
+      background, so after a reboot listening resumes when the app is next opened
+[ ] `full` build, installed outside Play from GitHub Releases: screen control through
+      Accessibility (docs/adr/0002)
+[ ] privacy policy page on GitHub Pages (Play needs one for any release)
 [ ] .litertlm through the file picker (content:// is refused today)
 [ ] MCP: video.status for long video jobs
 ```
 
 Extras: one Play subscription (`extras_monthly`) that unlocks the cloud features in Simple
-mode. BUILT, NOT DEPLOYED. The Extras row stays hidden until `EXTRAS_BACKEND_URL` is set
+mode. BUILT, NOT DEPLOYED, and it ships after v1. Before it ships, rename the switch
+"Use the cloud model for chat" to say remote model (GLOSSARY.md). The Extras row stays hidden until `EXTRAS_BACKEND_URL` is set
 (`-PextrasBackendUrl=https://...`).
 
 ```
@@ -292,8 +298,11 @@ Owner's to-dos, before it goes live:
     Exa stays off and search keeps the free provider
 ```
 
-Not chased, even though a competitor has it: a Linux terminal on the phone, Accessibility or
-Shizuku screen control, a browser agent on the phone, on-device image generation,
+Dropped 2026-11-04: LFM3 on the Tensor NPU. Google's converter does not support LFM3's
+architecture, so it would need a rewrite in the Torch Generative API. The NPU path stays
+Gemma 4 E2B, which has a Tensor G5 build.
+
+Not chased, even though a competitor has it: a Linux terminal on the phone, Shizuku, a browser agent on the phone, on-device image generation,
 multi-character group chat, a visual workflow builder. Cloud sandboxes (shell commands in a
 remote machine) and a cloud browser are built; see the build list.
 
@@ -354,7 +363,7 @@ Gemma 4 E4B (8B total, too large).
 **v0.2+** — only after the baseline works:
 
 ```
-Shizuku             Accessibility automation
+Shizuku
 ```
 
 Voice, vision, MCP, widgets, the share-sheet entry and LAN inference used to be
