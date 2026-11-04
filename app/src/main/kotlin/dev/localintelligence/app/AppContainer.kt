@@ -7,6 +7,8 @@ import dev.localintelligence.android.data.lazyObservationStore
 import dev.localintelligence.core.tool.ObservationStore
 import android.content.Context
 import dev.localintelligence.android.data.LocalIntelligenceDatabase
+import dev.localintelligence.android.data.DesktopDao
+import dev.localintelligence.android.data.lazyDesktopDao
 import dev.localintelligence.android.data.lazyPhotoCaptionDao
 import dev.localintelligence.android.data.resilientMemoryStore
 import dev.localintelligence.android.inference.ImportedModel
@@ -1297,6 +1299,9 @@ class AppContainer(private val context: Context) {
      * out directly — see there for why a failure to open must not be fatal.
      */
     val database: LocalIntelligenceDatabase by lazy { LocalIntelligenceDatabase.build(context) }
+
+    /** The My desktop table (full build). Opened on first use, through the :android factory. */
+    val desktopDao: () -> DesktopDao = lazyDesktopDao(context)
 
     /**
      * Long tool results, saved whole so the model can read past the preview.
