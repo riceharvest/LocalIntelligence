@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
+import dev.localintelligence.android.documents.DocumentStore
 import dev.localintelligence.android.report.ReplyReportSender
 import dev.localintelligence.app.AgentGateway
 import dev.localintelligence.app.BuildConfig
@@ -18,7 +19,9 @@ import dev.localintelligence.app.blockingReason
 import dev.localintelligence.app.isActive
 import dev.localintelligence.app.isTerminal
 import android.speech.SpeechRecognizer
+import dev.localintelligence.app.media.AudioFileDecoder
 import dev.localintelligence.app.media.LiveDictation
+import dev.localintelligence.app.media.wavOf
 import dev.localintelligence.app.media.PendingAttachment
 import dev.localintelligence.app.media.PendingAttachments
 import dev.localintelligence.app.media.ShownAttachment
@@ -28,11 +31,19 @@ import dev.localintelligence.app.speech.Speaker
 import dev.localintelligence.core.agent.StepTrace
 import dev.localintelligence.core.context.GenerationProse
 import dev.localintelligence.core.model.ChatMessage as CoreChatMessage
+import dev.localintelligence.core.media.AudioChunks
+import dev.localintelligence.core.model.GenerationRequest
+import dev.localintelligence.core.model.GenerationResult
 import dev.localintelligence.core.model.MediaInput
+import dev.localintelligence.core.model.ModelBackend
+import dev.localintelligence.core.model.SamplingParams
+import dev.localintelligence.core.model.StopReason
+import dev.localintelligence.core.model.StreamingModelBackend
 import dev.localintelligence.core.model.ModelCapabilities
 import dev.localintelligence.core.report.ReplyReport
 import dev.localintelligence.core.report.ReplyReportReason
 import dev.localintelligence.core.settings.CoreSettings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -120,6 +131,12 @@ class ChatViewModel(
     private val readPicture: (String) -> PendingAttachment? = { null },
     /** Posts a reply report. Null in a host that has no report form; a report then says so. */
     private val reportSender: ReplyReportSender? = null,
+    /** The model that transcribes: the one resident now. Null in a host with no model. */
+    private val transcriptionModel: () -> ModelBackend? = { null },
+    /** Decodes a picked audio file into 30 s PCM chunks. Host-supplied because it needs a Context. */
+    private val decodeAudio: suspend (String, suspend (ByteArray) -> Boolean) -> Unit = { _, _ -> },
+    /** Where a saved transcript goes. Null in a host without the document store. */
+    private val documents: DocumentStore? = null,
 ) : ViewModel() {
 
     private val scope: CoroutineScope = scopeOverride ?: viewModelScope
@@ -251,6 +268,15 @@ class ChatViewModel(
      */
     private val narratedRows = java.util.IdentityHashMap<StepTrace, Int>()
 
+    /**
+     * Steps of a run the user replaced (retry or edit). The trace sink still holds that run's
+     * steps until the new run publishes, and renderTrace would draw them again as new rows.
+     */
+    private val retiredSteps: MutableSet<StepTrace> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
+
+    /** True between Edit and the Send that replaces the last user message. */
+    private var editingLast = false
+
     /** Whether [seedRestored] has run. Guarded by [transcriptLock]. */
     private var transcriptSeeded = false
 
@@ -317,7 +343,7 @@ class ChatViewModel(
      * false during a model load, the user would be offered SEND for a run that is
      * already in flight, and tapping it would silently do nothing.
      */
-    val isBusy: Boolean get() = gateway.runState.value.isActive
+    val isBusy: Boolean get() = gateway.runState.value.isActive || _transcribing.value
 
     init {
         var lastTerminal: RunState.Finished? = gateway.runState.value as? RunState.Finished
@@ -603,6 +629,7 @@ class ChatViewModel(
         val baseSize = synchronized(transcriptLock) { _messages.value.size }
 
         for (entry in steps) {
+            if (entry in retiredSteps) continue
             when (entry.kind) {
                 StepTrace.Kind.GENERATION -> {
                     val isFinal = entry === lastGeneration
@@ -647,7 +674,7 @@ class ChatViewModel(
                     }
 
                     narrationPlacements += entry to (baseSize + base)
-                    additions += ChatMessage.Assistant(text)
+                    additions += ChatMessage.Assistant(text, entry.thought)
                     base += 1
                 }
 
@@ -722,7 +749,8 @@ class ChatViewModel(
                     if (row !is ChatMessage.Assistant) continue
                     if (row.text == text) continue
                     val target = copy ?: list.toMutableList().also { copy = it }
-                    target[index] = ChatMessage.Assistant(text)
+                    // A copy, not a new row: the thought drawn with the clipped text must survive the fix.
+                    target[index] = row.copy(text = text)
                 }
                 copy ?: list
             }
@@ -875,6 +903,7 @@ class ChatViewModel(
 
     fun onInputChange(value: String) {
         _input.value = value
+        if (value.isBlank()) editingLast = false
     }
 
     /** The loaded model's capabilities, read now. The composer asks this to decide what it can attach. */
@@ -882,14 +911,44 @@ class ChatViewModel(
 
     fun send() {
         val typed = _input.value.trim()
+        // An edit that was emptied is no longer an edit; a later Send is a new message.
+        if (typed.isEmpty()) editingLast = false
         if (!canSubmit(hasText = typed.isNotEmpty())) {
             refuseQueued()
             return
         }
         _input.value = ""
         speaker?.stop()
-        dispatch(typed)
+        val replaced = if (editingLast) lastUserRow()?.text else null
+        editingLast = false
+        dispatch(typed, replacing = replaced)
     }
+
+    /**
+     * Sends the last user message again, with the reply it got removed. Offered on the last
+     * finished reply only, and not for a message with pictures or a voice clip, whose bytes are
+     * no longer held.
+     */
+    fun retryLast() {
+        val last = lastUserRow() ?: return
+        if (last.attached.isNotEmpty() || !canSubmit(hasText = true)) return
+        speaker?.stop()
+        dispatch(last.text, replacing = last.text)
+    }
+
+    /**
+     * Puts the last user message back in the box to be changed. Nothing is removed until Send, so
+     * leaving the box (or emptying it) keeps the conversation as it was.
+     */
+    fun editLast() {
+        val last = lastUserRow() ?: return
+        if (last.attached.isNotEmpty() || !canSubmit(hasText = true)) return
+        _input.value = last.text
+        editingLast = true
+        showNotice("Change the message and send it. It replaces the last one.")
+    }
+
+    private fun lastUserRow(): ChatMessage.User? = _messages.value.lastOrNull { it is ChatMessage.User } as? ChatMessage.User
 
     /**
      * Puts text handed to the app from outside (a share, or "Ask" from another
@@ -945,6 +1004,7 @@ class ChatViewModel(
     private fun canSubmit(hasText: Boolean): Boolean =
         (hasText || _attachments.value.isNotEmpty()) &&
             gateway.runState.value.isTerminal &&
+            !_transcribing.value &&
             blockedReason == null &&
             voice.elapsedSeconds.value == null
 
@@ -956,15 +1016,32 @@ class ChatViewModel(
      * That includes an assistant screen capture, which the assistant queued
      * before forwarding its text here.
      */
-    private fun dispatch(typed: String) {
+    private fun dispatch(typed: String, replacing: String? = null) {
         attachmentQueue.add(_attachments.value)
         _attachments.value = emptyList()
         _notice.value = null
         _handsFree.update { if (it.notice == null) it else it.copy(notice = null) }
         val shown = attachmentQueue.snapshot().map { it.shown }
+        if (replacing != null) dropLastTurnRows()
         _messages.update { it + ChatMessage.User(typed, shown) }
         // ExecutionService refuses a blank task, so media alone still needs words to run on.
-        gateway.start(typed.ifEmpty { DEFAULT_MEDIA_TASK })
+        gateway.start(typed.ifEmpty { DEFAULT_MEDIA_TASK }, replacing)
+    }
+
+    /**
+     * Removes the last user row and every row after it, for a retry or an edit. The steps of the
+     * run they came from are retired, so renderTrace does not draw them again, and the row indices
+     * recorded for them are dropped with them.
+     */
+    private fun dropLastTurnRows() {
+        synchronized(transcriptLock) {
+            val list = _messages.value
+            val index = list.indexOfLast { it is ChatMessage.User }
+            if (index >= 0) _messages.value = list.subList(0, index).toList()
+            retiredSteps.addAll(gateway.trace.value)
+            toolRows.clear()
+            narratedRows.clear()
+        }
     }
 
     /**
@@ -1031,6 +1108,124 @@ class ChatViewModel(
         voice.stop()
     }
 
+    // ------------------------------------------------------------ transcription
+
+    /** True while an audio file is being transcribed. Chat sends and the chat run wait for it. */
+    private val _transcribing = MutableStateFlow(false)
+    val transcribing: StateFlow<Boolean> = _transcribing.asStateFlow()
+
+    /** The backend the running transcription uses, so Stop can cancel the chunk in flight. */
+    @Volatile private var transcribingWith: ModelBackend? = null
+
+    /** Set by Stop. Read between chunks, and by the decode loop after each one. */
+    @Volatile private var transcribeStopped = false
+
+    /**
+     * Why an audio file cannot be transcribed right now, or null when it can. A model that is
+     * not loaded gets the chat's own sentence; a loaded model that cannot hear gets the
+     * audio-projector sentence, the same one AgentController gives.
+     */
+    fun transcribeBlockedReason(): String? {
+        modelAvailability.current.blockingReason()?.let { return it }
+        return if (transcriptionModel()?.capabilities?.supportsAudioInput == true) null else NO_AUDIO_MODEL
+    }
+
+    /**
+     * Transcribes the audio file at [uri], a content URI the picker granted. Chunks run in order,
+     * one generation each, and the text grows in one transcript row as the model writes it.
+     *
+     * WHY NOT THE AGENT LOOP: a run would add the tool list and the system prompt to every
+     * chunk, and the model would answer the recording rather than write it down. The chunks are
+     * plain generations with one fixed instruction.
+     */
+    fun transcribe(uri: String) {
+        if (isBusy) {
+            showNotice("Finish the current run first.")
+            return
+        }
+        transcribeBlockedReason()?.let { showNotice(it); return }
+        val backend = transcriptionModel() ?: return showNotice(NO_AUDIO_MODEL)
+        transcribeStopped = false
+        transcribingWith = backend
+        _transcribing.value = true
+        _notice.value = null
+        val text = StringBuilder()
+        var row = ChatMessage.Transcript(TRANSCRIPT_TITLE, "", running = true)
+        _messages.update { it + row }
+        // Replaces this run's own row by identity; other rows are not touched.
+        fun redraw(running: Boolean) {
+            val next = ChatMessage.Transcript(TRANSCRIPT_TITLE, text.toString(), running)
+            _messages.update { list -> list.map { if (it === row) next else it } }
+            row = next
+        }
+        scope.launch {
+            var failure: String? = null
+            try {
+                decodeAudio(uri) { pcm ->
+                    if (transcribeStopped) return@decodeAudio false
+                    if (text.isNotEmpty() && !text.last().isWhitespace()) text.append(' ')
+                    val result = answerChunk(backend, wavOf(pcm, AudioChunks.SAMPLE_RATE, 1)) { token ->
+                        text.append(token)
+                        redraw(running = true)
+                    }
+                    if (result.stopReason == StopReason.ERROR) {
+                        failure = "The model could not transcribe a part of the file."
+                        return@decodeAudio false
+                    }
+                    !transcribeStopped
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IllegalArgumentException) {
+                failure = e.message ?: "This file could not be transcribed."
+            } catch (e: Exception) {
+                failure = "This file could not be read."
+            } finally {
+                transcribingWith = null
+                _transcribing.value = false
+                redraw(running = false)
+                failure?.let { showNotice(it) }
+            }
+        }
+    }
+
+    /**
+     * Runs one chunk and passes its text on as it arrives. A backend that streams gives each
+     * token; one that does not gives the whole answer at once. Returns the generation's result.
+     */
+    private suspend fun answerChunk(
+        backend: ModelBackend,
+        wav: ByteArray,
+        onText: (String) -> Unit,
+    ): GenerationResult {
+        val request = GenerationRequest(
+            messages = listOf(dev.localintelligence.core.model.ChatMessage.User(TRANSCRIBE_PROMPT)),
+            media = listOf(MediaInput(wav, "audio/wav")),
+            params = SamplingParams(temperature = 0f, maxOutputTokens = TRANSCRIBE_MAX_TOKENS),
+            reusePrefix = false,
+        )
+        return if (backend is StreamingModelBackend) {
+            backend.generateStreaming(request, onText)
+        } else {
+            backend.generate(request).also { onText(it.text) }
+        }
+    }
+
+    /**
+     * Saves a finished transcript as a document, the same as a picked text file. The embedding
+     * model may load here, which takes seconds, so the save runs off the main thread.
+     */
+    fun saveTranscript(text: String) {
+        val store = documents ?: return showNotice("Documents are not available here.")
+        if (text.isBlank()) return
+        scope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                runCatching { store.add(TRANSCRIPT_TITLE, text.take(DocumentStore.MAX_STORED_CHARS)) }
+            }
+            showNotice(if (saved.isSuccess) "Saved to Documents." else "The transcript could not be saved.")
+        }
+    }
+
     /** The screen is gone, so the microphone must not keep recording for its remaining seconds. */
     override fun onCleared() {
         stopHandsFree()
@@ -1058,6 +1253,10 @@ class ChatViewModel(
         stopHandsFree()
         speaker?.stop()
         gateway.cancel()
+        if (_transcribing.value) {
+            transcribeStopped = true
+            transcribingWith?.cancel()
+        }
     }
 
     /** The speaker button on an answer: reads it, or stops it if it is the one being read. */
@@ -1135,6 +1334,9 @@ class ChatViewModel(
         private val handsFreeSilence: () -> Float = { CoreSettings.HANDS_FREE_SILENCE.default },
         private val readPicture: (String) -> PendingAttachment? = { null },
         private val reportSender: ReplyReportSender? = null,
+        private val transcriptionModel: () -> ModelBackend? = { null },
+        private val decodeAudio: suspend (String, suspend (ByteArray) -> Boolean) -> Unit = { _, _ -> },
+        private val documents: DocumentStore? = null,
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T = build(modelClass, SavedStateHandle())
 
@@ -1160,6 +1362,9 @@ class ChatViewModel(
                 savedState = savedState,
                 readPicture = readPicture,
                 reportSender = reportSender,
+                transcriptionModel = transcriptionModel,
+                decodeAudio = decodeAudio,
+                documents = documents,
             ) as T
         }
     }
@@ -1234,6 +1439,20 @@ internal const val MAX_PICTURES_PER_MESSAGE = 3
 /** Key of the typed draft in [SavedStateHandle]. */
 private const val DRAFT_KEY = "draft"
 
+/** Title a saved transcript gets on the Documents screen. */
+private const val TRANSCRIPT_TITLE = "Transcript"
+
+/** The one instruction every chunk gets. A plain transcription request, not a chat turn. */
+private const val TRANSCRIBE_PROMPT = "Transcribe this audio exactly as it was spoken. Output only the transcript text."
+
+/** Upper bound on the text one 30 s chunk can produce. Speech at normal pace fits well inside it. */
+private const val TRANSCRIBE_MAX_TOKENS = 1024
+
+/** Why the loaded model cannot transcribe. Same audio-projector wording as AgentController, with the family to download. */
+private const val NO_AUDIO_MODEL =
+    "The loaded model cannot hear audio. Load LFM3-Audio with its audio projector " +
+        "(an mmproj file next to it in the models folder)."
+
 /** Key of the content URIs of the queued pictures in [SavedStateHandle]. */
 private const val PICTURE_URIS_KEY = "pictureUris"
 
@@ -1287,8 +1506,18 @@ sealed interface ChatMessage {
      * voice clip, never the bytes the model read.
      */
     data class User(val text: String, val attached: List<ShownAttachment> = emptyList()) : ChatMessage
-    data class Assistant(val text: String) : ChatMessage
+    /**
+     * A finished answer. [thought] is the model's reasoning for it, when the model thought
+     * and the reply carried it; shown folded above the answer and never sent back to the model.
+     */
+    data class Assistant(val text: String, val thought: String? = null) : ChatMessage
     data class Notice(val text: String) : ChatMessage
+
+    /**
+     * A transcript of a picked audio file. [text] grows while [running] is true, one chunk
+     * at a time, and is final once it is false. Copy and Save act on [text].
+     */
+    data class Transcript(val title: String, val text: String, val running: Boolean) : ChatMessage
 
     /**
      * A call the agent made, and what the phone said back.

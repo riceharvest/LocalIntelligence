@@ -28,6 +28,8 @@ object GenerationProse {
 
     private const val RESPOND_OPEN = "<respond>"
     private const val RESPOND_CLOSE = "</respond>"
+    private const val THINK_OPEN = "<think>"
+    private const val THINK_CLOSE = "</think>"
 
     /** Opening tag only. A name attribute is optional in the format. */
     private val TOOL_OPEN = Regex("""<tool(\s[^>]*)?>""", RegexOption.IGNORE_CASE)
@@ -64,6 +66,28 @@ object GenerationProse {
     }
 
     /**
+     * The model's thought in one raw generation, or empty when it did not think.
+     *
+     * Two shapes reach here: a `<think>...</think>` block, and a bare `</think>` whose
+     * opening tag the chat template put in the prompt (LFM3 does this), so everything
+     * before the last close is the thought. A thought that never closed (the output limit
+     * ran out inside it) is empty: it is not an answer and is not shown as one.
+     */
+    fun thought(raw: String): String {
+        val close = raw.lastIndexOf(THINK_CLOSE, ignoreCase = true)
+        if (close < 0) return ""
+        val before = raw.substring(0, close)
+        val open = before.lastIndexOf(THINK_OPEN, ignoreCase = true)
+        return (if (open >= 0) before.substring(open + THINK_OPEN.length) else before).trim()
+    }
+
+    /** [raw] after its last thought close, so a thought never reads as the answer. */
+    private fun withoutThought(raw: String): String {
+        val close = raw.lastIndexOf(THINK_CLOSE, ignoreCase = true)
+        return if (close < 0) raw else raw.substring(close + THINK_CLOSE.length)
+    }
+
+    /**
      * The body of a `<respond>` turn.
      *
      * An unterminated `<respond>` takes the rest of the string rather than
@@ -72,7 +96,8 @@ object GenerationProse {
      * returning empty for it would discard the model's own words at the
      * precise moment the user needs to see what it managed to say.
      */
-    private fun answer(raw: String): String {
+    private fun answer(generated: String): String {
+        val raw = withoutThought(generated)
         val open = RESPOND_OPEN_RE.find(raw)
         val body = if (open != null) raw.substring(open.range.last + 1) else raw
         val close = RESPOND_CLOSE_RE.find(body)

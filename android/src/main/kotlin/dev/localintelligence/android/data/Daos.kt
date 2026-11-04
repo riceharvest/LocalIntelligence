@@ -56,6 +56,20 @@ interface MessageDao {
     @Query("DELETE FROM messages WHERE session_id = :sessionId AND id < :exclusiveUpperBound")
     suspend fun deleteBefore(sessionId: Long, exclusiveUpperBound: Long): Int
 
+    /** The text of the newest user row of [sessionId], or null when there is none. */
+    @Query(
+        "SELECT text FROM messages WHERE session_id = :sessionId AND kind = :userKind " +
+            "ORDER BY id DESC LIMIT 1",
+    )
+    suspend fun lastTextOf(sessionId: Long, userKind: String): String?
+
+    /** Deletes the newest user row of [sessionId] and every row stored after it. */
+    @Query(
+        "DELETE FROM messages WHERE session_id = :sessionId AND id >= " +
+            "(SELECT MAX(id) FROM messages WHERE session_id = :sessionId AND kind = :userKind)",
+    )
+    suspend fun deleteFromLastUser(sessionId: Long, userKind: String): Int
+
     @Query("DELETE FROM messages")
     suspend fun clear()
 }
