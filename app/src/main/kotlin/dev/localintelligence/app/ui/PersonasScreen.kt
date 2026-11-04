@@ -152,7 +152,7 @@ fun PersonasScreen(
         if (confirmingDelete) {
             AlertDialog(
                 onDismissRequest = { confirmingDelete = false },
-                title = { Text("Delete \"${persona.name}\"?") },
+                title = { Text(stringResource(R.string.persona_delete_title, persona.name)) },
                 text = { Text(stringResource(R.string.chats_that_used_it_go_back_to_no)) },
                 confirmButton = {
                     TextButton(onClick = {
@@ -198,7 +198,7 @@ private fun PersonaEditor(
                     value = text,
                     onValueChange = { text = it },
                     label = { Text(stringResource(R.string.how_the_assistant_should_act)) },
-                    supportingText = { Text("${text.length} / ${PersonaLimits.MAX_TEXT_CHARS}") },
+                    supportingText = { Text(stringResource(R.string.persona_char_count, text.length, PersonaLimits.MAX_TEXT_CHARS)) },
                     minLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                 )

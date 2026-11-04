@@ -784,4 +784,13 @@
 
     <!-- TelegramService.kt -->
     <string name="telegram_6">"Telegram: "</string>
+    <string name="export_failed">Export failed</string>
+    <string name="skill_saved">Skill saved</string>
+    <string name="copied">Copied</string>
+    <string name="finish_sign_in_in_your_browser">Finish sign-in in your browser, then come back.</string>
+    <string name="tap_to_resume_listening">Tap to resume listening</string>
+    <string name="tap_to_open_hands_free_chat">Tap to open hands-free chat</string>
+    <string name="use_pin">Use PIN</string>
+    <string name="persona_delete_title">Delete \"%1$s\"?</string>
+    <string name="persona_char_count">%1$s / %2$d</string>
 </resources>

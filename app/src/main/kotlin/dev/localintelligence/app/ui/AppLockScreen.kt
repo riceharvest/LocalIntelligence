@@ -116,7 +116,7 @@ fun AppLockScreen(appLock: AppLock) {
             BiometricPrompt.PromptInfo.Builder()
                 .setTitle("Unlock LocalIntelligence")
                 .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-                .setNegativeButtonText("Use PIN")
+                .setNegativeButtonText(context.getString(R.string.use_pin))
                 .build(),
         )
     }

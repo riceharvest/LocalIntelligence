@@ -183,7 +183,7 @@ fun ChatScreen(
                     when (val saved = store.save(text)) {
                         is SkillRepository.SaveResult.Saved -> {
                             editingSkill = null
-                            Toast.makeText(dialogContext, "Skill saved", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(dialogContext, dialogContext.getString(R.string.skill_saved), Toast.LENGTH_SHORT).show()
                             null
                         }
                         is SkillRepository.SaveResult.Refused -> saved.reason
@@ -668,7 +668,7 @@ private fun AssistantBubble(
                 clipboard.setText(AnnotatedString(text))
                 // Android 13+ shows its own clipboard confirmation.
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
                 }
             }) {
                 Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.copy), modifier = Modifier.size(18.dp))

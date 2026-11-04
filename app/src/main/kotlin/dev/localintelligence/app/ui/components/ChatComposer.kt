@@ -338,7 +338,7 @@ private fun ComposerField(
         // screen reader announces is set here instead, so the field is never
         // unlabelled once the placeholder is gone.
         modifier = modifier.semantics { contentDescription = "Message" },
-        placeholder = { Text("Ask anything") },
+        placeholder = { Text(stringResource(R.string.ask_anything)) },
         shape = RoundedCornerShape(24.dp),
         // Multi-line on purpose. `maxLines > 1` makes the platform coerce the
         // IME action away from Send, so on a phone keyboard the return key

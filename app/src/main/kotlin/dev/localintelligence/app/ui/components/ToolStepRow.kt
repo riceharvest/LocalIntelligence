@@ -234,7 +234,7 @@ fun PendingToolRow(
                     },
                     enabled = !answered,
                     modifier = Modifier.semantics { contentDescription = "Allow: $action" },
-                ) { Text("Allow") }
+                ) { Text(stringResource(R.string.allow)) }
                 TextButton(
                     onClick = {
                         answered = true
@@ -242,7 +242,7 @@ fun PendingToolRow(
                     },
                     enabled = !answered,
                     modifier = Modifier.semantics { contentDescription = "Don't allow: $action" },
-                ) { Text("Don't allow") }
+                ) { Text(stringResource(R.string.don_t_allow_2)) }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = { details = !details }) { Text(if (details) stringResource(R.string.hide_details) else stringResource(R.string.details_2)) }
             }

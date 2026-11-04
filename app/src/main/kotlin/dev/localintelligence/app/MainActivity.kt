@@ -764,7 +764,7 @@ class MainActivity : FragmentActivity() {
             val file = withContext(Dispatchers.IO) { ChatExporter.write(this@MainActivity, messages, format) }
             ChatExporter.share(this, file, format)
         } catch (e: Exception) {
-            Toast.makeText(this, "Export failed", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
