@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.android.cloud.ExtrasSettings
 import dev.localintelligence.app.extras.ExtrasBilling
+import dev.localintelligence.app.settings.SettingText
 import dev.localintelligence.app.settings.SettingsStore
 import java.time.Instant
 import java.time.ZoneId
@@ -126,7 +127,7 @@ fun ExtrasScreen(
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(ExtrasSettings.CLOUD_CHAT.title, modifier = Modifier.weight(1f))
+                        Text(SettingText.title(LocalContext.current, ExtrasSettings.CLOUD_CHAT), modifier = Modifier.weight(1f))
                         Switch(
                             checked = cloudChat,
                             onCheckedChange = { on ->
