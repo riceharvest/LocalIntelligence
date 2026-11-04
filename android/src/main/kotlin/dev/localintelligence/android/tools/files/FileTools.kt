@@ -1366,6 +1366,8 @@ class FilesSearchTool(
                         .onEnter { folder ->
                             if (folder.name.startsWith(".")) return@onEnter false
                             val canon = folder.canonicalFile.absolutePath
+                            // A link that resolves outside shared storage is not followed.
+                            if (canon != rootCanon && !canon.startsWith("$rootCanon/")) return@onEnter false
                             if (canon.startsWith("$rootCanon/Android/data") || canon.startsWith("$rootCanon/Android/obb")) {
                                 return@onEnter false
                             }
