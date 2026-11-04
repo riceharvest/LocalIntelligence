@@ -121,6 +121,17 @@ object CoreSettings {
         SettingSection.INTERFACE, default = true, simple = true, applies = SettingApplies.NOW,
     )
 
+    /**
+     * The screen stays on while the assistant is answering, and only then. Off by default:
+     * a long answer on a small model can take minutes, and the phone otherwise locks mid-run.
+     * Technical only: a power user's choice, not a Simple-mode one.
+     */
+    val KEEP_SCREEN_AWAKE = Toggle(
+        "ui.keep_screen_awake", "Keep screen on while answering",
+        "The screen stays on only while the assistant is working on an answer, then the phone's own timeout applies again.",
+        SettingSection.INTERFACE, default = false, applies = SettingApplies.NOW,
+    )
+
     // ---- voice -------------------------------------------------------------
 
     val READ_REPLIES_ALOUD = Toggle(
@@ -465,7 +476,7 @@ object CoreSettings {
     val all: List<SettingDef<*>> = listOf(
         MODE, ASSISTANT_NAME, THEME_COLOR, APPEARANCE,
         AUTO_ACCEPT_DESTRUCTIVE, AUTO_ACCEPT_EXTERNAL, AUTO_ACCEPT_NETWORK, AUTO_ACCEPT_IN_BACKGROUND,
-        TOOL_CALLS_AUTO_COLLAPSE,
+        TOOL_CALLS_AUTO_COLLAPSE, KEEP_SCREEN_AWAKE,
         READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE, WAKE_WORD, WAKE_PHRASE,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
         COMPUTE, GPU_LAYERS, CONTEXT_LENGTH, KV_CACHE_TYPE,

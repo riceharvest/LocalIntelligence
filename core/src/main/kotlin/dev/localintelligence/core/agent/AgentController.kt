@@ -796,6 +796,7 @@ class AgentController(
                 if (completed || repeating) generation.text.take(TRACE_DETAIL_CHARS) else generation.text,
                 generation.prefillMs + generation.decodeMs, completed && rejection == null,
                 thought = generation.thought ?: GenerationProse.thought(generation.text).takeIf { it.isNotEmpty() },
+                speed = ReplySpeed(generation.promptTokens, generation.completionTokens, generation.prefillMs, generation.decodeMs),
             )
 
             when (generation.stopReason) {
