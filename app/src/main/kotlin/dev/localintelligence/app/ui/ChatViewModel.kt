@@ -15,6 +15,7 @@ import dev.localintelligence.android.report.ReplyReportSender
 import dev.localintelligence.app.AgentGateway
 import dev.localintelligence.app.BuildConfig
 import dev.localintelligence.app.ModelAvailability
+import dev.localintelligence.app.SimpleWording
 import dev.localintelligence.app.ModelAvailabilityHolder
 import dev.localintelligence.app.R
 import dev.localintelligence.android.tools.phonesearch.PhoneSearchLink
@@ -157,7 +158,7 @@ class ChatViewModel(
      * Simple mode's plain sentence for a run that failed, or null in Technical mode, which keeps the
      * generic line. Read when the notice is written, so a mode change applies from the next failure.
      */
-    private val plainFailure: (String) -> String? = { null },
+    private val plainFailure: (SimpleWording.Kind?) -> String? = { null },
 ) : ViewModel() {
 
     private val scope: CoroutineScope = scopeOverride ?: viewModelScope
@@ -1197,9 +1198,9 @@ class ChatViewModel(
      * audio-projector sentence, the same one AgentController gives.
      */
     /** Simple mode's plain sentence for [raw], or [raw] itself in Technical mode. */
-    private fun plainText(raw: String): String = plainFailure(raw) ?: raw
+    private fun plainText(raw: String, kind: SimpleWording.Kind?): String = plainFailure(kind) ?: raw
 
-    private fun plainNoAudio(): String = plainText(context.getString(R.string.chat_no_audio_model))
+    private fun plainNoAudio(): String = plainText(context.getString(R.string.chat_no_audio_model), SimpleWording.Kind.CANT_HEAR)
 
     fun transcribeBlockedReason(): String? {
         modelAvailability.current.blockingReason(context)?.let { return it }
@@ -1246,7 +1247,7 @@ class ChatViewModel(
                         redraw(running = true)
                     }
                     if (result.stopReason == StopReason.ERROR) {
-                        failure = plainText(context.getString(R.string.chat_transcribe_part_failed))
+                        failure = plainText(context.getString(R.string.chat_transcribe_part_failed), SimpleWording.Kind.TRANSCRIBE_FAILED)
                         return@decodeAudio false
                     }
                     !transcribeStopped
@@ -1254,7 +1255,7 @@ class ChatViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IllegalArgumentException) {
-                failure = plainText(e.message ?: context.getString(R.string.chat_transcribe_failed))
+                failure = plainText(e.message ?: context.getString(R.string.chat_transcribe_failed), SimpleWording.Kind.TRANSCRIBE_FAILED)
             } catch (e: Exception) {
                 failure = context.getString(R.string.chat_file_not_read)
             } finally {
@@ -1417,7 +1418,7 @@ class ChatViewModel(
         private val transcriptionForeground: (Boolean) -> Unit = {},
         private val decodeAudio: suspend (String, suspend (ByteArray) -> Boolean) -> Unit = { _, _ -> },
         private val documents: DocumentStore? = null,
-        private val plainFailure: (String) -> String? = { null },
+        private val plainFailure: (SimpleWording.Kind?) -> String? = { null },
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T = build(modelClass, SavedStateHandle())
 
@@ -1678,11 +1679,11 @@ sealed interface ChatMessage {
  * same text, and the trace screen renders it verbatim. So the chat states what
  * happened and where the detail is, and the developer still gets the original.
  */
-internal fun RunOutcome.transcriptLine(context: Context, plainFailure: (String) -> String? = { null }): String = when (this) {
+internal fun RunOutcome.transcriptLine(context: Context, plainFailure: (SimpleWording.Kind?) -> String? = { null }): String = when (this) {
     // The runtime's reason ("no valid action in 3 attempts", an exception name)
     // is for the Trace screen, which keeps it. The chat says what the user can do.
     // Simple mode (plainFailure returns a sentence) never shows the raw reason or "model".
-    is RunOutcome.Failed -> plainFailure(reason) ?: if (reason.contains(CONTEXT_TOO_SMALL, ignoreCase = true)) {
+    is RunOutcome.Failed -> plainFailure(kind) ?: if (reason.contains(CONTEXT_TOO_SMALL, ignoreCase = true)) {
         context.getString(R.string.chat_too_long_short)
     } else {
         context.getString(R.string.plain_something_went_wrong)

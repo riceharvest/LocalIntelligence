@@ -108,7 +108,13 @@ class AgentViewModel(
         // on top of the turn the user asked to replace.
         if (replacing != null) {
             attachments?.clear()
-            publish(AgentResult.Stop(reason = context.getString(R.string.run_replace_needs_service), trace = emptyList()))
+            publish(
+                AgentResult.Stop(
+                    reason = context.getString(R.string.run_replace_needs_service),
+                    trace = emptyList(),
+                    localized = true,
+                ),
+            )
             return
         }
         takeQueuedMedia()
@@ -203,7 +209,7 @@ class AgentViewModel(
                 publishCancelled()
                 throw e
             } catch (t: Throwable) {
-                ModelAvailability.Failed(describeLoadFailure(context, t))
+                ModelAvailability.Failed(describeLoadFailure(context, t), loadFailureKind(t))
             }
             // Before the blocking reason, so a load that failed after the STOP cannot replace
             // the cancelled outcome with its own failure.
@@ -218,7 +224,14 @@ class AgentViewModel(
                 queuedMedia = emptyList()
                 // Terminal on purpose: the task cannot proceed, so pretending to
                 // be "running" would strand the service and the STOP button.
-                publish(AgentResult.Stop(reason = blocked, trace = sinks.trace.value))
+                publish(
+                    AgentResult.Stop(
+                        reason = blocked,
+                        trace = sinks.trace.value,
+                        kind = (readiness as? ModelAvailability.Failed)?.kind?.name,
+                        localized = true,
+                    ),
+                )
                 return@launch
             }
             runTask(task, resume)
@@ -377,7 +390,11 @@ class AgentViewModel(
 
             is AgentResult.Stop -> {
                 sinks.trace.value = result.trace
-                sinks.state.value = RunState.Finished(RunOutcome.Failed(result.reason))
+                // A core reason is English and nothing has localized it, so its kind is matched here,
+                // before any display. A reason the app built from localized text carries its kind.
+                val kind = result.kind?.let { SimpleWording.Kind.valueOf(it) }
+                    ?: if (result.localized) null else SimpleWording.kindOf(result.reason)
+                sinks.state.value = RunState.Finished(RunOutcome.Failed(result.reason, kind))
             }
 
             // NOT terminal. The loop is suspended mid-run, the service stays
@@ -561,7 +578,7 @@ sealed interface RunState {
 /** The terminal states. A finished run is finished; there is no "and then". */
 sealed interface RunOutcome {
     data class Answer(val text: String) : RunOutcome
-    data class Failed(val reason: String) : RunOutcome
+    data class Failed(val reason: String, val kind: SimpleWording.Kind? = null) : RunOutcome
     data object StepLimitReached : RunOutcome
     data object Cancelled : RunOutcome
 }

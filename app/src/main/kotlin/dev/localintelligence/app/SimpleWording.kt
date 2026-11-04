@@ -46,9 +46,16 @@ object SimpleWording {
         }
     }
 
-    /** The plain sentence for a failure text: its kind's sentence, or the generic one. */
-    fun failureText(context: Context, raw: String): String =
-        kindOf(raw)?.let { context.getString(it.text) } ?: context.getString(R.string.plain_something_went_wrong)
+    /**
+     * The plain sentence for a failure of [kind], or the generic one when the kind is unknown.
+     *
+     * WHY NO TEXT MATCH HERE: the kind is set where the failure is born, before its text is
+     * localized. Matching a localized sentence would fall to the generic one on every
+     * non-English phone. [kindOf] is for English text that nothing localized, such as a tool's
+     * observation or a runtime reason from the core module.
+     */
+    fun failureText(context: Context, kind: Kind?): String =
+        context.getString(kind?.text ?: R.string.plain_something_went_wrong)
 
     /**
      * The line the composer shows when no answer is possible, in Simple words. Null when a run is
@@ -59,6 +66,6 @@ object SimpleWording {
         ModelAvailability.Unloaded -> null
         ModelAvailability.None -> context.getString(R.string.plain_first_run)
         ModelAvailability.Loading -> context.getString(R.string.getting_ready)
-        is ModelAvailability.Failed -> failureText(context, availability.reason)
+        is ModelAvailability.Failed -> failureText(context, availability.kind)
     }
 }

@@ -119,7 +119,7 @@ class EmbeddingSetup(
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "embedding model download failed", e)
-            _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed))
+            _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed), SimpleWording.Kind.NO_NETWORK)
         } finally {
             _state.update { if (it is SetupState.Downloading) idleFromDisk() else it }
         }
@@ -139,7 +139,7 @@ class EmbeddingSetup(
         }
         val file = files.firstOrNull { it.fileName == DEFAULT_EMBEDDING_FILE }
         if (file == null) {
-            _state.value = SetupState.Failed(context.getString(R.string.setup_not_found))
+            _state.value = SetupState.Failed(context.getString(R.string.setup_not_found), SimpleWording.Kind.DOWNLOAD_FAILED)
             return
         }
 
@@ -156,7 +156,7 @@ class EmbeddingSetup(
             )
         }
         plan.reject?.let { reject ->
-            _state.value = SetupState.Failed(refusal(reject))
+            _state.value = SetupState.Failed(refusal(reject), refusalKind(reject))
             return
         }
 
@@ -164,7 +164,7 @@ class EmbeddingSetup(
         when (val end = download(file, plan)) {
             is DownloadProgress.Done -> loadDownloaded(downloader.localFileFor(file))
             is DownloadProgress.Stopped -> stopped(end)
-            else -> _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed))
+            else -> _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed), SimpleWording.Kind.NO_NETWORK)
         }
     }
 
@@ -194,12 +194,24 @@ class EmbeddingSetup(
             onModelReady?.invoke()
             _state.value = SetupState.Ready
         } else {
-            _state.value = SetupState.Failed(context.getString(R.string.setup_embedding_not_loaded))
+            _state.value = SetupState.Failed(context.getString(R.string.setup_embedding_not_loaded), SimpleWording.Kind.LOAD_FAILED)
         }
     }
 
     private fun stopped(event: DownloadProgress.Stopped) {
-        _state.value = if (event.error == HubError.Cancelled) idleFromDisk() else SetupState.Failed(describe(event.error))
+        _state.value = if (event.error == HubError.Cancelled) idleFromDisk() else SetupState.Failed(describe(event.error), kindOf(event.error))
+    }
+
+    /** The Simple kind of a failed download, set where the failure is born (the sentence is localized). */
+    private fun kindOf(error: HubError): SimpleWording.Kind = when (error) {
+        is HubError.InsufficientStorage -> SimpleWording.Kind.STORAGE_FULL
+        is HubError.ChecksumMismatch, is HubError.InvalidInput -> SimpleWording.Kind.DOWNLOAD_FAILED
+        else -> SimpleWording.Kind.NO_NETWORK
+    }
+
+    private fun refusalKind(reject: HubError): SimpleWording.Kind = when (reject) {
+        is HubError.InsufficientStorage -> SimpleWording.Kind.STORAGE_FULL
+        else -> SimpleWording.Kind.DOWNLOAD_FAILED
     }
 
     private fun describe(error: HubError): String = when (error) {

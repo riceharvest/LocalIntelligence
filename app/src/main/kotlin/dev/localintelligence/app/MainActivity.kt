@@ -168,8 +168,8 @@ class MainActivity : FragmentActivity() {
                             capabilities = { container.residentBackend().capabilities },
                             speaker = container.speaker,
                             readRepliesAloud = { container.settings[CoreSettings.READ_REPLIES_ALOUD] },
-                            plainFailure = { raw ->
-                                if (container.settings.mode == SettingsMode.SIMPLE) SimpleWording.failureText(applicationContext, raw) else null
+                            plainFailure = { kind ->
+                                if (container.settings.mode == SettingsMode.SIMPLE) SimpleWording.failureText(applicationContext, kind) else null
                             },
                             dictation = LiveDictation(applicationContext),
                             handsFreeSilence = { container.settings[CoreSettings.HANDS_FREE_SILENCE] },
