@@ -63,6 +63,24 @@ class RoomSessionStore(
         messageDao.deleteFromLastUser(sessionId, MessageKind.USER.wire) > 0
     }
 
+    override suspend fun setRunInFlight(sessionId: Long, inFlight: Boolean) = withContext(ioDispatcher) {
+        sessionDao.setRunInFlight(sessionId, inFlight)
+        Unit
+    }
+
+    override suspend fun runInFlight(sessionId: Long): Boolean = withContext(ioDispatcher) {
+        sessionDao.runInFlight(sessionId) ?: false
+    }
+
+    override suspend fun setTodos(sessionId: Long, json: String?) = withContext(ioDispatcher) {
+        sessionDao.setTodoJson(sessionId, json)
+        Unit
+    }
+
+    override suspend fun todos(sessionId: Long): String? = withContext(ioDispatcher) {
+        sessionDao.todoJson(sessionId)
+    }
+
     /**
      * Wipes sessions, messages and summaries. Memories are deliberately NOT cleared:
      * a cleared conversation history is not the same request as "forget everything I

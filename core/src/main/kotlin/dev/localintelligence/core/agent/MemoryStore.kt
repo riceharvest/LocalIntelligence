@@ -85,6 +85,21 @@ interface SessionStore {
      * default, and the caller then refuses to replace a turn.
      */
     suspend fun dropLastTurn(sessionId: Long): Boolean = false
+
+    /**
+     * Marks [sessionId] as having a foreground run going ([inFlight] true) or not. A mark still set at
+     * the next launch means the process died mid-run. Stores without a column keep the no-op default.
+     */
+    suspend fun setRunInFlight(sessionId: Long, inFlight: Boolean) = Unit
+
+    /** True when the mark from [setRunInFlight] is set. */
+    suspend fun runInFlight(sessionId: Long): Boolean = false
+
+    /** Saves the task list JSON from [TodoList.encode] for [sessionId], or null to clear it. */
+    suspend fun setTodos(sessionId: Long, json: String?) = Unit
+
+    /** The task list JSON last saved for [sessionId], or null. */
+    suspend fun todos(sessionId: Long): String? = null
 }
 
 /** In-memory store. Default for tests and for the first vertical slice. */

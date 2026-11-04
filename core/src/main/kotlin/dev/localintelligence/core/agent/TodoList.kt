@@ -1,5 +1,6 @@
 package dev.localintelligence.core.agent
 
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -63,6 +64,35 @@ class TodoList {
     /** Replaces the whole list. Called by the tool after [parse] accepted the input. */
     fun replace(next: List<Item>) {
         items = next
+    }
+
+    /**
+     * The list as the JSON array [parse] reads, so a restart can put it back. Stored with the
+     * session row (see `SessionStore.setTodos`); null when there is no list.
+     */
+    fun encode(): String? {
+        if (items.isEmpty()) return null
+        return JsonArray(
+            items.map { item ->
+                JsonObject(
+                    mapOf(
+                        "text" to JsonPrimitive(item.text),
+                        "status" to JsonPrimitive(item.status.wire),
+                    ),
+                )
+            },
+        ).toString()
+    }
+
+    /**
+     * Puts back a list [encode] wrote. A value that no longer parses leaves the list empty:
+     * a missing checklist is better than a half-read one.
+     */
+    fun restore(json: String?) {
+        if (json.isNullOrBlank()) return
+        val raw = runCatching { Json.parseToJsonElement(json) as? JsonArray }.getOrNull() ?: return
+        val parsed = parse(raw) as? Parsed.Ok ?: return
+        items = parsed.items
     }
 
     /** Forgets the list: a finished task, a new conversation or a restored one. */

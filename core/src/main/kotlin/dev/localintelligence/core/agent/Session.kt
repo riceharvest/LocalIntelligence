@@ -172,6 +172,23 @@ class Session(
      */
     val groundedNumbers: MutableSet<String> = LinkedHashSet()
 
+    /**
+     * What the user wrote, as [AnswerCheck.tokensIn] keys. Never evicted for tool text: a value
+     * the user typed is always a valid source. Capped only as a last resort, far above any real
+     * conversation.
+     */
+    val userTokens: MutableSet<String> = LinkedHashSet()
+
+    /**
+     * What tools returned, as [AnswerCheck.tokensIn] keys. Bounded, oldest out first: a long page
+     * can hold thousands of tokens and the phone has no room for all. Tool text is evicted before
+     * anything the user wrote.
+     */
+    val toolTokens: MutableSet<String> = LinkedHashSet()
+
+    /** True when [key] has a source in the user's words or in a tool result. */
+    fun isSourced(key: String): Boolean = key in userTokens || key in toolTokens
+
     /** What the user wrote (with this turn's memories) and what tools returned; never the model's own words. */
     private fun ground(message: ChatMessage) {
         val text = when (message) {
@@ -181,6 +198,33 @@ class Session(
         } ?: return
         groundedNumbers += PhoneNumbers.keysIn(text)
         while (groundedNumbers.size > MAX_GROUNDED_NUMBERS) groundedNumbers.remove(groundedNumbers.first())
+        when (message) {
+            is ChatMessage.User -> {
+                userTokens += AnswerCheck.tokensIn(text)
+                while (userTokens.size > MAX_USER_TOKENS) userTokens.remove(userTokens.first())
+            }
+            is ChatMessage.ToolObservation -> {
+                toolTokens += AnswerCheck.tokensIn(text)
+                while (toolTokens.size > MAX_TOOL_TOKENS) toolTokens.remove(toolTokens.first())
+            }
+            else -> Unit
+        }
+    }
+
+    /**
+     * Swaps [messages] at [index] for [replacement] and gives the new object the old one's
+     * identity, so the durable writer does not store the replacement as a new row.
+     *
+     * WHY: the store holds the full text and must keep it. A prune changes only what the model
+     * is shown; a restart reads the full rows back and prunes again if it needs to.
+     */
+    fun replaceKeepingIdentity(index: Int, replacement: ChatMessage) = locked {
+        // Assign the old identity first: a message never asked for one would otherwise look
+        // unwritten, and the replacement would be stored a second time.
+        val id = idOf(messages[index])
+        ids.remove(messages[index])
+        messages[index] = replacement
+        ids[replacement] = id
     }
 
     /**
@@ -399,7 +443,7 @@ class Session(
     fun dropLastTurn(): Boolean = locked {
         if (!canDropLastTurn()) return@locked false
         messages.subList(lastUserIndex(), messages.size).clear()
-        groundedNumbers.clear()
+        userTokens.clear(); toolTokens.clear(); groundedNumbers.clear()
         messages.forEach(::ground)
         pruneIdentities()
         true
@@ -416,7 +460,7 @@ class Session(
         todos.clear()
         epochTools.clear()
         discoveredTools.clear()
-        groundedNumbers.clear()
+        userTokens.clear(); toolTokens.clear(); groundedNumbers.clear()
     }
 
     /**
@@ -476,7 +520,7 @@ class Session(
         // The list belonged to the conversation it was written in, and is not stored with it.
         todos.clear()
         appendedCount = adopted.size
-        groundedNumbers.clear()
+        userTokens.clear(); toolTokens.clear(); groundedNumbers.clear()
         adopted.forEach(::ground)
         pruneIdentities()
         adopted.size
@@ -515,5 +559,7 @@ class Session(
         const val LINE_CHARS = 120
         const val KEYWORD_LIMIT = 12
         const val MAX_GROUNDED_NUMBERS = 64
+        const val MAX_TOOL_TOKENS = 8192
+        const val MAX_USER_TOKENS = 65536
     }
 }
