@@ -50,6 +50,7 @@ import dev.localintelligence.android.documents.EMBEDDING_DOWNLOAD_DISMISSED
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
 import dev.localintelligence.android.cloud.generatedMediaDir
 import dev.localintelligence.app.export.ChatExporter
+import dev.localintelligence.app.media.AudioFileDecoder
 import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.encodePickedPicture
 import dev.localintelligence.app.settings.SimpleSetup
@@ -160,6 +161,10 @@ class MainActivity : ComponentActivity() {
                             readPicture = { encodePickedPicture(applicationContext.contentResolver, Uri.parse(it)) },
                             // The developer's report form. A build without one reports "not set up".
                             reportSender = ReplyReportSender(BuildConfig.REPORT_FORM_URL, BuildConfig.REPORT_FORM_ENTRY),
+                            // Transcription reads the resident model and saves to the Documents store.
+                            transcriptionModel = { container.residentBackend() },
+                            decodeAudio = { uri, onChunk -> AudioFileDecoder.decode(applicationContext, Uri.parse(uri), onChunk) },
+                            documents = container.documents,
                         )
                     },
                 )
