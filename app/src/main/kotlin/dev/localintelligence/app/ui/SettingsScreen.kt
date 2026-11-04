@@ -298,8 +298,8 @@ fun SettingsScreen(
                         // Saved results are always on: every long tool result's preview names their tool.
                         plugins.filterNot { it is ScriptPlugin || it.id == OBSERVATIONS_FAMILY_ID || it.id == TODO_FAMILY_ID }.forEach { plugin ->
                             SwitchRow(
-                                title = plugin.title,
-                                help = plugin.summary,
+                                title = PluginText.title(LocalContext.current, plugin),
+                                help = PluginText.summary(LocalContext.current, plugin),
                                 checked = store.isPluginEnabled(plugin),
                                 onChange = { store.setPluginEnabled(plugin, it) },
                             )
