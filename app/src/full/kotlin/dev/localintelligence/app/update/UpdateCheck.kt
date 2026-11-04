@@ -1,5 +1,7 @@
 package dev.localintelligence.app.update
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -67,17 +69,17 @@ fun UpdateCheckRow() {
     var showing by remember { mutableStateOf(false) }
 
     ListItem(
-        headlineContent = { Text("Check for updates") },
+        headlineContent = { Text(stringResource(R.string.check_for_updates)) },
         supportingContent = {
             Text(
                 when {
-                    checking -> "Checking..."
+                    checking -> stringResource(R.string.checking)
                     else -> when (last) {
-                        null -> "Asks GitHub for the latest version when you tap"
-                        is Outcome.Newer -> "A newer version is available"
-                        Outcome.Latest -> "You have the latest version."
-                        Outcome.NoReleases -> "No releases yet."
-                        Outcome.Failed -> "Could not check for updates."
+                        null -> stringResource(R.string.asks_github_for_the_latest_version_when)
+                        is Outcome.Newer -> stringResource(R.string.a_newer_version_is_available)
+                        Outcome.Latest -> stringResource(R.string.you_have_the_latest_version)
+                        Outcome.NoReleases -> stringResource(R.string.no_releases_yet)
+                        Outcome.Failed -> stringResource(R.string.could_not_check_for_updates)
                     }
                 },
             )
@@ -90,8 +92,8 @@ fun UpdateCheckRow() {
     if (asking) {
         AlertDialog(
             onDismissRequest = { asking = false },
-            title = { Text("Check for updates") },
-            text = { Text("This asks GitHub for the latest version. Check now?") },
+            title = { Text(stringResource(R.string.check_for_updates)) },
+            text = { Text(stringResource(R.string.this_asks_github_for_the_latest_version)) },
             confirmButton = {
                 TextButton(onClick = {
                     asking = false
@@ -102,9 +104,9 @@ fun UpdateCheckRow() {
                         checking = false
                         showing = true
                     }
-                }) { Text("Check now") }
+                }) { Text(stringResource(R.string.check_now)) }
             },
-            dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 
@@ -113,7 +115,7 @@ fun UpdateCheckRow() {
         when (outcome) {
             is Outcome.Newer -> AlertDialog(
                 onDismissRequest = { showing = false },
-                title = { Text("Version ${outcome.tag} is available") },
+                title = { Text(stringResource(R.string.version_is_available, outcome.tag)) },
                 text = {
                     Column(modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                         Text(outcome.notes.ifBlank { "This release has no notes." }.take(MAX_NOTES_CHARS))
@@ -123,27 +125,27 @@ fun UpdateCheckRow() {
                     TextButton(onClick = {
                         showing = false
                         openPage(context, outcome.pageUrl)
-                    }) { Text("Open release page") }
+                    }) { Text(stringResource(R.string.open_release_page)) }
                 },
-                dismissButton = { TextButton(onClick = { showing = false }) { Text("Later") } },
+                dismissButton = { TextButton(onClick = { showing = false }) { Text(stringResource(R.string.later)) } },
             )
             Outcome.Latest -> AlertDialog(
                 onDismissRequest = { showing = false },
-                title = { Text("Check for updates") },
-                text = { Text("You have the latest version.") },
-                confirmButton = { TextButton(onClick = { showing = false }) { Text("OK") } },
+                title = { Text(stringResource(R.string.check_for_updates)) },
+                text = { Text(stringResource(R.string.you_have_the_latest_version)) },
+                confirmButton = { TextButton(onClick = { showing = false }) { Text(stringResource(R.string.ok)) } },
             )
             Outcome.NoReleases -> AlertDialog(
                 onDismissRequest = { showing = false },
-                title = { Text("Check for updates") },
-                text = { Text("No releases yet.") },
-                confirmButton = { TextButton(onClick = { showing = false }) { Text("OK") } },
+                title = { Text(stringResource(R.string.check_for_updates)) },
+                text = { Text(stringResource(R.string.no_releases_yet)) },
+                confirmButton = { TextButton(onClick = { showing = false }) { Text(stringResource(R.string.ok)) } },
             )
             Outcome.Failed -> AlertDialog(
                 onDismissRequest = { showing = false },
-                title = { Text("Check for updates") },
-                text = { Text("Could not check for updates. Try again later.") },
-                confirmButton = { TextButton(onClick = { showing = false }) { Text("OK") } },
+                title = { Text(stringResource(R.string.check_for_updates)) },
+                text = { Text(stringResource(R.string.could_not_check_for_updates_try_again)) },
+                confirmButton = { TextButton(onClick = { showing = false }) { Text(stringResource(R.string.ok)) } },
             )
         }
     }

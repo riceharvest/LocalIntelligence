@@ -599,4 +599,189 @@
     <!-- TraceView.kt -->
     <string name="showing_the_previous_run_this_run_s_4">Showing the previous run. This run\'s steps appear when it finishes.</string>
     <string name="events_4">"  %1$s events"</string>
+
+    <!-- ToolStepRow.kt -->
+    <string name="running">Running</string>
+    <string name="allow_2">Allow: %1$s</string>
+    <string name="don_t_allow">Don\'t allow: %1$s</string>
+    <string name="don_t_allow_2">Don\'t allow</string>
+    <string name="this_can_t_be_undone">This can\'t be undone.</string>
+    <string name="this_sends_something_to_someone_else">This sends something to someone else.</string>
+    <string name="this_contacts_a_website_only_allow">This contacts a website. Only allow sites you recognise.</string>
+    <string name="this_reads_or_acts_in_another_app_s">This reads or acts in another app\'s screen. Only allow apps you recognise.</string>
+    <string name="this_needs_your_ok">This needs your OK.</string>
+    <string name="input">Input</string>
+    <string name="using">"Using "</string>
+    <string name="used">"Used "</string>
+    <string name="folded_double_tap_to_expand">. Folded. Double tap to expand.</string>
+    <string name="double_tap_to_fold">. Double tap to fold.</string>
+    <string name="couldn_t">"Couldn\'t "</string>
+    <string name="didn_t">"Didn\'t "</string>
+    <string name="showing_details_double_tap_to_hide">. Showing details. Double tap to hide.</string>
+    <string name="double_tap_to_show_details">. Double tap to show details.</string>
+    <string name="copy_input">Copy input</string>
+    <string name="output">Output</string>
+    <string name="show_more_lines">Show %1$s more lines</string>
+    <string name="waiting_for_your_approval">Waiting for your approval</string>
+    <string name="you_allowed">"You allowed: "</string>
+    <string name="you_didn_t_allow">"You didn\'t allow: "</string>
+
+    <!-- McpServerPresets.kt -->
+    <string name="add_a_server">Add a server</string>
+    <string name="a_button_fills_the_next_empty_server">A button fills the next empty server address. You still paste your own token.</string>
+    <string name="zapier">Zapier</string>
+    <string name="composio">Composio</string>
+    <string name="custom">Custom</string>
+    <string name="zapier_get_the_token_at_mcp_zapier_com">Zapier: get the token at mcp.zapier.com (Add MCP server, Other, Settings, Generate token).</string>
+    <string name="composio_paste_your_composio_api_key">Composio: paste your Composio API key into that server\'s token row. It is sent in the x-api-key header.</string>
+    <string name="custom_type_any_other_server_s_https">Custom: type any other server\'s https:// address into an empty row.</string>
+
+    <!-- ChatGptRows.kt -->
+    <string name="signed_out_here_openai_did_not_confirm">Signed out here. OpenAI did not confirm the sign-out. You can also disconnect the app in ChatGPT settings.</string>
+    <string name="chatgpt">ChatGPT</string>
+    <string name="use_your_chatgpt_plan_for_chat_eligible">Use your ChatGPT plan for chat. Eligible messages go to OpenAI while it is on.</string>
+    <string name="continue_with_chatgpt">Continue with ChatGPT</string>
+    <string name="using_chatgpt_plan_messages_go_to">Using ChatGPT plan. Messages go to OpenAI while ChatGPT is on.</string>
+    <string name="manage_usage">Manage usage</string>
+    <string name="use_the_phone_s_model">Use the phone\'s model</string>
+    <string name="signed_in_with_chatgpt_not_in_use">Signed in with ChatGPT. Not in use.</string>
+    <string name="use_chatgpt">Use ChatGPT</string>
+    <string name="model">"Model: "</string>
+    <string name="choose_model">Choose model</string>
+    <string name="sign_out">Sign out</string>
+    <string name="you_re_using_your_chatgpt_plan">You\'re using your ChatGPT plan</string>
+    <string name="eligible_ai_requests_in_this_app_use">Eligible AI requests in this app use your ChatGPT plan. You can manage usage in ChatGPT settings.</string>
+    <string name="got_it">Got it</string>
+    <string name="choose_a_model">Choose a model</string>
+    <string name="loading_models">Loading models…</string>
+    <string name="first_model_the_account_lists">First model the account lists</string>
+
+    <!-- SearchModelCard.kt -->
+    <string name="n_0_31_gb">0.31 GB</string>
+    <string name="better_search">Better search</string>
+    <string name="better_search_2">Better search · %1$s</string>
+    <string name="ready">Ready</string>
+    <string name="find_answers_even_when_your_words">Find answers even when your words differ from the document.</string>
+    <string name="you_re_on_mobile_data_wi_fi_is_better_4">You\'re on mobile data. Wi-Fi is better for a download this size.</string>
+    <string name="continue_download">Continue download · %1$s%%</string>
+    <string name="get_search_model">Get search model</string>
+    <string name="choose_in_hub">Choose in Hub</string>
+    <string name="dismiss">Dismiss</string>
+    <string name="downloading">Downloading · %1$s%%</string>
+    <string name="almost_ready">Almost ready...</string>
+
+    <!-- AppLockSettingsRow.kt -->
+    <string name="change_pin">Change PIN</string>
+    <string name="turn_off_app_lock">Turn off App lock</string>
+    <string name="enter_your_current_pin">Enter your current PIN</string>
+    <string name="set_a_pin">Set a PIN</string>
+    <string name="n_4_to_12_digits_if_you_forget_it_the">4 to 12 digits. If you forget it, the only way back is to clear the app\'s data.</string>
+    <string name="too_many_wrong_pins_wait_seconds">Too many wrong PINs. Wait %1$s seconds.</string>
+    <string name="continue_label">Continue</string>
+
+    <!-- ChatComposer.kt -->
+    <string name="message">Message</string>
+    <string name="ask_anything">Ask anything</string>
+    <string name="attach_a_photo">Attach a photo</string>
+    <string name="stop_recording">Stop recording</string>
+    <string name="record_voice">Record voice</string>
+    <string name="stop_hands_free_mode">Stop hands-free mode</string>
+    <string name="start_hands_free_mode">Start hands-free mode</string>
+
+    <!-- MainActivity.kt -->
+    <string name="stop_downloading">Stop downloading?</string>
+    <string name="what_s_downloaded_so_far_is_kept">What\'s downloaded so far is kept.</string>
+    <string name="keep_downloading">Keep downloading</string>
+    <string name="let_the_assistant_read_your">Let the assistant read your notifications</string>
+    <string name="turn_on">Turn on</string>
+
+    <!-- BackgroundAccessActivity.kt -->
+    <string name="is_not_needed_for_scheduled_tasks">is not needed for scheduled tasks, alarms, or chat.</string>
+    <string name="stops_rather_than_telling_you_your">stops, rather than telling you your phone is quiet. Everything else works exactly as before.</string>
+    <string name="alarms_and_reminders">Alarms and reminders</string>
+    <string name="not_needed_to_chat">not needed to chat.</string>
+    <string name="chatting_models_and_every_other_tool">Chatting, models and every other tool are unaffected. A task you try to schedule will say Android refused rather than quietly never run.</string>
+    <string name="offer_these_when_i_need_them">Offer these when I need them</string>
+    <string name="turn_off_in_settings">Turn off in Settings</string>
+    <string name="ask_me_again">Ask me again</string>
+
+    <!-- AssistActivity.kt -->
+    <string name="ask">Ask %1$s</string>
+    <string name="speak_now">Speak now…</string>
+    <string name="include_screen">Include screen</string>
+    <string name="ask_2">Ask</string>
+    <string name="the_answer_opens_in_localintelligence">The answer opens in LocalIntelligence</string>
+
+    <!-- ExecutionService.kt -->
+    <string name="waiting_for_your_ok">"Waiting for your OK: "</string>
+
+    <!-- DownloadService.kt -->
+    <string name="starting_2">Starting</string>
+
+    <!-- WakeWordService.kt -->
+    <string name="listening_for">Listening for “%1$s”</string>
+
+    <!-- TelegramService.kt -->
+    <string name="telegram_refused_the_call">Telegram refused the call</string>
+    <string name="telegram_2">"Telegram: "</string>
+    <string name="waiting_for_the_owner_to_approve_this">Waiting for the owner to approve this chat in LocalIntelligence.</string>
+    <string name="android_would_not_start_telegram_in_the">Android would not start Telegram in the background. Open LocalIntelligence to connect.</string>
+
+    <!-- LocalServerService.kt -->
+    <string name="port_is_in_use_another_app_may_hold_it">Port %1$s is in use. Another app may hold it, or the server may still be stopping. Switch the server off and on to try again.</string>
+    <string name="other_apps_on_this_phone_can_use_the_2">Other apps on this phone can use the model. Switch the local server off in Settings to stop.</string>
+    <string name="android_would_not_start_the_local">Android would not start the local server in the background. Open LocalIntelligence to start it.</string>
+
+    <!-- TelegramReplies.kt -->
+    <string name="approve_them_there_and_send_the_request">Approve them there and send the request again.</string>
+
+    <!-- SpeedTestUi.kt -->
+    <string name="speed_test_loading_the_model_on">Speed test, loading the model on %1$s…</string>
+    <string name="speed_test_on_pass_of">Speed test on %1$s, pass %2$s of %3$s…</string>
+    <string name="speed_test_pass_of">Speed test, pass %1$s of %2$s…</string>
+    <string name="speed_test_failed">Speed test failed. %1$s</string>
+
+    <!-- UpdateCheck.kt -->
+    <string name="check_for_updates">Check for updates</string>
+    <string name="checking">Checking...</string>
+    <string name="asks_github_for_the_latest_version_when">Asks GitHub for the latest version when you tap</string>
+    <string name="a_newer_version_is_available">A newer version is available</string>
+    <string name="you_have_the_latest_version">You have the latest version.</string>
+    <string name="no_releases_yet">No releases yet.</string>
+    <string name="could_not_check_for_updates">Could not check for updates.</string>
+    <string name="this_asks_github_for_the_latest_version">This asks GitHub for the latest version. Check now?</string>
+    <string name="check_now">Check now</string>
+    <string name="version_is_available">Version %1$s is available</string>
+    <string name="open_release_page">Open release page</string>
+    <string name="later">Later</string>
+    <string name="could_not_check_for_updates_try_again">Could not check for updates. Try again later.</string>
+
+    <!-- TelegramService.kt -->
+    <string name="telegram_3">"Telegram: "</string>
+
+    <!-- ToolStepRow.kt -->
+    <string name="this_can_t_be_undone_2">This can\'t be undone.</string>
+    <string name="this_reads_or_acts_in_another_app_s_2">This reads or acts in another app\'s screen. Only allow apps you recognise.</string>
+    <string name="couldn_t_2">"Couldn\'t "</string>
+    <string name="didn_t_2">"Didn\'t "</string>
+
+    <!-- AppLockSettingsRow.kt -->
+    <string name="n_4_to_12_digits_if_you_forget_it_the_2">4 to 12 digits. If you forget it, the only way back is to clear the app\'s data.</string>
+
+    <!-- ChatGptRows.kt -->
+    <string name="use_the_phone_s_model_2">Use the phone\'s model</string>
+    <string name="model_2">"Model: "</string>
+    <string name="you_re_using_your_chatgpt_plan_2">You\'re using your ChatGPT plan</string>
+
+    <!-- SearchModelCard.kt -->
+    <string name="you_re_on_mobile_data_wi_fi_is_better_5">You\'re on mobile data. Wi-Fi is better for a download this size.</string>
+
+    <!-- TelegramService.kt -->
+    <string name="telegram_4">"Telegram: "</string>
+
+    <!-- TelegramService.kt -->
+    <string name="telegram_5">"Telegram: "</string>
+
+    <!-- TelegramService.kt -->
+    <string name="telegram_6">"Telegram: "</string>
 </resources>

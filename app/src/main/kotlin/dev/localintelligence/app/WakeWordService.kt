@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.app.R
 import android.Manifest
 import android.app.ActivityManager
 import android.app.Notification
@@ -310,7 +311,7 @@ class WakeWordService : Service() {
     }
 
     private fun listeningNotification(phrase: String): Notification {
-        val text = "Listening for “$phrase”"
+        val text = getString(R.string.listening_for, phrase)
         val openIntent = PendingIntent.getActivity(
             this,
             REQ_OPEN_APP,

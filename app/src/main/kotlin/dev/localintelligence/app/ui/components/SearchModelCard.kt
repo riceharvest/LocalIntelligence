@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui.components
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.content.Context
 import android.net.ConnectivityManager
 import androidx.compose.foundation.layout.Arrangement
@@ -69,12 +71,12 @@ fun SearchModelCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = if (state is SetupState.Ready) "Better search" else "Better search · $sizeLabel",
+                    text = if (state is SetupState.Ready) stringResource(R.string.better_search) else stringResource(R.string.better_search_2, sizeLabel),
                     style = MaterialTheme.typography.titleSmall,
                 )
                 if (state is SetupState.Ready) {
                     Text(
-                        text = "Ready",
+                        text = stringResource(R.string.ready),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -82,7 +84,7 @@ fun SearchModelCard(
             }
 
             Text(
-                text = "Find answers even when your words differ from the document.",
+                text = stringResource(R.string.find_answers_even_when_your_words),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -92,15 +94,15 @@ fun SearchModelCard(
                     val metered = remember { isOnMeteredNetwork(context) }
                     if (metered) {
                         Text(
-                            text = "You're on mobile data. Wi-Fi is better for a download this size.",
+                            text = stringResource(R.string.you_re_on_mobile_data_wi_fi_is_better_5),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     val label = when {
-                        state.onDisk -> "Finish setup"
-                        state.keptBytes > 0 -> "Continue download · ${percentOf(state.keptBytes, state.sizeBytes)}%"
-                        else -> "Get search model"
+                        state.onDisk -> stringResource(R.string.finish_setup)
+                        state.keptBytes > 0 -> stringResource(R.string.continue_download, percentOf(state.keptBytes, state.sizeBytes))
+                        else -> stringResource(R.string.get_search_model)
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -118,7 +120,7 @@ fun SearchModelCard(
                                 onClick = onOpenHub,
                                 modifier = Modifier.heightIn(min = 48.dp),
                             ) {
-                                Text("Choose in Hub")
+                                Text(stringResource(R.string.choose_in_hub))
                             }
                         }
                         if (onDismiss != null) {
@@ -127,7 +129,7 @@ fun SearchModelCard(
                                 onClick = onDismiss,
                                 modifier = Modifier.heightIn(min = 48.dp),
                             ) {
-                                Text("Dismiss")
+                                Text(stringResource(R.string.dismiss))
                             }
                         }
                     }
@@ -144,7 +146,7 @@ fun SearchModelCard(
                     val announced = remember(milestone) { "Downloading search model, ${milestone * 10} percent" }
 
                     Text(
-                        text = "Downloading · $percent%",
+                        text = stringResource(R.string.downloading, percent),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.semantics {
@@ -162,7 +164,7 @@ fun SearchModelCard(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "${formatBytes(state.bytes)} of ${formatBytes(state.totalBytes)}",
+                            text = stringResource(R.string.of_2, formatBytes(state.bytes), formatBytes(state.totalBytes)),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -170,7 +172,7 @@ fun SearchModelCard(
                             onClick = onCancel,
                             modifier = Modifier.heightIn(min = 48.dp),
                         ) {
-                            Text("Cancel")
+                            Text(stringResource(R.string.cancel))
                         }
                     }
                 }
@@ -178,7 +180,7 @@ fun SearchModelCard(
                 SetupState.Preparing -> {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Text(
-                        text = "Almost ready...",
+                        text = stringResource(R.string.almost_ready),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
@@ -195,7 +197,7 @@ fun SearchModelCard(
                                 onClick = onOpenHub,
                                 modifier = Modifier.heightIn(min = 48.dp),
                             ) {
-                                Text("Choose in Hub")
+                                Text(stringResource(R.string.choose_in_hub))
                             }
                         }
                     }
@@ -217,14 +219,14 @@ fun SearchModelCard(
                             onClick = onDownload,
                             modifier = Modifier.heightIn(min = 48.dp),
                         ) {
-                            Text("Try again")
+                            Text(stringResource(R.string.try_again))
                         }
                         if (technical && onOpenHub != null) {
                             TextButton(
                                 onClick = onOpenHub,
                                 modifier = Modifier.heightIn(min = 48.dp),
                             ) {
-                                Text("Choose in Hub")
+                                Text(stringResource(R.string.choose_in_hub))
                             }
                         }
                         if (onDismiss != null) {
@@ -233,7 +235,7 @@ fun SearchModelCard(
                                 onClick = onDismiss,
                                 modifier = Modifier.heightIn(min = 48.dp),
                             ) {
-                                Text("Dismiss")
+                                Text(stringResource(R.string.dismiss))
                             }
                         }
                     }

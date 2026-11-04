@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui.components
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
@@ -242,7 +244,7 @@ fun PendingToolRow(
                     modifier = Modifier.semantics { contentDescription = "Don't allow: $action" },
                 ) { Text("Don't allow") }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Details") }
+                TextButton(onClick = { details = !details }) { Text(if (details) stringResource(R.string.hide_details) else stringResource(R.string.details_2)) }
             }
         }
     }
@@ -264,11 +266,11 @@ private val SHOWN_FIRST: Set<String> = setOf("sms.send", "phone.call")
 @Composable
 private fun RiskLine(risk: ToolRisk) {
     val (text, isDanger) = when (risk) {
-        ToolRisk.DESTRUCTIVE -> "This can't be undone." to true
-        ToolRisk.EXTERNAL_COMMUNICATION -> "This sends something to someone else." to false
-        ToolRisk.NETWORK_EGRESS -> "This contacts a website. Only allow sites you recognise." to false
-        ToolRisk.SCREEN_CONTROL -> "This reads or acts in another app's screen. Only allow apps you recognise." to false
-        else -> "This needs your OK." to false
+        ToolRisk.DESTRUCTIVE -> stringResource(R.string.this_can_t_be_undone_2) to true
+        ToolRisk.EXTERNAL_COMMUNICATION -> stringResource(R.string.this_sends_something_to_someone_else) to false
+        ToolRisk.NETWORK_EGRESS -> stringResource(R.string.this_contacts_a_website_only_allow) to false
+        ToolRisk.SCREEN_CONTROL -> stringResource(R.string.this_reads_or_acts_in_another_app_s_2) to false
+        else -> stringResource(R.string.this_needs_your_ok) to false
     }
     Text(
         text = text,
@@ -282,7 +284,7 @@ private fun RiskLine(risk: ToolRisk) {
 private fun ArgumentsBlock(arguments: String) {
     Column {
         Text(
-            text = "Input",
+            text = stringResource(R.string.input),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -407,8 +409,8 @@ private fun ToolRow(
     val title = when (state) {
         ToolRowState.Running -> verb.present + "…"
         ToolRowState.Awaiting -> verb.present
-        ToolRowState.Failed -> "Couldn't " + verb.base
-        ToolRowState.Refused -> "Didn't " + verb.base
+        ToolRowState.Failed -> stringResource(R.string.couldn_t_2) + verb.base
+        ToolRowState.Refused -> stringResource(R.string.didn_t_2) + verb.base
         ToolRowState.Done -> verb.past
     }
     val duration = formatDuration(durationMs)
@@ -517,7 +519,7 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "Input",
+                    text = stringResource(R.string.input),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
@@ -529,7 +531,7 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
                 ) {
                     Icon(
                         imageVector = Icons.Filled.ContentCopy,
-                        contentDescription = "Copy input",
+                        contentDescription = stringResource(R.string.copy_input),
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -541,7 +543,7 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
             )
 
             Text(
-                text = "Output",
+                text = stringResource(R.string.output),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),
@@ -560,7 +562,7 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
             )
             if (!showAll && lines.size > OUTPUT_FOLD_LINES) {
                 TextButton(onClick = { showAll = true }) {
-                    Text("Show ${lines.size - OUTPUT_FOLD_LINES} more lines")
+                    Text(stringResource(R.string.show_more_lines, lines.size - OUTPUT_FOLD_LINES))
                 }
             }
         }
