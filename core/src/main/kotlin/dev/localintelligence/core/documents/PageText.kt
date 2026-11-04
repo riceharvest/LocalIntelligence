@@ -1,7 +1,5 @@
 package dev.localintelligence.core.documents
 
-import java.util.regex.Pattern
-
 /**
  * Entity decoding and control-character stripping shared by [PageText] (in :core)
  * and `HtmlText` (in :android, used for search snippets and non-page bodies).
@@ -118,12 +116,6 @@ object PageText {
 
     private val ATTR = Regex("""([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?""")
 
-    /**
-     * Whitespace as Python's `\s` sees it (Unicode, plus U+001C..U+001F), so a no-break space collapses
-     * the same way the reference collapses it.
-     */
-    private val WS: Pattern = Pattern.compile("[\\s\\x1C-\\x1F]+", Pattern.UNICODE_CHARACTER_CLASS)
-
     /** Main text of [html]: the title, the main lines, then [OTHER_TEXT_MARKER] and the detached lines when there are any. */
     fun fullText(html: String): String {
         val e = extract(html)
@@ -148,7 +140,29 @@ object PageText {
 
     private class Extracted(val title: String, val main: List<String>, val rest: List<String>)
 
-    private fun collapse(s: String): String = WS.matcher(s).replaceAll(" ")
+    /** Whitespace as the reference's regex sees it, in Unicode. Plain code, because Android's regex rejects that flag. */
+    private fun isSpace(c: Char): Boolean = c.isWhitespace() || c == '\u0085'
+
+    private fun collapse(s: String): String {
+        val out = StringBuilder(s.length)
+        var inSpace = false
+        for (c in s) {
+            if (isSpace(c)) {
+                if (!inSpace) out.append(' ')
+                inSpace = true
+            } else {
+                out.append(c)
+                inSpace = false
+            }
+        }
+        return out.toString()
+    }
+
+    /** Class names of an element: the whole token, never a part of it. */
+    private fun classNames(value: String): Set<String> {
+        if (value.isEmpty()) return emptySet()
+        return collapse(value).split(' ').filter { it.isNotEmpty() }.toSet()
+    }
 
     /** Lengths of the lines, summed. */
     private fun total(lines: List<String>): Int = lines.sumOf { it.length }
@@ -308,7 +322,7 @@ object PageText {
             if (name in BLOCK) flush()
             if (name in PREFIX && skip == 0) kindPrefix = PREFIX.getValue(name)
             val attrs = tok.attrs
-            val classes = attrs["class"].orEmpty().split(WS.toRegex()).filter { it.isNotEmpty() }.toSet()
+            val classes = classNames(attrs["class"].orEmpty())
             val eid = attrs["id"].orEmpty()
             val style = attrs["style"].orEmpty().replace(" ", "").lowercase()
             val hid = (if (strict) name in REMOVE else name == "script" || name == "style") ||
