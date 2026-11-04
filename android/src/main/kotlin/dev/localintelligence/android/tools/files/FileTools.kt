@@ -31,6 +31,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import java.io.File
+import java.io.FileInputStream
 import java.io.InputStream
 import java.time.Instant
 import java.time.ZoneId
@@ -326,6 +328,8 @@ data class FileRow(
     val relativePath: String?,
     /** The `content://` URI to pass back to read_text / write_text / delete. */
     val uri: String,
+    /** Plain absolute filesystem path, e.g. `/storage/emulated/0/Documents/notes.txt`, or null. */
+    val path: String? = null,
 )
 
 /** A selection plus its bound arguments. The query text never appears in the SQL. */
@@ -354,6 +358,7 @@ object FileQuery {
         MediaStore.Files.FileColumns.SIZE,
         MediaStore.Files.FileColumns.DATE_MODIFIED,
         MediaStore.Files.FileColumns.RELATIVE_PATH,
+        MediaStore.Files.FileColumns.DATA,
     )
 
     /** Columns read below API 29, where RELATIVE_PATH does not exist. */
@@ -363,6 +368,7 @@ object FileQuery {
         MediaStore.Files.FileColumns.MIME_TYPE,
         MediaStore.Files.FileColumns.SIZE,
         MediaStore.Files.FileColumns.DATE_MODIFIED,
+        MediaStore.Files.FileColumns.DATA,
     )
 
     /**
@@ -662,7 +668,9 @@ object FileListing {
         val path = row.relativePath
         if (!path.isNullOrBlank()) sb.append(", in ").append(path)
         sb.append(", modified ").append(formatDate(row.modifiedMillis))
-        sb.append(") uri ").append(row.uri)
+        sb.append(")")
+        if (row.uri.isNotBlank()) sb.append(" uri ").append(row.uri)
+        if (!row.path.isNullOrBlank()) sb.append(" path ").append(row.path)
         return sb.toString()
     }
 
@@ -1024,13 +1032,92 @@ private const val SAF_IS_PER_DOCUMENT: String =
         "switch. Do not tell the user they have no documents; they have documents " +
         "this app was simply not given."
 
+/** Whether this process holds all-files access (Android 11+ MANAGE_EXTERNAL_STORAGE). */
+internal fun hasAllFilesAccess(): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
+
+/**
+ * Storage path validation for all-files access.
+ *
+ * Plain absolute paths under [Environment.getExternalStorageDirectory] are accepted.
+ * Traversal segments (..), symlinks escaping external storage, and restricted paths
+ * under Android/data or Android/obb are refused.
+ */
+internal object StoragePaths {
+
+    fun validateExternalStoragePath(raw: String): File {
+        val trimmed = raw.trim()
+        if (!trimmed.startsWith("/")) {
+            throw IllegalArgumentException("Path must be absolute (start with /): $trimmed")
+        }
+
+        val segments = trimmed.split('/')
+        if (segments.any { it == ".." }) {
+            throw IllegalArgumentException("Path traversal (..) is not permitted: $trimmed")
+        }
+
+        val root = Environment.getExternalStorageDirectory()
+        val canonicalRoot = root.canonicalFile
+        val rootPath = canonicalRoot.absolutePath
+
+        val target = File(trimmed)
+
+        val canonicalTarget = if (target.exists()) {
+            target.canonicalFile
+        } else {
+            var ancestor: File? = target.parentFile
+            while (ancestor != null && !ancestor.exists()) {
+                ancestor = ancestor.parentFile
+            }
+            val canonicalAncestor = ancestor?.canonicalFile ?: canonicalRoot
+            val relPortion = if (ancestor != null) target.toRelativeString(ancestor) else target.name
+            File(canonicalAncestor, relPortion).normalize()
+        }
+
+        val targetCanonicalPath = canonicalTarget.absolutePath
+        val isUnderRoot = targetCanonicalPath == rootPath || targetCanonicalPath.startsWith("$rootPath/")
+        if (!isUnderRoot) {
+            throw IllegalArgumentException("Path is outside external storage ($rootPath): $trimmed")
+        }
+
+        val dataPrefix = "$rootPath/Android/data"
+        val obbPrefix = "$rootPath/Android/obb"
+
+        fun isRestricted(path: String): Boolean =
+            path.equals(dataPrefix, ignoreCase = true) || path.startsWith("$dataPrefix/", ignoreCase = true) ||
+                path.equals(obbPrefix, ignoreCase = true) || path.startsWith("$obbPrefix/", ignoreCase = true)
+
+        if (isRestricted(targetCanonicalPath) || isRestricted(target.normalize().absolutePath)) {
+            throw IllegalArgumentException("Access to Android/data and Android/obb is restricted: $trimmed")
+        }
+
+        return target
+    }
+}
+
+/** Queries MediaStore for the content:// URI of an absolute path, or null if not indexed. */
+internal fun queryContentUriForPath(context: Context, absolutePath: String): String? = runCatching {
+    context.contentResolver.query(
+        MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
+        arrayOf(MediaStore.Files.FileColumns._ID),
+        "${MediaStore.Files.FileColumns.DATA} = ?",
+        arrayOf(absolutePath),
+        null,
+    )?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            val id = cursor.getLong(0)
+            Uri.withAppendedPath(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), id.toString()).toString()
+        } else null
+    }
+}.getOrNull()
+
 /**
  * Whether list, search and read may run. A persisted document grant always answers yes.
  * From API 29 MediaStore also returns the app's own documents without one, and
  * DOCUMENT_WRITE reports that case as granted, so it counts here too.
  */
 private fun canSeeDocuments(grant: PlatformGrant): Boolean =
-    grant.isGranted(ToolPermissions.DOCUMENT_READ) || grant.isGranted(ToolPermissions.DOCUMENT_WRITE)
+    hasAllFilesAccess() || grant.isGranted(ToolPermissions.DOCUMENT_READ) || grant.isGranted(ToolPermissions.DOCUMENT_WRITE)
 
 /**
  * Whether [uri] names a document this family may read.
@@ -1064,6 +1151,10 @@ class FilesListTool(
             put(
                 "properties",
                 buildJsonObject {
+                    put("path", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Optional absolute folder path under external storage to list, e.g. /storage/emulated/0/Documents.")
+                    })
                     put("limit", buildJsonObject {
                         put("type", "integer")
                         put("minimum", 1)
@@ -1085,6 +1176,9 @@ class FilesListTool(
         requiredPermission = null,
     )
 
+    override suspend fun describeTarget(args: ToolArgs): String? =
+        FileArgs.optionalString(args.str("path"))
+
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         ToolSafety.guard("files.list") {
             // The decisive question. On Android 13+ NO runtime permission lets
@@ -1096,6 +1190,51 @@ class FilesListTool(
                 return@guard denied("files.list", ToolPermissions.DOCUMENT_READ)
             }
             val limit = FileArgs.limit(args.str("limit"))
+            val rawPath = FileArgs.optionalString(args.str("path"))
+            if (rawPath != null) {
+                if (!hasAllFilesAccess()) {
+                    return@guard fail(
+                        "Listing filesystem paths requires All files access. Enable it in Settings.",
+                        ToolError.PermissionDenied("All files access not granted"),
+                    )
+                }
+                val dir = StoragePaths.validateExternalStoragePath(rawPath)
+                if (!dir.exists()) {
+                    return@guard fail("Directory does not exist: $rawPath", ToolError.NotFound("Directory not found"))
+                }
+                if (!dir.isDirectory) {
+                    return@guard fail("Path is not a directory: $rawPath", ToolError.InvalidArguments("Not a directory"))
+                }
+                val allFiles = withContext(Dispatchers.IO) {
+                    dir.listFiles()?.filter { !it.isHidden }?.sortedByDescending { it.lastModified() } ?: emptyList()
+                }
+                val matched = allFiles.size
+                val capped = matched > limit
+                val selected = allFiles.take(limit)
+                val items = withContext(Dispatchers.IO) {
+                    selected.map { file ->
+                        val contentUri = queryContentUriForPath(appContext, file.absolutePath) ?: Uri.fromFile(file).toString()
+                        val rel = file.parentFile?.toRelativeString(Environment.getExternalStorageDirectory())
+                            ?.let { if (it.isEmpty()) null else "$it/" }
+                        FileRow(
+                            id = -1L,
+                            displayName = file.name.take(FileArgs.MAX_NAME_CHARS),
+                            mimeType = MimeTypes.fromExtension(file.name),
+                            sizeBytes = if (file.isDirectory) 0L else file.length(),
+                            modifiedMillis = file.lastModified(),
+                            relativePath = rel,
+                            uri = contentUri,
+                            path = file.absolutePath,
+                        )
+                    }
+                }
+                val withheld = (matched - limit).coerceAtLeast(0)
+                return@guard ok(
+                    FileListing.format(items, matched, withheld, "files in $rawPath", capped),
+                    jsonOf("count" to items.size.toString(), "withheld" to withheld.toString()),
+                )
+            }
+
             val rows = readRows(appContext, limit = limit)
             if (rows == null) {
                 return@guard fail(
@@ -1125,6 +1264,10 @@ class FilesSearchTool(
             put(
                 "properties",
                 buildJsonObject {
+                    put("path", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Optional absolute folder path under external storage to search within.")
+                    })
                     put("query", buildJsonObject {
                         put("type", "string")
                         put("maxLength", FileArgs.MAX_QUERY_CHARS)
@@ -1164,6 +1307,9 @@ class FilesSearchTool(
         requiredPermission = null,
     )
 
+    override suspend fun describeTarget(args: ToolArgs): String? =
+        FileArgs.optionalString(args.str("path"))
+
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         ToolSafety.guard("files.search") {
             // Platform truth, not the unmaintained context flag. A search that
@@ -1173,6 +1319,7 @@ class FilesSearchTool(
             if (!canSeeDocuments(grant)) {
                 return@guard denied("files.search", ToolPermissions.DOCUMENT_READ)
             }
+            val rawPath = FileArgs.optionalString(args.str("path"))
             val query = FileArgs.optionalString(args.str("query"), FileArgs.MAX_NAME_CHARS)
             val mime = FileArgs.optionalString(args.str("mime"), FileArgs.MAX_MIME_CHARS)
             val from = FileArgs.epochMillis(args.str("modified_after"))
@@ -1188,13 +1335,6 @@ class FilesSearchTool(
                 }
             }
 
-            if (query == null && mime == null && from == null && to == null) {
-                return@guard fail(
-                    "files.search needs at least one of 'query', 'mime', 'modified_after' or " +
-                        "'modified_before'. An unfiltered search would return everything.",
-                    ToolError.InvalidArguments("no filter supplied"),
-                )
-            }
             if (from != null && to != null && to <= from) {
                 return@guard fail(
                     "'modified_before' (${FileListing.formatDate(to)}) is not after " +
@@ -1204,6 +1344,92 @@ class FilesSearchTool(
             }
 
             val limit = FileArgs.limit(args.str("limit"))
+
+            if (rawPath != null) {
+                if (!hasAllFilesAccess()) {
+                    return@guard fail(
+                        "Searching filesystem paths requires All files access. Enable it in Settings.",
+                        ToolError.PermissionDenied("All files access not granted"),
+                    )
+                }
+                val dir = StoragePaths.validateExternalStoragePath(rawPath)
+                if (!dir.exists()) {
+                    return@guard fail("Directory does not exist: $rawPath", ToolError.NotFound("Directory not found"))
+                }
+                if (!dir.isDirectory) {
+                    return@guard fail("Path is not a directory: $rawPath", ToolError.InvalidArguments("Not a directory"))
+                }
+                val rootCanon = Environment.getExternalStorageDirectory().canonicalPath
+                val matches = withContext(Dispatchers.IO) {
+                    val results = mutableListOf<File>()
+                    dir.walkTopDown()
+                        .onEnter { folder ->
+                            if (folder.name.startsWith(".")) return@onEnter false
+                            val canon = folder.canonicalFile.absolutePath
+                            // A link that resolves outside shared storage is not followed.
+                            if (canon != rootCanon && !canon.startsWith("$rootCanon/")) return@onEnter false
+                            if (canon.startsWith("$rootCanon/Android/data") || canon.startsWith("$rootCanon/Android/obb")) {
+                                return@onEnter false
+                            }
+                            true
+                        }
+                        .filter { file ->
+                            if (file.isDirectory || file.name.startsWith(".")) return@filter false
+                            if (query != null && !file.name.contains(query, ignoreCase = true)) return@filter false
+                            if (mime != null) {
+                                val fileMime = MimeTypes.fromExtension(file.name)
+                                if (!fileMime.equals(mime, ignoreCase = true)) return@filter false
+                            }
+                            val lastMod = file.lastModified()
+                            if (from != null && lastMod < from) return@filter false
+                            if (to != null && lastMod >= to) return@filter false
+                            true
+                        }
+                        .take(FileArgs.MAX_LIMIT + 1)
+                        .toCollection(results)
+                }
+                val capped = matches.size > FileArgs.MAX_LIMIT
+                val bounded = if (capped) matches.take(FileArgs.MAX_LIMIT) else matches
+                val matched = bounded.size
+                val selected = bounded.take(limit)
+                val items = withContext(Dispatchers.IO) {
+                    selected.map { file ->
+                        val contentUri = queryContentUriForPath(appContext, file.absolutePath) ?: Uri.fromFile(file).toString()
+                        val rel = file.parentFile?.toRelativeString(Environment.getExternalStorageDirectory())
+                            ?.let { if (it.isEmpty()) null else "$it/" }
+                        FileRow(
+                            id = -1L,
+                            displayName = file.name.take(FileArgs.MAX_NAME_CHARS),
+                            mimeType = MimeTypes.fromExtension(file.name),
+                            sizeBytes = file.length(),
+                            modifiedMillis = file.lastModified(),
+                            relativePath = rel,
+                            uri = contentUri,
+                            path = file.absolutePath,
+                        )
+                    }
+                }
+                val what = buildString {
+                    append("file")
+                    if (query != null) append(" matching '$query'")
+                    if (mime != null) append(" of type $mime")
+                    append(" in $rawPath")
+                }
+                val withheld = (matched - limit).coerceAtLeast(0)
+                return@guard ok(
+                    FileListing.format(items, matched, withheld, what, capped),
+                    jsonOf("count" to items.size.toString(), "withheld" to withheld.toString()),
+                )
+            }
+
+            if (query == null && mime == null && from == null && to == null) {
+                return@guard fail(
+                    "files.search needs at least one of 'path', 'query', 'mime', 'modified_after' or " +
+                        "'modified_before'. An unfiltered search would return everything.",
+                    ToolError.InvalidArguments("no filter supplied"),
+                )
+            }
+
             val rows = readRows(appContext, limit = limit, query = query, mime = mime, from = from, to = to)
             if (rows == null) {
                 return@guard fail(
@@ -1231,7 +1457,7 @@ class FilesReadTextTool(
 
     override val definition = ToolDefinition(
         name = "files.read_text",
-        description = "Read the beginning of a text document given its content:// URI, returning at most 8 KB of its text.",
+        description = "Read the beginning of a text document given its content:// URI or absolute path, returning at most 8 KB of its text.",
         category = "files",
         schema = buildJsonObject {
             put("type", "object")
@@ -1240,11 +1466,15 @@ class FilesReadTextTool(
                 buildJsonObject {
                     put("uri", buildJsonObject {
                         put("type", "string")
-                        put("description", "content:// URI from files.list or files.search.")
+                        put("description", "content:// URI from files.list or files.search, or absolute file path under external storage.")
+                    })
+                    put("path", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Absolute file path under external storage, e.g. /storage/emulated/0/Documents/notes.txt.")
                     })
                 },
             )
-            putJsonArray("required") { add("uri") }
+            putJsonArray("required") { }
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
@@ -1257,30 +1487,89 @@ class FilesReadTextTool(
         requiredPermission = null,
     )
 
+    override suspend fun describeTarget(args: ToolArgs): String? =
+        FileArgs.optionalString(args.str("path")) ?: FileArgs.optionalString(args.str("uri"))
+
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         ToolSafety.guard("files.read_text") {
             if (!canSeeDocuments(grant)) {
                 return@guard denied("files.read_text", ToolPermissions.DOCUMENT_READ)
             }
-            val raw = FileArgs.stringOrNull(args.str("uri"))
-            if (raw == null) {
+            val rawPath = FileArgs.optionalString(args.str("path"))
+            val rawUri = FileArgs.stringOrNull(args.str("uri"))
+            val targetPath = when {
+                rawPath != null -> rawPath
+                rawUri != null && !FileArgs.isContentUri(rawUri) && rawUri.startsWith("/") -> rawUri
+                else -> null
+            }
+
+            if (targetPath != null) {
+                if (!hasAllFilesAccess()) {
+                    return@guard fail(
+                        "Reading filesystem paths requires All files access. Enable it in Settings.",
+                        ToolError.PermissionDenied("All files access not granted"),
+                    )
+                }
+                val file = StoragePaths.validateExternalStoragePath(targetPath)
+                if (!file.exists()) {
+                    return@guard fail("File does not exist: $targetPath", ToolError.NotFound("File not found"))
+                }
+                if (file.isDirectory) {
+                    return@guard fail("$targetPath is a directory, not a text file.", ToolError.InvalidArguments("Path is a directory"))
+                }
+                val mime = MimeTypes.fromExtension(file.name)
+                if (!MimeTypes.isTextLike(mime, file.name)) {
+                    return@guard fail(
+                        "${file.name} is ${MimeTypes.friendly(mime)}, not text. files.read_text only reads UTF-8 text documents.",
+                        ToolError.InvalidArguments("document is $mime"),
+                    )
+                }
+                if (context.signal.isCancelled()) {
+                    return@guard fail("Cancelled before reading.", ToolError.Cancelled("cancelled"))
+                }
+                val decoded = withContext(Dispatchers.IO) {
+                    val stream = try {
+                        FileInputStream(file)
+                    } catch (t: Exception) {
+                        return@withContext null
+                    }
+                    try {
+                        FileText.readCapped(stream)
+                    } finally {
+                        runCatching { stream.close() }
+                    }
+                } ?: return@guard fail(
+                    "Could not open ${file.name}. It may have been deleted or is not readable.",
+                    ToolError.NotFound("FileInputStream failed"),
+                )
+
+                return@guard ok(
+                    FileText.contentObservation(file.name, file.length(), decoded),
+                    jsonOf(
+                        "truncated" to decoded.truncated.toString(),
+                        "chars" to decoded.text.length.toString(),
+                    ),
+                )
+            }
+
+            if (rawUri == null) {
                 return@guard fail(
                     "files.read_text needs a 'uri' (a content:// document URI from files.list " +
-                        "or files.search).",
+                        "or files.search) or 'path' (absolute path under external storage).",
                     ToolError.InvalidArguments("missing uri"),
                 )
             }
-            if (!FileArgs.isContentUri(raw)) {
+            if (!FileArgs.isContentUri(rawUri)) {
                 return@guard fail(
-                    "'${raw.take(120)}' is not a content:// URI. This app cannot read " +
+                    "'${rawUri.take(120)}' is not a content:// URI. This app cannot read " +
                         "filesystem paths; use a URI from files.search.",
                     ToolError.InvalidArguments("uri is not a content:// URI"),
                 )
             }
-            val uri = Uri.parse(raw)
+            val uri = Uri.parse(rawUri)
             if (!isFamilyDocument(appContext, uri)) {
                 return@guard fail(
-                    "'${raw.take(120)}' is not a document this app's file tools can read. " +
+                    "'${rawUri.take(120)}' is not a document this app's file tools can read. " +
                         "Use a URI from files.list or files.search.",
                     ToolError.InvalidArguments("uri authority is not a document provider"),
                 )
@@ -1346,6 +1635,10 @@ class FilesWriteTextTool(
                         put("type", "string")
                         put("description", "content:// URI of the document to overwrite. Omit to create a new file.")
                     })
+                    put("path", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Absolute file path under external storage to write or overwrite, e.g. /storage/emulated/0/Documents/notes.txt.")
+                    })
                     put("name", buildJsonObject {
                         put("type", "string")
                         put("maxLength", FileArgs.MAX_WRITE_NAME_CHARS)
@@ -1378,6 +1671,11 @@ class FilesWriteTextTool(
         requiredPermission = null,
     )
 
+    override suspend fun describeTarget(args: ToolArgs): String? =
+        FileArgs.optionalString(args.str("path"))
+            ?: FileArgs.optionalString(args.str("uri"))
+            ?: FileArgs.optionalString(args.str("name"))
+
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         ToolSafety.guard("files.write_text") {
             if (!grant.isGranted(ToolPermissions.DOCUMENT_WRITE)) {
@@ -1397,9 +1695,63 @@ class FilesWriteTextTool(
                     ToolError.InvalidArguments("content is over ${FileArgs.MAX_WRITE_CHARS} characters"),
                 )
             }
+
+            val rawPath = FileArgs.optionalString(args.str("path"))
+            val rawUri = FileArgs.stringOrNull(args.str("uri"))
+            val targetPath = when {
+                rawPath != null -> rawPath
+                rawUri != null && !FileArgs.isContentUri(rawUri) && rawUri.startsWith("/") -> rawUri
+                else -> null
+            }
+
+            if (targetPath != null) {
+                if (!hasAllFilesAccess()) {
+                    return@guard fail(
+                        "Writing to filesystem paths requires All files access. Enable it in Settings.",
+                        ToolError.PermissionDenied("All files access not granted"),
+                    )
+                }
+                val file = StoragePaths.validateExternalStoragePath(targetPath)
+                if (file.isDirectory) {
+                    return@guard fail("Cannot write: $targetPath is a directory.", ToolError.InvalidArguments("Path is a directory"))
+                }
+                if (file.exists() && file.length() > MAX_OVERWRITE_BYTES) {
+                    return@guard fail(
+                        "Could not read ${file.name} before overwriting it, or it is over " +
+                            "$MAX_OVERWRITE_BYTES bytes. Nothing was changed.",
+                        ToolError.Unavailable("file over $MAX_OVERWRITE_BYTES bytes"),
+                    )
+                }
+                val success = withContext(Dispatchers.IO) {
+                    val parent = file.parentFile
+                    if (parent != null && !parent.exists()) {
+                        parent.mkdirs()
+                    }
+                    val oldBytes = if (file.exists() && file.length() <= MAX_OVERWRITE_BYTES) {
+                        try { file.readBytes() } catch (t: Exception) { null }
+                    } else null
+                    try {
+                        file.writeText(content, Charsets.UTF_8)
+                        true
+                    } catch (t: Exception) {
+                        if (oldBytes != null) {
+                            runCatching { file.writeBytes(oldBytes) }
+                        }
+                        false
+                    }
+                }
+                if (!success) {
+                    return@guard fail(
+                        "Writing to ${file.name} failed. The document may be unchanged.",
+                        ToolError.Unavailable("write failed"),
+                    )
+                }
+                return@guard ok("Wrote ${content.length} characters to ${file.absolutePath}.")
+            }
+
             val plan = WritePlanner.plan(
                 sdkInt = Build.VERSION.SDK_INT,
-                uri = FileArgs.stringOrNull(args.str("uri")),
+                uri = rawUri,
                 name = FileArgs.optionalString(args.str("name"), FileArgs.MAX_WRITE_NAME_CHARS),
                 content = content,
             )
@@ -1477,6 +1829,10 @@ class FilesDeleteTool(
                         put("type", "string")
                         put("description", "content:// URI of the single document to delete.")
                     })
+                    put("path", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Absolute file path under external storage of the single file to delete.")
+                    })
                     put("name", buildJsonObject {
                         put("type", "string")
                         put("description", "Exact file name. Refused if it matches more than one document.")
@@ -1491,13 +1847,65 @@ class FilesDeleteTool(
         requiredPermission = null,
     )
 
+    override suspend fun describeTarget(args: ToolArgs): String? =
+        FileArgs.optionalString(args.str("path"))
+            ?: FileArgs.optionalString(args.str("uri"))
+            ?: FileArgs.optionalString(args.str("name"))
+
     override suspend fun execute(args: ToolArgs, context: ToolContext): ToolResult =
         ToolSafety.guard("files.delete") {
             if (!grant.isGranted(ToolPermissions.DOCUMENT_WRITE)) {
                 return@guard denied("files.delete", ToolPermissions.DOCUMENT_WRITE)
             }
-            val explicitUri = FileArgs.contentUri(args.str("uri"))
+            val rawPath = FileArgs.optionalString(args.str("path"))
             val rawUri = FileArgs.stringOrNull(args.str("uri"))
+            val targetPath = when {
+                rawPath != null -> rawPath
+                rawUri != null && !FileArgs.isContentUri(rawUri) && rawUri.startsWith("/") -> rawUri
+                else -> null
+            }
+
+            if (targetPath != null) {
+                if (!hasAllFilesAccess()) {
+                    return@guard fail(
+                        "Deleting filesystem paths requires All files access. Enable it in Settings.",
+                        ToolError.PermissionDenied("All files access not granted"),
+                    )
+                }
+                val file = StoragePaths.validateExternalStoragePath(targetPath)
+                if (!file.exists()) {
+                    return@guard fail("No file found at $targetPath.", ToolError.NotFound("file not found"))
+                }
+                if (file.isDirectory) {
+                    return@guard fail(
+                        "$targetPath is a directory. files.delete only deletes a single file.",
+                        ToolError.InvalidArguments("target is a directory"),
+                    )
+                }
+                val deleted = withContext(Dispatchers.IO) {
+                    try {
+                        file.delete()
+                    } catch (t: Exception) {
+                        false
+                    }
+                }
+                if (!deleted) {
+                    return@guard fail(
+                        "Could not delete ${file.name}. It may be read-only or in use.",
+                        ToolError.Unavailable("File.delete returned false"),
+                    )
+                }
+                runCatching {
+                    appContext.contentResolver.delete(
+                        MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
+                        "${MediaStore.Files.FileColumns.DATA} = ?",
+                        arrayOf(file.absolutePath),
+                    )
+                }
+                return@guard ok("Deleted ${file.absolutePath}.")
+            }
+
+            val explicitUri = FileArgs.contentUri(args.str("uri"))
             if (rawUri != null && explicitUri == null) {
                 return@guard fail(
                     "'${rawUri.take(120)}' is not a content:// URI. files.delete operates on " +
@@ -1508,9 +1916,9 @@ class FilesDeleteTool(
             val name = FileArgs.optionalString(args.str("name"), FileArgs.MAX_NAME_CHARS)
             if (explicitUri == null && name == null) {
                 return@guard fail(
-                    "files.delete needs a 'uri' or an exact 'name'. It removes one file and " +
+                    "files.delete needs a 'uri', 'path' or an exact 'name'. It removes one file and " +
                         "refuses to guess which of several matches to delete.",
-                    ToolError.InvalidArguments("neither uri nor name supplied"),
+                    ToolError.InvalidArguments("neither uri, path nor name supplied"),
                 )
             }
 
@@ -1635,6 +2043,7 @@ private class FileColumns(cursor: android.database.Cursor, sdkInt: Int) {
     val size = cursor.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
     val modified = cursor.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED)
     val path = if (modern) cursor.getColumnIndex(MediaStore.Files.FileColumns.RELATIVE_PATH) else -1
+    val data = cursor.getColumnIndex(MediaStore.Files.FileColumns.DATA)
 }
 
 private fun android.database.Cursor.stringAt(index: Int): String? =
@@ -1659,6 +2068,16 @@ private fun materialise(cursor: android.database.Cursor, hardCap: Int): List<Fil
         val id = cursor.longAt(columns.id)
         if (id < 0L) continue
         val modifiedSeconds = cursor.longAt(columns.modified)
+        val dataPath = cursor.stringAt(columns.data)
+        val plainPath = if (!dataPath.isNullOrBlank()) {
+            dataPath
+        } else {
+            val rel = cursor.stringAt(columns.path)
+            val name = cursor.stringAt(columns.name)
+            if (!rel.isNullOrBlank() && !name.isNullOrBlank()) {
+                File(Environment.getExternalStorageDirectory(), "$rel$name").absolutePath
+            } else null
+        }
         out += FileRow(
             id = id,
             displayName = (cursor.stringAt(columns.name) ?: "(unnamed document)")
@@ -1673,6 +2092,7 @@ private fun materialise(cursor: android.database.Cursor, hardCap: Int): List<Fil
                 MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
                 id.toString(),
             ).toString(),
+            path = plainPath,
         )
     }
     return out

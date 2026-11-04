@@ -42,6 +42,8 @@ import dev.localintelligence.android.documents.DocumentImport
 import dev.localintelligence.android.documents.DocumentImportException
 import dev.localintelligence.android.documents.DocumentStore
 import dev.localintelligence.app.LocalIntelligenceApp
+import dev.localintelligence.app.SetupState
+import dev.localintelligence.app.ui.components.SearchModelCard
 import dev.localintelligence.core.settings.SettingsMode
 import dev.localintelligence.core.settings.mode
 import java.text.DateFormat
@@ -63,7 +65,9 @@ import kotlinx.coroutines.withContext
 @Composable
 fun DocumentsScreen(
     repository: DocumentStore,
-    embeddingModelReady: Boolean,
+    embeddingState: SetupState = SetupState.Ready,
+    onStartEmbedding: () -> Unit = {},
+    onCancelEmbedding: () -> Unit = {},
     onOpenHub: (repo: String, file: String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -165,21 +169,14 @@ fun DocumentsScreen(
                     }
                 }
             }
-            // Without the model, search matches words only. The hub download is the one place the
-            // model arrives, and it is kept for search rather than loaded as the chat model.
-            if (!embeddingModelReady) {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "Find answers even when your words differ from the document.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        FilledTonalButton(onClick = { onOpenHub(DEFAULT_EMBEDDING_REPO, DEFAULT_EMBEDDING_FILE) }) {
-                            Text("Get the search model")
-                        }
-                    }
-                }
-            }
+            // The search model card: downloads EmbeddingGemma 2 with one tap, or shows Ready when installed.
+            SearchModelCard(
+                state = embeddingState,
+                onDownload = onStartEmbedding,
+                onCancel = onCancelEmbedding,
+                technical = technical,
+                onOpenHub = { onOpenHub(DEFAULT_EMBEDDING_REPO, DEFAULT_EMBEDDING_FILE) },
+            )
         }
     }
 

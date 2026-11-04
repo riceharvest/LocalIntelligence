@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Environment
 import android.os.Process
 import android.provider.Settings
 import androidx.core.content.ContextCompat
@@ -178,7 +179,9 @@ class AndroidPlatformGrant(context: Context) : PlatformGrant {
      * @return true when a read of at least one other app's document can succeed.
      */
     fun canReadDocuments(): Boolean =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+            true
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             // No runtime permission grants this on 13+. Documents become
             // readable only per-URI, through the file picker, so the only
             // queryable fact is whether the user has ever granted one.

@@ -654,6 +654,8 @@ starts it again when the app is the phone's default assistant; otherwise, becaus
 Android 14+ forbids starting a `microphone` foreground service from `BOOT_COMPLETED`,
 the app posts a `"Tap to resume listening"` notification instead.
 
+**Storage modes.** The app operates in two storage modes corresponding to the two distribution builds (docs/adr/0002-play-and-full-builds.md). The Google Play build uses scoped storage and the Storage Access Framework (SAF): files are accessed via `content://` URIs granted through the system file picker or Downloads inserts. The sideloaded `full` build declares `MANAGE_EXTERNAL_STORAGE` ("All files access"): when `Environment.isExternalStorageManager()` is granted, file tools accept plain absolute paths under `Environment.getExternalStorageDirectory()` (refusing traversal segments, escaping symlinks, and `Android/data`/`Android/obb`), returning filesystem paths next to `content://` URIs while ensuring any path outside app storage still triggers RiskPolicy step 4 confirmation.
+
 ## 19. Rules for every change
 
 ```

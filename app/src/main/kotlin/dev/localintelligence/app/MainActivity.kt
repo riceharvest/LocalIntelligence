@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -43,6 +44,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import dev.localintelligence.android.inference.ImportedModel
+import dev.localintelligence.android.documents.DEFAULT_EMBEDDING_FILE
+import dev.localintelligence.android.documents.DEFAULT_EMBEDDING_REPO
+import dev.localintelligence.android.documents.EMBEDDING_DOWNLOAD_DISMISSED
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
 import dev.localintelligence.android.cloud.generatedMediaDir
 import dev.localintelligence.app.export.ChatExporter
@@ -59,6 +63,7 @@ import dev.localintelligence.app.ui.HandsFreePhase
 import dev.localintelligence.app.ui.DocumentsScreen
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import dev.localintelligence.app.ui.HubScreen
+import dev.localintelligence.app.ui.components.SearchModelCard
 import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.ModelManagerScreen
@@ -225,8 +230,32 @@ class MainActivity : ComponentActivity() {
                         }
                         // Simple mode's one-tap first run. Technical keeps the Hub card, so it gets no starter.
                         val starterState by container.starterSetup.state.collectAsStateWithLifecycle()
+                        val embeddingState by container.embeddingSetup.state.collectAsStateWithLifecycle()
+                        val documentVersion by container.documents.changes.collectAsStateWithLifecycle()
+                        val hasDocuments by produceState(initialValue = false, documentVersion) {
+                            value = withContext(Dispatchers.IO) { !container.documents.isEmpty() }
+                        }
+                        val embeddingDismissed = container.settings[EMBEDDING_DOWNLOAD_DISMISSED]
+                        val showChatEmbeddingCard = hasDocuments && !embeddingDismissed && container.documentModelFile() == null && embeddingState !is SetupState.Ready
                         Column(modifier = Modifier.fillMaxSize()) {
                             NotificationAccessBanner()
+                            if (showChatEmbeddingCard) {
+                                SearchModelCard(
+                                    state = embeddingState,
+                                    onDownload = { container.embeddingSetup.start() },
+                                    onCancel = { container.embeddingSetup.cancel() },
+                                    onDismiss = {
+                                        container.settings.set(EMBEDDING_DOWNLOAD_DISMISSED, true)
+                                    },
+                                    technical = technical,
+                                    onOpenHub = {
+                                        nav.navigate("$ROUTE_HUB?repo=${Uri.encode(DEFAULT_EMBEDDING_REPO)}&file=${Uri.encode(DEFAULT_EMBEDDING_FILE)}")
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                            }
                             CompositionLocalProvider(LocalTechnicalDetail provides technical) {
                             ChatScreen(
                                 viewModel = chat,
@@ -643,9 +672,12 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable(ROUTE_DOCUMENTS) {
+                        val embeddingState by container.embeddingSetup.state.collectAsStateWithLifecycle()
                         DocumentsScreen(
                             repository = container.documents,
-                            embeddingModelReady = container.documentModelFile() != null,
+                            embeddingState = embeddingState,
+                            onStartEmbedding = { container.embeddingSetup.start() },
+                            onCancelEmbedding = { container.embeddingSetup.cancel() },
                             onOpenHub = { repo, file ->
                                 nav.navigate("$ROUTE_HUB?repo=${Uri.encode(repo)}&file=${Uri.encode(file)}")
                             },
