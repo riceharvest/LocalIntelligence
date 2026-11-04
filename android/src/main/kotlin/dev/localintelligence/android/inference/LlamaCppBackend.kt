@@ -355,15 +355,16 @@ class LlamaCppBackend(
             val outcome = LlamaBridge.takeResult(h)
             // A native reply is read back from llama.cpp's parser and written as the
             // app's own markup, so the agent parses it exactly as before.
-            val nativeText = if (native != null && error == null && outcome?.error == null) {
-                LlamaBridge.chatResult(h)?.let { nativeMarkup(it, native.tools) }?.also { markup ->
+            val nativeReply = if (native != null && error == null && outcome?.error == null) {
+                LlamaBridge.chatResult(h)?.let { nativeMarkup(it, native.tools) }?.also { reply ->
                     // What the model chose this step: a tool (by name) or a reply. Names only, no content.
-                    val chose = TOOL_NAME.find(markup)?.groupValues?.get(1)?.let { "tool $it" } ?: "reply"
+                    val chose = TOOL_NAME.find(reply.markup)?.groupValues?.get(1)?.let { "tool $it" } ?: "reply"
                     android.util.Log.i(TAG, "native reply: model chose $chose")
                 }
             } else {
                 null
             }
+            val nativeText = nativeReply?.markup
             val stop = when {
                 // An error from the native call wins: the outcome may be the
                 // default ERROR with no text, and the reason matters more.
@@ -396,6 +397,7 @@ class LlamaCppBackend(
                 stopReason = stop,
                 prefillMs = outcome?.prefillMs ?: 0L,
                 decodeMs = outcome?.decodeMs ?: 0L,
+                thought = nativeReply?.thought,
             )
         }
     }
@@ -799,16 +801,29 @@ class LlamaCppBackend(
      * the first tool call as `<tool name="NAME">ARGS</tool>`, otherwise the content as
      * `<respond>`. Null when the JSON does not read.
      */
-    private fun nativeMarkup(raw: String, tools: List<ToolDefinition>): String? {
+    private fun nativeMarkup(raw: String, tools: List<ToolDefinition>): NativeReply? {
         val reply = runCatching { Json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return null
+        // The thought llama.cpp split out of the reply (`reasoning`), or the one left in the
+        // content by a bare close tag. Shown to the user only; it never enters the markup.
+        val thought = reply.string("reasoning")?.trim()?.takeIf { it.isNotEmpty() }
+            ?: reply.string("content")?.let(::bareThought)
         val call = (reply["tool_calls"] as? JsonArray)?.firstOrNull() as? JsonObject
         if (call != null) {
             val wire = call.string("name") ?: return null
             val args = call.string("arguments")?.takeIf { it.isNotBlank() } ?: "{}"
             val name = tools.firstOrNull { wireName(it.name) == wire }?.name ?: wire
-            return "<tool name=\"$name\">$args</tool>"
+            return NativeReply("<tool name=\"$name\">$args</tool>", thought)
         }
-        return "<respond>${withoutThinking(reply.string("content").orEmpty())}</respond>"
+        return NativeReply("<respond>${withoutThinking(reply.string("content").orEmpty())}</respond>", thought)
+    }
+
+    /** A native reply's markup, and the thought it had (null when it did not think). */
+    private class NativeReply(val markup: String, val thought: String?)
+
+    /** The text before a bare [THINK_END] in [content], or null when there is none. */
+    private fun bareThought(content: String): String? {
+        val end = content.lastIndexOf(THINK_END)
+        return if (end < 0) null else content.substring(0, end).trim().takeIf { it.isNotEmpty() }
     }
 
     /**

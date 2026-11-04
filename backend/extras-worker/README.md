@@ -23,7 +23,7 @@ Nothing here is deployed yet. The owner does the steps below.
 |---|---|---|
 | `POST /v1/activate` | the app, after a Play purchase | body `{packageName, productId, purchaseToken, installId}`. Verifies the purchase, provisions keys, returns `{expiresAt, openrouter: {key, model}, exa: {key}}`. Idempotent. Limited to 10 calls per install id per hour. |
 | `POST /v1/refresh` | the app, at start when expiry is near | body `{purchaseToken, installId}`. Same keys if still active, `402 not_active` otherwise. |
-| `POST /v1/rtdn/<RTDN_PATH_SECRET>` | Google Pub/Sub push | Play real-time developer notification. Re-reads the subscription from Google and disables or re-provisions keys to match. |
+| `POST /v1/rtdn/<RTDN_PATH_SECRET>` | Google Pub/Sub push | Play real-time developer notification. Needs the path secret and a valid Google OIDC bearer token (`Authorization: Bearer`, checked against Google's signing keys for `PUBSUB_AUDIENCE` and `PUBSUB_SERVICE_ACCOUNT_EMAIL`), otherwise `401`. Re-reads the subscription from Google and disables or re-provisions keys to match. |
 
 Error bodies are `{error, message}` with a fixed `error` code. Keys are returned only with
 `Cache-Control: no-store`. Nothing logs keys, purchase tokens or provider response bodies.
@@ -50,6 +50,8 @@ Plain variables in `wrangler.toml` `[vars]` (edit the file, then deploy):
 | `OPENROUTER_MONTHLY_LIMIT_USD` | `3.50` | Per-customer monthly cap, reset by OpenRouter (`limit_reset: monthly`). **Owner to confirm.** |
 | `EXA_RATE_LIMIT_RPS` | `5` | Per-customer Exa requests per second. **Owner to confirm.** |
 | `EXA_BUDGET_CENTS` | `150` | Per-customer Exa budget for the team's billing period, in cents. **Owner to confirm.** |
+| `PUBSUB_AUDIENCE` | `TODO-OWNER-PUBSUB-AUDIENCE` | The audience of the Pub/Sub push token. Use the exact audience you enter on the push subscription (step 9.3). Until it is set, every push is refused with 401. |
+| `PUBSUB_SERVICE_ACCOUNT_EMAIL` | `TODO-OWNER-PUBSUB-SERVICE-ACCOUNT-EMAIL` | The service account the push subscription signs as. Until it is set, every push is refused with 401. |
 
 ## Deploy steps (owner)
 
@@ -69,7 +71,10 @@ Run these in `backend/extras-worker/`.
       `google-play-developer-notifications@system.gserviceaccount.com` the Pub/Sub Publisher role on it.
    2. Set that topic as the notification topic in the Play Console (Monetization setup).
    3. Create a push subscription on the topic with endpoint
-      `https://<worker URL>/v1/rtdn/<RTDN_PATH_SECRET>`.
+      `https://<worker URL>/v1/rtdn/<RTDN_PATH_SECRET>`, with authentication enabled: pick a service
+      account (it becomes `PUBSUB_SERVICE_ACCOUNT_EMAIL`) and set the audience (it becomes
+      `PUBSUB_AUDIENCE`; the endpoint URL is a sensible choice). Then set both values in `wrangler.toml`
+      and deploy. Equivalent gcloud flags: `--push-auth-service-account` and `--push-auth-token-audience`.
    4. Send a test notification from the Play Console and check the Worker logs show no errors.
    Docs: https://developer.android.com/google/play/billing/getting-ready and https://cloud.google.com/pubsub/docs/push
 10. Create the `extras_monthly` subscription in the Play Console with the price you choose.
@@ -87,8 +92,10 @@ To change a secret later, run `wrangler secret put` again. To change a var, edit
 - **Grace period counts as active** (`SUBSCRIPTION_STATE_IN_GRACE_PERIOD`), following Play's
   guidance that users keep access while billing is retried. This is a policy choice; change
   `entitlementFor` in `src/google.ts` if you want it stricter.
-- **Pub/Sub push is authenticated by the secret in the URL path only.** You can add OIDC token
-  verification on top (Pub/Sub can sign pushes); not done here.
+- **Pub/Sub push OIDC check is written but not tested against a live push.** `src/pubsub-auth.ts`
+  checks the token's signature, `iss`, `aud`, `email`, `email_verified` and `exp`. The issuer and JWKS
+  URL were confirmed from Google's OpenID configuration. Confirm with a real test notification
+  from the Play Console before launch.
 - **Exa key recreation on renewal.** A cancelled customer's Exa key is deleted and a new one is
   created on renewal. The phone only learns the new key on its next `/v1/refresh`. The app should
   refresh when its Exa key gets a 401 or when expiry has passed.

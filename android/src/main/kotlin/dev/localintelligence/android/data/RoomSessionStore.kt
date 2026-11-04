@@ -50,6 +50,19 @@ class RoomSessionStore(
         messageDao.forSession(sessionId).map(MessageMapping::fromColumns)
     }
 
+    override suspend fun lastUserText(sessionId: Long): String? = withContext(ioDispatcher) {
+        messageDao.lastTextOf(sessionId, MessageKind.USER.wire)
+    }
+
+    /**
+     * One statement, so a crash cannot leave the user turn deleted and its reply behind.
+     * It deletes from the newest user row, which is the turn being replaced; the caller has
+     * already checked that this row holds the text the chat shows.
+     */
+    override suspend fun dropLastTurn(sessionId: Long): Boolean = withContext(ioDispatcher) {
+        messageDao.deleteFromLastUser(sessionId, MessageKind.USER.wire) > 0
+    }
+
     /**
      * Wipes sessions, messages and summaries. Memories are deliberately NOT cleared:
      * a cleared conversation history is not the same request as "forget everything I

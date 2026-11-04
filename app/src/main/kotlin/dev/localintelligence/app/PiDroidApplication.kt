@@ -1,6 +1,7 @@
 package dev.localintelligence.app
 
 import android.app.Application
+import dev.localintelligence.app.crash.CrashReports
 import dev.localintelligence.core.settings.CoreSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +40,9 @@ class LocalIntelligenceApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // First, so a crash while the container is being built is still written down.
+        CrashReports.install(this)
+        CrashReports.importExitReasons(this)
         container = AppContainer(this)
         // The app lock starts here, before any activity, so it counts every activity from the first one.
         container.appLock

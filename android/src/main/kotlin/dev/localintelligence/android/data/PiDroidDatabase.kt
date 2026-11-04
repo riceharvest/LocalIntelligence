@@ -29,8 +29,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MemoryEntity::class,
         SessionSummaryEntity::class,
         ObservationEntity::class,
+        PersonaEntity::class,
     ],
-    version = 2,
+    version = 3,
     // Exported to android/schemas and committed: each migration's SQL is copied from
     // there, so a migrated table matches what Room validates on open.
     exportSchema = true,
@@ -43,6 +44,7 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
     abstract fun memoryDao(): MemoryDao
     abstract fun summaryDao(): SummaryDao
     abstract fun observationDao(): ObservationDao
+    abstract fun personaDao(): PersonaDao
 
     companion object {
         const val NAME: String = "localintelligence.db"
@@ -62,7 +64,7 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
          */
         fun build(context: Context, name: String = NAME): LocalIntelligenceDatabase =
             Room.databaseBuilder(context.applicationContext, LocalIntelligenceDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
 
         /**
@@ -77,6 +79,21 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `observations` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `tool_name` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `text` TEXT NOT NULL, `original_chars` INTEGER NOT NULL)",
                 )
+            }
+        }
+
+        /**
+         * 2 to 3: adds `personas` (the saved personas, see [PersonaEntity]) and `sessions.persona_id`
+         * (the persona each chat was started with). Both are copied from the 3.json schema. The new
+         * column is nullable with no default, so existing chats read as "no persona" and nothing
+         * is rewritten.
+         */
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `personas` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `text` TEXT NOT NULL, `created_at` INTEGER NOT NULL)",
+                )
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `persona_id` INTEGER")
             }
         }
     }

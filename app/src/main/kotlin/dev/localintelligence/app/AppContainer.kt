@@ -1,6 +1,7 @@
 package dev.localintelligence.app
 
 import dev.localintelligence.core.tool.ToolFinder
+import dev.localintelligence.android.data.durablePersonaStore
 import dev.localintelligence.android.data.durableSessionStore
 import dev.localintelligence.android.data.lazyObservationStore
 import dev.localintelligence.core.tool.ObservationStore
@@ -51,6 +52,10 @@ import dev.localintelligence.app.settings.ComputeChoice
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.speech.Speaker
 import dev.localintelligence.core.plugin.AgentPlugin
+import dev.localintelligence.core.persona.Persona
+import dev.localintelligence.core.persona.PersonaLimits
+import dev.localintelligence.core.persona.PersonaPlugin
+import dev.localintelligence.core.persona.PersonaStore
 import dev.localintelligence.core.plugin.PluginSet
 import dev.localintelligence.core.policy.BlastRadiusTracker
 import dev.localintelligence.core.policy.PolicyConfig
@@ -117,6 +122,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -515,6 +521,29 @@ class AppContainer(private val context: Context) {
     private val sessionStore: SessionStore? by lazy { SessionStoreFactory.provide(context) }
 
     /**
+     * The saved personas and each chat's persona. Opened like [sessionStore]: a failure
+     * leaves personas unavailable (none can be chosen) rather than stopping the app.
+     */
+    private val personaStore: PersonaStore? by lazy {
+        try {
+            durablePersonaStore(context)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            android.util.Log.w("AppContainer", "No persona store; personas are unavailable.", t)
+            null
+        }
+    }
+
+    /**
+     * The persona of the chat in progress, or null for none. Read by [newController] on every
+     * run, which cannot suspend, so it is loaded where the conversation is loaded and on a
+     * new chat, and refreshed when a persona is saved or deleted.
+     */
+    @Volatile
+    private var chatPersona: Persona? = null
+
+    /**
      * The id of the durable conversation this process appends to.
      *
      * Created once, on the first write, and then held for the process: the
@@ -555,6 +584,9 @@ class AppContainer(private val context: Context) {
         // durable thread, and it is the same fact Room would otherwise have to
         // be asked for.
         val id = pinnedSessionId ?: return
+        // Before the history: a chat that was started with a persona and never got a message
+        // has no turns to restore, but it still has its persona.
+        chatPersona = loadChatPersona(id)
         val history = try {
             withContext(Dispatchers.IO) { store.messages(id) }
         } catch (e: CancellationException) {
@@ -602,6 +634,17 @@ class AppContainer(private val context: Context) {
     private suspend fun durableSessionId(store: SessionStore): Long {
         pinnedSessionId?.let { return it }
         val id = withContext(Dispatchers.IO) { store.createSession() }
+        // A chat started with a persona whose row was not created on the new-chat path (see
+        // [startNewConversation]) gets its persona here, on its first message.
+        chatPersona?.let { persona ->
+            try {
+                withContext(Dispatchers.IO) { personaStore?.setChatPersona(id, persona.id) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                android.util.Log.w(TAG, "Could not record the chat's persona.", t)
+            }
+        }
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .edit()
             .putLong(KEY_SESSION_ID, id)
@@ -617,7 +660,7 @@ class AppContainer(private val context: Context) {
      * Only between runs: [session] is not guarded (see its KDoc), so the caller
      * checks that nothing is running first.
      */
-    suspend fun startNewConversation() {
+    suspend fun startNewConversation(personaId: Long? = null) {
         // The between-messages work folds this session; it is stopped and joined
         // first, or a fold still running could write the old conversation back
         // into the new one.
@@ -628,9 +671,81 @@ class AppContainer(private val context: Context) {
             .remove(KEY_SESSION_ID)
             .apply()
         restoredTurns = emptyList()
+        chatPersona = personaId?.let { loadPersona(it) }
+        // With a persona, the chat's row is created now and pinned, so the persona survives
+        // a restart before the first message. Without one, the row waits for the first message
+        // as it always did, and the prompt is unchanged.
+        chatPersona?.let { persona -> pinNewChatWithPersona(persona.id) }
         // The old conversation's cloud sandbox is stopped in the background: a stop can take a
         // network round trip, and the chat should clear now. The next conversation starts its own.
         appScope.launch { sandboxPlugin.endConversation() }
+    }
+
+    /** Creates the row for a new chat that starts with a persona, and pins it. A failure falls back to the lazy path. */
+    private suspend fun pinNewChatWithPersona(personaId: Long) {
+        val store = sessionStore ?: return
+        val personas = personaStore ?: return
+        try {
+            val id = withContext(Dispatchers.IO) {
+                store.createSession().also { personas.setChatPersona(it, personaId) }
+            }
+            context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+                .edit()
+                .putLong(KEY_SESSION_ID, id)
+                .apply()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "Could not create a chat with its persona; it is recorded on the first message.", t)
+        }
+    }
+
+    private suspend fun loadPersona(id: Long): Persona? = try {
+        withContext(Dispatchers.IO) { personaStore?.get(id) }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        android.util.Log.w(TAG, "Could not read persona $id.", t)
+        null
+    }
+
+    private suspend fun loadChatPersona(sessionId: Long): Persona? = try {
+        withContext(Dispatchers.IO) {
+            personaStore?.chatPersonaId(sessionId)?.let { personaStore?.get(it) }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        android.util.Log.w(TAG, "Could not read the chat's persona.", t)
+        null
+    }
+
+    /** The saved personas, for the Personas screen and the New chat dialog. Empty when the store is unavailable. */
+    suspend fun personas(): List<Persona> = try {
+        withContext(Dispatchers.IO) { personaStore?.list().orEmpty() }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        android.util.Log.w(TAG, "Could not list personas.", t)
+        emptyList()
+    }
+
+    /** Adds ([id] null) or edits a persona. The chat in progress picks up an edit from its next message. */
+    suspend fun savePersona(id: Long?, name: String, text: String) {
+        require(PersonaLimits.problemWith(name, text) == null) { "Persona is not valid." }
+        withContext(Dispatchers.IO) { personaStore?.save(id, name, text) }
+        refreshChatPersona()
+    }
+
+    /** Deletes a persona. Chats that used it go back to no persona. */
+    suspend fun deletePersona(id: Long) {
+        withContext(Dispatchers.IO) { personaStore?.delete(id) }
+        refreshChatPersona()
+    }
+
+    private suspend fun refreshChatPersona() {
+        val current = chatPersona ?: return
+        chatPersona = loadPersona(current.id)
     }
 
     /**
@@ -744,7 +859,52 @@ class AppContainer(private val context: Context) {
      */
     fun persistRunEnd() {
         val pending = snapshotPendingMessages()
-        if (pending.isNotEmpty()) appScope.launch { writeSnapshot(pending) }
+        if (pending.isNotEmpty()) launchWrite(pending)
+    }
+
+    /**
+     * The window writes that are launched in the background and not yet finished. A replace
+     * waits for them ([replaceLastTurn]), so none of them can write the dropped turn back
+     * after its row has been deleted.
+     */
+    private val writeJobs = java.util.concurrent.ConcurrentLinkedQueue<Job>()
+
+    private fun launchWrite(pending: List<ChatMessage>) {
+        val job = appScope.launch { writeSnapshot(pending) }
+        writeJobs += job
+        job.invokeOnCompletion { writeJobs.remove(job) }
+    }
+
+    /**
+     * Makes the conversation forget its newest user turn and the replies after it, in memory
+     * and in the store, so a retry or an edit can send that message again. It runs after the
+     * stored conversation is restored and before the run starts.
+     *
+     * Returns false, and changes neither copy, when the newest turn is not [expectedText] in the
+     * window or in the store, or when either cannot drop it. The run then does not start, so the
+     * model never answers on top of a turn the user asked to replace.
+     */
+    suspend fun replaceLastTurn(expectedText: String): Boolean {
+        if (session.lastUserText() != expectedText || !session.canDropLastTurn()) return false
+        val store = sessionStore
+        val id = pinnedSessionId
+        if (store != null && id != null) {
+            // Every write already launched must land before the delete, or it could put the turn back.
+            writeJobs.toList().joinAll()
+            val dropped = try {
+                withContext(Dispatchers.IO) {
+                    if (store.lastUserText(id) != expectedText) return@withContext false
+                    store.dropLastTurn(id)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                android.util.Log.w(TAG, "Could not drop the replaced turn from the store.", t)
+                false
+            }
+            if (!dropped) return false
+        }
+        return session.dropLastTurn()
     }
 
     @Volatile
@@ -1578,7 +1738,16 @@ class AppContainer(private val context: Context) {
         // Settings are frozen for the run, and the tool set is built from the
         // plugins switched on right now: a toggle applies from the next message.
         val snapshot = settings.snapshot()
-        val pluginSet = PluginSet(plugins, snapshot, settings::isPluginEnabled)
+        // The chat's persona is one more plugin for this run only, and only when the chat has one:
+        // with none, the plugin set is exactly the one it was before personas existed.
+        val persona = chatPersona
+        val pluginSet = if (persona == null) {
+            PluginSet(plugins, snapshot, settings::isPluginEnabled)
+        } else {
+            PluginSet(plugins + PersonaPlugin(persona.text), snapshot) { plugin ->
+                plugin is PersonaPlugin || settings.isPluginEnabled(plugin)
+            }
+        }
         // No catalogue here: the enabled subset is smaller than the catalogue by design.
         // The full set is checked once, in `plugins`.
         // Simple mode sizes the prompt budget from the window the loaded model really has, bounded
@@ -1641,7 +1810,7 @@ class AppContainer(private val context: Context) {
         onWindowChanged = {
             val pending = snapshotPendingMessages()
             if (pending.isNotEmpty()) {
-                appScope.launch { writeSnapshot(pending) }
+                launchWrite(pending)
             }
         },
         model = model,

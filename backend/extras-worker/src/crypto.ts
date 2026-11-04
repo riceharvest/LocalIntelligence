@@ -32,6 +32,12 @@ export function base64UrlEncode(bytes: Uint8Array): string {
   return bytesToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/** Decodes base64url with or without padding (JWT segments and JWK values). Throws on bad input. */
+export function base64UrlToBytes(text: string): Uint8Array<ArrayBuffer> {
+  const standard = text.replace(/-/g, "+").replace(/_/g, "/");
+  return base64ToBytes(standard.padEnd(Math.ceil(standard.length / 4) * 4, "="));
+}
+
 export async function sha256Hex(text: string): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", utf8(text)));
   let hex = "";

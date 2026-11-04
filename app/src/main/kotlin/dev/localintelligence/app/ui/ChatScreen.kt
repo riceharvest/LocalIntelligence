@@ -29,10 +29,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -77,6 +82,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.app.ModelAvailability
+import dev.localintelligence.app.RunOutcome
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.SetupState
 import dev.localintelligence.app.blockingReason
@@ -193,8 +199,17 @@ fun ChatScreen(
     // non-observable read happens to be correct here only because this
     // composable also collects `runState`; deriving it keeps that guarantee
     // local instead of resting on a coincidence in another file.
-    val busy = runState.isActive
+    val transcribing by viewModel.transcribing.collectAsStateWithLifecycle()
+    val busy = runState.isActive || transcribing
     val blocked = modelState.blockingReason()
+    // Retry and Edit both act on the last turn, so they are offered only there. A turn with
+    // pictures or a voice clip cannot be sent again: the media bytes are not kept.
+    val lastUserIndex = messages.indexOfLast { it is ChatMessage.User }
+    val lastAnswerIndex = messages.indexOfLast { it is ChatMessage.Assistant }
+    val lastUserReplayable = (messages.getOrNull(lastUserIndex) as? ChatMessage.User)?.attached?.isEmpty() == true
+    val canRetry = !busy && lastUserReplayable && lastAnswerIndex > lastUserIndex &&
+        (runState as? RunState.Finished)?.outcome is RunOutcome.Answer
+    val canEdit = !busy && lastUserReplayable
 
     val listState = rememberLazyListState()
 
@@ -228,8 +243,48 @@ fun ChatScreen(
     val pickPicture = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.attachPicture(uri.toString())
     }
-    val onAttach: () -> Unit = {
-        pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    // Attach asks what to attach. A photo goes to the vision path as before. An audio file is
+    // offered for transcription, and a model that cannot hear says so in one line at once.
+    var attachChoice by remember { mutableStateOf(false) }
+    var pendingAudio by remember { mutableStateOf<String?>(null) }
+    val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val blocked = viewModel.transcribeBlockedReason()
+        if (blocked != null) viewModel.showNotice(blocked) else pendingAudio = uri.toString()
+    }
+    val onAttach: () -> Unit = { attachChoice = true }
+    if (attachChoice) {
+        AlertDialog(
+            onDismissRequest = { attachChoice = false },
+            title = { Text("Attach") },
+            text = { Text("A photo for the model to see, or an audio file to transcribe.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    attachChoice = false
+                    pickPicture.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) { Text("Photo") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    attachChoice = false
+                    pickAudio.launch(arrayOf("audio/*"))
+                }) { Text("Audio file") }
+            },
+        )
+    }
+    pendingAudio?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { pendingAudio = null },
+            title = { Text("Transcribe this recording?") },
+            text = { Text("The text is written into the chat as the model hears it. Stop ends it.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingAudio = null
+                    viewModel.transcribe(uri)
+                }) { Text("Transcribe") }
+            },
+            dismissButton = { TextButton(onClick = { pendingAudio = null }) { Text("Cancel") } },
+        )
     }
     // Hands-free mode needs the same microphone grant as the mic button. It is not
     // offered while the mic button is in use, and it stops when the app leaves the screen.
@@ -431,12 +486,26 @@ fun ChatScreen(
             items(entries, key = { entry -> entry.key }) { entry ->
                 when (entry) {
                     is TranscriptEntry.Single -> when (val message = entry.message) {
-                        is ChatMessage.User -> UserBubble(message.text, message.attached)
+                        is ChatMessage.User -> UserBubble(
+                            text = message.text,
+                            attached = message.attached,
+                            onEdit = if (canEdit && message === messages.getOrNull(lastUserIndex)) {
+                                { viewModel.editLast() }
+                            } else {
+                                null
+                            },
+                        )
                         is ChatMessage.Assistant -> AssistantBubble(
                             text = message.text,
+                            thought = message.thought,
                             speaking = speakingText == message.text,
                             onSpeak = { viewModel.toggleSpeak(message.text) },
                             onReport = { reportingReply = message.text },
+                            onRetry = if (canRetry && message === messages.getOrNull(lastAnswerIndex)) {
+                                { viewModel.retryLast() }
+                            } else {
+                                null
+                            },
                             onSaveAsSkill = if (skills != null && skillDraft != null && message === messages.last()) {
                                 { editingSkill = skillDraft }
                             } else {
@@ -444,6 +513,7 @@ fun ChatScreen(
                             },
                         )
                         is ChatMessage.Notice -> NoticeLine(message.text)
+                        is ChatMessage.Transcript -> TranscriptCard(message) { viewModel.saveTranscript(it) }
                         is ChatMessage.Approval -> ApprovalRow(message)
                         is ChatMessage.ToolStep -> ToolStepRow(message, animate)
                     }
@@ -514,7 +584,7 @@ private suspend fun LazyListState.scrollToEnd() {
 
 /** The user's message: a compact bubble on the right that fits its text, up to 80% of the width. */
 @Composable
-private fun UserBubble(text: String, attached: List<ShownAttachment>) {
+private fun UserBubble(text: String, attached: List<ShownAttachment>, onEdit: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(Modifier.fillMaxWidth(0.8f), contentAlignment = Alignment.CenterEnd) {
             Surface(
@@ -539,6 +609,13 @@ private fun UserBubble(text: String, attached: List<ShownAttachment>) {
             }
         }
     }
+    if (onEdit != null) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            IconButton(onClick = onEdit) {
+                Icon(Icons.Filled.Edit, contentDescription = "Edit message", modifier = Modifier.size(18.dp))
+            }
+        }
+    }
 }
 
 /**
@@ -548,15 +625,18 @@ private fun UserBubble(text: String, attached: List<ShownAttachment>) {
 @Composable
 private fun AssistantBubble(
     text: String,
+    thought: String?,
     speaking: Boolean,
     onSpeak: () -> Unit,
     onReport: () -> Unit,
+    onRetry: (() -> Unit)? = null,
     onSaveAsSkill: (() -> Unit)? = null,
 ) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+        if (thought != null) ThoughtRow(thought)
         SelectionContainer { MarkdownText(text) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = {
@@ -580,6 +660,11 @@ private fun AssistantBubble(
             IconButton(onClick = onReport) {
                 Icon(Icons.Filled.Flag, contentDescription = "Report reply", modifier = Modifier.size(20.dp))
             }
+            if (onRetry != null) {
+                IconButton(onClick = onRetry) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Retry", modifier = Modifier.size(20.dp))
+                }
+            }
             if (onSaveAsSkill != null) {
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
@@ -595,6 +680,39 @@ private fun AssistantBubble(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The model's reasoning for an answer, folded: a single line that opens to the text. Folded
+ * by default so the answer is what the eye lands on; the thought is there for anyone who asks.
+ */
+@Composable
+private fun ThoughtRow(thought: String) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth()) {
+        TextButton(onClick = { expanded = !expanded }) {
+            Icon(
+                imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                "Thought for a moment",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+        if (expanded) {
+            SelectionContainer {
+                Text(
+                    thought,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 12.dp, bottom = 8.dp),
+                )
             }
         }
     }
@@ -675,6 +793,32 @@ private fun StreamingBubble(text: String) {
         MarkdownText(text)
         Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+        }
+    }
+}
+
+/**
+ * A transcript of a picked audio file. It grows while the model writes; Copy and Save as
+ * document appear once it is finished, so a half-written transcript cannot be saved.
+ */
+@Composable
+private fun TranscriptCard(message: ChatMessage.Transcript, onSave: (String) -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(
+            text = if (message.running) "Transcribing…" else "Transcript",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = message.text.ifEmpty { "…" },
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (!message.running && message.text.isNotBlank()) {
+            Row {
+                TextButton(onClick = { clipboard.setText(AnnotatedString(message.text)) }) { Text("Copy") }
+                TextButton(onClick = { onSave(message.text) }) { Text("Save as document") }
+            }
         }
     }
 }

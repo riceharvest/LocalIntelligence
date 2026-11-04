@@ -281,6 +281,19 @@
             </intent-filter>
         </receiver>
 
+        <!-- Lets another app start one of this app's scheduled tasks by id, with the token from
+             Technical settings. Exported on purpose: a broadcast from Tasker or adb must reach it.
+             The receiver refuses unless the toggle is on and the token matches, and it takes a
+             task id and never a prompt. See RunTaskReceiver and docs/threat-model.md (T11). -->
+        <receiver
+            android:name=".execution.RunTaskReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="dev.localintelligence.action.RUN_TASK" />
+            </intent-filter>
+        </receiver>
+
         <!-- Where notification access is actually requested.
 
              The listener service above is bound by the system only after a human

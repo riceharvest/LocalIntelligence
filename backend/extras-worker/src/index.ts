@@ -11,6 +11,7 @@ import { constantTimeEquals } from "./crypto";
 import type { Env } from "./env";
 import { handleActivate, handleRefresh, handleRtdn } from "./handlers";
 import { errorResponse, HttpError, ProviderError } from "./http";
+import { verifyPubsubPush } from "./pubsub-auth";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -22,6 +23,7 @@ export default {
       if (url.pathname.startsWith("/v1/rtdn/")) {
         const secret = url.pathname.slice("/v1/rtdn/".length);
         if (!constantTimeEquals(secret, env.RTDN_PATH_SECRET)) return errorResponse("not_found", 404, "not found");
+        await verifyPubsubPush(request, env);
         return await handleRtdn(request, env);
       }
       return errorResponse("not_found", 404, "not found");
