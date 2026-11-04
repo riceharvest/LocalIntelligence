@@ -692,7 +692,11 @@ source the user never set is on when Android already grants its permission
 reply actions sit in one overflow menu, tool rows and approvals use plain words,
 and run failures use the Simple wording (`transcriptLine(simple = true)`).
 Simple's words avoid model, token, context and the like; technical terms stay in
-Technical's own strings.
+Technical's own strings. Failures reach Simple as plain sentences from `SimpleWording`,
+which matches the words of a failure text to a kind (no network, low memory, storage
+full, and so on); a text that matches none gets the generic sentence. New Simple
+step rows (plan updates, helper runs) are one quiet line each. New chat is the first
+row of Simple's Settings, with one plain confirm.
 
 **Play build, Simple mode: recommended models only.** The Play build's Simple
 mode limits the Hub to the recommended models (`SimpleSetup.recommendedModels`:

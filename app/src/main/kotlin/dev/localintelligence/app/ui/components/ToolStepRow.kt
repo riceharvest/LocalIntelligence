@@ -3,6 +3,7 @@ package dev.localintelligence.app.ui.components
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
+import dev.localintelligence.app.SimpleWording
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
@@ -136,6 +137,16 @@ fun ToolStepRow(
         return
     }
     val state = stateOf(step)
+    // Simple mode: a plan or helper step is one quiet line, with no name, arguments or steps behind it.
+    val quiet = quietSentence(step.toolName)
+    if (quiet != null && !LocalTechnicalDetail.current) {
+        QuietStepRow(
+            text = stringResource(if (state == ToolRowState.Done) quiet else R.string.simple_step_not_finished),
+            toolName = step.toolName,
+            modifier = modifier,
+        )
+        return
+    }
     // Every row starts folded: its title already says whether it worked, and
     // the raw input and output are one tap away for whoever wants them.
     var expanded by rememberSaveable(step.toolName, step.args) { mutableStateOf(false) }
@@ -190,6 +201,10 @@ fun RunningToolRow(
     animate: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    if (quietSentence(tool.toolName) != null && !LocalTechnicalDetail.current) {
+        QuietStepRow(text = stringResource(R.string.working_on_it), toolName = tool.toolName, modifier = modifier)
+        return
+    }
     ToolRow(
         toolName = tool.toolName,
         state = ToolRowState.Running,
@@ -372,6 +387,12 @@ fun ToolCallGroup(
     var userChose by rememberSaveable { mutableStateOf(false) }
 
     val finished = !live
+    // The visible label, and the one TalkBack reads: the same words in both modes' own wording.
+    val groupText = if (!LocalTechnicalDetail.current) {
+        stringResource(if (live) R.string.working_on_it else R.string.simple_steps_done)
+    } else {
+        (if (live) "Using " else "Used ") + "${steps.size} tools"
+    }
     LaunchedEffect(finished, autoCollapse) {
         if (finished && autoCollapse && !userChose) {
             delay(AUTO_FOLD_DELAY_MS)
@@ -391,8 +412,7 @@ fun ToolCallGroup(
                 .padding(horizontal = 4.dp, vertical = 6.dp)
                 .semantics(mergeDescendants = true) {
                     contentDescription = buildString {
-                        append(if (live) "Using " else "Used ")
-                        append(steps.size).append(" tools")
+                        append(groupText)
                         append(if (collapsed) ". Folded. Double tap to expand." else ". Double tap to fold.")
                     }
                 },
@@ -401,11 +421,7 @@ fun ToolCallGroup(
         ) {
             MarkStack(steps.map { markFor(it.toolName) })
             Text(
-                text = if (!LocalTechnicalDetail.current) {
-                    stringResource(if (live) R.string.working_on_it else R.string.simple_steps_done)
-                } else {
-                    (if (live) "Using " else "Used ") + "${steps.size} tools"
-                },
+                text = groupText,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
@@ -532,18 +548,25 @@ val LocalTechnicalDetail = compositionLocalOf { false }
  */
 @Composable
 private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate: Boolean) {
-    SubSteps(step.subSteps)
     val output = if (state == ToolRowState.Refused) step.detail else step.observation.orEmpty()
     if (!LocalTechnicalDetail.current) {
+        // Simple mode: a finished step shows its first lines. A step that did not finish shows a plain
+        // sentence for its kind of failure, never the raw text (which may name a file path or a library).
+        val text = if (state == ToolRowState.Done) {
+            output.lines().filter { it.isNotBlank() }.take(SIMPLE_DETAIL_LINES).joinToString("\n")
+                .ifBlank { stringResource(R.string.simple_nothing_came_back) }
+        } else {
+            SimpleWording.kindOf(output)?.let { stringResource(it.text) } ?: stringResource(R.string.simple_step_not_finished)
+        }
         Text(
-            text = output.lines().filter { it.isNotBlank() }.take(SIMPLE_DETAIL_LINES).joinToString("\n")
-                .ifBlank { "Nothing came back." },
+            text = text,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 8.dp, bottom = 6.dp),
         )
         return
     }
+    SubSteps(step.subSteps)
     val input = inputLines(step.args)
     var showAll by rememberSaveable(step.toolName, step.args) { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
@@ -858,6 +881,14 @@ private val toolVerbs: Map<String, ToolVerb> = mapOf(
 
 @Composable
 private fun verbFor(toolName: String): ResolvedVerb {
+    // Simple mode: the one verb with the word "tools" in it reads as a plain errand instead.
+    if (toolName == "tools.find" && !LocalTechnicalDetail.current) {
+        return ResolvedVerb(
+            stringResource(R.string.plain_verb_find_present),
+            stringResource(R.string.plain_verb_find_past),
+            stringResource(R.string.plain_verb_find_base),
+        )
+    }
     val verb = toolVerbs[toolName] ?: run {
         // "script.word_count.count_words" -> "Count words". Not translated: the name is the tool's own.
         val words = toolName.substringAfterLast('.').replace('_', ' ').trim().ifEmpty { "use a tool" }
@@ -966,6 +997,33 @@ fun ApprovalRow(
     )
 }
 
+/** The plain sentence for a quiet step (a plan update or a helper run), or null for every other tool. */
+internal fun quietSentence(toolName: String): Int? = when (toolName) {
+    "todo.update" -> R.string.plain_plan_updated
+    "task.delegate" -> R.string.plain_helper_ran
+    else -> null
+}
+
+/** One quiet line for a Simple step: the mark and the sentence, nothing to expand. */
+@Composable
+private fun QuietStepRow(text: String, toolName: String, modifier: Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(
+            imageVector = markFor(toolName),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(text = text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
 /**
  * The memory-block change a call made, as the chat row shows it: the note kept, and an Undo while
  * the block still holds what the change wrote.
@@ -989,8 +1047,11 @@ private fun MemoryLine(row: MemoryRow) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = if (row.cleared) stringResource(R.string.memory_block_cleared)
-            else stringResource(R.string.memory_block_remembered, row.note),
+            text = if (row.cleared) {
+                stringResource(if (LocalTechnicalDetail.current) R.string.memory_block_cleared else R.string.plain_memory_cleared)
+            } else {
+                stringResource(R.string.memory_block_remembered, row.note)
+            },
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.weight(1f),
         )

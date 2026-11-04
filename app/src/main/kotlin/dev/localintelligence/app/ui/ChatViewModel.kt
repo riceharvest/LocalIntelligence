@@ -147,8 +147,11 @@ class ChatViewModel(
     private val decodeAudio: suspend (String, suspend (ByteArray) -> Boolean) -> Unit = { _, _ -> },
     /** Where a saved transcript goes. Null in a host without the document store. */
     private val documents: DocumentStore? = null,
-    /** True in Simple mode, so a run that failed reads in plain words. Read when the notice is written. */
-    private val simpleMode: () -> Boolean = { false },
+    /**
+     * Simple mode's plain sentence for a run that failed, or null in Technical mode, which keeps the
+     * generic line. Read when the notice is written, so a mode change applies from the next failure.
+     */
+    private val plainFailure: (String) -> String? = { null },
 ) : ViewModel() {
 
     private val scope: CoroutineScope = scopeOverride ?: viewModelScope
@@ -844,8 +847,8 @@ class ChatViewModel(
         // "The text above" is only true when some text was drawn above the notice.
         val hasPartialText = lastGeneration != null && GenerationProse.display(lastGeneration.detail).isNotBlank()
         val notice = when (outcome) {
-            is RunOutcome.Cancelled -> if (hasPartialText) CANCELLED_MID_ANSWER else outcome.transcriptLine(simpleMode())
-            else -> outcome.transcriptLine(simpleMode())
+            is RunOutcome.Cancelled -> if (hasPartialText) CANCELLED_MID_ANSWER else outcome.transcriptLine(plainFailure)
+            else -> outcome.transcriptLine(plainFailure)
         }
         appendRows(listOf(ChatMessage.Notice(notice)))
     }
@@ -1176,9 +1179,14 @@ class ChatViewModel(
      * not loaded gets the chat's own sentence; a loaded model that cannot hear gets the
      * audio-projector sentence, the same one AgentController gives.
      */
+    /** Simple mode's plain sentence for [raw], or [raw] itself in Technical mode. */
+    private fun plainText(raw: String): String = plainFailure(raw) ?: raw
+
+    private fun plainNoAudio(): String = plainText(NO_AUDIO_MODEL)
+
     fun transcribeBlockedReason(): String? {
         modelAvailability.current.blockingReason()?.let { return it }
-        return if (transcriptionModel()?.capabilities?.supportsAudioInput == true) null else NO_AUDIO_MODEL
+        return if (transcriptionModel()?.capabilities?.supportsAudioInput == true) null else plainNoAudio()
     }
 
     /**
@@ -1195,7 +1203,7 @@ class ChatViewModel(
             return
         }
         transcribeBlockedReason()?.let { showNotice(it); return }
-        val backend = transcriptionModel() ?: return showNotice(NO_AUDIO_MODEL)
+        val backend = transcriptionModel() ?: return showNotice(plainNoAudio())
         transcribeStopped = false
         transcribingWith = backend
         _transcribing.value = true
@@ -1221,7 +1229,7 @@ class ChatViewModel(
                         redraw(running = true)
                     }
                     if (result.stopReason == StopReason.ERROR) {
-                        failure = "The model could not transcribe a part of the file."
+                        failure = plainText("The model could not transcribe a part of the file.")
                         return@decodeAudio false
                     }
                     !transcribeStopped
@@ -1229,7 +1237,7 @@ class ChatViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IllegalArgumentException) {
-                failure = e.message ?: "This file could not be transcribed."
+                failure = plainText(e.message ?: "This file could not be transcribed.")
             } catch (e: Exception) {
                 failure = "This file could not be read."
             } finally {
@@ -1391,8 +1399,7 @@ class ChatViewModel(
         private val transcriptionForeground: (Boolean) -> Unit = {},
         private val decodeAudio: suspend (String, suspend (ByteArray) -> Boolean) -> Unit = { _, _ -> },
         private val documents: DocumentStore? = null,
-        /** True in Simple mode, so a run that failed reads in plain words. Read when the notice is written. */
-        private val simpleMode: () -> Boolean = { false },
+        private val plainFailure: (String) -> String? = { null },
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T = build(modelClass, SavedStateHandle())
 
@@ -1422,7 +1429,7 @@ class ChatViewModel(
                 transcriptionForeground = transcriptionForeground,
                 decodeAudio = decodeAudio,
                 documents = documents,
-                simpleMode = simpleMode,
+                plainFailure = plainFailure,
             ) as T
         }
     }
@@ -1660,12 +1667,12 @@ sealed interface ChatMessage {
  * same text, and the trace screen renders it verbatim. So the chat states what
  * happened and where the detail is, and the developer still gets the original.
  */
-internal fun RunOutcome.transcriptLine(simple: Boolean = false): String = when (this) {
+internal fun RunOutcome.transcriptLine(plainFailure: (String) -> String? = { null }): String = when (this) {
     // The runtime's reason ("no valid action in 3 attempts", an exception name)
     // is for the Trace screen, which keeps it. The chat says what the user can do.
-    // Simple mode never says "model", which a phone user does not know the word for.
-    is RunOutcome.Failed -> if (reason.contains(CONTEXT_TOO_SMALL, ignoreCase = true)) {
-        if (simple) "That message is too long. Try a shorter one." else "That is too long for this model. Try a shorter message."
+    // Simple mode (plainFailure returns a sentence) never shows the raw reason or "model".
+    is RunOutcome.Failed -> plainFailure(reason) ?: if (reason.contains(CONTEXT_TOO_SMALL, ignoreCase = true)) {
+        "That is too long for this model. Try a shorter message."
     } else {
         "Something went wrong. Try again."
     }

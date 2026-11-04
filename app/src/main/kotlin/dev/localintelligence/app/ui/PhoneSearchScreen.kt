@@ -64,6 +64,8 @@ fun PhoneSearchScreen(
     settings: SettingsStore,
     index: PhoneIndexStore,
     fullBuild: Boolean,
+    /** Simple mode reads plainer sentences here. Technical keeps the wording it always had. */
+    simple: Boolean = false,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -109,9 +111,10 @@ fun PhoneSearchScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.phone_search_intro))
-            Text(stringResource(R.string.phone_search_privacy))
-            Text(stringResource(R.string.phone_search_charging_note))
+            // Simple mode reads plainer sentences; Technical keeps the wording it always had.
+            Text(stringResource(if (simple) R.string.plain_search_intro else R.string.phone_search_intro))
+            Text(stringResource(if (simple) R.string.plain_search_privacy else R.string.phone_search_privacy))
+            Text(stringResource(if (simple) R.string.plain_search_charging else R.string.phone_search_charging_note))
 
             for (source in sources) {
                 val def = toggleFor(source)

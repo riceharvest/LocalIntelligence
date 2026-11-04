@@ -225,6 +225,7 @@ fun SettingsScreen(
             if (!technical) {
                 SimpleSettingsColumn(
                     store = store,
+                    onNewChat = onNewChat,
                     onOpenPhoneSearch = onOpenPhoneSearch,
                     modifier = Modifier
                         .fillMaxSize()
@@ -388,12 +389,17 @@ private fun openUrl(context: Context, url: String) {
 @Composable
 private fun SimpleSettingsColumn(
     store: SettingsStore,
+    onNewChat: ((Long?) -> Unit)?,
     onOpenPhoneSearch: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     var asking by remember { mutableStateOf(false) }
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // The most-used action comes first. Its dialog asks once, in plain words.
+        onNewChat?.let { newChat ->
+            Card(modifier = Modifier.fillMaxWidth()) { NewChatRow(newChat, loadPersonas = null, simple = true) }
+        }
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 SettingRow(store, CoreSettings.ASSISTANT_NAME, technical = false)
@@ -465,7 +471,12 @@ private fun NavRow(icon: ImageVector, title: String, onClick: () -> Unit) {
  * exist, the dialog also picks the persona the new chat starts with; the default is none.
  */
 @Composable
-private fun NewChatRow(onNewChat: (Long?) -> Unit, loadPersonas: (suspend () -> List<Persona>)?) {
+private fun NewChatRow(
+    onNewChat: (Long?) -> Unit,
+    loadPersonas: (suspend () -> List<Persona>)?,
+    /** Simple mode: the confirm in plain words. The persona choice is not offered there. */
+    simple: Boolean = false,
+) {
     var asking by remember { mutableStateOf(false) }
     var personas by remember { mutableStateOf<List<Persona>>(emptyList()) }
     var chosen by remember { mutableStateOf<Long?>(null) }
@@ -480,7 +491,7 @@ private fun NewChatRow(onNewChat: (Long?) -> Unit, loadPersonas: (suspend () -> 
             title = { Text(stringResource(R.string.start_a_new_chat)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.this_conversation_will_be_cleared_past))
+                    Text(stringResource(if (simple) R.string.plain_new_chat_text else R.string.this_conversation_will_be_cleared_past))
                     if (personas.isNotEmpty()) {
                         Text(stringResource(R.string.persona), style = MaterialTheme.typography.labelLarge)
                         PersonaChoice(stringResource(R.string.none), selected = chosen == null) { chosen = null }

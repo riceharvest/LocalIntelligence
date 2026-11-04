@@ -88,6 +88,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.android.skills.SkillRepository
 import dev.localintelligence.core.skill.SkillDraft
 import dev.localintelligence.app.ModelAvailability
+import dev.localintelligence.app.SimpleWording
 import dev.localintelligence.app.RunOutcome
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.SetupState
@@ -264,7 +265,8 @@ fun ChatScreen(
         view.keepScreenOn = keepScreenAwake && busy
         onDispose { view.keepScreenOn = false }
     }
-    val blocked = modelState.blockingReason()
+    // Simple mode says why in plain words; Technical keeps the state's own line.
+    val blocked = if (technical) modelState.blockingReason() else SimpleWording.blocked(LocalContext.current, modelState)
     // Retry and Edit both act on the last turn, so they are offered only there. A turn with
     // pictures or a voice clip cannot be sent again: the media bytes are not kept.
     val lastUserIndex = messages.indexOfLast { it is ChatMessage.User }
@@ -329,7 +331,7 @@ fun ChatScreen(
         AlertDialog(
             onDismissRequest = { attachChoice = false },
             title = { Text(stringResource(R.string.attach)) },
-            text = { Text(stringResource(R.string.a_photo_for_the_model_to_see_or_an)) },
+            text = { Text(stringResource(if (technical) R.string.a_photo_for_the_model_to_see_or_an else R.string.plain_attach_text)) },
             confirmButton = {
                 TextButton(onClick = {
                     attachChoice = false
@@ -348,7 +350,7 @@ fun ChatScreen(
         AlertDialog(
             onDismissRequest = { pendingAudio = null },
             title = { Text(stringResource(R.string.transcribe_this_recording)) },
-            text = { Text(stringResource(R.string.the_text_is_written_into_the_chat_as)) },
+            text = { Text(stringResource(if (technical) R.string.the_text_is_written_into_the_chat_as else R.string.plain_transcribe_text)) },
             confirmButton = {
                 TextButton(onClick = {
                     pendingAudio = null
@@ -1128,6 +1130,14 @@ private fun EmptyState(
             TextButton(onClick = onOpenModels, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(stringResource(R.string.other_models))
             }
+        } else if (blockedReason != null && starter != null) {
+            // Simple mode: the Models screen is not offered there, so the one action is to start again.
+            Button(
+                onClick = onStartStarter,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(stringResource(R.string.try_again))
+            }
         } else if (blockedReason != null) {
             // 48dp: the minimum touch target. A plain TextButton would be 40dp
             // and sit below the platform accessibility floor.
@@ -1281,7 +1291,7 @@ private fun StarterPanel(
 
         is SetupState.Failed -> {
             Text(
-                text = starter.message,
+                text = SimpleWording.failureText(LocalContext.current, starter.message),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

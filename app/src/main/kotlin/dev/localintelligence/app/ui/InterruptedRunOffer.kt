@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.localintelligence.app.R
+import dev.localintelligence.app.ui.components.LocalTechnicalDetail
 
 /**
  * The one line offered at launch after the process died during a foreground run. Continue
@@ -35,7 +36,9 @@ fun InterruptedRunOffer(
             horizontalArrangement = Arrangement.End,
         ) {
             Text(
-                text = stringResource(R.string.interrupted_run_offer),
+                text = stringResource(
+                    if (LocalTechnicalDetail.current) R.string.interrupted_run_offer else R.string.plain_interrupted,
+                ),
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
             )
