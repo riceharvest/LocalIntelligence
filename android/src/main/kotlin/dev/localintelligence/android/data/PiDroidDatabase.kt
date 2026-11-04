@@ -38,7 +38,7 @@ import dev.localintelligence.android.phoneindex.PhoneIndexEntity
         DesktopOutboxEntity::class,
         PhoneIndexEntity::class,
     ],
-    version = 6,
+    version = 7,
     // Exported to android/schemas and committed: each migration's SQL is copied from
     // there, so a migrated table matches what Room validates on open.
     exportSchema = true,
@@ -74,7 +74,7 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
          */
         fun build(context: Context, name: String = NAME): LocalIntelligenceDatabase =
             Room.databaseBuilder(context.applicationContext, LocalIntelligenceDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
 
         /**
@@ -149,6 +149,19 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `desktop_outbox` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `target` TEXT NOT NULL, `text` TEXT NOT NULL, `created_at` INTEGER NOT NULL)",
                 )
+            }
+        }
+
+        /**
+         * 6 to 7: adds `sessions.run_in_flight`, set while a foreground run is going and cleared when it
+         * ends for any reason. A value still set at the next launch means the process died mid-run, which
+         * is what the Continue offer is for. Default 0, so existing conversations read as not in flight.
+         * Also adds `sessions.todo_json`, the task checklist, so a restart puts it back.
+         */
+        val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `run_in_flight` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `todo_json` TEXT")
             }
         }
     }

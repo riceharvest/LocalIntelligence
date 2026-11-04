@@ -54,6 +54,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlin.math.min
 import dev.localintelligence.core.compaction.RetainedHistory
+import dev.localintelligence.core.compaction.ToolResultPrune
 
 /**
  * The agent loop. One `while` loop, under 300 meaningful lines, no graph and no
@@ -353,6 +354,12 @@ class AgentController(
 
     /** Whether this run already sent the model back once for naming an internal id. Reset per run. */
     private var handleRetried: Boolean = false
+
+    /** Once per run: the answer check has already told the model about a value with no source. */
+    private var answerRetried: Boolean = false
+
+    /** True while a resumed run is going: its non-read-only steps wait for the user. See [resume]. */
+    private var resuming: Boolean = false
     private var pending: PendingCall? = null
 
     /**
@@ -451,6 +458,45 @@ class AgentController(
         val permissionGranted: Boolean = true,
     )
 
+    /**
+     * Continues a run the process died in, from the window the session restored.
+     *
+     * WHY NO NEW TURN: the interrupted task is already the newest user turn in the window, and
+     * its finished tool results are in the window too. The loop picks up from them, so a call
+     * whose result is saved is not made again. [RESUME_NOTE] tells the model that, once, as a
+     * note rather than as the user speaking.
+     *
+     * WHY NON-READ-ONLY STEPS ARE GATED: a step that changes something must not run because a
+     * restart happened. While [resuming] is set, [handleCall] parks any such step for the user,
+     * exactly as a first-time confirmation would. The flag ends when this run stops or parks.
+     */
+    suspend fun resume(): AgentResult = measured {
+        val interrupted = sessions.lastUserText()
+            ?: return@measured Stop("There is no interrupted task to continue.", trace.toList())
+        task = interrupted
+        media = emptyList()
+        trace.clear()
+        step = 0
+        malformedStreak = 0
+        savedObservation = false
+        handleRetried = false
+        answerRetried = false
+        pending = null
+        lastPrompt = emptyList()
+        loopDetector.reset()
+        noProgress.reset()
+        riskPolicy.resetTask()
+        metrics?.beginStep(0)
+        sessions.observe(RESUME_NOTE)
+        resuming = true
+        val outcome = try {
+            loop()
+        } finally {
+            resuming = false
+        }
+        settle(outcome)
+    }
+
     suspend fun run(task: String, media: List<MediaInput> = emptyList()): AgentResult = measured {
         this.task = task
         this.media = media
@@ -462,6 +508,7 @@ class AgentController(
         malformedStreak = 0
         savedObservation = false
         handleRetried = false
+        answerRetried = false
         pending = null
         // The session is NOT cleared here, and this is load-bearing.
         //
@@ -536,6 +583,14 @@ class AgentController(
         // leave the list untrimmed until the next one, which is deliberate -
         // a finally block here would trim a session whose run is still being
         // unwound and whose messages are still being read by the trace.
+        settle(outcome)
+    }
+
+    /**
+     * What every run does with its window once the loop has returned: bounds it and, on an
+     * answer, settles the working state. Shared by [run], [resume] and [confirmAndResume].
+     */
+    private suspend fun settle(outcome: AgentResult): AgentResult {
         if (outcome !is AgentResult.AwaitingConfirmation) {
             // Over the message cap, fold into the working state rather than drop
             // the oldest turns: a drop shifts every later token, so each message
@@ -551,7 +606,7 @@ class AgentController(
             settleWorkingState()
             afterAnswer?.invoke(this)
         }
-        outcome
+        return outcome
     }
 
     /**
@@ -665,22 +720,7 @@ class AgentController(
             )
         }
         val outcome = early ?: loop()
-        if (outcome !is AgentResult.AwaitingConfirmation) {
-            // Over the message cap, fold into the working state rather than drop
-            // the oldest turns: a drop shifts every later token, so each message
-            // after it would prefill the whole conversation again. The bound
-            // stays as the backstop for a window compaction cannot fold.
-            if (sessions.messages.size > RetainedHistory.MAX_RETAINED_MESSAGES) {
-                compactNow("${sessions.messages.size} messages, over ${RetainedHistory.MAX_RETAINED_MESSAGES}")
-            }
-            RetainedHistory.bound(sessions.messages)
-            sessions.pruneIdentities()
-        }
-        if (outcome is AgentResult.Success) {
-            settleWorkingState()
-            afterAnswer?.invoke(this)
-        }
-        outcome
+        settle(outcome)
     }
 
     /**
@@ -783,10 +823,22 @@ class AgentController(
             val idRetry = !stopped && !handleRetried && savedObservation &&
                 parsed is ActionParseResult.Parsed &&
                 (parsed.action as? AgentAction.Respond)?.text?.let(INTERNAL_HANDLE_RE::containsMatchIn) == true
+            // The answer check runs only on a final answer that follows tool use in this run.
+            // A reply with no tools is never checked, so a plain chat answer is not held up.
+            val unsupported: String? = if (!stopped && !idRetry && !answerRetried &&
+                parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond &&
+                trace.any { it.kind == StepTrace.Kind.TOOL_CALL }
+            ) {
+                val answer = (parsed.action as AgentAction.Respond).text
+                sessions.locked { AnswerCheck.unsupported(answer, sessions::isSourced) }
+            } else {
+                null
+            }
             val rejection: String? = when {
                 stopped -> null
                 parsed is ActionParseResult.Malformed -> parsed.reason
                 idRetry -> "the reply names an internal id"
+                unsupported != null -> "the reply gives a value no tool result shows"
                 else -> null
             }
             trace += StepTrace(
@@ -847,6 +899,11 @@ class AgentController(
                             // recorded, so the next reply is judged on its own.
                             handleRetried = true
                             sessions.observe(HANDLE_CORRECTION)
+                        } else if (unsupported != null) {
+                            // Same shape as the id retry: once per run, the reply is not recorded,
+                            // and the model is told which value it cannot source.
+                            answerRetried = true
+                            sessions.observe(answerCorrection(unsupported))
                         } else {
                             val text = if (savedObservation && INTERNAL_HANDLE_RE.containsMatchIn(action.text)) {
                                 log("reply still named an internal id after one retry; removed those sentences")
@@ -973,7 +1030,7 @@ class AgentController(
         val untrustedRead = sessions.messages.any {
             it is ChatMessage.ToolObservation && it.origin == ObservationOrigin.NETWORK
         }
-        val decision = riskPolicy.evaluate(
+        val evaluated = riskPolicy.evaluate(
             tool.definition, action.arguments, tool.describeTarget(action.arguments), requested,
             screen = screen,
             untrustedRead = untrustedRead,
@@ -985,6 +1042,14 @@ class AgentController(
             } else {
                 d
             }
+        }
+        // A resumed run does not run a step that changes something on its own (see [resume]).
+        val decision = if (resuming && evaluated.outcome == PolicyOutcome.EXECUTE &&
+            tool.definition.risk != ToolRisk.READ_ONLY
+        ) {
+            evaluated.copy(outcome = PolicyOutcome.REQUIRE_CONFIRMATION)
+        } else {
+            evaluated
         }
         if (decision.rule == PolicyRule.NOT_REQUESTED) {
             log("guard: ${action.name} not asked for by the message, confirming first")
@@ -2075,7 +2140,29 @@ class AgentController(
         val tokens = requestTokens(prompt, visible)
         val limit = if (boundary) turnLimit(prompt, visible, window) else hardLimit(window)
         if (tokens <= limit) return
+        // Cheapest first: shrink old tool results and calls (no model call, the stored rows keep
+        // their full text). Only when that is not enough does the window fold.
+        if (pruneToolResults()) {
+            val pruned = requestTokens(buildPrompt(visible), visible)
+            if (pruned <= limit) return
+            foldUntilUnder(limit, visible, pruned, if (boundary) "turn" else "mid-answer")
+            return
+        }
         foldUntilUnder(limit, visible, tokens, if (boundary) "turn" else "mid-answer")
+    }
+
+    /**
+     * Applies [ToolResultPrune] to the window and returns true when anything shrank.
+     *
+     * WHY ONE LOCKED PASS: the plan reads the window and every replacement edits it, and a
+     * compaction on another thread must not change the list between the two.
+     */
+    private fun pruneToolResults(): Boolean = sessions.locked {
+        val plan = ToolResultPrune.plan(sessions.messages)
+        if (plan.isEmpty()) return@locked false
+        plan.forEach { (index, message) -> sessions.replaceKeepingIdentity(index, message) }
+        log("shrank ${plan.size} tool results and calls before compacting")
+        true
     }
 
     /**
@@ -2508,6 +2595,16 @@ class AgentController(
         const val HANDLE_CORRECTION = "Your reply named an internal id, which the user must never see. " +
             "Read the saved result with observations.read and the id from its obs# line, for the rest of " +
             "the page, or answer from what you already have. Do not mention ids or observations to the user."
+
+        /** The one-time note to a resumed run: what happened, and not to repeat what is saved above. */
+        const val RESUME_NOTE = "The app closed while this task was running. Continue the task from the " +
+            "results above. Do not repeat a tool call whose result is already there."
+
+        /** The one-time note when the answer check finds a value with no source in the window. */
+        fun answerCorrection(value: String): String =
+            "Your reply gives \"$value\", and no tool result or message in this conversation shows it. " +
+                "Check it against the tool results. If it is there, keep it and say where it came from; " +
+                "if not, correct it or leave it out. Do not mention this check to the user."
 
         /** Why a reply that looped is rejected. The model reads it in the correction, and the trace shows it. */
         const val REPETITION_REASON = "the reply repeated the same text over and over"

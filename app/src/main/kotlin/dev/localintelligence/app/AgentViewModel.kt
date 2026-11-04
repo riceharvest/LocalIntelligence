@@ -123,7 +123,7 @@ class AgentViewModel(
      * silently returned, and the run was left sitting in `LoadingModel` forever
      * with the service held open behind it.
      */
-    private fun runTask(task: String) {
+    private fun runTask(task: String, resume: Boolean = false) {
         sinks.state.value = RunState.Running
         sinks.streamingText.value = ""
         sinks.runningTool.value = null
@@ -135,7 +135,8 @@ class AgentViewModel(
         ScreenRun.setStopHandler { cancel() }
         val media = queuedMedia
         queuedMedia = emptyList()
-        job = scope.launch { runAndPublish(runner) { runner.run(task, media) } }
+        // A resumed run continues the restored window; it has no new turn to send. See AgentController.resume.
+        job = scope.launch { runAndPublish(runner) { if (resume) runner.resume() else runner.run(task, media) } }
     }
 
     override fun confirm(approved: Boolean) {
@@ -184,6 +185,7 @@ class AgentViewModel(
      */
     fun prepareThenStart(
         task: String,
+        resume: Boolean = false,
         ensureReady: suspend () -> ModelAvailability,
     ) {
         if (job?.isActive == true) {
@@ -217,7 +219,7 @@ class AgentViewModel(
                 publish(AgentResult.Stop(reason = blocked, trace = sinks.trace.value))
                 return@launch
             }
-            runTask(task)
+            runTask(task, resume)
         }
     }
 
@@ -435,6 +437,12 @@ class AgentViewModel(
  * directly-driven test run have exactly the same shape.
  */
 class RunSinks {
+    /**
+     * True while the launch offer "That task was interrupted. Continue?" is due: the process died
+     * during a foreground run and the stored conversation ends inside it. Set by AppContainer at
+     * launch; cleared when the user continues, dismisses it, or sends a new message.
+     */
+    val interruptedRun: MutableStateFlow<Boolean> = MutableStateFlow(false)
     val state: MutableStateFlow<RunState> = MutableStateFlow(RunState.Idle)
     val trace: MutableStateFlow<List<StepTrace>> = MutableStateFlow(emptyList())
     val streamingText: MutableStateFlow<String> = MutableStateFlow("")
@@ -470,7 +478,18 @@ interface AgentGateway {
     fun start(task: String, replacing: String? = null)
     fun confirm(approved: Boolean)
     fun cancel()
+
+    /** The launch offer to continue an interrupted run. Gateways without a process-wide surface report false. */
+    val interruptedRun: StateFlow<Boolean> get() = NO_INTERRUPTED_RUN
+
+    /** Continues the interrupted run as a normal foreground run. */
+    fun resumeInterrupted() = Unit
+
+    /** Withdraws the offer and clears the mark it came from. */
+    fun dismissInterrupted() = Unit
 }
+
+private val NO_INTERRUPTED_RUN: StateFlow<Boolean> = MutableStateFlow(false).asStateFlow()
 
 /**
  * A tool call that has started and has not returned yet.

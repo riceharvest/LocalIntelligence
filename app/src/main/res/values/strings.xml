@@ -1237,6 +1237,9 @@
     <string name="tool_waiting_for_approval">Waiting for your approval</string>
     <string name="tool_you_allowed">You allowed: %1$s</string>
     <string name="tool_you_didnt_allow">You didn\'t allow: %1$s</string>
+    <string name="interrupted_run_offer">That task was interrupted. Continue?</string>
+    <string name="interrupted_run_continue">Continue</string>
+    <string name="interrupted_run_dismiss">Dismiss</string>
     <!-- Parity pass: Technical speed line under a reply, and "not available" for a rate that cannot be computed. -->
     <string name="reply_speed_line">Prefill %1$s tok/s · first token %2$d ms · decode %3$s tok/s</string>
     <string name="reply_speed_not_available">n/a</string>
