@@ -64,16 +64,19 @@ BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
 APKSIGNER="$BUILD_TOOLS/apksigner"
 
 # SHA-256 of the signing certificate, lowercase hex, no separators.
+# Every check below reads a captured string, never a pipe that exits early: with pipefail, grep -q or
+# awk's exit closing the pipe makes the writer die of SIGPIPE, and the check fails at random.
+first_sha256() { awk '/SHA256:/ && !seen {print $2; seen=1}' <<<"$1" | tr -d ':' | tr 'A-F' 'a-f'; }
+
 keystore_sha256() { # <store> <alias> <password-variable>
-  keytool -list -v -keystore "$1" -storetype PKCS12 -alias "$2" -storepass:env "$3" \
-    | awk '/SHA256:/{print $2; exit}' | tr -d ':' | tr 'A-F' 'a-f'
+  first_sha256 "$(keytool -list -v -keystore "$1" -storetype PKCS12 -alias "$2" -storepass:env "$3")"
 }
 
 apk_out=$("$APKSIGNER" verify --print-certs "$APK")
-apk_digest=$(printf '%s\n' "$apk_out" | awk -F': ' '/Signer #1 certificate SHA-256 digest/{print $2; exit}')
+apk_digest=$(awk -F': ' '/Signer #1 certificate SHA-256 digest/ && !seen {print $2; seen=1}' <<<"$apk_out")
 aab_out=$(jarsigner -verify "$AAB")
-printf '%s\n' "$aab_out" | grep -q '^jar verified' || { echo "error: $AAB did not verify as a signed JAR" >&2; exit 1; }
-aab_digest=$(keytool -printcert -jarfile "$AAB" | awk '/SHA256:/{print $2; exit}' | tr -d ':' | tr 'A-F' 'a-f')
+grep -q '^jar verified' <<<"$aab_out" || { echo "error: $AAB did not verify as a signed JAR" >&2; exit 1; }
+aab_digest=$(first_sha256 "$(keytool -printcert -jarfile "$AAB")")
 
 play_expected=$(keystore_sha256 "$PLAY_STORE" "$PLAY_ALIAS" PLAY_STORE_PASS)
 full_expected=$(keystore_sha256 "$FULL_STORE" "$FULL_ALIAS" FULL_STORE_PASS)
