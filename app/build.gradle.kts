@@ -131,6 +131,13 @@ android {
         buildConfig = true
     }
 
+    // Android 13+ per-app language: AGP writes the locale list from the values-xx folders
+    // into the APK (android:localeConfig), so a language appears in the system picker once
+    // its strings exist. English (res/resources.properties) is the unqualified default.
+    androidResources {
+        generateLocaleConfig = true
+    }
+
     packaging {
         // Extracted, not stored in the APK: LiteRT-LM's NPU backend loads the
         // dispatch library by path from nativeLibraryDir, and that directory is

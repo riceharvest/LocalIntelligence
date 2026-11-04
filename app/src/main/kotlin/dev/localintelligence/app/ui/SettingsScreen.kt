@@ -112,6 +112,7 @@ import dev.localintelligence.app.LocalIntelligenceApp
 import dev.localintelligence.app.WakeWordService
 import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.openAssistantSettings
+import dev.localintelligence.app.settings.SettingText
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.update.UpdateCheckRow
 import dev.localintelligence.app.settings.SuggestedModel
@@ -259,7 +260,7 @@ fun SettingsScreen(
                     // layers), Technical mode only.
                     val speedTestHere = technical && speedTest != null && section == SettingSection.MODEL
                     if (inSection.isEmpty() && !speedTestHere) continue
-                    SectionHeader(section.title)
+                    SectionHeader(SettingText.section(LocalContext.current, section))
                     inSection.forEach { def ->
                         // The Add a server helper sits above the first remote MCP address row.
                         if (def === McpSettings.urls[0]) McpAddServerRow(store)
@@ -462,10 +463,10 @@ private fun ModeSwitch(store: SettingsStore) {
                     selected = store.stored(def) == option.id,
                     onClick = { store.set(def, option.id) },
                     shape = SegmentedButtonDefaults.itemShape(index, def.options.size),
-                ) { Text(option.label) }
+                ) { Text(SettingText.option(LocalContext.current, def, option)) }
             }
         }
-        Text(def.help, style = MaterialTheme.typography.bodySmall)
+        Text(SettingText.help(LocalContext.current, def), style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -520,7 +521,7 @@ private fun SpeedTestRow(runner: SpeedTestRunner) {
 
 @Composable
 private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Boolean) {
-    val help = def.help
+    val help = SettingText.help(LocalContext.current, def)
     // "Applies now" is the common case and says nothing; only a delay is worth a line.
     val note = if (technical) when (def.applies) {
         SettingApplies.NEXT_RUN -> stringResource(R.string.applies_next_message)
@@ -531,13 +532,13 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
         is SettingDef.Toggle -> when {
             def === CoreSettings.WAKE_WORD -> WakeWordToggleRow(store, def, help, note)
             def === CoreSettings.APP_LOCK -> AppLockRow(store, def, help, note)
-            else -> SwitchRow(def.title, help, store.stored(def), note = note) { store.set(def, it) }
+            else -> SwitchRow(SettingText.title(LocalContext.current, def), help, store.stored(def), note = note) { store.set(def, it) }
         }
         is SettingDef.Choice -> if (def === CoreSettings.THEME_COLOR) {
             ColorRow(store, def, help, note)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                RowTitle(def.title, help, note = note)
+                RowTitle(SettingText.title(LocalContext.current, def), help, note = note)
                 if (def.options.size <= 3) {
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                         def.options.forEachIndexed { index, option ->
@@ -545,7 +546,7 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
                                 selected = store.stored(def) == option.id,
                                 onClick = { store.set(def, option.id) },
                                 shape = SegmentedButtonDefaults.itemShape(index, def.options.size),
-                            ) { Text(option.label) }
+                            ) { Text(SettingText.option(LocalContext.current, def, option)) }
                         }
                     }
                 } else {
@@ -557,7 +558,7 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
         is SettingDef.FloatValue -> {
             val value = store.stored(def)
             Column {
-                RowTitle(def.title, help, valueText = String.format(Locale.ROOT, "%.2f", value), note = note) {
+                RowTitle(SettingText.title(LocalContext.current, def), help, valueText = String.format(Locale.ROOT, "%.2f", value), note = note) {
                     store.reset(def)
                 }
                 Slider(
@@ -573,7 +574,7 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
             val value = store.stored(def)
             val span = def.max.toLong() - def.min.toLong()
             Column {
-                RowTitle(def.title, help, valueText = value.toString(), note = note) { store.reset(def) }
+                RowTitle(SettingText.title(LocalContext.current, def), help, valueText = value.toString(), note = note) { store.reset(def) }
                 if (span in 1..500) {
                     Slider(
                         value = value.toFloat(),
@@ -598,7 +599,7 @@ private fun ChipChoices(store: SettingsStore, def: SettingDef.Choice) {
             FilterChip(
                 selected = store.stored(def) == option.id,
                 onClick = { store.set(def, option.id) },
-                label = { Text(option.label) },
+                label = { Text(SettingText.option(LocalContext.current, def, option)) },
             )
         }
     }
@@ -611,7 +612,7 @@ private fun ColorRow(store: SettingsStore, def: SettingDef.Choice, help: String,
     val context = LocalContext.current
     val chosen = store.stored(def)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        RowTitle(def.title, help, note = note)
+        RowTitle(SettingText.title(LocalContext.current, def), help, note = note)
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -643,7 +644,7 @@ private fun ColorRow(store: SettingsStore, def: SettingDef.Choice, help: String,
                         ) {
                             if (selected) Icon(Icons.Filled.Check, contentDescription = null, tint = themeSwatchOn(option.id, context))
                         }
-                        Text(option.label, style = MaterialTheme.typography.labelSmall)
+                        Text(SettingText.option(LocalContext.current, def, option), style = MaterialTheme.typography.labelSmall)
                     }
                 }
         }
@@ -662,7 +663,7 @@ private fun WakeWordToggleRow(store: SettingsStore, def: SettingDef.Toggle, help
             WakeWordService.sync(context, container)
         }
     }
-    SwitchRow(def.title, help, store.stored(def), note = note) { enable ->
+    SwitchRow(SettingText.title(LocalContext.current, def), help, store.stored(def), note = note) { enable ->
         if (enable && !WakeWordService.hasRecordPermission(context)) {
             requestRecordAudio.launch(Manifest.permission.RECORD_AUDIO)
         } else {
@@ -694,7 +695,7 @@ private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: Str
         null
     }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        RowTitle(def.title, help, note = note)
+        RowTitle(SettingText.title(LocalContext.current, def), help, note = note)
         // A name-sized value gets one line; a note gets room to write.
         val short = def.maxLength <= SHORT_TEXT
         OutlinedTextField(
@@ -729,7 +730,7 @@ private fun SecretRow(store: SettingsStore, def: SettingDef.Secret, help: String
     var refused by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        RowTitle(def.title, help, valueText = if (isSet) stringResource(R.string.saved) else stringResource(R.string.not_set), note = note)
+        RowTitle(SettingText.title(LocalContext.current, def), help, valueText = if (isSet) stringResource(R.string.saved) else stringResource(R.string.not_set), note = note)
         OutlinedTextField(
             value = draft,
             onValueChange = {
