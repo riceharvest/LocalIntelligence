@@ -10,6 +10,7 @@ import dev.localintelligence.android.data.resilientMemoryStore
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.inference.litertlm.ModelBackendRouter
+import dev.localintelligence.inference.litertlm.tensorGenerationOfThisPhone
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.cloud.ChatGptChatBackend
 import dev.localintelligence.android.cloud.ChatGptPlugin
@@ -1790,6 +1791,7 @@ class AppContainer(private val context: Context) {
         transfers = hubTransfers,
         restricted = ::hubRestricted,
         allowed = { repo, file -> SimpleSetup.allowsDownload(deviceFacts, repo, file) },
+        tensorGeneration = ::tensorGenerationOfThisPhone,
     )
 
     /**

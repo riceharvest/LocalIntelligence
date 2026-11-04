@@ -1,5 +1,8 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.localintelligence.app.HubTransfers
@@ -212,8 +215,7 @@ data class HubUiState(
     val nonGgufNotice: String? get() {
         if (nonGgufFiles.none { it.isLiteRtLm }) return null
         return "No memory figure is shown: this screen reads GGUF headers, and a " +
-            ".litertlm has none. No .litertlm has been run in this app, so no " +
-            "speed is claimed for one."
+            ".litertlm has none."
     }
 }
 
@@ -337,9 +339,30 @@ class HubViewModel(
     private val restricted: () -> Boolean = { false },
     /** Whether a download of [repo] / [file] is allowed while [restricted]. Match on both. */
     private val allowed: (repo: String, file: String) -> Boolean = { _, _ -> true },
+    /**
+     * This phone's Google Tensor generation, or null. Passed in so the ViewModel holds no Android
+     * type; the screen reads [deviceTensorGeneration] to say which LiteRT-LM build runs here.
+     */
+    private val tensorGeneration: () -> Int? = { null },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HubUiState())
+
+    /**
+     * The search field's text, read by the field itself.
+     *
+     * WHY this is Compose snapshot state and not a copy of [HubUiState.repoInput]: the
+     * field gets its value through Compose, and a StateFlow reaches it a frame late. A
+     * fast typist's next key then lands on the old text and the field overwrites what
+     * was typed in between, which showed up as scrambled input. Written first, before
+     * the StateFlow, so the field always has the text the user just typed. The StateFlow
+     * copy stays, because [resolve] and [submit] read it.
+     */
+    var repoText by mutableStateOf("")
+        private set
+
+    /** This phone's Tensor generation (5 for a Pixel 10), or null: the input to [liteRtFits]. */
+    val deviceTensorGeneration: Int? get() = tensorGeneration()
 
     /**
      * The restriction as the last [onRestrictionChanged] saw it. Declared above [init] on purpose:
@@ -420,6 +443,7 @@ class HubViewModel(
      * An empty field shows the most downloaded models again.
      */
     fun onRepoInputChanged(value: String) {
+        repoText = value
         // Typing a new search closes the repository on screen (unless a download
         // from it is running), so the new matches show instead of its files.
         _state.update {
@@ -511,6 +535,7 @@ class HubViewModel(
     /** A suggestion was tapped: it becomes the input and its files are listed. */
     fun pickSearchHit(hit: HuggingFaceClient.HubSearchHitPublic) {
         if (restricted()) return
+        repoText = hit.repoId.id
         _state.update { it.copy(repoInput = hit.repoId.id) }
         resolve()
     }
@@ -684,6 +709,7 @@ class HubViewModel(
             return
         }
         pendingPrefill = fileName
+        repoText = repo
         _state.update { it.copy(repoInput = repo) }
         resolve()
     }
