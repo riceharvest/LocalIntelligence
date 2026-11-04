@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LocalIntelligence privacy policy</title>
+<style>
+  :root { --bg: #ffffff; --fg: #1d1d1f; --muted: #5b5b60; --rule: #e3e3e6; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #141416; --fg: #ececef; --muted: #a3a3aa; --rule: #2c2c31; } }
+  body { background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+         max-width: 44rem; margin: 0 auto; padding: 2rem 16px 4rem; }
+  h1 { font-size: 1.7rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.15rem; margin-top: 2.2rem; border-top: 1px solid var(--rule); padding-top: 1.2rem; }
+  .meta { color: var(--muted); margin-top: 0; }
+  li { margin: .25rem 0; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<h1>LocalIntelligence privacy policy</h1>
+<p class="meta">Effective 2026-11-04. Applies to the LocalIntelligence app on Google Play
+(<code>dev.localintelligence.app</code>) and the full build installed from GitHub
+(<code>dev.localintelligence.app.full</code>).</p>
+
+<h2>Who we are</h2>
+<p>LocalIntelligence is developed by <strong>[DEVELOPER NAME AS SHOWN ON THE PLAY LISTING]</strong>.
+Privacy questions: <a href="mailto:[PRIVACY CONTACT EMAIL]">[PRIVACY CONTACT EMAIL]</a> or an issue at
+<a href="https://github.com/riceharvest/LocalIntelligence/issues">github.com/riceharvest/LocalIntelligence/issues</a>.</p>
+
+<h2>The short version</h2>
+<p>The assistant runs a language model on your phone. We, the developer, receive none of your data:
+the app has no account, no analytics, no crash reporting and no ads. Data leaves your phone only
+through features you turn on, and then it goes to the service you chose, not to us.</p>
+
+<h2>What stays on your phone</h2>
+<ul>
+  <li>Your chats, the facts the assistant remembers about you, the "About you" text, scheduled tasks,
+      documents you add, downloaded models and your settings.</li>
+  <li>Keys and passwords you enter for other services. They are encrypted with the Android Keystore
+      and never shown back.</li>
+  <li>Android backup is turned off for the app, so this data is not copied to a cloud backup.</li>
+</ul>
+
+<h2>What the app can read on your phone</h2>
+<p>Only when a request needs it, and only after you grant the Android permission:</p>
+<ul>
+  <li>Contacts and calendar, to look up people and events and create entries you ask for.</li>
+  <li>Text messages and the call log, only while LocalIntelligence is your default digital assistant.</li>
+  <li>Approximate location, for weather and nearby places.</li>
+  <li>The microphone, for dictation, hands-free mode and the optional wake word. Audio is processed on
+      the phone and is not stored or sent anywhere, unless you chose a remote model that takes voice.</li>
+  <li>Notifications (if you allow notification access), screen-time totals, the clipboard, and files
+      you pick.</li>
+  <li>Full build only: the screen of other apps while you let the assistant control them, and all
+      files on the phone if you grant "All files access".</li>
+</ul>
+
+<h2>When data leaves your phone</h2>
+<p>Each of these is off until you use or turn it on. The service named receives what is listed and
+handles it under its own privacy policy.</p>
+<ul>
+  <li><strong>Model downloads</strong> from Hugging Face, and skills or plugins from a link you give:
+      the file request.</li>
+  <li><strong>Weather, places and Wikipedia</strong> (Open-Meteo, OpenStreetMap Nominatim, Wikipedia):
+      the place name or search words the assistant looks up.</li>
+  <li><strong>Opening a web page</strong> you approve: the request to that site.</li>
+  <li><strong>A remote model</strong> (OpenRouter, your ChatGPT plan, Groq, Cerebras, DeepSeek, Together,
+      Mistral, Google Gemini, or your own server): the whole conversation, including tool results,
+      screen text in the full build, and attached images or audio.</li>
+  <li><strong>Image and video generation</strong> through OpenRouter: the prompt.</li>
+  <li><strong>Search with your own key</strong> (Brave, Tavily, Exa, or your SearXNG): the search words.</li>
+  <li><strong>Connected services</strong> you set up: MCP servers (including Zapier and Composio), cloud
+      sandboxes (Daytona, Vercel, your SSH server), the Browser Use cloud browser, your email provider,
+      your Home Assistant, and Telegram for chats you link. Each receives the requests the assistant
+      makes to it.</li>
+</ul>
+
+<h2>How it is protected</h2>
+<ul>
+  <li>Keys go over HTTPS only. Plain HTTP is allowed only to a server on your own home network that
+      you entered yourself.</li>
+  <li>Sending messages, placing calls, deleting files and opening websites ask for your approval
+      unless you turn that off per category. Texts and calls always ask.</li>
+  <li>Text from outside (web pages, servers, other apps' screens) is treated as data, never as
+      instructions to the assistant.</li>
+</ul>
+
+<h2>Keeping and deleting data</h2>
+<p>Everything is kept on your phone until you delete it. Delete chats in the app, or uninstall the app
+or clear its storage to remove all of it. We hold no copy, so there is nothing to delete on our side.
+Data you sent to a third-party service is kept and deleted under that service's policy.</p>
+
+<h2>Children</h2>
+<p>The app is not directed at children under 13.</p>
+
+<h2>Changes</h2>
+<p>A new version of this policy is published at this address with a new date. Every change is visible
+in the <a href="https://github.com/riceharvest/LocalIntelligence/commits/main/docs/privacy.html">history
+of this file</a>.</p>
+</body>
+</html>
