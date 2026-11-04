@@ -262,8 +262,9 @@ Open:
 [?] OpenRouter as an optional remote chat model (same key)
 [?] external plugins as sandboxed scripts (DeepSeek Harness style); see
       architecture.md §18b "Script plugins"                                 [#97]
-[ ] document search with embeddings (EmbeddingGemma 2, 0.31 GB, one-tap download with the
-      first document) next to BM25
+[?] document search with embeddings (EmbeddingGemma 2) next to BM25, hybrid ranking  [#100]
+[ ] Simple mode: offer the EmbeddingGemma 2 download (0.31 GB) with one tap when the first
+      document is added (today it comes from the hub)
 [ ] wake word: "Hey <assistant name>" with sherpa-onnx open-vocabulary keyword spotting,
       off by default. The keyword encoding must run in the app for any name; if it can't,
       use one fixed phrase. Android 14+ won't start a microphone service from the
@@ -271,8 +272,8 @@ Open:
 [ ] `full` build, installed outside Play from GitHub Releases: screen control through
       Accessibility (docs/adr/0002)
 [ ] privacy policy page on GitHub Pages (Play needs one for any release)
-[ ] .litertlm through the file picker (content:// is refused today)
-[ ] MCP: video.status for long video jobs
+[?] .litertlm through the file picker, copied into app storage                       [#96]
+[?] video.status for long OpenRouter video jobs                                      [#96]
 ```
 
 Extras: one Play subscription (`extras_monthly`) that unlocks the cloud features in Simple
