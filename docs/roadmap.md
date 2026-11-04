@@ -9,7 +9,7 @@ box says so rather than staying green.
 
 ## Status in one paragraph
 
-**Update 2026-11-04 (later):** the v1 list and most of "After v1" were built in one day and merged as #274 to #297, compile only. None of it has run on a device. `[?]` below means written and merged, not verified. The owner's plan: finish everything, including "Beyond parity" below, then one full pass on the emulator. See "Before public release (v1.0)", "After v1" and "Beyond parity". The paragraph that follows is the older status and still holds: no device observation exists.
+**Update 2026-11-04 (later):** the v1 list and most of "After v1" were built in one day and merged as #274 to #320, compile only. None of it has run on a device since #275. `[?]` below means written and merged, not verified. The owner's plan: finish everything, including "Beyond parity" below, then one full pass on the emulator. See "Before public release (v1.0)", "After v1" and "Beyond parity". The paragraph that follows is the older status and still holds: no device observation exists.
 
 The agent loop, the tool registry, the llama.cpp backend, the LiteRT-LM backend,
 Room persistence, the Hugging Face download, and the Compose UI are all written
@@ -511,7 +511,7 @@ or `ChatViewModel`; a search of the source, not a device check):
 [?] [#297, the rest in progress] Move user-visible strings out of Kotlin into resources. strings.xml has 4 entries
       and the source has 178 `Text("...")` calls. English-only is acceptable for v1; doing
       the move now is cheap and every later string makes it dearer.
-[ ] All major languages at release (owner, 2026-11-04): 21 with English: es, pt-BR, fr, de, it, nl, pl,
+[?] All major languages at release (owner, 2026-11-04) [#309, #315 to #320]: 21 with English: es, pt-BR, fr, de, it, nl, pl,
       ru, uk, tr, ar, hi, bn, id, vi, th, ja, ko, zh-CN, zh-TW. Includes settings labels, right-to-left
       layout, per-app language and the Play listing. Translations are AI-written, so testers review
       them. How well LFM3 answers in each language is unmeasured: add tasks to the Model test plan.
@@ -623,7 +623,7 @@ and the bets come first. Each bet says why others cannot quickly match it. Nothi
 ### Bets
 
 ```
-[ ] B1. The agent that finishes. Small models lose the thread over 5 to 10 steps. A set of runtime aids, built now and measured
+[?] B1. The agent that finishes. [#302, #304, #308] Small models lose the thread over 5 to 10 steps. A set of runtime aids, built now and measured
       together in the final test pass; any that does not help is removed then:
       - todo list owned by the runtime, updated by one tool, re-injected each step (Hermes todo_tool)
       - text repetition guard: abort a looping reply early (Hermes repetition_guard)
@@ -631,12 +631,12 @@ and the bets come first. Each bet says why others cannot quickly match it. Nothi
       - argument coercion in one place before rejecting (today per tool)
       - answer check: a number or name in the answer must exist in a tool result, or the model is told once
       - a resumable run: a killed run continues from its last step
-      - fresh-context subtask that returns only a summary. Conflicts with docs/architecture.md section 2: owner decision
+      - fresh-context subtask that returns only a summary (owner allowed it 2026-11-04; architecture section 2 updated in #304)
       Moat: built on our grammar, tiers and observation store; chat-first apps have none of those.
-[ ] B2. Your whole phone, answerable. A private on-device index of notifications, messages, calendar, contacts, files
+[?] B2. Your whole phone, answerable. [#301, #311; opening the original from an answer row is not built] A private on-device index of notifications, messages, calendar, contacts, files
       and photo captions, with answers that cite the source and open it. Incremental, on charger, deletable per source.
       The Play build indexes only what its permissions allow.  Moat: cloud assistants would need this data on their servers.
-[ ] B3. Your own private cloud. Over Tailscale only, checked by Tailscale identity:
+[?] B3. Your own private cloud. [#306; never run against live herdr or tmux; "hard questions to your desktop" is only a shortcut to Settings today] Over Tailscale only, checked by Tailscale identity:
       - attach to the agents already running on your desktop: same live thread, native chat view, approvals as one keystroke
       - a thin bridge with four operations (list, read, send, wait), herdr first, tmux as a second backend, so herdr is not a lock-in
       - done and needs-you notifications through a self-hosted push (ntfy), no Firebase, no polling
@@ -644,11 +644,11 @@ and the bets come first. Each bet says why others cannot quickly match it. Nothi
       - later, an owner decision: desktop agents using the phone's tools
       Offline: read the cached thread and queue messages. Full build first; Play rules unchecked.
       Moat: nobody we checked connects both ways with live threads.
-[ ] B4. Published proof. A public score per model and phone from the eval suite, and the app picks your model from
+[?] B4. Published proof. [#303; the suite and picker are written, no score has been measured] A public score per model and phone from the eval suite, and the app picks your model from
       measured results.  Moat: nobody publishes this. It holds us to the same standard. Needs real devices for the phone half.
-[ ] B5. It learns you, locally. A task you repeat becomes a saved skill, with your approval. Skills can scope the tools the
+[?] B5. It learns you, locally. [#305, #311; the owner allowed the memory block, visible and editable; Undo does not survive a restart] A task you repeat becomes a saved skill, with your approval. Skills can scope the tools the
       model sees while they run (2 instead of 6). An always-visible memory block the agent edits, with a size limit: section 14 bans
-      model-based extraction, so this is an owner decision.  Moat: needs loop, skills and memory in one app, on the phone.
+      model-based extraction, allowed on that condition.  Moat: needs loop, skills and memory in one app, on the phone.
 ```
 
 ### Parity, quick
@@ -656,12 +656,12 @@ and the bets come first. Each bet says why others cannot quickly match it. Nothi
 Checked against the code on 2026-11-04. Already present, so not listed: scheduled tasks, chat export (Markdown, JSON, PDF), sharing into the app, document search, reasoning control.
 
 ```
-[ ] find LM Studio, Ollama and llama.cpp on the LAN, and offer them in Simple mode (custom endpoint exists in Technical)  AnythingLLM, Off Grid #211
-[ ] keep the screen awake while generating, optional                                     Off Grid #378
-[ ] live speed and memory per reply, folded, Technical mode                              Edge Gallery, MNN
-[ ] audio transcription as a real foreground run                                         follow-up to #286
-[ ] photo results open the photo from chat                                               follow-up to #290
-[ ] hands-free loop: wake word, continuous voice, interrupt; check what we have first    Operit, MNN, PocketPal #945
+[?] find LM Studio, Ollama and llama.cpp on the LAN, and offer them in Simple mode (custom endpoint exists in Technical)  AnythingLLM, Off Grid #211
+[?] keep the screen awake while generating, optional                                     Off Grid #378
+[?] live speed and memory per reply, folded, Technical mode                              Edge Gallery, MNN
+[?] audio transcription as a real foreground run                                         follow-up to #286
+[?] photo results open the photo from chat                                               follow-up to #290
+[ ] hands-free loop: talk-to-interrupt not built; wake word and voice exist    Operit, MNN, PocketPal #945
 [ ] pick a vision model's mmproj by hand; check the import path                          PocketPal #841
 ```
 
@@ -670,15 +670,29 @@ Checked against the code on 2026-11-04. Already present, so not listed: schedule
 From each project's own release notes, read 2026-11-04. All speedups are unmeasured on our hardware.
 
 ```
-[ ] llama.cpp v0.9.0 (b12110) over our b11988: Gemma 4 prefill graph work, Gemma 4 speculative decoding, LFM3 tensor split,
-      Nemotron 3.5 Transcribe (offline speech, 40 languages). JNI rebase; mtmd.h changed. Then re-judge w/specdecode.
+[?] llama.cpp v0.9.0 (b12110) over our b11988 [#313]: Gemma 4 prefill graph work, Gemma 4 speculative decoding, LFM3 tensor split,
+      Nemotron 3.5 Transcribe (offline speech, 40 languages). JNI rebase; mtmd.h changed. w/specdecode stays held: LFM3 hybrid gets nothing from it.
 [ ] LiteRT-LM 0.19.0 over our 0.17.1: GPU logit masking for constrained decoding, multi-token decoding. Breaking C API 1.0.
       Check the Tensor NPU runtime pair before bumping.
-[ ] Android 17, before target API 37: declare FEATURE_NEURAL_PROCESSING_UNIT or the NPU path is blocked; handle the new per-app
+[?] Android 17, before target API 37 [#299]: declare FEATURE_NEURAL_PROCESSING_UNIT or the NPU path is blocked; handle the new per-app
       memory limit (exit reason MemoryLimiter:AnonSwap) with a clear message; re-check background audio for spoken replies.
-[ ] Gemini Nano through ML Kit's Prompt API as a no-download option on supported phones. Beta, and the model is out of our control.
-[ ] AppFunctions: expose our tools to system agents. Experimental, and the caller side is restricted, so read the rules first.
-[ ] Read the 2026 Play AI policy pages. The research found only third-party coverage.
+[?] Gemini Nano, Technical mode only, cannot be tested on an emulator [#310], through ML Kit's Prompt API as a no-download option on supported phones. Beta, and the model is out of our control.
+[ ] AppFunctions (parked, owner decision on approving outside callers): expose our tools to system agents. Experimental, and the caller side is restricted, so read the rules first.
+[?] Read the 2026 Play AI policy pages [#300, docs/play/ai-policy-2026.md]. The research found only third-party coverage.
+```
+
+### Known gaps from the build
+
+Not done or not checked, carried to the final pass or later:
+
+```
+[ ] Still English: Telegram fixed replies, scheduled-result prefixes, some Hub and run-receiver messages; DeviceSelfCheck on purpose
+[ ] Translations are machine-written: no native reader yet, no check of clipping, no right-to-left review
+[ ] Repetition guard: measure false positives at the 400-character threshold; the stop shows the generic error
+[ ] Answer check: measure false positives per language. Prune: measure its effect on prefix reuse
+[ ] Eval suite: desktop harness contract not implemented; no failure or permission-denied tasks
+[ ] Upstream b12110 jinja and reasoning changes unverified with LFM3
+[ ] Desktop live view re-reads every 1.5 s; could use herdr events
 ```
 
 ### Watching, not planned
