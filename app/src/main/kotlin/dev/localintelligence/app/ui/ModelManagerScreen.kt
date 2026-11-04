@@ -175,6 +175,8 @@ fun ModelManagerScreen(
     onForgetLanServer: (() -> Unit)? = null,
     /** The ChatGPT entry (sign in, model picker, use). Null hides it. */
     chatGptCard: (@Composable () -> Unit)? = null,
+    /** The Gemini Nano row (beta, Technical only). Null hides it. */
+    geminiNanoCard: (@Composable () -> Unit)? = null,
     /**
      * Makes a local model the resident one, the way import does. Returns the outcome so a
      * model that does not fit is reported here rather than shown as a silent no-op.
@@ -476,6 +478,9 @@ fun ModelManagerScreen(
             ) {
                 if (chatGptCard != null) {
                     item(key = "chatgpt") { chatGptCard() }
+                }
+                if (geminiNanoCard != null) {
+                    item(key = "gemini-nano") { geminiNanoCard() }
                 }
                 if (onFindLanServers != null && onUseLanServer != null) {
                     item(key = "lan-find") {

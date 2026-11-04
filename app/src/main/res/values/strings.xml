@@ -1336,4 +1336,15 @@
     <string name="phone_search_index_now">Refresh now</string>
     <string name="phone_search_index_done">Refreshed.</string>
     <string name="phone_search_index_failed">The refresh failed. Try again later.</string>
+
+    <!-- Gemini Nano row on the Models screen (beta, Technical mode only). -->
+    <string name="gemini_nano_title">Gemini Nano (beta)</string>
+    <string name="gemini_nano_summary">Google’s model, run on this phone by Android’s AI core. The system stores it, not this app. Text only.</string>
+    <string name="gemini_nano_download">Download</string>
+    <string name="gemini_nano_downloading">Downloading. This can take a while.</string>
+    <string name="gemini_nano_use">Use Gemini Nano</string>
+    <string name="gemini_nano_in_use">Gemini Nano is answering. Pick another model to switch back.</string>
+    <string name="gemini_nano_download_failed">The download did not finish. Try again later.</string>
+    <string name="gemini_nano_not_ready">Gemini Nano is not ready on this phone yet.</string>
+    <string name="gemini_nano_ready">Gemini Nano (beta)</string>
 </resources>
