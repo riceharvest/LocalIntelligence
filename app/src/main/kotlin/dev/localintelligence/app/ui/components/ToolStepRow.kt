@@ -153,6 +153,30 @@ fun ToolStepRow(
 }
 
 /**
+ * The steps a subtask made, one line each, above its answer. Empty for every other tool, so nothing is drawn.
+ * Shown only in the folded detail: the subtask's answer is what the parent model used, not these lines.
+ */
+@Composable
+private fun SubSteps(lines: List<String>) {
+    if (lines.isEmpty()) return
+    Column(Modifier.fillMaxWidth().padding(start = 32.dp, end = 8.dp, bottom = 6.dp)) {
+        Text(
+            text = stringResource(R.string.subtask_steps_header),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        lines.forEach { line ->
+            Text(
+                text = line,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
  * The call that has started and not yet returned.
  *
  * Drawn from [RunningTool], which the runtime sets the moment it dispatches a
@@ -497,6 +521,7 @@ val LocalTechnicalDetail = compositionLocalOf { false }
  */
 @Composable
 private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate: Boolean) {
+    SubSteps(step.subSteps)
     val output = if (state == ToolRowState.Refused) step.detail else step.observation.orEmpty()
     if (!LocalTechnicalDetail.current) {
         Text(

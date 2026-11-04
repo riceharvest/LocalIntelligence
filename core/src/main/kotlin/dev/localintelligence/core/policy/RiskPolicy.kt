@@ -111,7 +111,9 @@ class RiskPolicy(
                 "${definition.name} writes the memory block, and this conversation read text from outside " +
                     "the phone. The block changes only when your own message asks for it.",
             )
-        } else if (!requestedByMessage && isGuarded(definition) && definition.risk != ToolRisk.SCREEN_CONTROL) {
+        } else if (!requestedByMessage && isGuarded(definition) &&
+            definition.risk != ToolRisk.SCREEN_CONTROL && definition.name !in NOT_REQUESTED_EXEMPT
+        ) {
             notRequested(definition, args, gated)
         } else {
             autoAccepted(definition, gated) ?: gated
@@ -682,6 +684,13 @@ private val PRIVATE_READS = setOf("location.get")
  * (see [evaluate]). Keep the name in step with `MemoryBlock` and the catalogue.
  */
 private val MEMORY_WRITES = setOf("memory.update_block")
+
+/**
+ * Tools the not-requested guard does not confirm. `task.delegate` only starts a child run: every call
+ * the child makes is still judged on its own against the user's message, so confirming the start would
+ * ask the same question twice. The child's calls are the barrier, not the start.
+ */
+private val NOT_REQUESTED_EXEMPT = setOf("task.delegate")
 
 private fun isGuarded(definition: ToolDefinition): Boolean =
     definition.risk != ToolRisk.READ_ONLY || definition.name in PRIVATE_READS || definition.name in MEMORY_WRITES

@@ -100,6 +100,24 @@ Consequences:
 If you find yourself wanting to `import android.*` in `:core`, the design is wrong.
 Push the platform out to a function type or an interface owned by `:core` instead.
 
+**Subtasks (added 2026-11-04, owner's decision).** The model may hand one self-contained job to a
+child run with `task.delegate`. This was ruled out before, because a second agent loop is a second
+set of state to get wrong on a phone. It is allowed now under these limits, all in `:core`:
+
+- One child at a time, on the same resident model, with a fresh session and a 6-step cap.
+  No nesting: the child's registry drops `task.delegate` and the loop refuses it again.
+- The child shares the parent's `RiskPolicy`. Its calls are judged against the user's own
+  message, never the goal the model wrote, so a child cannot gain a tool or a permission the
+  parent did not have. A child's confirmation goes to the user as a normal card.
+- Only the child's answer, capped at 600 characters, returns to the parent's context. The
+  child's steps are shown to the user in a folded row and never enter the parent's prompt.
+- After a child runs, the parent's prefix is re-prefilled through the existing `warmPrefix`
+  path. That path only does work in the native tool format; elsewhere the next step pays it.
+  The cost is unmeasured.
+
+The subtask is a tool call, so it uses the one output channel the model already has. The
+threat model is T13 in `docs/threat-model.md`.
+
 ---
 
 ## 3. Dependency graph
@@ -161,7 +179,8 @@ sealed interface AgentAction {
 ```
 
 Not `thought`. Not `plan`. Not `critique`. Not `confidence`. Not `reflection`.
-Not `subagent_request`. Not `state_mutation`.
+Not `subagent_request`: a subtask is the `task.delegate` tool call (section 2), not a new
+output kind. Not `state_mutation`.
 
 Reasoning stays inside the model. Everything the runtime must reason about is handled
 deterministically in Kotlin.

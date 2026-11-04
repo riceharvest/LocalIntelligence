@@ -147,6 +147,7 @@ object V0ToolCatalogue {
     val categories: List<String> = listOf(
         "files", "apps", "clipboard", "device", "alarm", "calendar",
         "contacts", "notifications", "web", "history", "documents", "messages", "screen", "photos",
+        "phone_search",
     )
 
     /**
@@ -1670,6 +1671,44 @@ object V0ToolCatalogue {
             tags = setOf("remember", "remember that", "keep in mind", "note that", "save this", "memory"),
             requiredPermission = null,
         ),
+
+        // ------------------------------------------------------------- todo
+        // The task checklist. The runtime holds the list and puts it back into each prompt
+        // (see TodoList); the call only replaces it. REVERSIBLE and LOCAL: it changes nothing
+        // outside the conversation, and the observation echoes no text.
+        ToolDefinition(
+            name = "todo.update",
+            description = "Keeps the checklist of a multi-step task. Send the whole list each time.",
+            category = "todo",
+            schema = objSchema(required = listOf("items")) {
+                putJsonObject("items") {
+                    put("type", "array")
+                    put("maxItems", 12)
+                    put("description", "The whole list, in order.")
+                    putJsonObject("items") {
+                        put("type", "object")
+                        putJsonObject("properties") {
+                            putJsonObject("text") {
+                                put("type", "string")
+                                put("description", "What to do, in a few words.")
+                            }
+                            putJsonObject("status") {
+                                put("type", "string")
+                                putJsonArray("enum") {
+                                    add("pending"); add("in_progress"); add("done"); add("cancelled")
+                                }
+                            }
+                        }
+                        putJsonArray("required") { add("text"); add("status") }
+                    }
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            observationOrigin = ObservationOrigin.LOCAL,
+            tags = setOf("todo", "to do", "checklist", "task list", "steps", "progress", "plan"),
+            requiredPermission = null,
+        ),
+
         // -------------------------------------------------------- observations
         // Reads back the full text of a long tool result the model saw as a preview.
         // NETWORK origin: the stored text is whatever a tool returned, web pages included.
@@ -2085,6 +2124,73 @@ object V0ToolCatalogue {
             risk = ToolRisk.READ_ONLY,
             observationOrigin = ObservationOrigin.NETWORK,
             tags = setOf("photo", "photos", "picture", "pictures", "image", "gallery", "find my photo", "foto"),
+            requiredPermission = null,
+        ),
+
+        // ------------------------------------------------------------- subtasks
+        // Runs in the agent loop (AgentController.delegate), never in the tool. REVERSIBLE, the same tier
+        // as any other call that changes nothing outside the app: the subtask's own calls keep their
+        // own tiers, and the policy judges them against the user's message, not the goal.
+        ToolDefinition(
+            name = "task.delegate",
+            description = "Hands one self-contained job to a helper run on this model, with its own " +
+                "steps and only the tools you name. Returns only the helper's short final answer.",
+            category = "subtask",
+            schema = objSchema(required = listOf("goal")) {
+                putJsonObject("goal") {
+                    put("type", "string")
+                    put("maxLength", 400)
+                    put("description", "The job, in full words: what to find or do, and what to answer.")
+                }
+                putJsonObject("tools") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "Optional. Comma-separated tool names the helper may use, such as web.search,web.fetch.")
+                }
+            },
+            risk = ToolRisk.REVERSIBLE,
+            tags = setOf("subtask", "delegate", "sub-task", "helper run"),
+        ),
+
+        // ---------------------------------------------------------------- search my phone
+        // Searches only the sources the person switched on in Settings, Search my phone. The
+        // matches are the phone's own data (notifications, texts, events, names, files, captions), so
+        // the observation is NETWORK-origin and fenced like web text: a text or file can carry words
+        // meant for a model. Texts are left out of unattended Play runs (AppContainer).
+        ToolDefinition(
+            name = "phone.search",
+            description = "Search what the user chose to index on this phone: notifications, texts, " +
+                "calendar, contact names, files in their folder and photo captions. Use when the user asks " +
+                "what they got, said or wrote, or when an event or file is.",
+            category = "phone_search",
+            schema = objSchema(required = listOf("query")) {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "The words to look for, for example \"dentist\" or \"invoice march\".")
+                }
+                putJsonObject("source") {
+                    put("type", "string")
+                    put("description", "Optional: only this source.")
+                    putJsonArray("enum") {
+                        add("notifications")
+                        add("messages")
+                        add("calendar")
+                        add("contacts")
+                        add("files")
+                        add("photos")
+                    }
+                }
+                putJsonObject("max_results") {
+                    put("type", "integer")
+                    put("minimum", 1)
+                    put("maximum", 10)
+                    put("description", "How many items to return, 5 by default.")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("search my phone", "find on phone", "notification", "text", "message", "calendar", "event", "contact", "file", "document", "remember"),
             requiredPermission = null,
         ),
     )

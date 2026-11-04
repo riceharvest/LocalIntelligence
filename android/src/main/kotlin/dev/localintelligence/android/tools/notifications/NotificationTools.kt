@@ -12,6 +12,7 @@ import android.os.Build
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import dev.localintelligence.android.phoneindex.PhoneIndexStore
 import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
@@ -337,6 +338,15 @@ class LocalNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         if (connected === this) connected = null
+    }
+
+    /**
+     * Keeps the notification for Search my phone when that switch is on. The store decides, and it
+     * hands the write to a background scope, so this returns at once.
+     */
+    override fun onNotificationPosted(sbn: StatusBarNotification) {
+        super.onNotificationPosted(sbn)
+        PhoneIndexStore.get(this).onNotificationPosted(sbn)
     }
 
     companion object {

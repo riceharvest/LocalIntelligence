@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
@@ -105,6 +106,7 @@ import dev.localintelligence.android.gateway.telegram.TelegramSettings
 import dev.localintelligence.android.mcp.McpSettings
 import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.android.tools.OBSERVATIONS_FAMILY_ID
+import dev.localintelligence.android.tools.TODO_FAMILY_ID
 import dev.localintelligence.app.LocalIntelligenceApp
 import dev.localintelligence.app.WakeWordService
 import dev.localintelligence.app.export.ChatExporter
@@ -164,6 +166,8 @@ fun SettingsScreen(
     onOpenScripts: () -> Unit = {},
     /** Opens the Photo search screen. Null hides the row: the row exists only in the full build. */
     onOpenPhotos: (() -> Unit)? = null,
+    /** Opens Search my phone. Shown in both modes; null hides the row. */
+    onOpenPhoneSearch: (() -> Unit)? = null,
     /** The ChatGPT row, shown in Simple mode. Null hides it. */
     chatGptRow: (@Composable () -> Unit)? = null,
     /** The folder of generated images and videos, for the Storage row. Null hides the row. */
@@ -234,6 +238,7 @@ fun SettingsScreen(
                     NavRow(Icons.Filled.Person, stringResource(R.string.personas), onOpenPersonas)
                     NavRow(Icons.Filled.Description, stringResource(R.string.documents), onOpenDocuments)
                     onOpenPhotos?.let { NavRow(Icons.Filled.PhotoLibrary, stringResource(R.string.photo_search), it) }
+                    onOpenPhoneSearch?.let { NavRow(Icons.Filled.Search, stringResource(R.string.phone_search_title), it) }
                     NavRow(Icons.Filled.Schedule, stringResource(R.string.schedule_shortcut_long), onOpenSchedule)
                     onOpenExtras?.let { NavRow(Icons.Filled.Star, stringResource(R.string.extras), it) }
                     NavRow(Icons.Filled.Lock, stringResource(R.string.permissions_title)) { openPermissionScreen(context) }
@@ -271,7 +276,7 @@ fun SettingsScreen(
                     }
                     // Script plugins have their own screen, with the same switch, so they are not repeated here.
                     // Saved results are always on: every long tool result's preview names their tool.
-                    plugins.filterNot { it is ScriptPlugin || it.id == OBSERVATIONS_FAMILY_ID }.forEach { plugin ->
+                    plugins.filterNot { it is ScriptPlugin || it.id == OBSERVATIONS_FAMILY_ID || it.id == TODO_FAMILY_ID }.forEach { plugin ->
                         SwitchRow(
                             title = plugin.title,
                             help = plugin.summary,
