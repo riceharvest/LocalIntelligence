@@ -145,6 +145,9 @@ import kotlinx.coroutines.sync.withLock
  * and the ViewModels both receive it as a constructor parameter; neither reaches
  * for a global.
  */
+/** Tools a Play build offers only to a run the person started in the app. See `pluginTools`. */
+private val PLAY_ATTENDED_ONLY_TOOLS = setOf("sms.search", "sms.send", "calls.recent")
+
 class AppContainer(private val context: Context) {
 
     /** Log tag for this container, matching the class name used elsewhere. */
@@ -1851,6 +1854,11 @@ class AppContainer(private val context: Context) {
         }.filter { tool ->
             // Screen control is never offered to a background run: no one is there to approve the app.
             !background || tool.definition.risk != ToolRisk.SCREEN_CONTROL
+        }
+.filter { tool ->
+            // Play limits texts and the call log to the default assistant answering its user, so a
+            // scheduled or Telegram run in the Play build does not get them. The full build keeps them.
+            !background || BuildConfig.FULL_BUILD || tool.definition.name !in PLAY_ATTENDED_ONLY_TOOLS
         }
         // With "Let the model look up tools" on, tools.find lists the same enabled tools the run
         // may call, except the core set the prompt always lists, and loads them by name or query.
