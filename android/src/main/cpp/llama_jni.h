@@ -36,8 +36,12 @@ struct GenOutcome {
     int32_t stop = static_cast<int32_t>(StopCode::ERROR);
     int64_t prefill_ms = 0;
     int64_t decode_ms = 0;
-    // Prompt tokens restored from the previous step instead of processed.
-    int32_t reused_tokens = 0;
+    // Prompt tokens restored from the previous step instead of processed. -1 until the
+    // prompt is evaluated, so a failure before that reads as "not reported", not as zero.
+    int32_t reused_tokens = -1;
+    // Milliseconds from the start of the request to the first sampled token. -1 until a
+    // token is sampled: a reply that never produced one has no first-token time.
+    int64_t first_token_ms = -1;
     // Non-empty when generation failed; the message is the reason.
     std::string error;
 };

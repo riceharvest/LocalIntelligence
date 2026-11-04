@@ -398,6 +398,8 @@ class LlamaCppBackend(
                 prefillMs = outcome?.prefillMs ?: 0L,
                 decodeMs = outcome?.decodeMs ?: 0L,
                 thought = nativeReply?.thought,
+                reusedTokens = outcome?.reusedTokens,
+                firstTokenMs = outcome?.firstTokenMs,
             )
         }
     }

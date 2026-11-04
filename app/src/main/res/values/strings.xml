@@ -977,7 +977,7 @@
     <string name="interrupted_run_continue">Continue</string>
     <string name="interrupted_run_dismiss">Dismiss</string>
     <!-- Parity pass: Technical speed line under a reply, and "not available" for a rate that cannot be computed. -->
-    <string name="reply_speed_line">Prefill %1$s tok/s · first token %2$d ms · decode %3$s tok/s</string>
+    <string name="reply_speed_line">Prefill %1$s tok/s · first token %2$s · decode %3$s tok/s</string>
     <string name="reply_speed_not_available">n/a</string>
     <!-- Parity pass: the foreground notification while an audio file is transcribed. -->
     <string name="transcribing_audio_file">Transcribing an audio file</string>

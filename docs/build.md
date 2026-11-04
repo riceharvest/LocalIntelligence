@@ -9,7 +9,7 @@ The short version:
 export JAVA_HOME=/path/to/jdk-21
 export ANDROID_HOME=/path/to/android-sdk
 
-git clone --depth 1 --branch b11988 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
+git clone --depth 1 --branch b12110 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
 PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assemblePlayDebug
 ```
 
@@ -30,7 +30,7 @@ The APK lands at `app/build/outputs/apk/play/debug/app-play-debug.apk` (or `:app
 | NDK | **27.1.12297006** | declared in `android/build.gradle.kts` | pinned via `ndkVersion` (see §2) |
 | CMake | `3.22.1` | SDK | declared in `android/build.gradle.kts` `externalNativeBuild.cmake.version` |
 | build-tools | 35.0.x or 36.x | SDK | not pinned; AGP picks a default |
-| llama.cpp | tag **b11988** | `PIDROID_LLAMA_DIR` or CMake FetchContent | see §3 |
+| llama.cpp | tag **b12110** (v0.9.0) | `PIDROID_LLAMA_DIR` or CMake FetchContent | see §3 |
 
 ---
 
@@ -54,12 +54,12 @@ Install `ndk;27.1.12297006` via the SDK manager.
 2. `<repo>/llama.cpp` — a checkout placed at the repo root. It is not a git submodule; the repository has none
 3. `PIDROID_LLAMA_FETCH` — CMake `FetchContent` (default is `ON`)
 
-`FetchContent` fetches the pinned tag `b11988` when no local path or checkout is found. The second `add_subdirectory` is guarded by `if(NOT _llama_src_dir_from_fetchcontent)`, so `FetchContent` works out of the box on a fresh clone.
+`FetchContent` fetches the pinned tag `b12110` when no local path or checkout is found. The second `add_subdirectory` is guarded by `if(NOT _llama_src_dir_from_fetchcontent)`, so `FetchContent` works out of the box on a fresh clone.
 
 For local development or faster builds, use route 1:
 
 ```bash
-git clone --depth 1 --branch b11988 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
+git clone --depth 1 --branch b12110 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
 export PIDROID_LLAMA_DIR=/tmp/llama.cpp
 ```
 
@@ -69,13 +69,13 @@ llama.cpp's C API moves, so the JNI is written against one tag. It uses
 `load_mode` on `llama_model_params`, `flash_attn_type` on
 `llama_context_params`, and `llama_memory_clear()`. The previous pin, `b4661`
 (February 2025), predates all three, and it predates the models people run
-now: it has no Gemma 3 or 4, no Qwen 3, and no LFM3. `b11988` is the fixed
-point the JNI builds against:
+now: it has no Gemma 3 or 4, no Qwen 3, and no LFM3. `b12110` (v0.9.0) is the
+fixed point the JNI builds against; the previous pin was `b11988`:
 
 ```
-$ git clone --depth 1 --branch b11988 https://github.com/ggml-org/llama.cpp /tmp/llama-b11988
-$ git -C /tmp/llama-b11988 rev-parse HEAD
-abb76ab380c7f3f731e365a859fb4cc64e939bb8
+$ git clone --depth 1 --branch b12110 https://github.com/ggml-org/llama.cpp /tmp/llama-b12110
+$ git -C /tmp/llama-b12110 rev-parse HEAD
+cd959bae99ff4bed22bef2604f45241c09bbb8c8
 ```
 
 The tag resolves to that exact commit.
@@ -260,8 +260,11 @@ Raw form, for the flavor you want: `adb shell am broadcast -n dev.localintellige
 Every run ends with one `LIControl` line at INFO, `DONE {json}`: `outcome` (answer, failed, step_limit,
 cancelled), `answer` (capped at 3,000 characters, with `answerCut`), `total_ms`, `tools` (name, success, ms;
 ms is null for a call the runtime refused), and `generations` (per generation: `promptTokens`, `decodeTokens`,
-`decodeTokPerS`, `prefillMs`, and `stop`). Values the run did not measure are null. Today that means
-`tokensReused`, `prefillTokPerS` and `firstTokenMs` are always null, because the metrics do not carry them.
+`decodeTokPerS`, `prefillMs`, and `stop`). Values the run did not measure are null. On llama.cpp every
+generation carries `tokensReused` (prompt tokens restored from the previous step), `tokensPrefilled`
+(promptTokens minus reused), `prefillTokPerS` (tokensPrefilled over prefillMs) and `firstTokenMs` (request start to
+the first sampled token). Remote, LiteRT-LM and Gemini Nano report `firstTokenMs` only: their reuse is not
+known, so `tokensReused`, `tokensPrefilled` and `prefillTokPerS` are null there.
 `ask` clears the whole logcat buffer before it sends, because logcat has no per-tag clear.
 
 ## 10. Setting text (`scripts/gen-setting-text.py`)
