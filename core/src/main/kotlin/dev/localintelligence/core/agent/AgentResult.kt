@@ -71,6 +71,13 @@ data class StepTrace(
      */
     val thought: String? = null,
     /**
+     * The memory-block change an OBSERVATION made, from the tool's result data (`change_id`), or null.
+     * The chat row uses it to offer Undo on exactly that change. Null on every other kind and for
+     * every tool that did not write the block.
+     */
+    val changeId: Long? = null,
+
+    /**
      * On a TOOL_CALL row for `task.delegate`: the subtask's own steps, folded under that row. Shown to
      * the user only. The parent's model never sees them; it gets the subtask's capped answer.
      */

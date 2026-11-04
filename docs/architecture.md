@@ -429,6 +429,21 @@ most) that goes into the system prompt; and **`history.search`**
 (`memory.history`), a read-only tool over earlier messages in Room. Documents
 (`documents.search`, BM25 over the user's files) are separate from memory.
 
+**The memory block (owner decision, 2026-11-04).** One text of at most 1,000
+characters (`MemoryBlock.TEXT`, a settings row, `memory.block.text`), shown to the model
+in every session as a line of the system prompt. The agent edits it through one tool,
+`memory.update_block` (REVERSIBLE; `add`, `replace` or `clear`), which is the only
+model-driven write to memory. Why the rule changed: the block is visible and editable
+in Settings, so nothing in it is hidden from the user. A write in a conversation that
+has read text from outside the phone (any NETWORK-origin observation still in the
+session) is refused unless the user's own message asks for it (`RiskPolicy`,
+`untrustedRead`). Confirmation alone is not enough for that case, because a
+clicked-through prompt would carry page text into the block.
+
+**Not built yet:** the chat row ("Remembered: ...") and its Undo, which the owner asked
+for. Until they exist, a change is visible only in Settings. Undo needs the previous text
+kept per change, and the row needs a ChatScreen hook; both are open.
+
 **Do not build model-based memory extraction.** No per-interaction classifier, no
 summarising model, no deduplication model, no consolidation pass. That is a lot of
 inference for an unmeasured benefit. The pattern filter in `MemoryWritePolicy` is the
