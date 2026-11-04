@@ -1607,29 +1607,6 @@
     <string name="setting_section_plugins">Plugins</string>
     <!-- END setting-text -->
     <!-- Moved from services (textpass): notifications and status messages the phone shows. -->
-    <string name="notif_downloading_model">Downloading a model</string>
-    <string name="notif_model_download">Model download</string>
-    <string name="notif_channel_model_downloads">Model downloads</string>
-    <string name="notif_channel_model_download_results">Model download results</string>
-    <string name="notif_heard_phrase">Heard “%1$s”</string>
-    <string name="notif_channel_wake_listening">Wake word listening</string>
-    <string name="notif_channel_wake_alerts">Wake word alerts</string>
-    <string name="notif_channel_local_server">Local server</string>
-    <string name="telegram_timeout_error">Android stopped Telegram after its six-hour background limit. Switch Telegram off and on to reconnect.</string>
-    <string name="telegram_error_handle">Could not handle a message: %1$s</string>
-    <string name="telegram_error_token">Telegram does not accept this token. Paste the token from @BotFather again.</string>
-    <string name="telegram_error_refused">Telegram refused the call</string>
-    <string name="telegram_error_connection">No connection to Telegram: %1$s</string>
-    <string name="telegram_connected">Telegram is connected</string>
-    <string name="telegram_status_error">Telegram: %1$s</string>
-    <string name="telegram_start_refused">Android would not start Telegram in the background. Open LocalIntelligence to connect.</string>
-    <string name="local_server_port_in_use">Port %1$s is in use. Another app may hold it, or the server may still be stopping. Switch the server off and on to try again.</string>
-    <string name="local_server_timeout_error">Android stopped the local server after its six-hour background limit. Switch it off and on to restart it.</string>
-    <string name="local_server_notification_text">Other apps on this phone can use the model. Switch the local server off in Settings to stop.</string>
-    <string name="local_server_start_refused">Android would not start the local server in the background. Open LocalIntelligence to start it.</string>
-    <string name="export_format_markdown">Export as Markdown</string>
-    <string name="export_format_json">Export as JSON</string>
-    <string name="export_format_pdf">Export as PDF</string>
     <string name="run_replace_not_last">The message to replace is no longer the last one. Nothing was run.</string>
     <string name="schedule_skipped_busy">Skipped: another task was already running.</string>
     <string name="local_server_token_store_failed">Could not store the access token. Try again.</string>
