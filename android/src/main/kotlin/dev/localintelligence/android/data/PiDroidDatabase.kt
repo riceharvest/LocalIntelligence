@@ -31,8 +31,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ObservationEntity::class,
         PhotoCaptionEntity::class,
         PersonaEntity::class,
+        // Version 5 (My desktop): desktop_text and desktop_outbox. Added at the end of the list.
+        DesktopTextEntity::class,
+        DesktopOutboxEntity::class,
     ],
-    version = 4,
+    version = 5,
     // Exported to android/schemas and committed: each migration's SQL is copied from
     // there, so a migrated table matches what Room validates on open.
     exportSchema = true,
@@ -47,6 +50,7 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
     abstract fun observationDao(): ObservationDao
     abstract fun photoCaptionDao(): PhotoCaptionDao
     abstract fun personaDao(): PersonaDao
+    abstract fun desktopDao(): DesktopDao
 
     companion object {
         const val NAME: String = "localintelligence.db"
@@ -66,7 +70,7 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
          */
         fun build(context: Context, name: String = NAME): LocalIntelligenceDatabase =
             Room.databaseBuilder(context.applicationContext, LocalIntelligenceDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
 
         /**
@@ -108,6 +112,22 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `photo_captions` (`uri` TEXT NOT NULL, `caption` TEXT NOT NULL, `indexed_at` INTEGER NOT NULL, `embedding` BLOB, `embedding_model` TEXT, PRIMARY KEY(`uri`))",
+                )
+            }
+        }
+
+        /**
+         * 4 to 5: adds `desktop_text` (the last text read from each My desktop agent) and `desktop_outbox`
+         * (messages waiting for the desktop). Both are copied from the Room entities in `Desktop.kt`; Room
+         * checks them against those entities on open.
+         */
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `desktop_text` (`target` TEXT NOT NULL, `text` TEXT NOT NULL, `state_seq` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`target`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `desktop_outbox` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `target` TEXT NOT NULL, `text` TEXT NOT NULL, `created_at` INTEGER NOT NULL)",
                 )
             }
         }

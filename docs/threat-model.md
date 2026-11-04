@@ -349,6 +349,46 @@ Mitigations in code:
   OpenAI fields (`stop`, `n`, `logprobs`, `tools`) are ignored or refused, so a client cannot
   rely on them.
 
+### T13. My desktop bridge — full build, opt-in, Tailscale-identity-checked
+
+`desktop-bridge/desklink.py` runs on the user's own computer, bound to 127.0.0.1 and published only by
+`tailscale serve`. The phone's My desktop screen (full build only) lists the coding agents there, shows
+their terminal text, sends messages and single keys to them. Nothing starts by itself.
+
+**Threat.** A key press or message is an input to a coding agent that can run commands on that desktop.
+Anyone who reaches the bridge could approve or send. Text read back is untrusted: it is what a coding agent
+printed, and it can contain instructions from a web page or a file.
+
+Mitigations in code:
+
+- Loopback only (`127.0.0.1`), and `tailscale serve` is the only route in. The bridge refuses any request
+  without a `Tailscale-User-Login` header, or whose value differs from `--login`, compared in constant time.
+  Tailscale does not fill that header for tagged devices, so those are refused.
+- A request with an `Origin` header is refused, which stops a browser page from reaching the bridge through
+  the user's browser. The `Host` header must be one the bridge expects.
+- Keys are a fixed list (`1 2 3 y n enter esc up down`); a key outside it is refused. There is no ctrl+c and
+  no shell. Messages go through the agent's own prompt command, with an argument list, never a shell.
+- Each key press carries the state sequence number the user saw. If the agent has changed, the bridge
+  refuses with `stale`, so a tap cannot answer a question the user did not read.
+- A message to a blocked agent is refused (`agent_blocked`), so nothing is typed into an approval dialog.
+- Notifications (ntfy) carry a fixed title and no agent name or terminal text.
+- The phone accepts only an `https://` address. Cached text is read-only and shows no answer buttons.
+- The phone does not send desktop text to a model. Nothing in the app reads it except the screen.
+
+**Stated gaps:**
+
+- Tailscale's documentation says identity headers can be set by a client that reaches the service without
+  serve. On loopback, that needs code already running as the user on the desktop, which can reach the agents
+  anyway. The check defends against other tailnet devices and users, not against local code.
+- The ntfy topic is a name, not a secret: anyone who knows it can see that a notification was sent, but not
+  the agent name or text, which the bridge never includes.
+- Live text uses a 1.5 s re-read on the desktop while a view is open. The bridge does not subscribe to
+  herdr's event stream. tmux agents have no status, so they send no notifications.
+- Herdr's output shapes for `agent read`, `prompt` and `wait` were taken from its help and API schema. They
+  have not been run against live agents. The bridge handles a plain-text read and a JSON-wrapped read.
+- The phone's cache of read text is in the app's database, so it is included wherever the app data goes.
+  This entry describes the code; nothing has run on a device.
+
 ## Deliberately not defended
 
 - **A hostile local model file.** Anyone who can place a GGUF in app storage can

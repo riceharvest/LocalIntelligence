@@ -64,6 +64,7 @@ import dev.localintelligence.app.ui.ChatMessage
 import dev.localintelligence.app.ui.ChatScreen
 import dev.localintelligence.app.ui.ChatViewModel
 import dev.localintelligence.app.ui.HandsFreePhase
+import dev.localintelligence.app.ui.DesktopScreen
 import dev.localintelligence.app.ui.DocumentsScreen
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import dev.localintelligence.android.report.ReplyReportSender
@@ -647,6 +648,11 @@ class MainActivity : FragmentActivity() {
                             generatedMedia = generatedMediaDir(applicationContext),
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
                             onOpenScripts = { nav.navigate(ROUTE_SCRIPTS) },
+                            onOpenDesktop = if (BuildConfig.FULL_BUILD) {
+                                { nav.navigate(ROUTE_DESKTOP) }
+                            } else {
+                                null
+                            },
                             onOpenPhotos = if (container.plugins.any { it.id == PHOTO_SEARCH_PLUGIN_ID }) {
                                 { nav.navigate(ROUTE_PHOTOS) }
                             } else {
@@ -742,6 +748,18 @@ class MainActivity : FragmentActivity() {
                         )
                     }
 
+                    composable(ROUTE_DESKTOP) {
+                        // Full build only: the Settings row that opens this route is hidden in the Play build.
+                        if (BuildConfig.FULL_BUILD) {
+                            DesktopScreen(
+                                settings = container.settings,
+                                dao = container.desktopDao(),
+                                onBack = { nav.popBackStack() },
+                                onOpenSettings = { nav.popBackStack() },
+                            )
+                        }
+                    }
+
                     composable(ROUTE_DOCUMENTS) {
                         val embeddingState by container.embeddingSetup.state.collectAsStateWithLifecycle()
                         DocumentsScreen(
@@ -816,6 +834,7 @@ class MainActivity : FragmentActivity() {
         const val ROUTE_EXTRAS = "extras"
         const val ROUTE_DOCUMENTS = "documents"
         const val ROUTE_PHOTOS = "photos"
+        const val ROUTE_DESKTOP = "desktop"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
         const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"

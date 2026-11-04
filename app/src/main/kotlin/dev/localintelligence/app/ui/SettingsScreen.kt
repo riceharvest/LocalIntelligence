@@ -33,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.Assistant
@@ -164,6 +165,8 @@ fun SettingsScreen(
     onOpenScripts: () -> Unit = {},
     /** Opens the Photo search screen. Null hides the row: the row exists only in the full build. */
     onOpenPhotos: (() -> Unit)? = null,
+    /** Opens My desktop. Null hides the row: it exists only in the full build. */
+    onOpenDesktop: (() -> Unit)? = null,
     /** The ChatGPT row, shown in Simple mode. Null hides it. */
     chatGptRow: (@Composable () -> Unit)? = null,
     /** The folder of generated images and videos, for the Storage row. Null hides the row. */
@@ -239,6 +242,7 @@ fun SettingsScreen(
                     NavRow(Icons.Filled.Lock, stringResource(R.string.permissions_title)) { openPermissionScreen(context) }
                     NavRow(Icons.Filled.Assistant, stringResource(R.string.set_as_phone_assistant)) { openAssistantSettings(context) }
                     if (technical) NavRow(Icons.Filled.Extension, stringResource(R.string.script_plugins), onOpenScripts)
+                    onOpenDesktop?.let { NavRow(Icons.AutoMirrored.Filled.Send, stringResource(R.string.desktop_settings_row), it) }
                     onExportChat?.let { ExportRow(it) }
                 }
 
