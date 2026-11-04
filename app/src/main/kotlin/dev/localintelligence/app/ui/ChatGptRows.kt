@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -105,59 +107,59 @@ private fun ChatGptCard(container: AppContainer, detailed: Boolean) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = "ChatGPT",
+                text = stringResource(R.string.chatgpt),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
             if (account == null) {
                 Text(
-                    text = "Use your ChatGPT plan for chat. Eligible messages go to OpenAI while it is on.",
+                    text = stringResource(R.string.use_your_chatgpt_plan_for_chat_eligible),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(enabled = !busy, onClick = { signIn() }) { Text("Continue with ChatGPT") }
+                Button(enabled = !busy, onClick = { signIn() }) { Text(stringResource(R.string.continue_with_chatgpt)) }
             } else if (active) {
                 Text(
-                    text = "Using ChatGPT plan. Messages go to OpenAI while ChatGPT is on.",
+                    text = stringResource(R.string.using_chatgpt_plan_messages_go_to),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (detailed) {
                     Text(
-                        text = "In use. Use a local model below to stop sending messages.",
+                        text = stringResource(R.string.in_use_use_a_local_model_below_to_stop),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Row {
-                    TextButton(onClick = { uriHandler.openUri(ChatGptSettings.USAGE_URL) }) { Text("Manage usage") }
+                    TextButton(onClick = { uriHandler.openUri(ChatGptSettings.USAGE_URL) }) { Text(stringResource(R.string.manage_usage)) }
                     TextButton(enabled = !busy, onClick = { busyAction { container.useLocalModel() } }) {
-                        Text("Use the phone's model")
+                        Text(stringResource(R.string.use_the_phone_s_model_2))
                     }
                 }
             } else {
                 Text(
-                    text = "Signed in with ChatGPT. Not in use.",
+                    text = stringResource(R.string.signed_in_with_chatgpt_not_in_use),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row {
-                    Button(enabled = !busy, onClick = { busyAction { container.useChatGpt() } }) { Text("Use ChatGPT") }
+                    Button(enabled = !busy, onClick = { busyAction { container.useChatGpt() } }) { Text(stringResource(R.string.use_chatgpt)) }
                 }
             }
             if (detailed && account != null) {
                 Text(
-                    text = "Model: " + chosen.ifBlank { "the first model your account lists" },
+                    text = stringResource(R.string.model_2) + chosen.ifBlank { "the first model your account lists" },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row {
-                    TextButton(enabled = !busy, onClick = { picking = true }) { Text("Choose model") }
+                    TextButton(enabled = !busy, onClick = { picking = true }) { Text(stringResource(R.string.choose_model)) }
                 }
             }
             if (account != null) {
                 Row {
-                    TextButton(enabled = !busy, onClick = { signOut() }) { Text("Sign out") }
+                    TextButton(enabled = !busy, onClick = { signOut() }) { Text(stringResource(R.string.sign_out)) }
                 }
             }
             message?.let {
@@ -176,18 +178,17 @@ private fun ChatGptCard(container: AppContainer, detailed: Boolean) {
     if (showNotice) {
         AlertDialog(
             onDismissRequest = {},
-            title = { Text("You're using your ChatGPT plan") },
+            title = { Text(stringResource(R.string.you_re_using_your_chatgpt_plan_2)) },
             text = {
                 Text(
-                    "Eligible AI requests in this app use your ChatGPT plan. " +
-                        "You can manage usage in ChatGPT settings.",
+                    stringResource(R.string.eligible_ai_requests_in_this_app_use),
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     container.chatGptPlugin.markWelcomeSeen()
                     showNotice = false
-                }) { Text("Got it") }
+                }) { Text(stringResource(R.string.got_it)) }
             },
         )
     }
@@ -207,18 +208,18 @@ private fun ChatGptModelPicker(container: AppContainer, onDone: () -> Unit) {
     }
     AlertDialog(
         onDismissRequest = onDone,
-        title = { Text("Choose a model") },
+        title = { Text(stringResource(R.string.choose_a_model)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 val list = models
                 when {
                     error != null -> Text(error.orEmpty(), style = MaterialTheme.typography.bodySmall)
-                    list == null -> Text("Loading models…", style = MaterialTheme.typography.bodySmall)
+                    list == null -> Text(stringResource(R.string.loading_models), style = MaterialTheme.typography.bodySmall)
                     else -> {
                         TextButton(onClick = {
                             container.chatGptPlugin.setChatModel("")
                             onDone()
-                        }) { Text("First model the account lists") }
+                        }) { Text(stringResource(R.string.first_model_the_account_lists)) }
                         list.forEach { model ->
                             TextButton(onClick = {
                                 container.chatGptPlugin.setChatModel(model.slug)
@@ -229,6 +230,6 @@ private fun ChatGptModelPicker(container: AppContainer, onDone: () -> Unit) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDone) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = onDone) { Text(stringResource(R.string.cancel)) } },
     )
 }

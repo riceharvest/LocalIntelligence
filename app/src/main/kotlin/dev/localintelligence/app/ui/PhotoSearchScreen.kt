@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -108,10 +110,10 @@ fun PhotoSearchScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Photo search") },
+                title = { Text(stringResource(R.string.photo_search)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -126,28 +128,25 @@ fun PhotoSearchScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Finds photos by what they show. The phone's own vision model writes a short caption " +
-                    "for each of your newest photos, and the captions are what is searched. Captions and " +
-                    "photos stay on this phone. Indexing runs only when you tap the button. It handles up to " +
-                    "$PHOTO_RUN_LIMIT photos not yet indexed per run, and each run picks up where the last stopped.",
+                stringResource(R.string.finds_photos_by_what_they_show_the_2, PHOTO_RUN_LIMIT),
             )
 
             Text(
                 when {
-                    indexed < 0 -> "Checking the index."
-                    indexed == 0 -> "Nothing indexed yet."
-                    else -> "$indexed photos indexed."
+                    indexed < 0 -> stringResource(R.string.checking_the_index)
+                    indexed == 0 -> stringResource(R.string.nothing_indexed_yet)
+                    else -> stringResource(R.string.photos_indexed, indexed)
                 },
             )
 
             if (!visionReady) {
                 Text(
-                    "Indexing needs a model that can read pictures. Load one on the Models screen first.",
+                    stringResource(R.string.indexing_needs_a_model_that_can_read),
                 )
             }
 
             progress?.let { (done, total) ->
-                Text("Captioning photo ${(done + 1).coerceAtMost(total)} of $total")
+                Text(stringResource(R.string.captioning_photo_of, (done + 1).coerceAtMost(total), total))
                 LinearProgressIndicator(
                     progress = { if (total == 0) 0f else done.toFloat() / total },
                     modifier = Modifier.fillMaxWidth(),
@@ -158,7 +157,7 @@ fun PhotoSearchScreen(
 
             if (running) {
                 OutlinedButton(onClick = { index.stop() }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Stop")
+                    Text(stringResource(R.string.stop))
                 }
             } else {
                 Button(
@@ -172,14 +171,14 @@ fun PhotoSearchScreen(
                     enabled = visionReady && !chatBusy(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Index my photos")
+                    Text(stringResource(R.string.index_my_photos))
                 }
                 OutlinedButton(
                     onClick = { confirmDelete = true },
                     enabled = indexed > 0,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Delete index")
+                    Text(stringResource(R.string.delete_index))
                 }
             }
         }
@@ -188,8 +187,8 @@ fun PhotoSearchScreen(
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete the photo index?") },
-            text = { Text("The captions are removed. Your photos are not touched, and you can index them again.") },
+            title = { Text(stringResource(R.string.delete_the_photo_index)) },
+            text = { Text(stringResource(R.string.the_captions_are_removed_your_photos)) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
@@ -198,10 +197,10 @@ fun PhotoSearchScreen(
                         message = "The photo index is deleted."
                         reload++
                     }
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
+                TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.cancel)) }
             },
         )
     }

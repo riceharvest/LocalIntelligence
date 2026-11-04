@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -40,19 +42,17 @@ fun ScreenControlSetupCard() {
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Screen control", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.screen_control), style = MaterialTheme.typography.titleSmall)
         Text(
             if (on) {
-                "On. The assistant can read and tap in an app you approve, once per request."
+                stringResource(R.string.on_the_assistant_can_read_and_tap_in_an)
             } else {
-                "Off. Turn on the LocalIntelligence accessibility service, then switch Screen control on below."
+                stringResource(R.string.off_turn_on_the_localintelligence)
             },
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "If Android says this setting is restricted, open App info, tap the ⋮ menu, choose " +
-                "Allow restricted settings, then come back to Accessibility. Some installs from " +
-                "outside Google Play hit this on Android 13 and later.",
+            stringResource(R.string.if_android_says_this_setting_is),
             style = MaterialTheme.typography.bodySmall,
         )
         FilledTonalButton(onClick = {
@@ -61,13 +61,13 @@ fun ScreenControlSetupCard() {
             } else {
                 disclosing = true
             }
-        }) { Text("Open Accessibility settings") }
+        }) { Text(stringResource(R.string.open_accessibility_settings)) }
         OutlinedButton(onClick = {
             val uri = Uri.fromParts("package", context.packageName, null)
             context.startActivity(
                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
-        }) { Text("Open App info") }
+        }) { Text(stringResource(R.string.open_app_info)) }
     }
 
     if (disclosing) {

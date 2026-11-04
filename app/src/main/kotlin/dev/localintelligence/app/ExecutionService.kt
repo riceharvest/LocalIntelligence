@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.app.R
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -455,7 +456,7 @@ class ExecutionService : Service() {
             var last = NOTIFICATION_TEXT
             sinks.state.collect { state ->
                 val text = if (state is RunState.AwaitingApproval) {
-                    "Waiting for your OK: " + state.description.ifBlank { state.toolName }
+                    getString(R.string.waiting_for_your_ok) + state.description.ifBlank { state.toolName }
                 } else {
                     NOTIFICATION_TEXT
                 }

@@ -1,5 +1,7 @@
 package dev.localintelligence.app
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -362,10 +364,10 @@ private fun BackgroundAccessScreen() {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Background access") },
+                title = { Text(stringResource(R.string.background_access_title)) },
                 navigationIcon = {
                     IconButton(onClick = { context.findActivity()?.finish() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -407,7 +409,7 @@ private fun BackgroundAccessScreen() {
                         tick++
                     },
                 ) {
-                    Text("Offer these when I need them")
+                    Text(stringResource(R.string.offer_these_when_i_need_them))
                 }
             }
         }
@@ -481,13 +483,13 @@ private fun CapabilityCard(
                     OutlinedButton(
                         onClick = { requestCapability(context, capability) },
                     ) {
-                        Text("Turn off in Settings")
+                        Text(stringResource(R.string.turn_off_in_settings))
                     }
                 }
 
                 dismissed -> {
                     TextButton(onClick = onAskAgain) {
-                        Text("Ask me again")
+                        Text(stringResource(R.string.ask_me_again))
                     }
                 }
 
@@ -498,10 +500,10 @@ private fun CapabilityCard(
                             requestCapability(context, capability)
                         },
                     ) {
-                        Text("Turn on")
+                        Text(stringResource(R.string.turn_on))
                     }
                     TextButton(onClick = { onEngage() }) {
-                        Text("Not now")
+                        Text(stringResource(R.string.not_now))
                     }
                 }
             }

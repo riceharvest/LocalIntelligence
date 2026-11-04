@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -91,10 +93,10 @@ fun SkillsScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Skills") },
+                title = { Text(stringResource(R.string.skills)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -109,15 +111,14 @@ fun SkillsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Skills teach the assistant a routine you use often. Turn one on and it is used " +
-                    "when a request matches.",
+                stringResource(R.string.skills_teach_the_assistant_a_routine),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            FilledTonalButton(onClick = { showChoice = true }) { Text("Add skill") }
+            FilledTonalButton(onClick = { showChoice = true }) { Text(stringResource(R.string.add_skill)) }
 
             if (installed.isEmpty()) {
-                Text("No skills yet.", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.no_skills_yet), style = MaterialTheme.typography.bodyMedium)
             }
             installed.forEach { item ->
                 val def = SkillSettings.enabled(item.slug)
@@ -134,7 +135,7 @@ fun SkillsScreen(
                             }
                             Switch(checked = store.stored(def), onCheckedChange = { store.set(def, it) })
                         }
-                        TextButton(onClick = { deleting = item }) { Text("Delete") }
+                        TextButton(onClick = { deleting = item }) { Text(stringResource(R.string.delete)) }
                     }
                 }
             }
@@ -144,20 +145,20 @@ fun SkillsScreen(
     if (showChoice) {
         AlertDialog(
             onDismissRequest = { showChoice = false },
-            title = { Text("Add skill") },
-            text = { Text("Write a new skill or import one from a link.") },
+            title = { Text(stringResource(R.string.add_skill)) },
+            text = { Text(stringResource(R.string.write_a_new_skill_or_import_one_from_a)) },
             confirmButton = {
                 Column(horizontalAlignment = Alignment.End) {
                     TextButton(onClick = {
                         showChoice = false
                         if (technical) editorText = NEW_SKILL_TEMPLATE else showForm = true
-                    }) { Text("Write it here") }
+                    }) { Text(stringResource(R.string.write_it_here)) }
                     TextButton(onClick = {
                         showChoice = false
                         urlError = null
                         showUrl = true
-                    }) { Text("Import from a link") }
-                    TextButton(onClick = { showChoice = false }) { Text("Cancel") }
+                    }) { Text(stringResource(R.string.import_from_a_link)) }
+                    TextButton(onClick = { showChoice = false }) { Text(stringResource(R.string.cancel)) }
                 }
             },
         )
@@ -166,10 +167,10 @@ fun SkillsScreen(
     if (showUrl) {
         AlertDialog(
             onDismissRequest = { if (!fetching) showUrl = false },
-            title = { Text("Import from a link") },
+            title = { Text(stringResource(R.string.import_from_a_link)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Paste the link to the skill.", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.paste_the_link_to_the_skill), style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(
                         value = url,
                         onValueChange = { url = it },
@@ -200,10 +201,10 @@ fun SkillsScreen(
                             }
                         }
                     },
-                ) { Text(if (fetching) "Fetching..." else "Fetch") }
+                ) { Text(if (fetching) stringResource(R.string.fetching) else stringResource(R.string.fetch)) }
             },
             dismissButton = {
-                TextButton(enabled = !fetching, onClick = { showUrl = false }) { Text("Cancel") }
+                TextButton(enabled = !fetching, onClick = { showUrl = false }) { Text(stringResource(R.string.cancel)) }
             },
         )
     }
@@ -226,7 +227,7 @@ fun SkillsScreen(
 
     editorText?.let { initial ->
         SkillEditorDialog(
-            title = "Review skill",
+            title = stringResource(R.string.review_skill),
             initialText = initial,
             onDismiss = { editorText = null },
             onConfirm = { text ->
@@ -245,17 +246,17 @@ fun SkillsScreen(
     deleting?.let { item ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Delete ${item.skill.name}?") },
-            text = { Text("The skill file is removed. Its on/off setting is cleared too.") },
+            title = { Text(stringResource(R.string.delete_2, item.skill.name)) },
+            text = { Text(stringResource(R.string.the_skill_file_is_removed_its_on_off)) },
             confirmButton = {
                 TextButton(onClick = {
                     repository.delete(item.slug)
                     store.reset(SkillSettings.enabled(item.slug))
                     deleting = null
                     reload += 1
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.delete)) }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }
@@ -273,7 +274,7 @@ private fun SkillFormDialog(onDismiss: () -> Unit, onConfirm: (String) -> String
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New skill") },
+        title = { Text(stringResource(R.string.new_skill)) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -282,21 +283,21 @@ private fun SkillFormDialog(onDismiss: () -> Unit, onConfirm: (String) -> String
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it; error = null },
-                    label = { Text("Name") },
+                    label = { Text(stringResource(R.string.name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = whenToUse,
                     onValueChange = { whenToUse = it; error = null },
-                    label = { Text("When to use it") },
+                    label = { Text(stringResource(R.string.when_to_use_it)) },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = steps,
                     onValueChange = { steps = it; error = null },
-                    label = { Text("Steps") },
+                    label = { Text(stringResource(R.string.steps)) },
                     minLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -311,9 +312,9 @@ private fun SkillFormDialog(onDismiss: () -> Unit, onConfirm: (String) -> String
                     steps.isBlank() -> "Write the steps."
                     else -> onConfirm(SkillParser.render(name.trim(), whenToUse.trim(), steps.trim()))
                 }
-            }) { Text("Save") }
+            }) { Text(stringResource(R.string.save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }
 
@@ -343,7 +344,7 @@ fun SkillEditorDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    "Read it before saving. Nothing is saved until you tap Save.",
+                    stringResource(R.string.read_it_before_saving_nothing_is_saved),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 OutlinedTextField(
@@ -359,7 +360,7 @@ fun SkillEditorDialog(
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
-        confirmButton = { TextButton(onClick = { error = onConfirm(text) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { error = onConfirm(text) }) { Text(stringResource(R.string.save)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }

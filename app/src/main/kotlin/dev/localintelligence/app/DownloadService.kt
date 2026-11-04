@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.app.R
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -136,7 +137,7 @@ class DownloadService : Service() {
                 }
                 pct to (state.fileName + (pct?.let { ", $it%" } ?: ""))
             }
-            else -> null to (state?.fileName ?: "Starting")
+            else -> null to (state?.fileName ?: getString(R.string.starting_2))
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Downloading a model")

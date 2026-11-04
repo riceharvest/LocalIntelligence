@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -152,12 +154,12 @@ private fun TraceRunCaption(runState: RunState?) {
     val caption = when (runState) {
         // A run in flight cannot be showing its own steps, because the runtime
         // has not reported back yet. Saying so is the whole point.
-        null, RunState.Idle -> "The most recent run that reported its steps."
+        null, RunState.Idle -> stringResource(R.string.the_most_recent_run_that_reported_its)
         RunState.LoadingModel, RunState.Running ->
-            "Showing the previous run. This run's steps appear when it finishes."
+            stringResource(R.string.showing_the_previous_run_this_run_s_4)
         is RunState.AwaitingApproval ->
             "Waiting for your approval. Steps so far are below."
-        is RunState.Finished -> "The most recent run."
+        is RunState.Finished -> stringResource(R.string.the_most_recent_run)
     }
     Text(
         text = caption,
@@ -279,10 +281,10 @@ fun TraceScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Last run trace") },
+                title = { Text(stringResource(R.string.last_run_trace)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -359,7 +361,7 @@ private fun StepHeader(
     val description = buildString {
         append("Step $step, ${rows.size} events")
         if (failed) append(", contains a failure")
-        append(if (expanded) ", expanded" else ", collapsed")
+        append(if (expanded) stringResource(R.string.expanded) else stringResource(R.string.collapsed))
         append(". Double tap to ")
         append(if (expanded) "collapse" else "expand")
         append(".")
@@ -377,19 +379,19 @@ private fun StepHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Step $step",
+            text = stringResource(R.string.step, step),
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "  ${rows.size} events",
+            text = stringResource(R.string.events_4, rows.size),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
         if (failed) {
             Text(
-                text = "Failed",
+                text = stringResource(R.string.failed),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
                 fontWeight = FontWeight.Bold,

@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui.components
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -336,7 +338,7 @@ private fun ComposerField(
         // screen reader announces is set here instead, so the field is never
         // unlabelled once the placeholder is gone.
         modifier = modifier.semantics { contentDescription = "Message" },
-        placeholder = { Text("Ask anything") },
+        placeholder = { Text(stringResource(R.string.ask_anything)) },
         shape = RoundedCornerShape(24.dp),
         // Multi-line on purpose. `maxLines > 1` makes the platform coerce the
         // IME action away from Send, so on a phone keyboard the return key
@@ -368,7 +370,7 @@ private fun MediaButtons(
     onHandsFree: () -> Unit,
 ) {
     IconButton(onClick = onAttach, enabled = canAttach, modifier = Modifier.size(48.dp)) {
-        Icon(Icons.Filled.AttachFile, contentDescription = "Attach a photo")
+        Icon(Icons.Filled.AttachFile, contentDescription = stringResource(R.string.attach_a_photo))
     }
     IconButton(
         onClick = onMic,
@@ -385,7 +387,7 @@ private fun MediaButtons(
     ) {
         Icon(
             Icons.Filled.Mic,
-            contentDescription = if (micActive) "Stop recording" else "Record voice",
+            contentDescription = if (micActive) stringResource(R.string.stop_recording) else stringResource(R.string.record_voice),
         )
     }
     IconButton(
@@ -403,7 +405,7 @@ private fun MediaButtons(
     ) {
         Icon(
             Icons.Filled.Headset,
-            contentDescription = if (handsFreeOn) "Stop hands-free mode" else "Start hands-free mode",
+            contentDescription = if (handsFreeOn) stringResource(R.string.stop_hands_free_mode) else stringResource(R.string.start_hands_free_mode),
         )
     }
 }
@@ -450,7 +452,7 @@ private fun SendOrStopButton(
             contentDescription = null,
         )
         Text(
-            text = if (busy) "Stop" else "Send",
+            text = if (busy) stringResource(R.string.stop) else stringResource(R.string.send),
             modifier = Modifier.padding(start = 8.dp),
         )
     }
@@ -471,7 +473,7 @@ private fun SettingsEntry(onOpenSettings: () -> Unit) {
     ) {
         Icon(
             imageVector = Icons.Filled.Settings,
-            contentDescription = "Settings",
+            contentDescription = stringResource(R.string.settings),
         )
     }
 }

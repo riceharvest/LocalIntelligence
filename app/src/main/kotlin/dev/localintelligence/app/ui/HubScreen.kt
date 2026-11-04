@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -119,10 +121,10 @@ fun HubScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Download a model") },
+                title = { Text(stringResource(R.string.download_a_model)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -149,8 +151,8 @@ fun HubScreen(
             OutlinedTextField(
                 value = viewModel.repoText,
                 onValueChange = viewModel::onRepoInputChanged,
-                label = { Text("Search models") },
-                placeholder = { Text(if (technical) "qwen3 0.6b, gemma, LiquidAI/LFM3…" else "Model name, e.g. Gemma") },
+                label = { Text(stringResource(R.string.search_models)) },
+                placeholder = { Text(if (technical) stringResource(R.string.qwen3_0_6b_gemma_liquidai_lfm3) else stringResource(R.string.model_name_e_g_gemma)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { viewModel.submit() }),
@@ -165,7 +167,7 @@ fun HubScreen(
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text("Searching…", style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.searching), style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
@@ -179,7 +181,7 @@ fun HubScreen(
         // models), most downloaded first. A tap lists that repo's files.
         if (suggestions.isNotEmpty() && !state.downloading && state.files.isEmpty() && !restricted) {
             if (showingPopular) {
-                item { Text("Good on phones", style = MaterialTheme.typography.labelLarge) }
+                item { Text(stringResource(R.string.good_on_phones), style = MaterialTheme.typography.labelLarge) }
             }
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -188,7 +190,7 @@ fun HubScreen(
                             headlineContent = { Text(hit.repoId.name) },
                             supportingContent = {
                                 Text(
-                                    if (hit.downloads > 0) "${hit.repoId.owner} · ${compactCount(hit.downloads)} downloads"
+                                    if (hit.downloads > 0) stringResource(R.string.downloads, hit.repoId.owner, compactCount(hit.downloads))
                                     else hit.repoId.owner,
                                 )
                             },
@@ -206,7 +208,7 @@ fun HubScreen(
                     onClick = viewModel::submit,
                     enabled = !state.loading && !state.downloading,
                 ) {
-                    Text("Search")
+                    Text(stringResource(R.string.search))
                 }
                 if (state.loading) {
                     // Labelled, because a bare spinner next to a button is a
@@ -241,7 +243,7 @@ fun HubScreen(
             }
             item {
                 Text(
-                    "Other models: switch to Technical mode in Settings.",
+                    stringResource(R.string.other_models_switch_to_technical_mode),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -257,7 +259,7 @@ fun HubScreen(
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (!technical) {
                             Text(
-                                text = if (plan.ram.fits) "Fits on this phone" else "Too big for this phone",
+                                text = if (plan.ram.fits) stringResource(R.string.fits_on_this_phone) else stringResource(R.string.too_big_for_this_phone),
                                 style = MaterialTheme.typography.headlineSmall,
                                 color = if (plan.ram.fits) {
                                     MaterialTheme.colorScheme.primary
@@ -266,13 +268,13 @@ fun HubScreen(
                                 },
                             )
                             Text(
-                                "${formatBytes(selected.sizeBytes)} download",
+                                stringResource(R.string.download_2, formatBytes(selected.sizeBytes)),
                                 style = MaterialTheme.typography.bodyLarge,
                             )
                         } else {
                         Text(selected.fileName, style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "Download size: ${formatBytes(selected.sizeBytes)}",
+                            stringResource(R.string.download_size, formatBytes(selected.sizeBytes)),
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         // WHY THE BASIS IS SHOWN AND NOT JUST THE VERDICT: a
@@ -284,12 +286,9 @@ fun HubScreen(
                         // can check and a number they have to trust.
                         Text(
                             if (state.exactFit) {
-                                "The size and the memory figure are read from the " +
-                                    "model's own header, over the network, before you " +
-                                    "download it. Not a measurement of this phone."
+                                stringResource(R.string.the_size_and_the_memory_figure_are_read_3)
                             } else {
-                                "The header could not be read, so the memory figure " +
-                                    "below is estimated from the file name and size."
+                                stringResource(R.string.the_header_could_not_be_read_so_the)
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -315,14 +314,11 @@ fun HubScreen(
                         // the refusal below it can be trusted.
                         if (plan.ram.uncertain) {
                             Text(
-                                "Estimated range: ${formatBytes(plan.ram.lowBytes)} to " +
-                                    "${formatBytes(plan.ram.highBytes)}." +
+                                stringResource(R.string.estimated_range_to, formatBytes(plan.ram.lowBytes), formatBytes(plan.ram.highBytes)) +
                                     if (state.exactFit) {
-                                        " The figure above is the one the load gate " +
-                                            "will use."
+                                        stringResource(R.string.the_figure_above_is_the_one_the_load_3)
                                     } else {
-                                        " That is wide enough for the verdict above " +
-                                            "to go either way."
+                                        stringResource(R.string.that_is_wide_enough_for_the_verdict_3)
                                     },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -340,14 +336,13 @@ fun HubScreen(
                             plan.ram.highBytes > plan.ram.availableBytes
                         ) {
                             Text(
-                                "That header has already been read, so the higher figure " +
-                                    "is not needed. This one loads.",
+                                stringResource(R.string.that_header_has_already_been_read_so),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         Text(
-                            "Free storage on this phone: ${formatBytes(plan.freeDiskBytes)}",
+                            stringResource(R.string.free_storage_on_this_phone, formatBytes(plan.freeDiskBytes)),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -379,12 +374,12 @@ fun HubScreen(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
-                            text = "LiteRT-LM models in this repository (${shown.size})",
+                            text = stringResource(R.string.litert_lm_models_in_this_repository, shown.size),
                             style = MaterialTheme.typography.titleSmall,
                         )
                         if (shown.isEmpty()) {
                             Text(
-                                text = "None of these run on this phone.",
+                                text = stringResource(R.string.none_of_these_run_on_this_phone),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
@@ -393,7 +388,7 @@ fun HubScreen(
                             val fit = fits[index]
                             if (fit == LiteRtFit.Recommended) {
                                 Text(
-                                    text = "Recommended for this phone",
+                                    text = stringResource(R.string.recommended_for_this_phone),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
@@ -405,7 +400,7 @@ fun HubScreen(
                                     // An unbacked sub-1 KiB `size` is a git
                                     // pointer, not a model. Printing it would
                                     // report a 3.4 GB model as 130 bytes.
-                                    "size not reported — ${file.fileName}"
+                                    stringResource(R.string.size_not_reported, file.fileName)
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = FontFamily.Monospace,
@@ -415,7 +410,7 @@ fun HubScreen(
                             }
                             if (fit == LiteRtFit.Hidden) {
                                 Text(
-                                    text = "Does not run on this phone.",
+                                    text = stringResource(R.string.does_not_run_on_this_phone),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -427,7 +422,7 @@ fun HubScreen(
                             if (file.isLiteRtLm && file.sizeBytes > 0 && file.onDeviceKey in state.nonGgufOnDevice) {
                                 // Already on the phone: the file is adopted, so there is nothing to download.
                                 Text(
-                                    text = "On this phone",
+                                    text = stringResource(R.string.on_this_phone),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
@@ -436,13 +431,13 @@ fun HubScreen(
                                     onClick = { viewModel.startNonGgufDownload(file) },
                                     enabled = !state.downloading,
                                 ) {
-                                    Text("Download (${formatBytes(file.sizeBytes)})")
+                                    Text(stringResource(R.string.download_3, formatBytes(file.sizeBytes)))
                                 }
                             }
                         }
                         if (hiddenCount > 0) {
                             TextButton(onClick = { showAllLiteRt = !showAllLiteRt }) {
-                                Text(if (showAllLiteRt) "Hide files this phone cannot run" else "Show all ${nonGguf.size} files")
+                                Text(if (showAllLiteRt) stringResource(R.string.hide_files_this_phone_cannot_run) else stringResource(R.string.show_all_files, nonGguf.size))
                             }
                         }
                         Text(
@@ -457,7 +452,7 @@ fun HubScreen(
         if (!technical && state.files.isEmpty() && state.nonGgufNotice != null) {
             item {
                 Text(
-                    "No models in this repository can run on this phone.",
+                    stringResource(R.string.no_models_in_this_repository_can_run_on),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -465,7 +460,7 @@ fun HubScreen(
         }
 
         if (state.files.isNotEmpty()) {
-            item { Text(if (technical) "Available files" else "Versions", style = MaterialTheme.typography.titleSmall) }
+            item { Text(if (technical) stringResource(R.string.available_files) else stringResource(R.string.versions), style = MaterialTheme.typography.titleSmall) }
             // Simple: the recommended file (and whatever is selected), with the rest behind a button.
             val recommended = state.recommended
             val collapse = !technical && !restricted && !showAllVersions && recommended != null
@@ -479,15 +474,15 @@ fun HubScreen(
             items(shown, key = { it.fileName + it.sizeBytes }) { file ->
                 QuantRow(
                     label = if (technical) {
-                        file.quant?.label ?: "unknown quant"
+                        file.quant?.label ?: stringResource(R.string.unknown_quant)
                     } else if (file == recommended) {
-                        "Recommended"
+                        stringResource(R.string.recommended)
                     } else if (recommended != null && file.sizeBytes < recommended.sizeBytes) {
-                        "Smaller"
+                        stringResource(R.string.smaller)
                     } else if (recommended == null && bySize.size > 1 && file == bySize.first()) {
-                        "Smaller"
+                        stringResource(R.string.smaller)
                     } else {
-                        "Higher quality"
+                        stringResource(R.string.higher_quality)
                     },
                     technical = technical,
                     recommended = file == recommended,
@@ -499,7 +494,7 @@ fun HubScreen(
             }
             if (collapse && shown.size < state.files.size) {
                 item {
-                    TextButton(onClick = { showAllVersions = true }) { Text("Show all versions") }
+                    TextButton(onClick = { showAllVersions = true }) { Text(stringResource(R.string.show_all_versions)) }
                 }
             }
         }
@@ -520,7 +515,7 @@ fun HubScreen(
                                     .height(24.dp)
                                     .semantics { contentDescription = "Starting the download" },
                             )
-                            Text("Starting download…")
+                            Text(stringResource(R.string.starting_download))
                         }
                     }
                 }
@@ -534,20 +529,20 @@ fun HubScreen(
                     if (state.ready) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                "Ready to use",
+                                stringResource(R.string.ready_to_use),
                                 color = MaterialTheme.colorScheme.primary,
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             if (technical) {
                                 (state.progress as? DownloadProgress.Done)?.let { done ->
                                     Text(
-                                        "Saved to ${done.file.fileName}",
+                                        stringResource(R.string.saved_to, done.file.fileName),
                                         style = MaterialTheme.typography.bodySmall,
                                         fontFamily = FontFamily.Monospace,
                                     )
                                 }
                             }
-                            Button(onClick = onStartChat) { Text("Start chatting") }
+                            Button(onClick = onStartChat) { Text(stringResource(R.string.start_chatting)) }
                         }
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -557,7 +552,7 @@ fun HubScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             if (note == null || note == HubViewModel.COULD_NOT_START) {
-                                Button(onClick = onOpenModels) { Text("Go to Models") }
+                                Button(onClick = onOpenModels) { Text(stringResource(R.string.go_to_models)) }
                             }
                         }
                     }
@@ -583,7 +578,7 @@ fun HubScreen(
                         )
                         if (state.partialBytesKept <= 0) {
                             Text(
-                                text = "Nothing was saved, so the button below starts again.",
+                                text = stringResource(R.string.nothing_was_saved_so_the_button_below),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -596,7 +591,7 @@ fun HubScreen(
                         ) {
                             Text(
                                 if (state.resumable) {
-                                    "Resume download"
+                                    stringResource(R.string.resume_download)
                                 } else {
                                     "Download${state.sizeLabel?.let { " ($it)" } ?: ""}"
                                 },
@@ -609,7 +604,7 @@ fun HubScreen(
                     // being refused a 2 GB download and deserves the reason.
                     Text(
                         if (!technical && plan?.ram?.fits == false) {
-                            "Too big for this phone. Try a smaller version."
+                            stringResource(R.string.too_big_for_this_phone_try_a_smaller_2)
                         } else {
                             blocked.message
                         },
@@ -628,14 +623,9 @@ fun HubScreen(
                     // in it.
                     Text(
                         text = if (technical) {
-                            "Start typing a model name and pick a match, or type a " +
-                                "full owner/name and tap Search. You see each file's " +
-                                "size and whether it fits in this phone's memory before " +
-                                "anything is downloaded. Gated repositories need a licence " +
-                                "accepted on huggingface.co first."
+                            stringResource(R.string.start_typing_a_model_name_and_pick_a_3)
                         } else {
-                            "Search for a model. You'll see what fits your phone before " +
-                                "anything downloads."
+                            stringResource(R.string.search_for_a_model_you_ll_see_what_fits_3)
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -645,9 +635,7 @@ fun HubScreen(
                     // public and hosts a real model, and would otherwise read as empty.
                     if (technical) {
                         Text(
-                            text = "LiteRT-LM (.litertlm) files in a repository are " +
-                                "listed with their size and can be downloaded and " +
-                                "added to Models.",
+                            text = stringResource(R.string.litert_lm_litertlm_files_in_a_2),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 8.dp),
@@ -665,11 +653,11 @@ fun HubScreen(
                         // "Add to models" is the action that will.
                         Text(
                             when {
-                                state.alreadyOnDevice -> "Add to models"
+                                state.alreadyOnDevice -> stringResource(R.string.add_to_models)
                                 // A resume moves only the missing bytes, so the
                                 // full size next to it would be a second
                                 // overstatement on the same button.
-                                state.resumable -> "Resume download"
+                                state.resumable -> stringResource(R.string.resume_download)
                                 else -> "Download${state.sizeLabel?.let { " ($it)" } ?: ""}"
                             },
                         )
@@ -697,7 +685,7 @@ private fun RecommendedModelCard(option: SimpleSetup.RecommendedModel, onDownloa
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(option.model.name, style = MaterialTheme.typography.titleMedium)
             Text(
-                "${formatBytes(option.model.sizeBytes)} download",
+                stringResource(R.string.download_2, formatBytes(option.model.sizeBytes)),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
@@ -712,7 +700,7 @@ private fun RecommendedModelCard(option: SimpleSetup.RecommendedModel, onDownloa
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Button(onClick = onDownload, modifier = Modifier.padding(top = 4.dp)) { Text("Download") }
+            Button(onClick = onDownload, modifier = Modifier.padding(top = 4.dp)) { Text(stringResource(R.string.download)) }
         }
     }
 }
@@ -774,7 +762,7 @@ private fun QuantRow(
                         modifier = Modifier.padding(start = 8.dp),
                     ) {
                         Text(
-                            "Recommended",
+                            stringResource(R.string.recommended),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
@@ -816,12 +804,9 @@ private fun DownloadProgressBlock(
         // user watching a 668 MB transfer has no way to know whether it is at
         // 2% or 90% — the one number this whole block exists to deliver.
         val spoken = if (fraction != null) {
-            "Downloading, ${(fraction * 100).toInt()} percent, " +
-                "${formatBytes(progress.bytesDownloaded)} of " +
-                "${formatBytes(progress.totalBytes)}"
+            stringResource(R.string.downloading_percent_of, (fraction * 100).toInt(), formatBytes(progress.bytesDownloaded), formatBytes(progress.totalBytes))
         } else {
-            "Downloading, ${formatBytes(progress.bytesDownloaded)} so far, " +
-                "total size not reported by the server"
+            stringResource(R.string.downloading_so_far_total_size_not, formatBytes(progress.bytesDownloaded))
         }
         if (fraction != null) {
             LinearProgressIndicator(
@@ -840,7 +825,7 @@ private fun DownloadProgressBlock(
         val rateLabel = if (progress.bytesPerSecond > 0) {
             "${formatBytes(progress.bytesPerSecond)}/s"
         } else {
-            "starting…"
+            stringResource(R.string.starting)
         }
         Text(
             // WHY THE TOTAL IS CONDITIONAL: the server does not always send
@@ -849,14 +834,13 @@ private fun DownloadProgressBlock(
             // response without a length rendered the literal "12.0 MB of -1 B"
             // to the user.
             text = if (progress.totalBytes > 0) {
-                "${formatBytes(progress.bytesDownloaded)} of " +
-                    "${formatBytes(progress.totalBytes)} · $rateLabel"
+                stringResource(R.string.of, formatBytes(progress.bytesDownloaded), formatBytes(progress.totalBytes), rateLabel)
             } else {
-                "${formatBytes(progress.bytesDownloaded)} downloaded · $rateLabel"
+                stringResource(R.string.downloaded, formatBytes(progress.bytesDownloaded), rateLabel)
             },
             style = MaterialTheme.typography.bodySmall,
         )
-        OutlinedButton(onClick = onCancel) { Text("Cancel") }
+        OutlinedButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) }
     }
 }
 

@@ -1,5 +1,7 @@
 package dev.localintelligence.app
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
@@ -200,13 +202,13 @@ private fun AssistOverlay(
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
-                if (listening) "Listening…" else "Ask $assistantName",
+                if (listening) stringResource(R.string.listening) else stringResource(R.string.ask, assistantName),
                 style = MaterialTheme.typography.titleMedium,
             )
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text(if (listening) "Speak now…" else "Ask anything") },
+                placeholder = { Text(if (listening) stringResource(R.string.speak_now) else stringResource(R.string.ask_anything)) },
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                 minLines = 2,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -224,15 +226,15 @@ private fun AssistOverlay(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(checked = includeScreen, onCheckedChange = null)
-                    Text("Include screen", Modifier.padding(start = 8.dp))
+                    Text(stringResource(R.string.include_screen), Modifier.padding(start = 8.dp))
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onCancel) { Text("Cancel") }
-                Button(onClick = { submit(text) }, enabled = ready) { Text("Ask") }
+                TextButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) }
+                Button(onClick = { submit(text) }, enabled = ready) { Text(stringResource(R.string.ask_2)) }
             }
             Text(
-                "The answer opens in LocalIntelligence",
+                stringResource(R.string.the_answer_opens_in_localintelligence),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

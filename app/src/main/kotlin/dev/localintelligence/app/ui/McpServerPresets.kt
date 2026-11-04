@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,29 +39,29 @@ private fun fillNextEmptyRow(store: SettingsStore, address: String, tokenHeader:
 @Composable
 fun McpAddServerRow(store: SettingsStore) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Add a server", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.add_a_server), style = MaterialTheme.typography.titleSmall)
         Text(
-            "A button fills the next empty server address. You still paste your own token.",
+            stringResource(R.string.a_button_fills_the_next_empty_server),
             style = MaterialTheme.typography.bodySmall,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilledTonalButton(onClick = { fillNextEmptyRow(store, ZAPIER_ADDRESS) }) { Text("Zapier") }
+            FilledTonalButton(onClick = { fillNextEmptyRow(store, ZAPIER_ADDRESS) }) { Text(stringResource(R.string.zapier)) }
             FilledTonalButton(onClick = { fillNextEmptyRow(store, COMPOSIO_ADDRESS, COMPOSIO_TOKEN_HEADER) }) {
-                Text("Composio")
+                Text(stringResource(R.string.composio))
             }
             // Custom writes nothing: the user types the address into an empty row.
-            FilledTonalButton(onClick = { }) { Text("Custom") }
+            FilledTonalButton(onClick = { }) { Text(stringResource(R.string.custom)) }
         }
         Text(
-            "Zapier: get the token at mcp.zapier.com (Add MCP server, Other, Settings, Generate token).",
+            stringResource(R.string.zapier_get_the_token_at_mcp_zapier_com),
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "Composio: paste your Composio API key into that server's token row. It is sent in the x-api-key header.",
+            stringResource(R.string.composio_paste_your_composio_api_key),
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "Custom: type any other server's https:// address into an empty row.",
+            stringResource(R.string.custom_type_any_other_server_s_https),
             style = MaterialTheme.typography.bodySmall,
         )
     }

@@ -1,5 +1,7 @@
 package dev.localintelligence.app
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -585,17 +587,17 @@ class MainActivity : FragmentActivity() {
                         if (confirmStop) {
                             androidx.compose.material3.AlertDialog(
                                 onDismissRequest = { confirmStop = false },
-                                title = { Text("Stop downloading?") },
-                                text = { Text("What's downloaded so far is kept.") },
+                                title = { Text(stringResource(R.string.stop_downloading)) },
+                                text = { Text(stringResource(R.string.what_s_downloaded_so_far_is_kept)) },
                                 confirmButton = {
                                     TextButton(onClick = {
                                         confirmStop = false
                                         vm.cancelDownload()
                                         nav.popBackStack()
-                                    }) { Text("Stop") }
+                                    }) { Text(stringResource(R.string.stop)) }
                                 },
                                 dismissButton = {
-                                    TextButton(onClick = { confirmStop = false }) { Text("Keep downloading") }
+                                    TextButton(onClick = { confirmStop = false }) { Text(stringResource(R.string.keep_downloading)) }
                                 },
                             )
                         }
@@ -764,7 +766,7 @@ class MainActivity : FragmentActivity() {
             val file = withContext(Dispatchers.IO) { ChatExporter.write(this@MainActivity, messages, format) }
             ChatExporter.share(this, file, format)
         } catch (e: Exception) {
-            Toast.makeText(this, "Export failed", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -933,7 +935,7 @@ private fun NotificationAccessBanner(modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Let the assistant read your notifications",
+                text = stringResource(R.string.let_the_assistant_read_your),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
@@ -941,7 +943,7 @@ private fun NotificationAccessBanner(modifier: Modifier = Modifier) {
             // user has to read to know what they are refusing, and the refusal
             // is about one capability, not about the whole app.
             TextButton(onClick = dismiss) {
-                Text("Not now")
+                Text(stringResource(R.string.not_now))
             }
             TextButton(
                 onClick = {
@@ -949,7 +951,7 @@ private fun NotificationAccessBanner(modifier: Modifier = Modifier) {
                     openBackgroundAccess(context)
                 },
             ) {
-                Text("Turn on")
+                Text(stringResource(R.string.turn_on))
             }
         }
     }

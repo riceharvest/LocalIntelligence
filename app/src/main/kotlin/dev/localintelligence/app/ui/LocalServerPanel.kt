@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -44,17 +46,14 @@ fun LocalServerPanel(store: SettingsStore) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Local server", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.local_server), style = MaterialTheme.typography.titleSmall)
         Text(
-            "Other apps on this phone can use the loaded model at " +
-                "http://${LocalServerSettings.HOST}:${LocalServerSettings.PORT}/v1 " +
-                "with the access token as a Bearer header. They get the model only: no tools, memory or chats. " +
-                "A notification shows while it runs.",
+            stringResource(R.string.other_apps_on_this_phone_can_use_the, LocalServerSettings.HOST, LocalServerSettings.PORT),
             style = MaterialTheme.typography.bodySmall,
         )
         if (error.isNotBlank()) {
             Text(
-                "Last problem: $error",
+                stringResource(R.string.last_problem, error),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -62,7 +61,7 @@ fun LocalServerPanel(store: SettingsStore) {
 
         if (token != null) {
             Text(
-                "Copy this token now. It is not shown again.",
+                stringResource(R.string.copy_this_token_now_it_is_not_shown),
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(
@@ -74,20 +73,20 @@ fun LocalServerPanel(store: SettingsStore) {
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f),
                 )
-                FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(token)) }) { Text("Copy") }
+                FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(token)) }) { Text(stringResource(R.string.copy)) }
             }
         } else if (hasToken) {
             Text(
-                "The access token is set. Regenerate makes a new one and cuts off the old one at once.",
+                stringResource(R.string.the_access_token_is_set_regenerate),
                 style = MaterialTheme.typography.bodySmall,
             )
         } else {
             Text(
-                "No token yet. Switch the local server on to make one.",
+                stringResource(R.string.no_token_yet_switch_the_local_server_on),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
 
-        OutlinedButton(onClick = { LocalServerService.regenerateToken(store) }) { Text("Regenerate token") }
+        OutlinedButton(onClick = { LocalServerService.regenerateToken(store) }) { Text(stringResource(R.string.regenerate_token)) }
     }
 }

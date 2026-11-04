@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -117,10 +119,10 @@ fun ScriptPluginsScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Script plugins") },
+                title = { Text(stringResource(R.string.script_plugins)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -135,22 +137,21 @@ fun ScriptPluginsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Small programs that add tools for the assistant. They run in a sandbox with no " +
-                    "network and no access to your data.",
+                stringResource(R.string.small_programs_that_add_tools_for_the),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (!supported) {
                 Text(
-                    "Script plugins are not supported on this phone.",
+                    stringResource(R.string.script_plugins_are_not_supported_on),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            FilledTonalButton(onClick = { showChoice = true }) { Text("Add plugin") }
+            FilledTonalButton(onClick = { showChoice = true }) { Text(stringResource(R.string.add_plugin)) }
 
             if (installed.isEmpty()) {
-                Text("No script plugins yet.", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.no_script_plugins_yet), style = MaterialTheme.typography.bodyMedium)
             }
             installed.forEach { (plugin, item) ->
                 var expanded by remember { mutableStateOf(false) }
@@ -181,32 +182,26 @@ fun ScriptPluginsScreen(
                                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                             )
                         }
-                        TextButton(onClick = { deleting = plugin to item }) { Text("Delete") }
+                        TextButton(onClick = { deleting = plugin to item }) { Text(stringResource(R.string.delete)) }
                     }
                 }
             }
 
             var showHowTo by remember { mutableStateOf(false) }
-            TextButton(onClick = { showHowTo = !showHowTo }) { Text("How to write one") }
+            TextButton(onClick = { showHowTo = !showHowTo }) { Text(stringResource(R.string.how_to_write_one)) }
             if (showHowTo) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "A plugin is two files. plugin.json says what it is and which tools it offers: " +
-                                "an id, a title, a summary, a version, and tools. Each tool has a name, a " +
-                                "description, a parameters schema, and a risk of read_only or reversible. " +
-                                "A script cannot be a riskier tier, because it cannot reach anything outside " +
-                                "its sandbox.",
+                            stringResource(R.string.a_plugin_is_two_files_plugin_json_says),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "main.js defines one function per tool. It receives the arguments as an object " +
-                                "and returns text. Use only plain JavaScript: no fetch, no files, no timers " +
-                                "that run later. A call is stopped after 5 seconds.",
+                            stringResource(R.string.main_js_defines_one_function_per_tool),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "Example, a word count tool. Its tool is named script.word_count.count_words:",
+                            stringResource(R.string.example_a_word_count_tool_its_tool_is),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
@@ -222,20 +217,20 @@ fun ScriptPluginsScreen(
     if (showChoice) {
         AlertDialog(
             onDismissRequest = { showChoice = false },
-            title = { Text("Add plugin") },
-            text = { Text("Write a new plugin or import one from a link.") },
+            title = { Text(stringResource(R.string.add_plugin)) },
+            text = { Text(stringResource(R.string.write_a_new_plugin_or_import_one_from_a)) },
             confirmButton = {
                 Column(horizontalAlignment = Alignment.End) {
                     TextButton(onClick = {
                         showChoice = false
                         editor = SAMPLE_PACKAGE
-                    }) { Text("Write it here") }
+                    }) { Text(stringResource(R.string.write_it_here)) }
                     TextButton(onClick = {
                         showChoice = false
                         urlError = null
                         showUrl = true
-                    }) { Text("Import from a link") }
-                    TextButton(onClick = { showChoice = false }) { Text("Cancel") }
+                    }) { Text(stringResource(R.string.import_from_a_link)) }
+                    TextButton(onClick = { showChoice = false }) { Text(stringResource(R.string.cancel)) }
                 }
             },
         )
@@ -244,11 +239,11 @@ fun ScriptPluginsScreen(
     if (showUrl) {
         AlertDialog(
             onDismissRequest = { if (!fetching) showUrl = false },
-            title = { Text("Import from a link") },
+            title = { Text(stringResource(R.string.import_from_a_link)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "Paste the link to the plugin. You can read it before it is saved.",
+                        stringResource(R.string.paste_the_link_to_the_plugin_you_can),
                         style = MaterialTheme.typography.bodySmall,
                     )
                     OutlinedTextField(
@@ -284,10 +279,10 @@ fun ScriptPluginsScreen(
                             }
                         }
                     },
-                ) { Text(if (fetching) "Fetching..." else "Fetch") }
+                ) { Text(if (fetching) stringResource(R.string.fetching) else stringResource(R.string.fetch)) }
             },
             dismissButton = {
-                TextButton(enabled = !fetching, onClick = { showUrl = false }) { Text("Cancel") }
+                TextButton(enabled = !fetching, onClick = { showUrl = false }) { Text(stringResource(R.string.cancel)) }
             },
         )
     }
@@ -312,17 +307,17 @@ fun ScriptPluginsScreen(
     deleting?.let { (plugin, item) ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Delete ${item.manifest.title}?") },
-            text = { Text("The plugin files are removed. Its on/off setting is cleared too.") },
+            title = { Text(stringResource(R.string.delete_2, item.manifest.title)) },
+            text = { Text(stringResource(R.string.the_plugin_files_are_removed_its_on_off)) },
             confirmButton = {
                 TextButton(onClick = {
                     repository.delete(item.manifest.id)
                     store.forgetPlugin(plugin)
                     deleting = null
                     reload += 1
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.delete)) }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }
@@ -352,17 +347,17 @@ fun ScriptEditorDialog(
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Review plugin") },
+        title = { Text(stringResource(R.string.review_plugin)) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    "Read both files. Nothing is saved until you tap Save, and the plugin stays off until you switch it on.",
+                    stringResource(R.string.read_both_files_nothing_is_saved_until),
                     style = MaterialTheme.typography.bodySmall,
                 )
-                Text("plugin.json", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.plugin_json), style = MaterialTheme.typography.labelMedium)
                 OutlinedTextField(
                     value = manifest,
                     onValueChange = {
@@ -373,7 +368,7 @@ fun ScriptEditorDialog(
                     minLines = 8,
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                 )
-                Text("main.js", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.main_js), style = MaterialTheme.typography.labelMedium)
                 OutlinedTextField(
                     value = mainJs,
                     onValueChange = {
@@ -388,8 +383,8 @@ fun ScriptEditorDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { error = onConfirm(ScriptPackage(manifest, mainJs)) }) { Text("Save") }
+            TextButton(onClick = { error = onConfirm(ScriptPackage(manifest, mainJs)) }) { Text(stringResource(R.string.save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }

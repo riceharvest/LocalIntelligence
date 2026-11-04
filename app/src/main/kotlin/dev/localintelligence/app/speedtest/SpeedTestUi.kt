@@ -1,5 +1,7 @@
 package dev.localintelligence.app.speedtest
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -43,10 +45,10 @@ fun SpeedTestButton(runner: SpeedTestRunner, modifier: Modifier = Modifier) {
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = runner::cancel) { Text("Cancel") }
+                TextButton(onClick = runner::cancel) { Text(stringResource(R.string.cancel)) }
             }
         } else {
-            FilledTonalButton(onClick = runner::start) { Text("Speed test") }
+            FilledTonalButton(onClick = runner::start) { Text(stringResource(R.string.speed_test)) }
         }
         when (val s = status) {
             is SpeedTestStatus.Refused -> Text(
@@ -56,13 +58,13 @@ fun SpeedTestButton(runner: SpeedTestRunner, modifier: Modifier = Modifier) {
             )
             is SpeedTestStatus.Failed -> {
                 Text(
-                    text = "Speed test failed. ${s.reason}",
+                    text = stringResource(R.string.speed_test_failed, s.reason),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
                 s.detail?.let { detail ->
                     Text(
-                        text = "Details: $detail",
+                        text = stringResource(R.string.details, detail),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

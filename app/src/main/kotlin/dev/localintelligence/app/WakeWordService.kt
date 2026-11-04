@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.app.R
 import android.Manifest
 import android.app.ActivityManager
 import android.app.Notification
@@ -310,7 +311,7 @@ class WakeWordService : Service() {
     }
 
     private fun listeningNotification(phrase: String): Notification {
-        val text = "Listening for “$phrase”"
+        val text = getString(R.string.listening_for, phrase)
         val openIntent = PendingIntent.getActivity(
             this,
             REQ_OPEN_APP,
@@ -477,7 +478,7 @@ class WakeWordService : Service() {
             )
             val notification = NotificationCompat.Builder(context, CHANNEL_DETECTED)
                 .setContentTitle(context.getString(R.string.app_name))
-                .setContentText("Tap to resume listening")
+                .setContentText(context.getString(R.string.tap_to_resume_listening))
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -505,7 +506,7 @@ class WakeWordService : Service() {
             )
             val notification = NotificationCompat.Builder(context, CHANNEL_DETECTED)
                 .setContentTitle("Heard “$phrase”")
-                .setContentText("Tap to open hands-free chat")
+                .setContentText(context.getString(R.string.tap_to_open_hands_free_chat))
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setAutoCancel(true)
                 .setCategory(NotificationCompat.CATEGORY_CALL)

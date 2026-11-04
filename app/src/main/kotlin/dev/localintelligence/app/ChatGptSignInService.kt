@@ -1,5 +1,6 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.app.R
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -51,7 +52,7 @@ class ChatGptSignInService : Service() {
     private fun startForegroundNow() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Signing in to ChatGPT")
-            .setContentText("Finish sign-in in your browser, then come back.")
+            .setContentText(getString(R.string.finish_sign_in_in_your_browser))
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

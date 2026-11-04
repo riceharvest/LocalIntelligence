@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -196,10 +198,10 @@ fun SettingsScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.settings)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -227,16 +229,16 @@ fun SettingsScreen(
                 val context = LocalContext.current
                 Card(modifier = Modifier.fillMaxWidth()) {
                     onNewChat?.let { NewChatRow(it, loadPersonas) }
-                    NavRow(Icons.Filled.Memory, "Models", onOpenModels)
-                    NavRow(Icons.Filled.AutoAwesome, "Skills", onOpenSkills)
-                    NavRow(Icons.Filled.Person, "Personas", onOpenPersonas)
-                    NavRow(Icons.Filled.Description, "Documents", onOpenDocuments)
-                    onOpenPhotos?.let { NavRow(Icons.Filled.PhotoLibrary, "Photo search", it) }
-                    NavRow(Icons.Filled.Schedule, "Scheduled tasks", onOpenSchedule)
-                    onOpenExtras?.let { NavRow(Icons.Filled.Star, "Extras", it) }
-                    NavRow(Icons.Filled.Lock, "Permissions") { openPermissionScreen(context) }
-                    NavRow(Icons.Filled.Assistant, "Set as phone assistant") { openAssistantSettings(context) }
-                    if (technical) NavRow(Icons.Filled.Extension, "Script plugins", onOpenScripts)
+                    NavRow(Icons.Filled.Memory, stringResource(R.string.models), onOpenModels)
+                    NavRow(Icons.Filled.AutoAwesome, stringResource(R.string.skills), onOpenSkills)
+                    NavRow(Icons.Filled.Person, stringResource(R.string.personas), onOpenPersonas)
+                    NavRow(Icons.Filled.Description, stringResource(R.string.documents), onOpenDocuments)
+                    onOpenPhotos?.let { NavRow(Icons.Filled.PhotoLibrary, stringResource(R.string.photo_search), it) }
+                    NavRow(Icons.Filled.Schedule, stringResource(R.string.schedule_shortcut_long), onOpenSchedule)
+                    onOpenExtras?.let { NavRow(Icons.Filled.Star, stringResource(R.string.extras), it) }
+                    NavRow(Icons.Filled.Lock, stringResource(R.string.permissions_title)) { openPermissionScreen(context) }
+                    NavRow(Icons.Filled.Assistant, stringResource(R.string.set_as_phone_assistant)) { openAssistantSettings(context) }
+                    if (technical) NavRow(Icons.Filled.Extension, stringResource(R.string.script_plugins), onOpenScripts)
                     onExportChat?.let { ExportRow(it) }
                 }
 
@@ -262,7 +264,7 @@ fun SettingsScreen(
                 }
 
                 if (technical) {
-                    SectionHeader("Plugins")
+                    SectionHeader(stringResource(R.string.plugins))
                     // Screen control's setup card sits above its switch. The plugin exists only in the full build.
                     if (plugins.any { it.id == ScreenControl.PLUGIN_ID }) {
                         ScreenControlSetupCard()
@@ -279,15 +281,15 @@ fun SettingsScreen(
                     }
 
                     generatedMedia?.let { dir ->
-                        SectionHeader("Storage")
+                        SectionHeader(stringResource(R.string.storage))
                         GeneratedMediaRow(dir)
                     }
 
-                    SectionHeader("Diagnostics")
+                    SectionHeader(stringResource(R.string.diagnostics))
                     Card(modifier = Modifier.fillMaxWidth()) {
-                        NavRow(Icons.Filled.Timeline, "Last run trace", onOpenTrace)
-                        NavRow(Icons.Filled.Shield, "What is filtered", onOpenRedaction)
-                        NavRow(Icons.Filled.HealthAndSafety, "Self-check", onOpenSelfCheck)
+                        NavRow(Icons.Filled.Timeline, stringResource(R.string.last_run_trace), onOpenTrace)
+                        NavRow(Icons.Filled.Shield, stringResource(R.string.what_is_filtered), onOpenRedaction)
+                        NavRow(Icons.Filled.HealthAndSafety, stringResource(R.string.self_check), onOpenSelfCheck)
                     }
                 }
 
@@ -296,7 +298,7 @@ fun SettingsScreen(
 
                 // Both modes: the policy describes the app, and a Simple user has the same data.
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    NavRow(Icons.Filled.Info, "Privacy policy") { openUrl(context, PRIVACY_POLICY_URL) }
+                    NavRow(Icons.Filled.Info, stringResource(R.string.privacy_policy)) { openUrl(context, PRIVACY_POLICY_URL) }
                     // Full build only; the Play build's stub draws nothing. Both modes, like the privacy row.
                     UpdateCheckRow()
                 }
@@ -320,17 +322,17 @@ private fun GeneratedMediaRow(dir: File) {
     }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         RowTitle(
-            title = "Generated images and videos",
-            help = "Pictures and clips made with OpenRouter are saved on this phone. The newest 20 are kept.",
+            title = stringResource(R.string.generated_images_and_videos),
+            help = stringResource(R.string.generated_media_help),
             valueText = bytes?.let { formatBytes(it) },
         )
-        OutlinedButton(enabled = (bytes ?: 0L) > 0L, onClick = { asking = true }) { Text("Delete all") }
+        OutlinedButton(enabled = (bytes ?: 0L) > 0L, onClick = { asking = true }) { Text(stringResource(R.string.delete_all)) }
     }
     if (asking) {
         AlertDialog(
             onDismissRequest = { asking = false },
-            title = { Text("Delete generated images and videos?") },
-            text = { Text("They are removed from this phone and cannot be recovered.") },
+            title = { Text(stringResource(R.string.delete_generated_images_and_videos)) },
+            text = { Text(stringResource(R.string.they_are_removed_from_this_phone_and)) },
             confirmButton = {
                 TextButton(onClick = {
                     asking = false
@@ -338,9 +340,9 @@ private fun GeneratedMediaRow(dir: File) {
                         withContext(Dispatchers.IO) { clearGeneratedMedia(dir) }
                         refresh++
                     }
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.delete)) }
             },
-            dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }
@@ -375,7 +377,7 @@ private fun NewChatRow(onNewChat: (Long?) -> Unit, loadPersonas: (suspend () -> 
     var asking by remember { mutableStateOf(false) }
     var personas by remember { mutableStateOf<List<Persona>>(emptyList()) }
     var chosen by remember { mutableStateOf<Long?>(null) }
-    NavRow(Icons.Filled.AddComment, "New chat") {
+    NavRow(Icons.Filled.AddComment, stringResource(R.string.new_chat)) {
         chosen = null
         asking = true
     }
@@ -383,13 +385,13 @@ private fun NewChatRow(onNewChat: (Long?) -> Unit, loadPersonas: (suspend () -> 
         LaunchedEffect(Unit) { personas = loadPersonas?.invoke().orEmpty() }
         AlertDialog(
             onDismissRequest = { asking = false },
-            title = { Text("Start a new chat?") },
+            title = { Text(stringResource(R.string.start_a_new_chat)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("This conversation will be cleared. Past chats can still find what was said.")
+                    Text(stringResource(R.string.this_conversation_will_be_cleared_past))
                     if (personas.isNotEmpty()) {
-                        Text("Persona", style = MaterialTheme.typography.labelLarge)
-                        PersonaChoice("None", selected = chosen == null) { chosen = null }
+                        Text(stringResource(R.string.persona), style = MaterialTheme.typography.labelLarge)
+                        PersonaChoice(stringResource(R.string.none), selected = chosen == null) { chosen = null }
                         personas.forEach { persona ->
                             PersonaChoice(persona.name, selected = chosen == persona.id) { chosen = persona.id }
                         }
@@ -400,9 +402,9 @@ private fun NewChatRow(onNewChat: (Long?) -> Unit, loadPersonas: (suspend () -> 
                 TextButton(onClick = {
                     asking = false
                     onNewChat(chosen)
-                }) { Text("New chat") }
+                }) { Text(stringResource(R.string.new_chat)) }
             },
-            dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }
@@ -426,7 +428,7 @@ internal fun PersonaChoice(label: String, selected: Boolean, onSelect: () -> Uni
 private fun ExportRow(onExport: (ChatExporter.Format) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        NavRow(Icons.Filled.IosShare, "Export this chat") { open = true }
+        NavRow(Icons.Filled.IosShare, stringResource(R.string.export_this_chat)) { open = true }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             ChatExporter.Format.entries.forEach { format ->
                 DropdownMenuItem(
@@ -462,10 +464,10 @@ private fun ModeSwitch(store: SettingsStore) {
 private fun SuggestionCard(suggestion: SuggestedModel, onOpenHub: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Recommended for this phone", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.recommended_for_this_phone), style = MaterialTheme.typography.labelLarge)
             Text(suggestion.name, style = MaterialTheme.typography.titleMedium)
             Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
-            FilledTonalButton(onClick = onOpenHub) { Text("Download · ${formatBytes(suggestion.sizeBytes)}") }
+            FilledTonalButton(onClick = onOpenHub) { Text(stringResource(R.string.download_with_size, formatBytes(suggestion.sizeBytes))) }
         }
     }
 }
@@ -475,8 +477,8 @@ private fun SuggestionCard(suggestion: SuggestedModel, onOpenHub: () -> Unit) {
 private fun AlternativeCard(alt: SuggestedModel, onOpenHub: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("${alt.reason.trimEnd('.')}: ${alt.name}", style = MaterialTheme.typography.titleSmall)
-            OutlinedButton(onClick = onOpenHub) { Text("Download · ${formatBytes(alt.sizeBytes)}") }
+            Text(stringResource(R.string.reason_and_name, alt.reason.trimEnd('.'), alt.name), style = MaterialTheme.typography.titleSmall)
+            OutlinedButton(onClick = onOpenHub) { Text(stringResource(R.string.download_with_size, formatBytes(alt.sizeBytes))) }
         }
     }
 }
@@ -499,11 +501,8 @@ private fun SpeedTestRow(runner: SpeedTestRunner) {
     val last by runner.last.collectAsState()
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         RowTitle(
-            title = "Speed test",
-            help = "Runs the loaded model twice: a prompt of about 160 tokens, then 64 tokens " +
-                "generated. Measures prefill and decode speed on this phone. With Compute on Auto " +
-                "it also tries each GPU and keeps the fastest. Refused while an agent run is " +
-                "active. The conversation is not changed.",
+            title = stringResource(R.string.speed_test),
+            help = stringResource(R.string.speed_test_help),
         )
         SpeedTestButton(runner)
         last?.let { SpeedTestResultBlock(it) }
@@ -515,8 +514,8 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
     val help = def.help
     // "Applies now" is the common case and says nothing; only a delay is worth a line.
     val note = if (technical) when (def.applies) {
-        SettingApplies.NEXT_RUN -> "Applies from the next message"
-        SettingApplies.NEXT_MODEL_LOAD -> "Applies from the next model load"
+        SettingApplies.NEXT_RUN -> stringResource(R.string.applies_next_message)
+        SettingApplies.NEXT_MODEL_LOAD -> stringResource(R.string.applies_next_model_load)
         else -> null
     } else null
     when (def) {
@@ -696,16 +695,16 @@ private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: Str
             singleLine = short,
             minLines = if (short) 1 else 3,
             modifier = Modifier.fillMaxWidth(),
-            supportingText = { Text("${draft.length} of ${def.maxLength} characters") },
+            supportingText = { Text(stringResource(R.string.chars_of_max, draft.length, def.maxLength)) },
         )
         Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
             if (stored.isNotEmpty()) {
-                TextButton(onClick = { store.set(def, "") }) { Text("Clear") }
+                TextButton(onClick = { store.set(def, "") }) { Text(stringResource(R.string.clear)) }
             }
             FilledTonalButton(
                 onClick = { store.set(def, draft) },
                 enabled = draft != stored,
-            ) { Text("Save") }
+            ) { Text(stringResource(R.string.save)) }
         }
     }
 }
@@ -721,14 +720,14 @@ private fun SecretRow(store: SettingsStore, def: SettingDef.Secret, help: String
     var refused by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        RowTitle(def.title, help, valueText = if (isSet) "Saved" else "Not set", note = note)
+        RowTitle(def.title, help, valueText = if (isSet) stringResource(R.string.saved) else stringResource(R.string.not_set), note = note)
         OutlinedTextField(
             value = draft,
             onValueChange = {
                 draft = it
                 refused = false
             },
-            label = { Text(if (isSet) "Replace" else "Paste the key") },
+            label = { Text(if (isSet) stringResource(R.string.replace) else stringResource(R.string.paste_the_key)) },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
@@ -740,28 +739,28 @@ private fun SecretRow(store: SettingsStore, def: SettingDef.Secret, help: String
                     if (store.setSecret(def, draft)) draft = "" else refused = true
                 },
                 enabled = draft.isNotBlank(),
-            ) { Text("Save") }
+            ) { Text(stringResource(R.string.save)) }
             if (isSet) {
-                TextButton(onClick = { confirmClear = true }) { Text("Clear") }
+                TextButton(onClick = { confirmClear = true }) { Text(stringResource(R.string.clear)) }
             }
         }
         if (confirmClear) {
             AlertDialog(
                 onDismissRequest = { confirmClear = false },
-                title = { Text("Remove the saved key?") },
+                title = { Text(stringResource(R.string.remove_the_saved_key)) },
                 confirmButton = {
                     TextButton(onClick = {
                         store.clearSecret(def)
                         draft = ""
                         confirmClear = false
-                    }) { Text("Remove") }
+                    }) { Text(stringResource(R.string.remove)) }
                 },
-                dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+                dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.cancel)) } },
             )
         }
         if (refused) {
             Text(
-                "The phone's keystore refused to store it. Nothing was saved.",
+                stringResource(R.string.keystore_refused),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -785,7 +784,7 @@ private fun RowTitle(
             Spacer(Modifier.width(8.dp))
             Text(valueText, style = MaterialTheme.typography.labelLarge)
         }
-        if (onReset != null) TextButton(onClick = onReset) { Text("Reset") }
+        if (onReset != null) TextButton(onClick = onReset) { Text(stringResource(R.string.reset)) }
     }
 }
 

@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -61,7 +63,7 @@ fun AppLockRow(store: SettingsStore, def: SettingDef.Toggle, help: String, note:
                 onCheckedChange = { wantOn -> step = if (wantOn) PinStep.SetNew else PinStep.CheckToDisable },
             )
         }
-        if (on) TextButton(onClick = { step = PinStep.CheckToChange }) { Text("Change PIN") }
+        if (on) TextButton(onClick = { step = PinStep.CheckToChange }) { Text(stringResource(R.string.change_pin)) }
     }
 
     when (step) {
@@ -71,7 +73,7 @@ fun AppLockRow(store: SettingsStore, def: SettingDef.Toggle, help: String, note:
             onCancel = { step = null },
         )
         PinStep.CheckToDisable -> CheckPinDialog(
-            title = "Turn off App lock",
+            title = stringResource(R.string.turn_off_app_lock),
             appLock = appLock,
             onCorrect = {
                 appLock.disable()
@@ -80,7 +82,7 @@ fun AppLockRow(store: SettingsStore, def: SettingDef.Toggle, help: String, note:
             onCancel = { step = null },
         )
         PinStep.CheckToChange -> CheckPinDialog(
-            title = "Enter your current PIN",
+            title = stringResource(R.string.enter_your_current_pin),
             appLock = appLock,
             onCorrect = { step = PinStep.SetNew },
             onCancel = { step = null },
@@ -99,11 +101,11 @@ private fun SetPinDialog(appLock: AppLock, onDone: () -> Unit, onCancel: () -> U
 
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("Set a PIN") },
+        title = { Text(stringResource(R.string.set_a_pin)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "4 to 12 digits. If you forget it, the only way back is to clear the app's data.",
+                    stringResource(R.string.n_4_to_12_digits_if_you_forget_it_the_2),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 PinField("PIN", pin) { pin = it }
@@ -128,9 +130,9 @@ private fun SetPinDialog(appLock: AppLock, onDone: () -> Unit, onCancel: () -> U
                         }
                     }
                 },
-            ) { Text("Save") }
+            ) { Text(stringResource(R.string.save)) }
         },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) } },
     )
 }
 
@@ -172,9 +174,9 @@ private fun CheckPinDialog(
                         busy = false
                     }
                 },
-            ) { Text("Continue") }
+            ) { Text(stringResource(R.string.continue_label)) }
         },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) } },
     )
 }
 

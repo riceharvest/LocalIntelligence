@@ -1,5 +1,7 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.localintelligence.app.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
 import android.os.Environment
@@ -9,6 +11,7 @@ import dev.localintelligence.core.settings.SettingsMode
 import dev.localintelligence.core.settings.mode
 import android.app.Activity
 import android.content.Context
+import android.content.res.Resources
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -184,7 +187,7 @@ fun PermissionScreen(
 
     // A build that leaves out texts and calls (docs/build.md) has no Grant button that works for them.
     val entries = remember(context) {
-        permissionEntries().filter { entry ->
+        permissionEntries(context.resources).filter { entry ->
             val permission = entry.requirement.permission
             permission == null || permission !in TEXTS_AND_CALLS_PERMISSIONS || declaredInBuild(context, permission)
         }
@@ -239,10 +242,10 @@ fun PermissionScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Permissions") },
+                title = { Text(stringResource(R.string.permissions_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -258,9 +261,9 @@ fun PermissionScreen(
         ) {
             Text(
                 text = when (outstanding) {
-                    0 -> "All set"
-                    1 -> "1 permission is off"
-                    else -> "$outstanding permissions are off"
+                    0 -> stringResource(R.string.all_set)
+                    1 -> context.resources.getQuantityString(R.plurals.permissions_off, 1, 1)
+                    else -> context.resources.getQuantityString(R.plurals.permissions_off, outstanding, outstanding)
                 },
                 style = MaterialTheme.typography.titleMedium,
             )
@@ -270,7 +273,7 @@ fun PermissionScreen(
                     onClick = { ask(batchable) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Allow all")
+                    Text(stringResource(R.string.allow_all))
                 }
             }
 
@@ -295,7 +298,7 @@ fun PermissionScreen(
             // technical view lists them, folded away.
             if (technical && noAction.isNotEmpty()) {
                 TextButton(onClick = { otherOpen = !otherOpen }) {
-                    Text(if (otherOpen) "Hide other" else "Other")
+                    Text(if (otherOpen) stringResource(R.string.hide_other) else stringResource(R.string.other))
                 }
                 if (otherOpen) noAction.forEach { CardFor(it) }
             }
@@ -419,14 +422,14 @@ private val ALL_FILES = PlatformRequirement(
  * button, only with more taps. If a tool ever grows a real requirement on one of
  * them, the [Grant] belongs here next to the tool that needs it.
  */
-fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry> = buildList {
+fun permissionEntries(res: Resources, sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry> = buildList {
     // ---- Android will show a dialog for these. ----
     // ---- The default assistant app. Texts and the call log are usable only while it is held. ----
     add(
         PermissionEntry(
             requirement = ToolPermissions.DEFAULT_ASSISTANT,
-            title = "Default assistant app",
-            why = "Needed before texts and call history can be used.",
+            title = res.getString(R.string.perm_default_assistant_app),
+            why = res.getString(R.string.perm_needed_before_texts_and_call_history_can_be_used),
             grant = Grant.Screen { context ->
                 openAssistantSettings(context)
                 true
@@ -436,32 +439,32 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
     add(
         PermissionEntry(
             requirement = ToolPermissions.CONTACTS,
-            title = "Contacts",
-            why = "Look up names and numbers when you ask.",
+            title = res.getString(R.string.perm_contacts),
+            why = res.getString(R.string.perm_look_up_names_and_numbers_when_you_ask),
             grant = Grant.Dialog(ToolPermissions.READ_CONTACTS),
         ),
     )
     add(
         PermissionEntry(
             requirement = ToolPermissions.CALENDAR_READ,
-            title = "Calendar, reading",
-            why = "Check your schedule when you ask.",
+            title = res.getString(R.string.perm_calendar_reading),
+            why = res.getString(R.string.perm_check_your_schedule_when_you_ask),
             grant = Grant.Dialog(ToolPermissions.READ_CALENDAR),
         ),
     )
     add(
         PermissionEntry(
             requirement = ToolPermissions.CALENDAR_WRITE,
-            title = "Calendar, writing",
-            why = "Add events when you ask.",
+            title = res.getString(R.string.perm_calendar_writing),
+            why = res.getString(R.string.perm_add_events_when_you_ask),
             grant = Grant.Dialog(ToolPermissions.WRITE_CALENDAR),
         ),
     )
     add(
         PermissionEntry(
             requirement = ToolPermissions.SMS_READ,
-            title = "Texts, reading",
-            why = "Search your texts when you ask.",
+            title = res.getString(R.string.perm_texts_reading),
+            why = res.getString(R.string.perm_search_your_texts_when_you_ask),
             grant = Grant.Dialog(ToolPermissions.READ_SMS),
             needsAssistantRole = true,
         ),
@@ -469,8 +472,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
     add(
         PermissionEntry(
             requirement = ToolPermissions.SMS_SEND,
-            title = "Texts, sending",
-            why = "Send a text when you ask, after you confirm it.",
+            title = res.getString(R.string.perm_texts_sending),
+            why = res.getString(R.string.perm_send_a_text_when_you_ask_after_you_confirm_it),
             grant = Grant.Dialog(ToolPermissions.SEND_SMS),
             needsAssistantRole = true,
         ),
@@ -478,8 +481,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
     add(
         PermissionEntry(
             requirement = ToolPermissions.CALL_LOG_READ,
-            title = "Call history",
-            why = "See who called when you ask.",
+            title = res.getString(R.string.perm_call_history),
+            why = res.getString(R.string.perm_see_who_called_when_you_ask),
             grant = Grant.Dialog(ToolPermissions.READ_CALL_LOG),
             needsAssistantRole = true,
         ),
@@ -487,8 +490,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
     add(
         PermissionEntry(
             requirement = ToolPermissions.PHONE_CALL,
-            title = "Phone calls",
-            why = "Place a call when you ask, after you confirm it.",
+            title = res.getString(R.string.perm_phone_calls),
+            why = res.getString(R.string.perm_place_a_call_when_you_ask_after_you_confirm_it),
             grant = Grant.Dialog(ToolPermissions.CALL_PHONE),
         ),
     )
@@ -496,8 +499,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         add(
             PermissionEntry(
                 requirement = NOTIFICATIONS,
-                title = "Notifications",
-                why = "Tell you when a task or alarm is done.",
+                title = res.getString(R.string.perm_notifications),
+                why = res.getString(R.string.perm_tell_you_when_a_task_or_alarm_is_done),
                 grant = Grant.Dialog(Manifest.permission.POST_NOTIFICATIONS),
             ),
         )
@@ -508,8 +511,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         add(
             PermissionEntry(
                 requirement = NOTIFICATIONS,
-                title = "Notifications",
-                why = "Already on.",
+                title = res.getString(R.string.perm_notifications),
+                why = res.getString(R.string.perm_already_on),
                 grant = Grant.NoAction,
             ),
         )
@@ -520,8 +523,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         add(
             PermissionEntry(
                 requirement = ALL_FILES,
-                title = "All files",
-                why = "Lets the assistant find and read files anywhere on the phone.",
+                title = res.getString(R.string.perm_all_files),
+                why = res.getString(R.string.perm_lets_the_assistant_find_and_read_files_anywhere_on_the_phone),
                 grant = Grant.Screen { context ->
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         openSettings(
@@ -542,8 +545,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
     add(
         PermissionEntry(
             requirement = ToolPermissions.NOTIFICATION_LISTENER,
-            title = "Notification access",
-            why = "Read and reply to notifications when you ask.",
+            title = res.getString(R.string.perm_notification_access),
+            why = res.getString(R.string.perm_read_and_reply_to_notifications_when_you_ask),
             grant = Grant.Screen { context ->
                 LocalNotificationListenerService.requestConsent(context)
             },
@@ -552,8 +555,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
     add(
         PermissionEntry(
             requirement = ToolPermissions.DO_NOT_DISTURB,
-            title = "Do Not Disturb",
-            why = "Change Do Not Disturb when you ask.",
+            title = res.getString(R.string.perm_do_not_disturb),
+            why = res.getString(R.string.perm_change_do_not_disturb_when_you_ask),
             grant = Grant.Screen { context ->
                 openSettings(context, Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
             },
@@ -562,8 +565,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
     add(
         PermissionEntry(
             requirement = ToolPermissions.WRITE_SETTINGS_ACCESS,
-            title = "Screen brightness",
-            why = "Change the screen brightness when you ask.",
+            title = res.getString(R.string.perm_screen_brightness),
+            why = res.getString(R.string.perm_change_the_screen_brightness_when_you_ask),
             grant = Grant.Screen { context ->
                 openSettings(
                     context,
@@ -575,8 +578,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
     add(
         PermissionEntry(
             requirement = ToolPermissions.USAGE_ACCESS,
-            title = "Screen time",
-            why = "Read which apps you use most when you ask.",
+            title = res.getString(R.string.perm_screen_time),
+            why = res.getString(R.string.perm_read_which_apps_you_use_most_when_you_ask),
             grant = Grant.Screen { context ->
                 openSettings(context, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             },
@@ -586,8 +589,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         add(
             PermissionEntry(
                 requirement = ToolPermissions.EXACT_ALARM,
-                title = "Exact alarms",
-                why = "Run tasks at an exact time.",
+                title = res.getString(R.string.perm_exact_alarms),
+                why = res.getString(R.string.perm_run_tasks_at_an_exact_time),
                 grant = Grant.Screen { context ->
                     openSettings(context, Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
                 },
@@ -597,8 +600,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         add(
             PermissionEntry(
                 requirement = ToolPermissions.EXACT_ALARM,
-                title = "Exact alarms",
-                why = "Already on.",
+                title = res.getString(R.string.perm_exact_alarms),
+                why = res.getString(R.string.perm_already_on),
                 grant = Grant.NoAction,
             ),
         )
@@ -609,8 +612,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         add(
             PermissionEntry(
                 requirement = ToolPermissions.DOCUMENT_READ,
-                title = "Your documents",
-                why = "Share a file to the app to use it.",
+                title = res.getString(R.string.perm_your_documents),
+                why = res.getString(R.string.perm_share_a_file_to_the_app_to_use_it),
                 grant = Grant.NoAction,
             ),
         )
@@ -618,8 +621,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
         add(
             PermissionEntry(
                 requirement = ToolPermissions.DOCUMENT_READ,
-                title = "Your documents, reading",
-                why = "Read documents on this phone.",
+                title = res.getString(R.string.perm_your_documents_reading),
+                why = res.getString(R.string.perm_read_documents_on_this_phone),
                 grant = Grant.Dialog(Manifest.permission.READ_EXTERNAL_STORAGE),
             ),
         )
@@ -627,8 +630,8 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
     add(
         PermissionEntry(
             requirement = ToolPermissions.DOCUMENT_WRITE,
-            title = "Your documents, writing",
-            why = "Save files on this phone.",
+            title = res.getString(R.string.perm_your_documents_writing),
+            why = res.getString(R.string.perm_save_files_on_this_phone),
             grant = if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
                 Grant.NoAction
             } else {
@@ -641,24 +644,24 @@ fun permissionEntries(sdkInt: Int = Build.VERSION.SDK_INT): List<PermissionEntry
     add(
         PermissionEntry(
             requirement = ToolPermissions.CLIPBOARD_BACKGROUND_READ,
-            title = "Clipboard in the background",
-            why = "Read the clipboard while the app is open.",
+            title = res.getString(R.string.perm_clipboard_in_the_background),
+            why = res.getString(R.string.perm_read_the_clipboard_while_the_app_is_open),
             grant = Grant.NoAction,
         ),
     )
     add(
         PermissionEntry(
             requirement = ToolPermissions.VIBRATE_REQUIREMENT,
-            title = "Vibration",
-            why = "Always on.",
+            title = res.getString(R.string.perm_vibration),
+            why = res.getString(R.string.perm_always_on),
             grant = Grant.NoAction,
         ),
     )
     add(
         PermissionEntry(
             requirement = ToolPermissions.INTERNET_REQUIREMENT,
-            title = "Network",
-            why = "Always on.",
+            title = res.getString(R.string.perm_network),
+            why = res.getString(R.string.perm_always_on),
             grant = Grant.NoAction,
         ),
     )
@@ -889,7 +892,7 @@ private fun PermissionCard(
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    text = status.label,
+                    text = status.label(),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Medium,
                     color = when (status) {
@@ -920,38 +923,37 @@ private fun PermissionCard(
 
                 PermissionStatus.REQUIRES_SCREEN -> {
                     Button(onClick = onOpenScreen) {
-                        Text("Open settings")
+                        Text(stringResource(R.string.open_settings))
                     }
                 }
 
                 PermissionStatus.NEEDS_ASSISTANT_ROLE -> {
                     Text(
-                        "Only the default assistant app can use this. Make LocalIntelligence " +
-                            "the default assistant first.",
+                        stringResource(R.string.permission_needs_assistant_role),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Button(onClick = onOpenRole) {
-                        Text("Set as default assistant")
+                        Text(stringResource(R.string.set_as_default_assistant))
                     }
                 }
 
                 PermissionStatus.NOT_ASKED -> {
-                    Button(onClick = onAsk) { Text("Allow") }
+                    Button(onClick = onAsk) { Text(stringResource(R.string.allow)) }
                 }
 
                 PermissionStatus.DENIED -> {
-                    Button(onClick = onAsk) { Text("Allow") }
+                    Button(onClick = onAsk) { Text(stringResource(R.string.allow)) }
                 }
 
                 PermissionStatus.DENIED_FOREVER -> {
                     Text(
-                        "Turn it on in Android settings.",
+                        stringResource(R.string.turn_it_on_in_settings),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
                     Button(onClick = onOpenSettings) {
-                        Text("Open app settings")
+                        Text(stringResource(R.string.open_app_settings))
                     }
                 }
             }
@@ -959,15 +961,15 @@ private fun PermissionCard(
     }
 }
 
-private val PermissionStatus.label: String
-    get() = when (this) {
-        PermissionStatus.GRANTED -> "On"
-        PermissionStatus.NOT_ASKED -> "Off"
-        PermissionStatus.DENIED -> "Off"
-        PermissionStatus.DENIED_FOREVER -> "Blocked"
-        PermissionStatus.NOT_A_PERMISSION -> "Nothing to grant"
-        PermissionStatus.REQUIRES_SCREEN -> "Off"
-        PermissionStatus.NEEDS_ASSISTANT_ROLE -> "Off"
+@Composable
+private fun PermissionStatus.label(): String = when (this) {
+        PermissionStatus.GRANTED -> stringResource(R.string.on)
+        PermissionStatus.NOT_ASKED -> stringResource(R.string.off)
+        PermissionStatus.DENIED -> stringResource(R.string.off)
+        PermissionStatus.DENIED_FOREVER -> stringResource(R.string.blocked)
+        PermissionStatus.NOT_A_PERMISSION -> stringResource(R.string.nothing_to_grant)
+        PermissionStatus.REQUIRES_SCREEN -> stringResource(R.string.off)
+        PermissionStatus.NEEDS_ASSISTANT_ROLE -> stringResource(R.string.off)
     }
 
 /**
