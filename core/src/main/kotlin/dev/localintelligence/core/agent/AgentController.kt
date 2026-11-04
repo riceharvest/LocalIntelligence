@@ -3,6 +3,7 @@ package dev.localintelligence.core.agent
 import dev.localintelligence.core.context.CompactedState
 import dev.localintelligence.core.context.ContextBuilder
 import dev.localintelligence.core.context.ContextCompactor
+import dev.localintelligence.core.context.GenerationProse
 import dev.localintelligence.core.context.SUMMARY_PREFIX
 import dev.localintelligence.core.execution.NoProgressWatchdog
 import dev.localintelligence.core.model.ChatMessage
@@ -731,6 +732,7 @@ class AgentController(
                 // and it is the partial answer the user was reading when they stopped.
                 if (completed) generation.text.take(TRACE_DETAIL_CHARS) else generation.text,
                 generation.prefillMs + generation.decodeMs, completed && rejection == null,
+                thought = generation.thought ?: GenerationProse.thought(generation.text).takeIf { it.isNotEmpty() },
             )
 
             when (generation.stopReason) {

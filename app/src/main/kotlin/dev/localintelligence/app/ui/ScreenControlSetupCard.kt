@@ -10,9 +10,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.app.LocalIntelligenceApp
 import dev.localintelligence.app.screen.ScreenRun
+import dev.localintelligence.core.settings.ScreenControlSettings
 
 // ===========================================================================
 // The setup card above the screen control switch (Technical mode, full build only: the plugin
@@ -27,6 +33,9 @@ import dev.localintelligence.app.screen.ScreenRun
 fun ScreenControlSetupCard() {
     val context = LocalContext.current
     val on = ScreenRun.serviceConnected
+    val settings = (context.applicationContext as LocalIntelligenceApp).container.settings
+    // The disclosure opens before Accessibility settings, unless the person already agreed (docs/adr/0003).
+    var disclosing by remember { mutableStateOf(false) }
 
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -42,12 +51,16 @@ fun ScreenControlSetupCard() {
         )
         Text(
             "If Android says this setting is restricted, open App info, tap the ⋮ menu, choose " +
-                "Allow restricted settings, then come back to Accessibility. Apps installed outside " +
-                "Google Play hit this on Android 13 and later.",
+                "Allow restricted settings, then come back to Accessibility. Some installs from " +
+                "outside Google Play hit this on Android 13 and later.",
             style = MaterialTheme.typography.bodySmall,
         )
         FilledTonalButton(onClick = {
-            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            if (settings[ScreenControlSettings.CONSENT]) {
+                openAccessibilitySettings(context)
+            } else {
+                disclosing = true
+            }
         }) { Text("Open Accessibility settings") }
         OutlinedButton(onClick = {
             val uri = Uri.fromParts("package", context.packageName, null)
@@ -56,4 +69,22 @@ fun ScreenControlSetupCard() {
             )
         }) { Text("Open App info") }
     }
+
+    if (disclosing) {
+        ScreenControlConsentDialog(
+            onAgree = {
+                settings.set(ScreenControlSettings.CONSENT, true)
+                disclosing = false
+                openAccessibilitySettings(context)
+            },
+            onNotNow = {
+                settings.set(ScreenControlSettings.CONSENT, false)
+                disclosing = false
+            },
+        )
+    }
+}
+
+private fun openAccessibilitySettings(context: android.content.Context) {
+    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }

@@ -29,3 +29,10 @@ OPENROUTER_MONTHLY_LIMIT_USD = "3.50"
 # TODO(owner): confirm both; these are not in the research note.
 EXA_RATE_LIMIT_RPS = "5"
 EXA_BUDGET_CENTS = "150"
+# Pub/Sub push OIDC check (src/pubsub-auth.ts). Set both to the values of the push subscription:
+# the audience you enter for it, and the service account it signs as. While a value is still a
+# TODO placeholder, or empty, every push is refused with 401.
+# TODO(owner): audience, e.g. the push endpoint URL https://<worker URL>/v1/rtdn/<RTDN_PATH_SECRET>
+PUBSUB_AUDIENCE = "TODO-OWNER-PUBSUB-AUDIENCE"
+# TODO(owner): the service account email used for the push subscription's OIDC identity.
+PUBSUB_SERVICE_ACCOUNT_EMAIL = "TODO-OWNER-PUBSUB-SERVICE-ACCOUNT-EMAIL"

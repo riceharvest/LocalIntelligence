@@ -364,6 +364,45 @@ class Session(
         return true
     }
 
+    /**
+     * The text of the newest turn the user wrote in this window, or null when there is none.
+     * A note from the loop does not count: it is not something the user said.
+     */
+    fun lastUserText(): String? = locked {
+        messages.asReversed().firstNotNullOfOrNull { (it as? ChatMessage.User)?.takeUnless { turn -> turn.note }?.text }
+    }
+
+    /**
+     * Whether [dropLastTurn] would succeed now. Checked before anything else is touched, so a
+     * caller that also edits a store drops the stored turn only when the window agrees.
+     */
+    fun canDropLastTurn(): Boolean = locked {
+        val index = lastUserIndex()
+        // The opening turn of a compacted window is what the summary describes; it is not dropped.
+        index >= 0 && !(index == 0 && workingSummary != null)
+    }
+
+    /**
+     * Removes the newest user turn and every message after it, so a retry or an edit can run that
+     * turn again without the model seeing the replies it replaces. Returns false and changes nothing
+     * when [canDropLastTurn] is false.
+     *
+     * The window is rebuilt from what is left, so [groundedNumbers] never keeps a number that only
+     * the dropped turn or its answer contained.
+     */
+    fun dropLastTurn(): Boolean = locked {
+        if (!canDropLastTurn()) return@locked false
+        messages.subList(lastUserIndex(), messages.size).clear()
+        groundedNumbers.clear()
+        messages.forEach(::ground)
+        pruneIdentities()
+        true
+    }
+
+    /** Index of the newest non-note user turn in [messages], or -1. Call under [locked]. */
+    private fun lastUserIndex(): Int =
+        messages.indexOfLast { it is ChatMessage.User && !it.note }
+
     fun clear() = locked {
         messages.clear()
         pruneIdentities()

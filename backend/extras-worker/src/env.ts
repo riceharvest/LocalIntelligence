@@ -16,6 +16,10 @@ export interface Env {
   OPENROUTER_MONTHLY_LIMIT_USD: string;
   EXA_RATE_LIMIT_RPS: string;
   EXA_BUDGET_CENTS: string;
+  /** Audience of the Pub/Sub push token (the push subscription's audience). Empty rejects every push. */
+  PUBSUB_AUDIENCE: string;
+  /** Service account email the push subscription signs as. Empty rejects every push. */
+  PUBSUB_SERVICE_ACCOUNT_EMAIL: string;
 
   // Secrets (wrangler secret put)
   /** Full JSON key file of the Google Cloud service account linked to the Play Console. */

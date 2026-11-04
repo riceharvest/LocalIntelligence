@@ -24,6 +24,8 @@ data class SessionEntity(
     @ColumnInfo(name = "last_active_at") val lastActiveAt: Long,
     /** Null until the user or the runtime names the thread. */
     @ColumnInfo(name = "title") val title: String? = null,
+    /** The persona this chat was started with; null for none. See [PersonaEntity]. Added in version 3. */
+    @ColumnInfo(name = "persona_id") val personaId: Long? = null,
 )
 
 /**

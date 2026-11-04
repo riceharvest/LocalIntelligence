@@ -50,6 +50,7 @@ import dev.localintelligence.android.documents.EMBEDDING_DOWNLOAD_DISMISSED
 import dev.localintelligence.android.tools.notifications.LocalNotificationListenerService
 import dev.localintelligence.android.cloud.generatedMediaDir
 import dev.localintelligence.app.export.ChatExporter
+import dev.localintelligence.app.media.AudioFileDecoder
 import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.encodePickedPicture
 import dev.localintelligence.app.settings.SimpleSetup
@@ -68,6 +69,7 @@ import dev.localintelligence.app.ui.components.SearchModelCard
 import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.ModelManagerScreen
+import dev.localintelligence.app.ui.PersonasScreen
 import dev.localintelligence.app.ui.ScriptPluginsScreen
 import dev.localintelligence.app.ui.ExtrasScreen
 import dev.localintelligence.app.extras.ExtrasBilling
@@ -160,6 +162,10 @@ class MainActivity : ComponentActivity() {
                             readPicture = { encodePickedPicture(applicationContext.contentResolver, Uri.parse(it)) },
                             // The developer's report form. A build without one reports "not set up".
                             reportSender = ReplyReportSender(BuildConfig.REPORT_FORM_URL, BuildConfig.REPORT_FORM_ENTRY),
+                            // Transcription reads the resident model and saves to the Documents store.
+                            transcriptionModel = { container.residentBackend() },
+                            decodeAudio = { uri, onChunk -> AudioFileDecoder.decode(applicationContext, Uri.parse(uri), onChunk) },
+                            documents = container.documents,
                         )
                     },
                 )
@@ -604,6 +610,8 @@ class MainActivity : ComponentActivity() {
                                 nav.navigate("$ROUTE_HUB?repo=${Uri.encode(repo)}&file=${Uri.encode(file)}")
                             },
                             onOpenSkills = { nav.navigate(ROUTE_SKILLS) },
+                            onOpenPersonas = { nav.navigate(ROUTE_PERSONAS) },
+                            loadPersonas = { container.personas() },
                             speedTest = container.speedTest,
                             generatedMedia = generatedMediaDir(applicationContext),
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
@@ -623,9 +631,9 @@ class MainActivity : ComponentActivity() {
                             onNewChat = if (messages.isEmpty() || settingsRunState.isActive) {
                                 null
                             } else {
-                                {
+                                { personaId ->
                                     exportScope.launch {
-                                        container.startNewConversation()
+                                        container.startNewConversation(personaId)
                                         chat.clear()
                                         nav.popBackStack(ROUTE_CHAT, inclusive = false)
                                     }
@@ -644,6 +652,15 @@ class MainActivity : ComponentActivity() {
                         SkillsScreen(
                             store = container.settings,
                             repository = container.skills,
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
+                    composable(ROUTE_PERSONAS) {
+                        PersonasScreen(
+                            load = { container.personas() },
+                            onSave = { id, name, text -> container.savePersona(id, name, text) },
+                            onDelete = { id -> container.deletePersona(id) },
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -748,6 +765,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_SETTINGS = "settings"
         const val ROUTE_SKILLS = "skills"
         const val ROUTE_SCRIPTS = "scripts"
+        const val ROUTE_PERSONAS = "personas"
         const val ROUTE_EXTRAS = "extras"
         const val ROUTE_DOCUMENTS = "documents"
 

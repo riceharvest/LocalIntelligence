@@ -108,6 +108,34 @@ private fun permissionRefusal(tool: String, requirement: PlatformRequirement): T
         error = ToolError.PermissionDenied(PermissionDenial.summary(requirement)),
     )
 
+/** The permissions a `-PplayNoSms=true` build leaves out (docs/build.md). */
+val TEXTS_AND_CALLS_PERMISSIONS: Set<String> = setOf(
+    ToolPermissions.READ_SMS,
+    ToolPermissions.SEND_SMS,
+    ToolPermissions.READ_CALL_LOG,
+)
+
+/**
+ * True when this build's manifest declares [permission]. The Play build made with
+ * `-PplayNoSms=true` leaves the texts and call-log permissions out (docs/build.md). A tool
+ * must then say the build lacks them, not send the person to a Grant button that cannot work.
+ * It asks the package, not the grant, so a permission the person denied still reads as declared.
+ */
+fun declaredInBuild(context: Context, permission: String): Boolean = try {
+    context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS)
+        .requestedPermissions?.contains(permission) == true
+} catch (e: PackageManager.NameNotFoundException) {
+    true
+}
+
+/** The refusal for a texts or call-log tool in a build that leaves those permissions out. */
+private fun notInBuild(tool: String): ToolResult = ToolResult(
+    success = false,
+    observation = "$tool is not in this build of LocalIntelligence, so nothing was read or sent. " +
+        "Tell the person this version cannot do it.",
+    error = ToolError.Unavailable("texts and call log are not in this build"),
+)
+
 // =====================================================================================
 // Schemas
 // =====================================================================================
@@ -206,6 +234,7 @@ class SmsSearchTool(private val appContext: Context, private val grant: Platform
             else -> DEFAULT_RESULTS
         }
 
+        if (!declaredInBuild(appContext, ToolPermissions.READ_SMS)) return notInBuild("sms.search")
         DefaultAssistant.refusalUnlessHeld(appContext, "Reading and sending texts")?.let { return it }
         if (!grant.isGranted(ToolPermissions.SMS_READ)) return permissionRefusal("sms.search", ToolPermissions.SMS_READ)
         if (context.signal.isCancelled()) return cancelledBefore("sms.search")
@@ -337,6 +366,7 @@ class SmsSendTool(private val appContext: Context, private val grant: PlatformGr
             )
         }
 
+        if (!declaredInBuild(appContext, ToolPermissions.SEND_SMS)) return notInBuild("sms.send")
         DefaultAssistant.refusalUnlessHeld(appContext, "Reading and sending texts")?.let { return it }
         if (!grant.isGranted(ToolPermissions.SMS_SEND)) return permissionRefusal("sms.send", ToolPermissions.SMS_SEND)
         if (context.signal.isCancelled()) return cancelledBefore("sms.send")
@@ -416,6 +446,7 @@ class CallsRecentTool(private val appContext: Context, private val grant: Platfo
             return invalidArgument("type must be one of ${CALL_TYPE_BY_ARG.keys.joinToString(", ")}, but was \"${ArgCoerce.ellipsize(typeArg, 24)}\".")
         }
 
+        if (!declaredInBuild(appContext, ToolPermissions.READ_CALL_LOG)) return notInBuild("calls.recent")
         DefaultAssistant.refusalUnlessHeld(appContext, "Reading and sending texts")?.let { return it }
         if (!grant.isGranted(ToolPermissions.CALL_LOG_READ)) {
             return permissionRefusal("calls.recent", ToolPermissions.CALL_LOG_READ)

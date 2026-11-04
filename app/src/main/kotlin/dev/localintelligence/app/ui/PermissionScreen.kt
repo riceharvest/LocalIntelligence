@@ -62,6 +62,8 @@ import dev.localintelligence.core.tool.contracts.PlatformRequirement
 import dev.localintelligence.core.tool.contracts.ToolPermissions
 import dev.localintelligence.android.tools.AndroidPlatformGrant
 import dev.localintelligence.android.tools.messages.DefaultAssistant
+import dev.localintelligence.android.tools.messages.TEXTS_AND_CALLS_PERMISSIONS
+import dev.localintelligence.android.tools.messages.declaredInBuild
 import dev.localintelligence.app.openAssistantSettings
 
 /**
@@ -180,7 +182,13 @@ fun PermissionScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val entries = remember { permissionEntries() }
+    // A build that leaves out texts and calls (docs/build.md) has no Grant button that works for them.
+    val entries = remember(context) {
+        permissionEntries().filter { entry ->
+            val permission = entry.requirement.permission
+            permission == null || permission !in TEXTS_AND_CALLS_PERMISSIONS || declaredInBuild(context, permission)
+        }
+    }
     val asked = remember(refreshToken) { askedPermissions(context) }
     val statuses = remember(refreshToken) {
         entries.associateWith { entry ->

@@ -3,6 +3,7 @@ package dev.localintelligence.app
 import android.app.Activity
 import android.app.Application
 import android.os.Bundle
+import dev.localintelligence.app.crash.CrashReports
 import dev.localintelligence.core.settings.CoreSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +42,9 @@ class LocalIntelligenceApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // First, so a crash while the container is being built is still written down.
+        CrashReports.install(this)
+        CrashReports.importExitReasons(this)
         container = AppContainer(this)
         // Telegram follows the settings: it starts when it becomes wanted and stops when it stops being
         // wanted. The first value also covers a launch, so a phone that had it on reconnects when the app opens.
