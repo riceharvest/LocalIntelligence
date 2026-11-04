@@ -6,6 +6,7 @@ import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.CancellationSignal
+import dev.localintelligence.core.tool.ObservationStore
 import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
 import dev.localintelligence.core.tool.ToolDefinition
@@ -1025,11 +1026,14 @@ internal class WebFetcher(
                         val page = PageText.fullText(raw)
                         val split = page.indexOf(PageText.OTHER_TEXT_MARKER)
                         val main = HtmlText.cutPageText(if (split >= 0) page.substring(0, split) else page, bodyBudget)
-                        PlainText(
-                            main.text + (if (split >= 0) page.substring(split) else ""),
-                            truncated = main.truncated,
-                            fromHtml = true,
-                        )
+                        // The detached text is kept only for the default budget (a caller asking for less gets
+                        // the main text), and cut so the saved observation fits the store.
+                        val room = ObservationStore.MAX_STORED_CHARS - header.length -
+                            NEWLINE_SECTION.length - main.text.length
+                        val keepDetached = split >= 0 && budget == DEFAULT_MAX_CHARS &&
+                            room > PageText.OTHER_TEXT_MARKER.length
+                        val detached = if (keepDetached) page.substring(split).take(room) else ""
+                        PlainText(main.text + detached, truncated = main.truncated, fromHtml = true)
                     } catch (e: RuntimeException) {
                         HtmlText.toPlainText(raw, bodyBudget, response?.contentType)
                     }

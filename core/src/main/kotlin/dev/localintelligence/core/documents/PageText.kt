@@ -139,8 +139,12 @@ object PageText {
     /** An open element on the stack: its name and whether its text is hidden. */
     private class Frame(val name: String, val hidden: Int)
 
-    /** A line of text and the ids of the elements that contained it. */
-    private class Out(val text: String, val path: IntArray)
+    /**
+     * A line of text and the id of the deepest element that contained it (-1 for none). The ancestors
+     * are the parent chain, so the line needs no copy of its path: a copy per line is quadratic in the
+     * nesting depth, and a hostile page could make that gigabytes.
+     */
+    private class Out(val text: String, val deepest: Int)
 
     private class Extracted(val title: String, val main: List<String>, val rest: List<String>)
 
@@ -155,18 +159,17 @@ object PageText {
      * first `>`, and from then on quotes are not trusted for the rest of the page: that is what keeps a
      * hostile page linear.
      */
-    private fun scan(src: String): List<Tok> {
-        val out = ArrayList<Tok>()
+    private fun scan(src: String): Sequence<Tok> = sequence {
         val n = src.length
         var i = 0
         var plain = false
         while (i < n) {
             val lt = src.indexOf('<', i)
             if (lt < 0) {
-                if (i < n) out.add(Tok(Kind.TEXT, text = src.substring(i)))
-                return out
+                if (i < n) yield(Tok(Kind.TEXT, text = src.substring(i)))
+                return@sequence
             }
-            if (lt > i) out.add(Tok(Kind.TEXT, text = src.substring(i, lt)))
+            if (lt > i) yield(Tok(Kind.TEXT, text = src.substring(i, lt)))
             if (src.startsWith("<!--", lt)) {
                 val e = src.indexOf("-->", lt + 4)
                 i = if (e < 0) n else e + 3
@@ -180,7 +183,7 @@ object PageText {
             val closing = lt + 1 < n && src[lt + 1] == '/'
             val j = lt + if (closing) 2 else 1
             if (j >= n || !src[j].isLetter()) {
-                out.add(Tok(Kind.TEXT, text = "<"))
+                yield(Tok(Kind.TEXT, text = "<"))
                 i = lt + 1
                 continue
             }
@@ -210,10 +213,10 @@ object PageText {
                 }
                 m++
             }
-            if (m >= n) return out
+            if (m >= n) return@sequence
             val raw = src.substring(k, m)
             if (closing) {
-                out.add(Tok(Kind.CLOSE, name = name))
+                yield(Tok(Kind.CLOSE, name = name))
             } else {
                 val attrs = HashMap<String, String>()
                 val window = if (raw.length < 4000) raw else raw.substring(0, 4000)
@@ -221,17 +224,16 @@ object PageText {
                     attrs[a.groupValues[1].lowercase()] = a.groups[2]?.value.orEmpty().trim { it == '"' || it == '\'' }
                 }
                 val kind = if (raw.endsWith("/") || name in VOID) Kind.VOID else Kind.OPEN
-                out.add(Tok(kind, name = name, attrs = attrs))
+                yield(Tok(kind, name = name, attrs = attrs))
             }
             i = m + 1
             if (!closing && name in RAW_TEXT && !raw.endsWith("/")) {
                 // WHY indexOf(ignoreCase): lowercasing the whole page for every raw-text tag is quadratic.
                 val e = src.indexOf("</$name", i, ignoreCase = true)
-                if (name == "title") out.add(Tok(Kind.TITLE, text = src.substring(i, if (e >= 0) e else n)))
+                if (name == "title") yield(Tok(Kind.TITLE, text = src.substring(i, if (e >= 0) e else n)))
                 i = if (e < 0) n else e
             }
         }
-        return out
     }
 
     /**
@@ -241,8 +243,11 @@ object PageText {
      * extractor uses that second, looser reading once when the strict one finds almost nothing.
      */
     private fun linesOf(src: String, dropHidden: Boolean = true, strict: Boolean = true): Extracted {
-        val excluded = ArrayList<Boolean>()
-        val parent = ArrayList<Int>()
+        // One slot per element at most: an element needs an opening tag of at least 3 characters.
+        val cap = src.length / 3 + 1
+        val excluded = BooleanArray(cap)
+        val parent = IntArray(cap)
+        var count = 0
         val forced = ArrayList<Int>()
         val stack = ArrayList<Frame>()
         val path = ArrayList<Int>()
@@ -258,7 +263,7 @@ object PageText {
             // WHY after decoding: an entity can produce a control character (`&#8203;`), and a line
             // must not carry one into an observation.
             t = HtmlEntities.stripControl(t).trim { it == ' ' || it == '|' }
-            if (t.isNotEmpty()) out.add(Out(kindPrefix + t, path.toIntArray()))
+            if (t.isNotEmpty()) out.add(Out(kindPrefix + t, if (path.isEmpty()) -1 else path[path.size - 1]))
             buf.setLength(0)
             kindPrefix = ""
         }
@@ -315,9 +320,9 @@ object PageText {
             // WHY the cap: past MAX_DEPTH an element is not tracked at all, so no close can take back what
             // was never added.
             if (stack.size >= MAX_DEPTH) continue
-            val i = excluded.size
-            excluded.add(ex)
-            parent.add(if (path.isEmpty()) -1 else path[path.size - 1])
+            val i = count++
+            excluded[i] = ex
+            parent[i] = if (path.isEmpty()) -1 else path[path.size - 1]
             if (eid in FORCE_ID) forced.add(i)
             val hidden = if (hid) 1 else 0
             stack.add(Frame(name, hidden))
@@ -333,10 +338,16 @@ object PageText {
                 j = parent[j]
             }
         }
+        // Effective exclusion, once per element. A parent's id is lower than its child's, so one pass in id
+        // order sees each parent first: an element is out when it or any ancestor is excluded.
+        val effective = BooleanArray(count)
+        for (i in 0 until count) {
+            effective[i] = excluded[i] || (parent[i] >= 0 && effective[parent[i]])
+        }
         val main = ArrayList<String>()
         val rest = ArrayList<String>()
         for (o in out) {
-            (if (o.path.any { excluded[it] }) rest else main).add(o.text)
+            (if (o.deepest >= 0 && effective[o.deepest]) rest else main).add(o.text)
         }
         return Extracted(title, main, rest)
     }

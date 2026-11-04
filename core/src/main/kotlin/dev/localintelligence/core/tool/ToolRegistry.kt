@@ -325,7 +325,8 @@ object ObservationTruncator {
                 "with id $id and a query or an offset" +
                 (if (split >= 0) ". Other page text is in ${ObservationStore.READ_TOOL} too" else "") + "]"
         val room = budget - (if (footer.isEmpty()) 0 else footer.length + 1)
-        if (room < MIN_PREVIEW_ROOM) return truncate(text, budget)
+        // Too little room for the footer: a plain cut of the main part, so the detached text never shows here.
+        if (room < MIN_PREVIEW_ROOM) return truncate(main, budget)
         val head = if (main.length <= room) main.trimEnd() else headOf(main, room)
         return if (footer.isEmpty()) head else head + "\n" + footer
     }
