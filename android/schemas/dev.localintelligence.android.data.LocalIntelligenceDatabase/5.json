@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 5,
-    "identityHash": "a7c5d48674a69d3075e2ceaf970b2e7b",
+    "identityHash": "12a32a7768203daa21407bff3f1da99c",
     "entities": [
       {
         "tableName": "sessions",
@@ -377,44 +377,8 @@
         }
       },
       {
-        "tableName": "desktop_text",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`target` TEXT NOT NULL, `text` TEXT NOT NULL, `state_seq` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`target`))",
-        "fields": [
-          {
-            "fieldPath": "target",
-            "columnName": "target",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "text",
-            "columnName": "text",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "stateSeq",
-            "columnName": "state_seq",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "updatedAt",
-            "columnName": "updated_at",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "target"
-          ]
-        }
-      },
-      {
-        "tableName": "desktop_outbox",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `target` TEXT NOT NULL, `text` TEXT NOT NULL, `created_at` INTEGER NOT NULL)",
+        "tableName": "phone_index",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `source` TEXT NOT NULL, `source_key` TEXT NOT NULL, `title` TEXT NOT NULL, `text` TEXT NOT NULL, `when_at` INTEGER NOT NULL, `indexed_at` INTEGER NOT NULL)",
         "fields": [
           {
             "fieldPath": "id",
@@ -423,8 +387,20 @@
             "notNull": true
           },
           {
-            "fieldPath": "target",
-            "columnName": "target",
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceKey",
+            "columnName": "source_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -435,8 +411,14 @@
             "notNull": true
           },
           {
-            "fieldPath": "createdAt",
-            "columnName": "created_at",
+            "fieldPath": "whenAt",
+            "columnName": "when_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "indexedAt",
+            "columnName": "indexed_at",
             "affinity": "INTEGER",
             "notNull": true
           }
@@ -446,12 +428,24 @@
           "columnNames": [
             "id"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_phone_index_source_source_key",
+            "unique": true,
+            "columnNames": [
+              "source",
+              "source_key"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_phone_index_source_source_key` ON `${TABLE_NAME}` (`source`, `source_key`)"
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a7c5d48674a69d3075e2ceaf970b2e7b')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '12a32a7768203daa21407bff3f1da99c')"
     ]
   }
 }

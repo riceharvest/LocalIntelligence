@@ -75,6 +75,8 @@ import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.ModelManagerScreen
 import dev.localintelligence.app.photos.PHOTO_SEARCH_PLUGIN_ID
 import dev.localintelligence.app.ui.PhotoSearchScreen
+import dev.localintelligence.app.ui.PhoneSearchScreen
+import dev.localintelligence.android.phoneindex.PhoneIndexStore
 import dev.localintelligence.app.ui.PersonasScreen
 import dev.localintelligence.app.ui.ScriptPluginsScreen
 import dev.localintelligence.app.ui.ExtrasScreen
@@ -658,6 +660,7 @@ class MainActivity : FragmentActivity() {
                             } else {
                                 null
                             },
+                            onOpenPhoneSearch = { nav.navigate(ROUTE_PHONE_SEARCH) },
                             chatGptRow = { ChatGptSettingsCard(container) },
                             onOpenModels = { nav.navigate(ROUTE_MODELS) },
                             onOpenExtras = if (ExtrasBilling.enabled) {
@@ -760,6 +763,15 @@ class MainActivity : FragmentActivity() {
                         }
                     }
 
+                    composable(ROUTE_PHONE_SEARCH) {
+                        PhoneSearchScreen(
+                            settings = container.settings,
+                            index = PhoneIndexStore.get(applicationContext),
+                            fullBuild = BuildConfig.FULL_BUILD,
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
                     composable(ROUTE_DOCUMENTS) {
                         val embeddingState by container.embeddingSetup.state.collectAsStateWithLifecycle()
                         DocumentsScreen(
@@ -835,6 +847,7 @@ class MainActivity : FragmentActivity() {
         const val ROUTE_DOCUMENTS = "documents"
         const val ROUTE_PHOTOS = "photos"
         const val ROUTE_DESKTOP = "desktop"
+        const val ROUTE_PHONE_SEARCH = "phone_search"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
         const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"
