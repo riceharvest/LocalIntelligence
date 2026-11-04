@@ -14,12 +14,11 @@ import dev.localintelligence.core.agent.SessionStore
  * by compiling each form and reading
  * `Cannot access 'RoomDatabase' which is a supertype of 'LocalIntelligenceDatabase'`.
  *
- * So `:app` cannot name the type it wants. It reaches this through
- * `SessionStoreFactory.provide`, which resolves the function by name. That
- * indirection is a bridge, not an architecture: it exists so the two halves
- * could land independently, and it is the reason a missing function here
- * degrades to "the conversation lasts one process" rather than to a crash on
- * cold start.
+ * So `:app` cannot name the type it wants. It reaches this function directly
+ * through `SessionStoreFactory.provide`, which is the only caller. The function
+ * is a plain call rather than a reflective lookup: a reflective lookup that
+ * fails is swallowed, and under R8 it failed silently in release, so chats were
+ * never saved.
  *
  * ## Why it is a function and not a global
  *

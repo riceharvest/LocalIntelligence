@@ -2,12 +2,23 @@
 //
 // No business logic, no agent decisions, no data access. If a screen needs to
 // decide something, that decision belongs in :core.
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
+
+// Release signing. The keystores and their passwords live outside the repository, in the
+// properties file named by `liSigningProps` in ~/.gradle/gradle.properties (see docs/build.md,
+// "Release builds"). Without that property, or when the file is missing (every other machine and
+// CI), nothing here is created: release builds stay unsigned and every build still configures.
+val releaseSigning: Properties? = (findProperty("liSigningProps") as? String)
+    ?.let { file(it) }
+    ?.takeIf { it.isFile }
+    ?.let { f -> Properties().apply { f.inputStream().use(::load) } }
 
 android {
     namespace = "dev.localintelligence.app"
@@ -40,6 +51,28 @@ android {
         buildConfigField("String", "REPORT_FORM_ENTRY", "\"${(findProperty("reportFormEntry") as? String) ?: "entry.959047461"}\"")
     }
 
+    // Declared before productFlavors, which look these up by name.
+    signingConfigs {
+        if (releaseSigning != null) {
+            // Play upload key (docs/build.md): Play App Signing can reset it.
+            create("playRelease") {
+                storeFile = file(releaseSigning.getProperty("play.storeFile"))
+                storeType = "pkcs12"
+                storePassword = releaseSigning.getProperty("play.storePassword")
+                keyAlias = releaseSigning.getProperty("play.keyAlias")
+                keyPassword = releaseSigning.getProperty("play.keyPassword")
+            }
+            // Full key: installed copies can never update if it is lost.
+            create("fullRelease") {
+                storeFile = file(releaseSigning.getProperty("full.storeFile"))
+                storeType = "pkcs12"
+                storePassword = releaseSigning.getProperty("full.storePassword")
+                keyAlias = releaseSigning.getProperty("full.keyAlias")
+                keyPassword = releaseSigning.getProperty("full.keyPassword")
+            }
+        }
+    }
+
     // Two distributions (docs/adr/0002-play-and-full-builds.md): Play ships what Google Play
     // allows; full installs side by side with its own package id and adds capabilities Play forbids.
     flavorDimensions += "dist"
@@ -48,18 +81,23 @@ android {
             dimension = "dist"
             isDefault = true
             buildConfigField("boolean", "FULL_BUILD", "false")
+            // A flavor's signingConfig also reaches debug; the debug buildType below overrides it.
+            signingConfig = signingConfigs.findByName("playRelease")
         }
         create("full") {
             dimension = "dist"
             applicationIdSuffix = ".full"
             versionNameSuffix = "-full"
             buildConfigField("boolean", "FULL_BUILD", "true")
+            signingConfig = signingConfigs.findByName("fullRelease")
         }
     }
 
     buildTypes {
         debug {
             isMinifyEnabled = false
+            // Debug always uses the debug keystore, never the release keys set on the flavors.
+            signingConfig = signingConfigs.getByName("debug")
         }
         release {
             isMinifyEnabled = true
