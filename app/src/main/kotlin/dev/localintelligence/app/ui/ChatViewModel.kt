@@ -854,7 +854,7 @@ class ChatViewModel(
             // takes an unterminated respond as the answer, so without this the
             // user gets a clipped sentence with nothing marking it as clipped.
             if (lastGeneration != null && !lastGeneration.success) {
-                appendRows(listOf(ChatMessage.Notice(TRUNCATED_AT_LIMIT)))
+                appendRows(listOf(ChatMessage.Notice(context.getString(R.string.chat_answer_cut_short))))
             }
             return
         }
@@ -1561,7 +1561,6 @@ data class HandsFreeState(val phase: HandsFreePhase = HandsFreePhase.Off, val no
  * its ending. Without this line the user has no way to tell that from a
  * complete thought.
  */
-private const val TRUNCATED_AT_LIMIT = "Answer cut short."
 
 private const val NOTICE_SHOWN_MS = 4_000L
 

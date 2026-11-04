@@ -1617,4 +1617,9 @@
     <string name="chat_too_long_short">That is too long for this model. Try a shorter message.</string>
     <string name="chat_couldnt_finish">I couldn\'t finish that. Try asking for one thing at a time.</string>
     <string name="chat_stopped">Stopped.</string>
+    <string name="notif_channel_assistant_work">Assistant at work</string>
+    <string name="notif_channel_scheduled_results">Scheduled task results</string>
+    <string name="notif_working_request">Working on your request…</string>
+    <string name="telegram_busy_reply">The phone is already running a task. Send it again when that one has finished.</string>
+    <string name="chat_answer_cut_short">Answer cut short.</string>
 </resources>
