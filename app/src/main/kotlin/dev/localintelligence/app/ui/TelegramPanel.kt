@@ -69,7 +69,7 @@ fun TelegramPanel(store: SettingsStore) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "${chat.name} (${chat.id})",
+                    stringResource(R.string.telegram_chat_label, chat.name, chat.id),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f),
                 )

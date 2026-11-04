@@ -101,16 +101,16 @@ fun DocumentsScreen(
                     val got = DocumentImport.extract(context, uri)
                     repository.add(got.title, got.text)
                     if (got.truncated) {
-                        "Added ${got.title}. It is long, so only the first part can be searched."
+                        context.getString(R.string.document_added_long, got.title)
                     } else {
-                        "Added ${got.title}."
+                        context.getString(R.string.document_added, got.title)
                     }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: DocumentImportException) {
-                    e.message ?: "Could not add that file."
+                    e.message ?: context.getString(R.string.document_could_not_add)
                 } catch (e: Exception) {
-                    "Could not read that file. Try a different copy."
+                    context.getString(R.string.document_could_not_read)
                 }
             }
             busy = false

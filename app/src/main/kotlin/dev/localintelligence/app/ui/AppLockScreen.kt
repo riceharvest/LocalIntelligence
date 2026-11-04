@@ -114,7 +114,7 @@ fun AppLockScreen(appLock: AppLock) {
         )
         prompt.authenticate(
             BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Unlock LocalIntelligence")
+                .setTitle(context.getString(R.string.unlock_localintelligence))
                 .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
                 .setNegativeButtonText(context.getString(R.string.use_pin))
                 .build(),
@@ -133,13 +133,13 @@ fun AppLockScreen(appLock: AppLock) {
             when (val result = appLock.check(pin)) {
                 PinCheck.Correct -> appLock.unlock()
                 PinCheck.Wrong -> {
-                    message = "That is not the PIN."
+                    message = context.getString(R.string.that_is_not_the_pin)
                     pin = ""
                 }
                 is PinCheck.Waiting -> {
                     clock = System.currentTimeMillis()
                     waitUntil = clock + result.remainingMillis
-                    message = "Too many wrong PINs."
+                    message = context.getString(R.string.too_many_wrong_pins)
                     pin = ""
                 }
             }

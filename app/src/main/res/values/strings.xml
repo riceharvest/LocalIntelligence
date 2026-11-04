@@ -283,6 +283,8 @@
     <string name="you_re_on_mobile_data_wi_fi_is_better_3">You\'re on mobile data. Wi-Fi is better for a download this size.</string>
 
     <!-- ModelManagerScreen.kt -->
+    <string name="of_which_kv_cache">of which KV cache</string>
+    <string name="provider_offer_title">%1$s: %2$s</string>
     <string name="ram_figures_are_calculated_from_the_3">RAM figures are calculated from the file size and the model\'s header. They are not measured on this phone.</string>
 
     <!-- AppLockScreen.kt -->
@@ -291,6 +293,9 @@
     <string name="unlock">Unlock</string>
     <string name="use_fingerprint_or_face">Use fingerprint or face</string>
     <string name="wait_seconds_before_trying_again">Wait %1$s seconds before trying again.</string>
+    <string name="unlock_localintelligence">Unlock LocalIntelligence</string>
+    <string name="that_is_not_the_pin">That is not the PIN.</string>
+    <string name="too_many_wrong_pins">Too many wrong PINs.</string>
 
     <!-- CrashReportRow.kt -->
     <string name="share_last_crash_report">Share last crash report</string>
@@ -307,6 +312,10 @@
     <string name="add_document">Add document</string>
     <string name="no_documents_yet">No documents yet.</string>
     <string name="added_2">Added %1$s</string>
+    <string name="document_added">Added %1$s.</string>
+    <string name="document_added_long">Added %1$s. It is long, so only the first part can be searched.</string>
+    <string name="document_could_not_add">Could not add that file.</string>
+    <string name="document_could_not_read">Could not read that file. Try a different copy.</string>
     <string name="characters">, %1$s characters</string>
     <string name="remove_3">Remove %1$s?</string>
     <string name="the_assistant_will_no_longer_answer">The assistant will no longer answer from this document.</string>
@@ -341,6 +350,15 @@
     <string name="delete_persona">Delete persona</string>
 
     <!-- PhotoSearchScreen.kt -->
+    <string name="photo_search_needs_access">Photo search needs access to your photos. Allow it in the Android settings for this app, then try again.</string>
+    <string name="photo_index_deleted">The photo index is deleted.</string>
+    <string name="photo_run_nothing_new">No new photos to index.</string>
+    <string name="photo_run_indexed">Indexed %1$d photos.</string>
+    <string name="photo_run_indexed_with_failures">Indexed %1$d photos. %2$d could not be read.</string>
+    <string name="photo_run_stopped">Stopped after %1$d photos. The next run continues from here.</string>
+    <string name="photo_run_chat_busy">A chat is running, so indexing paused. Run it again when the chat is done.</string>
+    <string name="photo_run_no_vision_model">No model that can read pictures is loaded. Load one on the Models screen.</string>
+    <string name="photo_run_no_access">Photo access was not granted, so no photos were read.</string>
     <string name="checking_the_index">Checking the index.</string>
     <string name="nothing_indexed_yet">Nothing indexed yet.</string>
     <string name="photos_indexed">%1$s photos indexed.</string>
@@ -414,6 +432,9 @@
     <string name="main_js">main.js</string>
 
     <!-- SkillsScreen.kt -->
+    <string name="skill_template_description">Say when this skill applies, in a sentence.</string>
+    <string name="skill_template_body"># My skill\n\n1. First step.\n2. Second step.</string>
+    <string name="skill_url_failed">%1$s Use a direct link to the raw file (for GitHub, the \"Raw\" link), under 64 KB.</string>
     <string name="skills_teach_the_assistant_a_routine">Skills teach the assistant a routine you use often. Turn one on and it is used when a request matches.</string>
     <string name="add_skill">Add skill</string>
     <string name="no_skills_yet">No skills yet.</string>
@@ -440,6 +461,9 @@
     <string name="decline">Decline</string>
 
     <!-- DiagnosticsScreen.kt -->
+    <string name="check_label_found">Found</string>
+    <string name="check_label_checked">Checked</string>
+    <string name="check_label_cannot_tell">Cannot tell</string>
     <string name="run_every_check_again">Run every check again</string>
     <string name="details">Details: %1$s</string>
     <string name="nothing_below_this_card_ran_so_nothing">Nothing below this card ran, so nothing below it should be read as passing.</string>
@@ -463,6 +487,7 @@
     <string name="there_is_no_setting_to_turn_this_off">There is no setting to turn this off.</string>
 
     <!-- ScheduleScreen.kt -->
+    <string name="schedule_turn_on_external_start">Turn on \"%1$s\" in Settings to use a token.</string>
     <string name="delete_this_task">Delete this task?</string>
     <string name="self_check_what_is_actually_working_on">Self-check: what is actually working on this phone</string>
     <string name="no_scheduled_tasks_yet_write_what_the">No scheduled tasks yet. Write what the assistant should do, pick how often, and it will run on this phone at that time.</string>
@@ -596,6 +621,15 @@
     <string name="turn_on">Turn on</string>
 
     <!-- BackgroundAccessActivity.kt -->
+    <string name="background_notifications_title">Notification access</string>
+    <string name="background_notifications_enables">Read and reply to notifications when you ask.</string>
+    <string name="background_notifications_does_not_enable">It does not let the app run anything by itself, and it is not needed for scheduled tasks, alarms, or chat.</string>
+    <string name="background_notifications_consequence">The assistant cannot read notifications. It says so and stops, rather than telling you your phone is quiet. Everything else works exactly as before.</string>
+    <string name="background_alarms_title">Alarms and reminders</string>
+    <string name="background_alarms_enables">Set alarms and run tasks at an exact time.</string>
+    <string name="background_alarms_does_not_enable">It does not let the app read notifications, and it is not needed to chat.</string>
+    <string name="background_alarms_consequence">Scheduled tasks and alarms can\'t be set. Chatting, models and every other tool are unaffected. A task you try to schedule will say Android refused rather than quietly never run.</string>
+    <string name="simple_background_alarms_consequence">Scheduled tasks and alarms can\'t be set. Chatting and everything else are unaffected. A task you try to schedule will say Android refused rather than quietly never run.</string>
     <string name="offer_these_when_i_need_them">Offer these when I need them</string>
     <string name="turn_off_in_settings">Turn off in Settings</string>
     <string name="ask_me_again">Ask me again</string>
@@ -647,6 +681,12 @@
     <string name="this_reads_or_acts_in_another_app_s_2">This reads or acts in another app\'s screen. Only allow apps you recognise.</string>
 
     <!-- AppLockSettingsRow.kt -->
+    <string name="type_it_again">Type it again</string>
+    <string name="current_pin">Current PIN</string>
+    <string name="pin_use_4_to_12_digits">Use 4 to 12 digits.</string>
+    <string name="pins_do_not_match">The two PINs do not match.</string>
+    <string name="pin_keystore_refused_lock_off">The phone\'s keystore refused to store the PIN. The lock is still off.</string>
+    <string name="pin_too_many_wrong_wait">Too many wrong PINs. Wait %1$d seconds.</string>
     <string name="n_4_to_12_digits_if_you_forget_it_the_2">4 to 12 digits. If you forget it, the only way back is to clear the app\'s data.</string>
 
     <!-- ChatGptRows.kt -->
@@ -1756,4 +1796,7 @@
     <string name="simple_chatgpt_choose_version">Choose a version</string>
     <string name="simple_chatgpt_loading_versions">Loading versions…</string>
     <string name="simple_chatgpt_first_version_listed">First version the account lists</string>
+    <!-- PhoneHitsRow.kt and TelegramPanel.kt -->
+    <string name="phone_hit_label">%1$s: %2$s</string>
+    <string name="telegram_chat_label">%1$s (%2$s)</string>
 </resources>
