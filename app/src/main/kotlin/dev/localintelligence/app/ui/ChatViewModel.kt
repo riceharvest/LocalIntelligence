@@ -6,7 +6,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
+import dev.localintelligence.android.report.ReplyReportSender
 import dev.localintelligence.app.AgentGateway
+import dev.localintelligence.app.BuildConfig
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.ModelAvailabilityHolder
 import dev.localintelligence.app.RunOutcome
@@ -28,6 +30,8 @@ import dev.localintelligence.core.context.GenerationProse
 import dev.localintelligence.core.model.ChatMessage as CoreChatMessage
 import dev.localintelligence.core.model.MediaInput
 import dev.localintelligence.core.model.ModelCapabilities
+import dev.localintelligence.core.report.ReplyReport
+import dev.localintelligence.core.report.ReplyReportReason
 import dev.localintelligence.core.settings.CoreSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -114,9 +118,31 @@ class ChatViewModel(
      * same decoder the photo picker uses. Null (the default) means restored pictures are dropped.
      */
     private val readPicture: (String) -> PendingAttachment? = { null },
+    /** Posts a reply report. Null in a host that has no report form; a report then says so. */
+    private val reportSender: ReplyReportSender? = null,
 ) : ViewModel() {
 
     private val scope: CoroutineScope = scopeOverride ?: viewModelScope
+
+    /**
+     * The report for one reply the user tapped. Everything in it comes from that reply, the
+     * name of the loaded model and the build: no other message, no memory, no tool output.
+     * The model is the one loaded now, which is the one that wrote the reply unless the user
+     * has switched models since.
+     */
+    fun replyReport(reply: String, reason: ReplyReportReason, note: String, includeReply: Boolean): ReplyReport =
+        ReplyReport(
+            reason = reason,
+            note = note,
+            model = (modelAvailability.state.value as? ModelAvailability.Ready)?.displayName.orEmpty(),
+            appVersion = BuildConfig.VERSION_NAME,
+            distribution = if (BuildConfig.FULL_BUILD) "full" else "play",
+            reply = reply.takeIf { includeReply },
+        )
+
+    /** Posts [report] to the developer's form. Suspends; the report sheet shows the outcome. */
+    suspend fun sendReport(report: ReplyReport): ReplyReportSender.Outcome =
+        reportSender?.send(report.format()) ?: ReplyReportSender.Outcome.NotSetUp
 
     /**
      * Held as a property, not just a constructor parameter, because the public
@@ -1108,6 +1134,7 @@ class ChatViewModel(
         private val dictation: LiveDictation? = null,
         private val handsFreeSilence: () -> Float = { CoreSettings.HANDS_FREE_SILENCE.default },
         private val readPicture: (String) -> PendingAttachment? = { null },
+        private val reportSender: ReplyReportSender? = null,
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T = build(modelClass, SavedStateHandle())
 
@@ -1132,6 +1159,7 @@ class ChatViewModel(
                 handsFreeSilence = handsFreeSilence,
                 savedState = savedState,
                 readPicture = readPicture,
+                reportSender = reportSender,
             ) as T
         }
     }

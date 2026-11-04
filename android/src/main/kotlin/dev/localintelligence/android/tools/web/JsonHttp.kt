@@ -27,6 +27,10 @@ internal class JsonReply(val status: Int, val body: String) {
 /**
  * One HTTP exchange that expects JSON. Throws IOException subclasses on network
  * failure; callers map them to a result. Blocking: call it on Dispatchers.IO.
+ *
+ * [contentType] is what a body is sent as. A form post (the report sender) names its
+ * own; the default is the JSON the search and info tools send. [timeoutMs] overrides
+ * the connect and read timeouts for a caller that needs more than the web tools' 8 s / 10 s.
  */
 internal fun exchangeJson(
     method: String,
@@ -35,20 +39,22 @@ internal fun exchangeJson(
     body: String?,
     userAgent: String,
     signal: CancellationSignal,
+    contentType: String = "application/json",
+    timeoutMs: Pair<Int, Int>? = null,
 ): JsonReply {
     val connection = URL(url).openConnection() as HttpURLConnection
     try {
         connection.requestMethod = method
         connection.instanceFollowRedirects = false
-        connection.connectTimeout = CONNECT_TIMEOUT_MS
-        connection.readTimeout = READ_TIMEOUT_MS
+        connection.connectTimeout = timeoutMs?.first ?: CONNECT_TIMEOUT_MS
+        connection.readTimeout = timeoutMs?.second ?: READ_TIMEOUT_MS
         connection.useCaches = false
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("User-Agent", userAgent)
         for ((name, value) in headers) connection.setRequestProperty(name, value)
         if (body != null) {
             connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Content-Type", contentType)
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
         }
         val status = connection.responseCode
