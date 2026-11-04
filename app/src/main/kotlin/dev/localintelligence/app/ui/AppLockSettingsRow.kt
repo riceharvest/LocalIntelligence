@@ -99,6 +99,7 @@ private fun SetPinDialog(appLock: AppLock, onDone: () -> Unit, onCancel: () -> U
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onCancel,
@@ -109,8 +110,8 @@ private fun SetPinDialog(appLock: AppLock, onDone: () -> Unit, onCancel: () -> U
                     stringResource(R.string.n_4_to_12_digits_if_you_forget_it_the_2),
                     style = MaterialTheme.typography.bodySmall,
                 )
-                PinField("PIN", pin) { pin = it }
-                PinField("Type it again", again) { again = it }
+                PinField(stringResource(R.string.pin), pin) { pin = it }
+                PinField(stringResource(R.string.type_it_again), again) { again = it }
                 error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -119,14 +120,14 @@ private fun SetPinDialog(appLock: AppLock, onDone: () -> Unit, onCancel: () -> U
                 enabled = !saving,
                 onClick = {
                     when {
-                        !PinCode.isValid(pin) -> error = "Use 4 to 12 digits."
-                        pin != again -> error = "The two PINs do not match."
+                        !PinCode.isValid(pin) -> error = context.getString(R.string.pin_use_4_to_12_digits)
+                        pin != again -> error = context.getString(R.string.pins_do_not_match)
                         else -> {
                             saving = true
                             scope.launch {
                                 val saved = appLock.enable(pin)
                                 saving = false
-                                if (saved) onDone() else error = "The phone's keystore refused to store the PIN. The lock is still off."
+                                if (saved) onDone() else error = context.getString(R.string.pin_keystore_refused_lock_off)
                             }
                         }
                     }
@@ -149,13 +150,14 @@ private fun CheckPinDialog(
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                PinField("Current PIN", pin) { pin = it }
+                PinField(stringResource(R.string.current_pin), pin) { pin = it }
                 error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -167,9 +169,11 @@ private fun CheckPinDialog(
                     scope.launch {
                         when (val result = appLock.check(pin)) {
                             PinCheck.Correct -> onCorrect()
-                            PinCheck.Wrong -> error = "That is not the PIN."
-                            is PinCheck.Waiting -> error =
-                                "Too many wrong PINs. Wait ${(result.remainingMillis + 999L) / 1000L} seconds."
+                            PinCheck.Wrong -> error = context.getString(R.string.that_is_not_the_pin)
+                            is PinCheck.Waiting -> error = context.getString(
+                                R.string.pin_too_many_wrong_wait,
+                                (result.remainingMillis + 999L) / 1000L,
+                            )
                         }
                         pin = ""
                         busy = false

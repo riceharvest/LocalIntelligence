@@ -150,49 +150,48 @@ class BackgroundAccessActivity : ComponentActivity() {
 enum class BackgroundCapability(
     /** Key in the consent prefs file. Stable: renaming one silently resets it. */
     internal val key: String,
-    /** What the app calls this, in the app's own words. */
-    internal val title: String,
+    /** String resource for what the app calls this, in the app's own words. */
+    internal val titleRes: Int,
     /**
-     * What turns it on, in one sentence, naming the tools and nothing else.
+     * String resource for what turns it on, in one sentence, naming the tools and nothing else.
      *
      * The specificity is the feature. "Background access" is a claim; "the
      * notifications.list / reply / dismiss tools" is a checkable one, and it is
      * what stops a user reading this screen as "the app wants to see my
      * notifications so it can work".
      */
-    internal val enables: String,
+    internal val enablesRes: Int,
     /**
-     * What is explicitly NOT enabled by turning this on.
+     * String resource for what is explicitly NOT enabled by turning this on.
      *
      * Every row carries one. A permission screen that lists only what it can do
      * is an advertisement; the sentence next to it is what makes the row
      * answerable, and "this does not let the app run anything on its own" is
      * the sentence that matters most on an app that runs entirely on-device.
      */
-    internal val doesNotEnable: String,
-    /** What stops working while it is off. Empty means "nothing does". */
-    internal val consequence: String,
+    internal val doesNotEnableRes: Int,
+    /** String resource for what stops working while it is off. */
+    internal val consequenceRes: Int,
+    /**
+     * Simple-mode wording for [consequenceRes], for when the sentence names a
+     * word Simple hides (model, tool). Null when the technical text is fine as it is.
+     */
+    internal val simpleConsequenceRes: Int? = null,
 ) {
     Notifications(
         key = "notifications",
-        title = "Notification access",
-        enables = "Read and reply to notifications when you ask.",
-        doesNotEnable = "It does not let the app run anything by itself, and it " +
-            "is not needed for scheduled tasks, alarms, or chat.",
-        consequence = "The assistant cannot read notifications. It says so and " +
-            "stops, rather than telling you your phone is quiet. Everything else " +
-            "works exactly as before.",
+        titleRes = R.string.background_notifications_title,
+        enablesRes = R.string.background_notifications_enables,
+        doesNotEnableRes = R.string.background_notifications_does_not_enable,
+        consequenceRes = R.string.background_notifications_consequence,
     ),
     ExactAlarms(
         key = "exact_alarms",
-        title = "Alarms and reminders",
-        enables = "Set alarms and run tasks at an exact time.",
-        doesNotEnable = "It does not let the app read notifications, and it is " +
-            "not needed to chat.",
-        consequence = "Scheduled tasks and alarms can't be set. " +
-            "Chatting, models and every other tool are unaffected. A task you " +
-            "try to schedule will say Android refused rather than quietly " +
-            "never run.",
+        titleRes = R.string.background_alarms_title,
+        enablesRes = R.string.background_alarms_enables,
+        doesNotEnableRes = R.string.background_alarms_does_not_enable,
+        consequenceRes = R.string.background_alarms_consequence,
+        simpleConsequenceRes = R.string.simple_background_alarms_consequence,
     ),
 }
 
@@ -466,9 +465,9 @@ private fun CapabilityCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(capability.title, style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(capability.titleRes), style = MaterialTheme.typography.titleMedium)
             Text(
-                text = capability.enables,
+                text = stringResource(capability.enablesRes),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

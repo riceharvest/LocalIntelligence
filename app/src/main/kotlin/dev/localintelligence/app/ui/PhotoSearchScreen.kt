@@ -3,6 +3,7 @@ package dev.localintelligence.app.ui
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -94,7 +95,7 @@ fun PhotoSearchScreen(
             )
             running = false
             progress = null
-            message = report.describe()
+            message = report.describe(context)
             reload++
         }
     }
@@ -103,7 +104,7 @@ fun PhotoSearchScreen(
         if (granted) {
             startRun()
         } else {
-            message = "Photo search needs access to your photos. Allow it in the Android settings for this app, then try again."
+            message = context.getString(R.string.photo_search_needs_access)
         }
     }
 
@@ -194,7 +195,7 @@ fun PhotoSearchScreen(
                     confirmDelete = false
                     scope.launch {
                         index.clear()
-                        message = "The photo index is deleted."
+                        message = context.getString(R.string.photo_index_deleted)
                         reload++
                     }
                 }) { Text(stringResource(R.string.delete)) }
@@ -207,14 +208,14 @@ fun PhotoSearchScreen(
 }
 
 /** The one line the screen shows when a run ends. */
-private fun PhotoRunReport.describe(): String = when (end) {
+private fun PhotoRunReport.describe(context: Context): String = when (end) {
     PhotoRunEnd.FINISHED -> when {
-        captioned == 0 && failed == 0 -> "No new photos to index."
-        failed == 0 -> "Indexed $captioned photos."
-        else -> "Indexed $captioned photos. $failed could not be read."
+        captioned == 0 && failed == 0 -> context.getString(R.string.photo_run_nothing_new)
+        failed == 0 -> context.getString(R.string.photo_run_indexed, captioned)
+        else -> context.getString(R.string.photo_run_indexed_with_failures, captioned, failed)
     }
-    PhotoRunEnd.STOPPED -> "Stopped after $captioned photos. The next run continues from here."
-    PhotoRunEnd.CHAT_BUSY -> "A chat is running, so indexing paused. Run it again when the chat is done."
-    PhotoRunEnd.NO_VISION_MODEL -> "No model that can read pictures is loaded. Load one on the Models screen."
-    PhotoRunEnd.NO_ACCESS -> "Photo access was not granted, so no photos were read."
+    PhotoRunEnd.STOPPED -> context.getString(R.string.photo_run_stopped, captioned)
+    PhotoRunEnd.CHAT_BUSY -> context.getString(R.string.photo_run_chat_busy)
+    PhotoRunEnd.NO_VISION_MODEL -> context.getString(R.string.photo_run_no_vision_model)
+    PhotoRunEnd.NO_ACCESS -> context.getString(R.string.photo_run_no_access)
 }

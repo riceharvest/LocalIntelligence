@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui
 
+import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
@@ -51,11 +52,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** The template a new pasted skill starts from. Valid as it stands, so Save works once the user fills it in. */
-private val NEW_SKILL_TEMPLATE = SkillParser.render(
+/**
+ * The template a new pasted skill starts from. Valid as it stands, so Save works once the user fills it in.
+ * A function, not a val, because its text now comes from strings.xml and needs a Context.
+ */
+private fun newSkillTemplate(context: Context): String = SkillParser.render(
     name = "my-skill",
-    description = "Say when this skill applies, in a sentence.",
-    body = "# My skill\n\n1. First step.\n2. Second step.",
+    description = context.getString(R.string.skill_template_description),
+    body = context.getString(R.string.skill_template_body),
 )
 
 /**
@@ -72,6 +76,7 @@ fun SkillsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Switch writes bump `changes`; add and delete bump `reload`. Either one re-reads the folder.
     val changes by store.changes.collectAsState()
@@ -152,7 +157,7 @@ fun SkillsScreen(
                 Column(horizontalAlignment = Alignment.End) {
                     TextButton(onClick = {
                         showChoice = false
-                        if (technical) editorText = NEW_SKILL_TEMPLATE else showForm = true
+                        if (technical) editorText = newSkillTemplate(context) else showForm = true
                     }) { Text(stringResource(R.string.write_it_here)) }
                     TextButton(onClick = {
                         showChoice = false
@@ -197,8 +202,7 @@ fun SkillsScreen(
                                     editorText = result.text
                                 }
                                 is SkillDownloader.Result.Failed ->
-                                    urlError = result.reason +
-                                        " Use a direct link to the raw file (for GitHub, the \"Raw\" link), under 64 KB."
+                                    urlError = context.getString(R.string.skill_url_failed, result.reason)
                             }
                         }
                     },

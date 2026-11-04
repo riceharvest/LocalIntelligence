@@ -252,10 +252,10 @@ private fun CheckCard(
                 )
             }
 
-            Labelled("Found", check.finding)
+            Labelled(stringResource(R.string.check_label_found), check.finding)
 
             if (expanded) {
-                Labelled("Checked", check.verified)
+                Labelled(stringResource(R.string.check_label_checked), check.verified)
 
                 if (check.findings.isNotEmpty()) {
                     HorizontalDivider()
@@ -266,7 +266,7 @@ private fun CheckCard(
                 // Shown in the same weight as the finding: a blank here would
                 // imply the screen knows more than it does.
                 HorizontalDivider()
-                Labelled("Cannot tell", check.cannotTell, emphasise = true)
+                Labelled(stringResource(R.string.check_label_cannot_tell), check.cannotTell, emphasise = true)
             }
 
             check.nextAction?.let { action ->

@@ -33,7 +33,12 @@ fun PhoneHitsRow(links: List<PhoneSearchLink>) {
         itemsIndexed(links) { _, link ->
             AssistChip(
                 onClick = { openItem(context, link) },
-                label = { Text("${stringResource(sourceTitleRes(link.source))}: ${link.detail}", maxLines = 1) },
+                label = {
+                    Text(
+                        stringResource(R.string.phone_hit_label, stringResource(sourceTitleRes(link.source)), link.detail),
+                        maxLines = 1,
+                    )
+                },
             )
         }
     }
