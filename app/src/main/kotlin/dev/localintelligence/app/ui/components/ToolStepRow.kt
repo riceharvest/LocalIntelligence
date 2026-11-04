@@ -223,12 +223,15 @@ fun PendingToolRow(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Name the action and the tool, so TalkBack does not read a bare "Allow".
+                val action = verbFor(pending.toolName).base
                 Button(
                     onClick = {
                         answered = true
                         onApprove()
                     },
                     enabled = !answered,
+                    modifier = Modifier.semantics { contentDescription = "Allow: $action" },
                 ) { Text("Allow") }
                 TextButton(
                     onClick = {
@@ -236,6 +239,7 @@ fun PendingToolRow(
                         onDecline()
                     },
                     enabled = !answered,
+                    modifier = Modifier.semantics { contentDescription = "Don't allow: $action" },
                 ) { Text("Don't allow") }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Details") }
@@ -337,7 +341,7 @@ fun ToolCallGroup(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .defaultMinSize(minHeight = 40.dp)
+                .defaultMinSize(minHeight = 48.dp)
                 .clickable {
                     userChose = true
                     collapsed = !collapsed
@@ -414,7 +418,7 @@ private fun ToolRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .defaultMinSize(minHeight = 40.dp)
+                .defaultMinSize(minHeight = 48.dp)
                 .then(tap)
                 .padding(horizontal = 4.dp, vertical = 6.dp)
                 .semantics(mergeDescendants = true) {
@@ -442,7 +446,8 @@ private fun ToolRow(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+                // Two lines at large font sizes instead of an ellipsis; one line at the default size.
+                maxLines = 2,
                 modifier = Modifier.weight(1f),
             )
             StatusShape(state)
@@ -517,9 +522,10 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
+                // 48dp: the platform touch target (was 32dp, too small to hit reliably).
                 IconButton(
                     onClick = { clipboard.setText(AnnotatedString(input)) },
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.ContentCopy,

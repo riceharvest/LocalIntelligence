@@ -69,6 +69,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -638,7 +639,11 @@ private fun AssistantBubble(
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
         if (thought != null) ThoughtRow(thought)
         SelectionContainer { MarkdownText(text) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // One traversal group: TalkBack moves through the reply's actions together, in order.
+        Row(
+            modifier = Modifier.semantics { isTraversalGroup = true },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             IconButton(onClick = {
                 clipboard.setText(AnnotatedString(text))
                 // Android 13+ shows its own clipboard confirmation.
