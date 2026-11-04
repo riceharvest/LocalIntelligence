@@ -29,9 +29,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MemoryEntity::class,
         SessionSummaryEntity::class,
         ObservationEntity::class,
+        PhotoCaptionEntity::class,
         PersonaEntity::class,
     ],
-    version = 3,
+    version = 4,
     // Exported to android/schemas and committed: each migration's SQL is copied from
     // there, so a migrated table matches what Room validates on open.
     exportSchema = true,
@@ -44,6 +45,7 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
     abstract fun memoryDao(): MemoryDao
     abstract fun summaryDao(): SummaryDao
     abstract fun observationDao(): ObservationDao
+    abstract fun photoCaptionDao(): PhotoCaptionDao
     abstract fun personaDao(): PersonaDao
 
     companion object {
@@ -64,7 +66,7 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
          */
         fun build(context: Context, name: String = NAME): LocalIntelligenceDatabase =
             Room.databaseBuilder(context.applicationContext, LocalIntelligenceDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
 
         /**
@@ -94,6 +96,19 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
                     "CREATE TABLE IF NOT EXISTS `personas` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `text` TEXT NOT NULL, `created_at` INTEGER NOT NULL)",
                 )
                 db.execSQL("ALTER TABLE `sessions` ADD COLUMN `persona_id` INTEGER")
+            }
+        }
+
+        /**
+         * 3 to 4: adds `photo_captions`, the Photo search index. One row per indexed photo.
+         * Room checks the table against [PhotoCaptionEntity] on open, so a mismatch fails
+         * loudly instead of silently dropping the index.
+         */
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `photo_captions` (`uri` TEXT NOT NULL, `caption` TEXT NOT NULL, `indexed_at` INTEGER NOT NULL, `embedding` BLOB, `embedding_model` TEXT, PRIMARY KEY(`uri`))",
+                )
             }
         }
     }

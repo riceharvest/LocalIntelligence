@@ -7,6 +7,7 @@ import dev.localintelligence.android.data.lazyObservationStore
 import dev.localintelligence.core.tool.ObservationStore
 import android.content.Context
 import dev.localintelligence.android.data.LocalIntelligenceDatabase
+import dev.localintelligence.android.data.lazyPhotoCaptionDao
 import dev.localintelligence.android.data.resilientMemoryStore
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.LlamaCppBackend
@@ -84,6 +85,8 @@ import dev.localintelligence.core.memory.LexicalMemoryStore
 import dev.localintelligence.core.memory.ProfilePlugin
 import dev.localintelligence.android.inference.RamEstimate
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
+import dev.localintelligence.app.photos.PhotoSearchIndex
+import dev.localintelligence.app.photos.describePhoto
 import dev.localintelligence.app.speedtest.ComputeComparison
 import dev.localintelligence.app.speedtest.SpeedTestRunner
 import dev.localintelligence.app.speedtest.SpeedTestTarget
@@ -328,6 +331,35 @@ class AppContainer(private val context: Context) {
 
     /** The document search model on disk, or null. See [DocumentEmbedder.resolve]. */
     fun documentModelFile(): File? = DocumentEmbedder.resolve(modelsDir, settings[DOCUMENT_EMBEDDING_MODEL])
+
+    /**
+     * Photo search: captions the photos with the loaded local vision model and searches them. Full
+     * build only in use (the Photo search row and the photos.search tool are both gated on the plugin),
+     * but built lazily so the play build never touches it.
+     *
+     * WHY THE MODEL IS LOOKED UP PER CALL: the user may switch models between runs, and a run must use
+     * the model loaded at the moment of each caption, not the one loaded when the screen opened.
+     */
+    val photoSearch: PhotoSearchIndex by lazy {
+        PhotoSearchIndex(
+            appContext = context,
+            dao = lazyPhotoCaptionDao(context),
+            visionReady = { localVisionBackend() != null },
+            describe = { media -> describePhoto(localVisionBackend(), media) },
+            cancelDescribe = { residentBackend().cancel() },
+            embedder = { documentEmbedder.get() },
+        )
+    }
+
+    /**
+     * The loaded model when it is local and can read pictures, else null. A cloud chat model is refused
+     * here: a photo sent to it would leave the phone, which the Photo search promise rules out.
+     */
+    fun localVisionBackend(): ModelBackend? {
+        if (remoteChatActive || chatGptActive) return null
+        val backend = residentBackend()
+        return backend.takeIf { backend.capabilities.supportsVision }
+    }
 
     /**
      * True when a finished download is the document search model, by name: the setting's

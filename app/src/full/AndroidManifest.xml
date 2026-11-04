@@ -5,6 +5,10 @@
          (docs/adr/0002-play-and-full-builds.md). Full-only permissions and the
          Accessibility service go here so the Play build's manifest never declares them. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
+    <!-- Photo search (the full build only): reads the photo library to caption it on this phone. The
+         Play build never declares this, because Google Play limits it to apps whose core use needs it.
+         Asked for at runtime on the Photo search screen, never at launch. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
     <application>
         <!-- Screen control: off until the person switches the service on in Accessibility settings.

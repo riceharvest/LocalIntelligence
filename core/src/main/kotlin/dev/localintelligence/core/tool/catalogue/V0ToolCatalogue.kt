@@ -143,7 +143,7 @@ object V0ToolCatalogue {
     /** Categories, in the order a reader should expect to meet them. */
     val categories: List<String> = listOf(
         "files", "apps", "clipboard", "device", "alarm", "calendar",
-        "contacts", "notifications", "web", "history", "documents", "messages", "screen",
+        "contacts", "notifications", "web", "history", "documents", "messages", "screen", "photos",
     )
 
     /**
@@ -174,6 +174,8 @@ object V0ToolCatalogue {
     val FULL_BUILD_ONLY: Set<String> = setOf(
         "screen.read", "screen.tap", "screen.long_press", "screen.type",
         "screen.scroll", "screen.back", "screen.home", "screen.wait",
+        // Full build only: Photo search (docs/roadmap.md v1.3). The play build does not ship it.
+        "photos.search",
     )
 
     val definitions: List<ToolDefinition> = listOf(
@@ -2026,6 +2028,30 @@ object V0ToolCatalogue {
             risk = ToolRisk.SCREEN_CONTROL,
             observationOrigin = ObservationOrigin.NETWORK,
             tags = setOf("wait", "pause", "loading", "screen"),
+            requiredPermission = null,
+        ),
+
+        // ---------------------------------------------------------------- photos
+        // Full build only (see FULL_BUILD_ONLY). Searches the captions the local vision model wrote
+        // for the photos the person indexed in Photo search. Captions are model text from the
+        // person's own pictures, and a picture can carry words meant for a model, so the observation
+        // is NETWORK-origin and fenced.
+        ToolDefinition(
+            name = "photos.search",
+            description = "Search the photos the user indexed in Photo search, by what they show " +
+                "(a caption per photo). Use when the user asks for a photo of something. " +
+                "Captions only: a detail a caption leaves out will not be found.",
+            category = "photos",
+            schema = objSchema(required = listOf("query")) {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("maxLength", 200)
+                    put("description", "What the photo shows, for example \"dog on a beach\".")
+                }
+            },
+            risk = ToolRisk.READ_ONLY,
+            observationOrigin = ObservationOrigin.NETWORK,
+            tags = setOf("photo", "photos", "picture", "pictures", "image", "gallery", "find my photo", "foto"),
             requiredPermission = null,
         ),
     )
