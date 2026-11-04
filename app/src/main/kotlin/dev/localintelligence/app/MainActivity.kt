@@ -68,6 +68,7 @@ import dev.localintelligence.app.ui.components.SearchModelCard
 import dev.localintelligence.app.ui.HubViewModel
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
 import dev.localintelligence.app.ui.ModelManagerScreen
+import dev.localintelligence.app.ui.PersonasScreen
 import dev.localintelligence.app.ui.ScriptPluginsScreen
 import dev.localintelligence.app.ui.ExtrasScreen
 import dev.localintelligence.app.extras.ExtrasBilling
@@ -603,6 +604,8 @@ class MainActivity : ComponentActivity() {
                                 nav.navigate("$ROUTE_HUB?repo=${Uri.encode(repo)}&file=${Uri.encode(file)}")
                             },
                             onOpenSkills = { nav.navigate(ROUTE_SKILLS) },
+                            onOpenPersonas = { nav.navigate(ROUTE_PERSONAS) },
+                            loadPersonas = { container.personas() },
                             speedTest = container.speedTest,
                             generatedMedia = generatedMediaDir(applicationContext),
                             onOpenDocuments = { nav.navigate(ROUTE_DOCUMENTS) },
@@ -622,9 +625,9 @@ class MainActivity : ComponentActivity() {
                             onNewChat = if (messages.isEmpty() || settingsRunState.isActive) {
                                 null
                             } else {
-                                {
+                                { personaId ->
                                     exportScope.launch {
-                                        container.startNewConversation()
+                                        container.startNewConversation(personaId)
                                         chat.clear()
                                         nav.popBackStack(ROUTE_CHAT, inclusive = false)
                                     }
@@ -643,6 +646,15 @@ class MainActivity : ComponentActivity() {
                         SkillsScreen(
                             store = container.settings,
                             repository = container.skills,
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
+
+                    composable(ROUTE_PERSONAS) {
+                        PersonasScreen(
+                            load = { container.personas() },
+                            onSave = { id, name, text -> container.savePersona(id, name, text) },
+                            onDelete = { id -> container.deletePersona(id) },
                             onBack = { nav.popBackStack() },
                         )
                     }
@@ -747,6 +759,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_SETTINGS = "settings"
         const val ROUTE_SKILLS = "skills"
         const val ROUTE_SCRIPTS = "scripts"
+        const val ROUTE_PERSONAS = "personas"
         const val ROUTE_EXTRAS = "extras"
         const val ROUTE_DOCUMENTS = "documents"
 

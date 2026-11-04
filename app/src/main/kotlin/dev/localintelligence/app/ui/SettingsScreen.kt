@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.HealthAndSafety
@@ -64,6 +65,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -72,6 +74,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -110,6 +113,7 @@ import dev.localintelligence.app.speedtest.SpeedTestRunner
 import dev.localintelligence.app.ui.components.openPermissionScreen
 import dev.localintelligence.core.plugin.AgentPlugin
 import androidx.compose.material.icons.filled.Star
+import dev.localintelligence.core.persona.Persona
 import dev.localintelligence.core.settings.CoreSettings
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingApplies
@@ -164,8 +168,15 @@ fun SettingsScreen(
     onOpenTrace: () -> Unit = {},
     onOpenRedaction: () -> Unit = {},
     onOpenSelfCheck: () -> Unit = {},
-    /** Clears the chat and starts a new conversation. Null hides the row (empty chat, or a run going). */
-    onNewChat: (() -> Unit)? = null,
+    /**
+     * Clears the chat and starts a new conversation, with the persona chosen in the dialog (null for none).
+     * Null hides the row (empty chat, or a run going).
+     */
+    onNewChat: ((personaId: Long?) -> Unit)? = null,
+    /** Lists the saved personas for the New chat dialog. Null, or none saved, hides the persona choice. */
+    loadPersonas: (suspend () -> List<Persona>)? = null,
+    /** Opens the Personas screen. */
+    onOpenPersonas: () -> Unit = {},
     /** Exports the current chat in a format. Null hides the row: an empty chat has nothing to export. */
     onExportChat: ((ChatExporter.Format) -> Unit)? = null,
     onBack: () -> Unit,
@@ -210,9 +221,10 @@ fun SettingsScreen(
 
                 val context = LocalContext.current
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    onNewChat?.let { NewChatRow(it) }
+                    onNewChat?.let { NewChatRow(it, loadPersonas) }
                     NavRow(Icons.Filled.Memory, "Models", onOpenModels)
                     NavRow(Icons.Filled.AutoAwesome, "Skills", onOpenSkills)
+                    NavRow(Icons.Filled.Person, "Personas", onOpenPersonas)
                     NavRow(Icons.Filled.Description, "Documents", onOpenDocuments)
                     NavRow(Icons.Filled.Schedule, "Scheduled tasks", onOpenSchedule)
                     onOpenExtras?.let { NavRow(Icons.Filled.Star, "Extras", it) }
@@ -341,24 +353,58 @@ private fun NavRow(icon: ImageVector, title: String, onClick: () -> Unit) {
     )
 }
 
-/** New chat, after a confirmation: the cleared conversation cannot be reopened here. */
+/**
+ * New chat, after a confirmation: the cleared conversation cannot be reopened here. When personas
+ * exist, the dialog also picks the persona the new chat starts with; the default is none.
+ */
 @Composable
-private fun NewChatRow(onNewChat: () -> Unit) {
+private fun NewChatRow(onNewChat: (Long?) -> Unit, loadPersonas: (suspend () -> List<Persona>)?) {
     var asking by remember { mutableStateOf(false) }
-    NavRow(Icons.Filled.AddComment, "New chat") { asking = true }
+    var personas by remember { mutableStateOf<List<Persona>>(emptyList()) }
+    var chosen by remember { mutableStateOf<Long?>(null) }
+    NavRow(Icons.Filled.AddComment, "New chat") {
+        chosen = null
+        asking = true
+    }
     if (asking) {
+        LaunchedEffect(Unit) { personas = loadPersonas?.invoke().orEmpty() }
         AlertDialog(
             onDismissRequest = { asking = false },
             title = { Text("Start a new chat?") },
-            text = { Text("This conversation will be cleared. Past chats can still find what was said.") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("This conversation will be cleared. Past chats can still find what was said.")
+                    if (personas.isNotEmpty()) {
+                        Text("Persona", style = MaterialTheme.typography.labelLarge)
+                        PersonaChoice("None", selected = chosen == null) { chosen = null }
+                        personas.forEach { persona ->
+                            PersonaChoice(persona.name, selected = chosen == persona.id) { chosen = persona.id }
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
                     asking = false
-                    onNewChat()
+                    onNewChat(chosen)
                 }) { Text("New chat") }
             },
             dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
         )
+    }
+}
+
+/** One persona in the New chat dialog: a radio button and its name, the whole line selects it. */
+@Composable
+private fun PersonaChoice(label: String, selected: Boolean, onSelect: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Text(label, modifier = Modifier.padding(start = 8.dp))
     }
 }
 
