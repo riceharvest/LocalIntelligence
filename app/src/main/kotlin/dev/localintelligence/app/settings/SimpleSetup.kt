@@ -23,12 +23,19 @@ data class DeviceFacts(
     val totalRamBytes: Long,
     val cpuCores: Int,
     val speedClass: SpeedClass = SpeedClass.MID,
+    /** Measured results bundled with the app. Empty means Simple mode uses its table alone. */
+    val scores: BundledScores = BundledScores.EMPTY,
 ) {
     companion object {
         fun of(context: Context): DeviceFacts {
             val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
             val info = ActivityManager.MemoryInfo().also(am::getMemoryInfo)
-            return DeviceFacts(info.totalMem, Runtime.getRuntime().availableProcessors(), readSpeedClass())
+            return DeviceFacts(
+                info.totalMem,
+                Runtime.getRuntime().availableProcessors(),
+                readSpeedClass(),
+                BundledScores.load(context),
+            )
         }
 
         /** `/proc/cpuinfo` Features: `i8mm` is fast, `asimddp` is mid, neither is slow. Unreadable: mid. */
@@ -200,15 +207,72 @@ object SimpleSetup {
         reason = "Small enough for this phone's memory. It handles simple requests.",
     )
 
-    fun suggestedModel(facts: DeviceFacts): SuggestedModel = when {
+    /**
+     * The device class a measured score is filed under: the RAM band and the CPU speed class the
+     * table uses. scripts/run-evals.py and docs/scores/build_scores.py compute the same string,
+     * so the thresholds below must stay in step with them.
+     */
+    fun deviceClass(facts: DeviceFacts): String {
+        val ram = facts.totalRamBytes
+        val band = when {
+            ram < 3.2 * GIB -> "ram<3.2"
+            ram < 4.6 * GIB -> "ram3.2-4.6"
+            ram < 9.5 * GIB -> "ram4.6-9.5"
+            else -> "ram9.5+"
+        }
+        return "$band/${facts.speedClass.name}"
+    }
+
+    /**
+     * The model Simple mode suggests. A measured row for this device class wins when one exists;
+     * otherwise the RAM table decides, as it always has. Bundled scores are empty today, so the
+     * table decides on every phone.
+     */
+    fun suggestedModel(facts: DeviceFacts): SuggestedModel {
+        val model = measuredPick(facts) ?: ramPick(facts)
+        // The 4B stays the opt-in on phones with room, whichever model was picked.
+        return if (model.file == LFM3_1_7B.file) {
+            LFM3_1_7B.copy(alternative = if (facts.totalRamBytes >= SPARK_MIN_RAM) SPARK_4B else null)
+        } else {
+            model
+        }
+    }
+
+    /**
+     * The best measured model for this device class: highest pass rate, then decode speed. Only
+     * the three models Simple mode may offer count, and one this phone's RAM cannot run is never
+     * picked. Null when no row matches, so the table decides.
+     */
+    private fun measuredPick(facts: DeviceFacts): SuggestedModel? {
+        val cls = deviceClass(facts)
+        val ram = facts.totalRamBytes
+        val candidates = listOf(
+            LFM3_1_7B to (ram >= LFM3_MIN_RAM),
+            LFM2_5_230M to true,
+            SPARK_4B to (ram >= SPARK_MIN_RAM),
+        )
+        val best = facts.scores.rows
+            .filter { it.deviceClass == cls && it.runs > 0 }
+            .mapNotNull { row ->
+                candidates.firstOrNull { (model, fits) ->
+                    fits && model.repo.equals(row.repo, ignoreCase = true) && model.file == row.file
+                }?.let { row to it.first }
+            }
+            .maxWithOrNull(
+                compareBy<Pair<ScoreRow, SuggestedModel>> { it.first.passRate }
+                    .thenBy { it.first.decodeTokPerS ?: 0.0 },
+            )
+        return best?.second
+    }
+
+    /** The RAM table: the suggestion when no measurement exists. */
+    private fun ramPick(facts: DeviceFacts): SuggestedModel = when {
         // 3.2 GiB, not 4: LFM3 needs about 1.1 GiB at 4K, which leaves a 3.6 GB
         // phone over 2 GiB for Android. What kept it off those phones was speed:
         // every message re-prefilled the whole conversation at ~11 tok/s. With
         // the prompt now growing only at its end, a message prefills only
         // itself, so the agent model is usable there too.
-        facts.totalRamBytes >= LFM3_MIN_RAM -> LFM3_1_7B.copy(
-            alternative = if (facts.totalRamBytes >= SPARK_MIN_RAM) SPARK_4B else null,
-        )
+        facts.totalRamBytes >= LFM3_MIN_RAM -> LFM3_1_7B
         else -> LFM2_5_230M
     }
 

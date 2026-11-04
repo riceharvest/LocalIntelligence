@@ -146,7 +146,7 @@ import kotlinx.coroutines.sync.withLock
  * for a global.
  */
 /** Tools a Play build offers only to a run the person started in the app. See `pluginTools`. */
-private val PLAY_ATTENDED_ONLY_TOOLS = setOf("sms.search", "sms.send", "calls.recent")
+private val PLAY_ATTENDED_ONLY_TOOLS = setOf("sms.search", "sms.send", "calls.recent", "phone.search")
 
 class AppContainer(private val context: Context) {
 
@@ -290,7 +290,7 @@ class AppContainer(private val context: Context) {
     val scriptRepository: ScriptPluginRepository by lazy { ScriptPluginRepository(File(context.filesDir, "plugins")) }
 
     private val builtInPlugins: List<AgentPlugin> by lazy {
-        val families = androidToolPlugins(context, settings)
+        val families = androidToolPlugins(context, settings, session.todos)
         val flavor = FlavorPlugins.plugins(context, settings)
         val cloud = openRouterPlugin
         val sandbox = sandboxPlugin
