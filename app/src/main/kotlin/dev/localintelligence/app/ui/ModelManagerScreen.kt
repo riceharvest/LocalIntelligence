@@ -337,7 +337,8 @@ fun ModelManagerScreen(
                                                 .onFailure { importError = describeLoadFailure(it) }
                                                 .onSuccess {
                                                     scanNotice = "Scanned this app's own storage for " +
-                                                        stringResource(R.string.gguf_files_anything_found_is_now_in_the)
+                                                        "GGUF files. Anything found is now in the " +
+                                                        "list."
                                                 }
                                             busy = false
                                         }
@@ -350,7 +351,7 @@ fun ModelManagerScreen(
             )
         },
         floatingActionButton = {
-            // The empty state already has a stringResource(R.string.download_a_model) button; two at once is noise.
+            // The empty state already has a "Download a model" button; two at once is noise.
             val emptyStateShowing = models.isEmpty() && !busy && importError == null
             onOpenHub?.takeIf { !emptyStateShowing }?.let { open ->
                 ExtendedFloatingActionButton(
@@ -439,8 +440,7 @@ fun ModelManagerScreen(
                         // The picker copies it into the app's storage first, so it takes
                         // as much free space as the file is large.
                         Text(
-                            text = stringResource(R.string.have_a_litertlm_litert_lm_model_import) +
-                                stringResource(R.string.menu_like_a_gguf_the_app_copies_it_into),
+                            text = stringResource(R.string.have_a_litertlm_litert_lm_model_import_2),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -448,8 +448,7 @@ fun ModelManagerScreen(
                         // USB or out of a backup without going through the picker.
                         if (onScanLocal != null) {
                             Text(
-                                text = stringResource(R.string.copied_a_gguf_onto_this_phone_with_a) +
-                                    stringResource(R.string.downloaded_one_already_find_models_on),
+                                text = stringResource(R.string.copied_a_gguf_onto_this_phone_with_a_2),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -609,11 +608,11 @@ private fun ImportErrorBanner(message: String, onDismiss: () -> Unit) {
 }
 
 /**
- * One word for how [totalBytes] sits against this phone's usable RAM: "Too big", stringResource(R.string.tight)
- * or stringResource(R.string.fits). Built only from the figures the row already has: [fits] is
+ * One word for how [totalBytes] sits against this phone's usable RAM: "Too big", "Tight"
+ * or "Fits". Built only from the figures the row already has: [fits] is
  * `fitsOnDevice`, and the headroom goes through the verdict bands core already defines
  * (`FitGate.MarginBand`), so this screen adds no estimate of its own. A model that fits
- * with less than the band's comfortable headroom is stringResource(R.string.tight), since its margin is inside
+ * with less than the band's comfortable headroom is "Tight", since its margin is inside
  * the estimate's measured error.
  */
 private fun fitLabel(totalBytes: Long, fits: Boolean): String {
@@ -621,8 +620,8 @@ private fun fitLabel(totalBytes: Long, fits: Boolean): String {
     val usable = RamEstimate.usableDeviceBytes()
     val headroom = if (totalBytes <= 0L) 0.0 else (usable - totalBytes).toDouble() / totalBytes.toDouble()
     return when (FitGate.MarginBand.of(headroom)) {
-        FitGate.MarginBand.CONFIDENT -> stringResource(R.string.fits)
-        FitGate.MarginBand.TIGHT, FitGate.MarginBand.MARGINAL -> stringResource(R.string.tight)
+        FitGate.MarginBand.CONFIDENT -> "Fits"
+        FitGate.MarginBand.TIGHT, FitGate.MarginBand.MARGINAL -> "Tight"
     }
 }
 
@@ -718,7 +717,7 @@ private fun ModelRow(
                 if (!isLoaded && onUse != null) {
                     TextButton(onClick = onUse) { Text(stringResource(R.string.use)) }
                 }
-                // Plain words in Simple mode; stringResource(R.string.eject) is the name Technical users know.
+                // Plain words in Simple mode; "Eject" is the name Technical users know.
                 if (isLoaded && onEject != null) {
                     TextButton(onClick = onEject) { Text(if (technical) stringResource(R.string.eject) else stringResource(R.string.free_memory)) }
                 }
@@ -760,8 +759,7 @@ private fun ModelRow(
                 // on a phone, so every RAM number is arithmetic on the file size and
                 // the header, and the load gate uses the same arithmetic.
                 Text(
-                    text = stringResource(R.string.ram_figures_are_calculated_from_the) +
-                        stringResource(R.string.header_they_are_not_measured_on_this),
+                    text = stringResource(R.string.ram_figures_are_calculated_from_the_3),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -786,16 +784,14 @@ private fun ModelRow(
                             )
                         } else {
                             Text(
-                                text = stringResource(R.string.this_model_will_not_load_on_this_phone) +
-                                    stringResource(R.string.about_and_this_device_has_usable_for, formatBytes(totalBytes), formatBytes(RamEstimate.usableDeviceBytes())),
+                                text = stringResource(R.string.this_model_will_not_load_on_this_phone_2, formatBytes(totalBytes), formatBytes(RamEstimate.usableDeviceBytes())),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             // There is no context control anywhere in this app: every
                             // load uses the fixed 4096 above. The one real lever is a
                             // smaller model, so that is what is named.
                             Text(
-                                text = stringResource(R.string.the_only_way_to_make_this_phone_run) +
-                                    stringResource(R.string.smaller_model_a_lower_quantization_of),
+                                text = stringResource(R.string.the_only_way_to_make_this_phone_run_2),
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(top = 6.dp),
                             )
@@ -830,7 +826,7 @@ private const val LISTED_MODELS_SHOWN = 50
  * this phone: there is no size, RAM or context figure to show, and inventing them would be
  * wrong. The sentence about where messages go comes before the button on purpose.
  *
- * stringResource(R.string.choose_from_list) asks the provider for its model ids, only on tap, and offers them as
+ * "Choose from list" asks the provider for its model ids, only on tap, and offers them as
  * buttons. Providers that do not list models do not get the button; the model is typed in
  * Settings.
  */

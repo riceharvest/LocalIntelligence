@@ -218,7 +218,7 @@ fun HubScreen(
                     CircularProgressIndicator(
                         modifier = Modifier
                             .height(24.dp)
-                            .semantics { contentDescription = stringResource(R.string.asking_huggingface_for_this_repository) },
+                            .semantics { contentDescription = "Asking HuggingFace for this repository" },
                     )
                 }
             }
@@ -286,7 +286,7 @@ fun HubScreen(
                         // can check and a number they have to trust.
                         Text(
                             if (state.exactFit) {
-                                stringResource(R.string.the_size_and_the_memory_figure_are_read)
+                                stringResource(R.string.the_size_and_the_memory_figure_are_read_3)
                             } else {
                                 stringResource(R.string.the_header_could_not_be_read_so_the)
                             },
@@ -316,9 +316,9 @@ fun HubScreen(
                             Text(
                                 stringResource(R.string.estimated_range_to, formatBytes(plan.ram.lowBytes), formatBytes(plan.ram.highBytes)) +
                                     if (state.exactFit) {
-                                        stringResource(R.string.the_figure_above_is_the_one_the_load)
+                                        stringResource(R.string.the_figure_above_is_the_one_the_load_3)
                                     } else {
-                                        stringResource(R.string.that_is_wide_enough_for_the_verdict)
+                                        stringResource(R.string.that_is_wide_enough_for_the_verdict_3)
                                     },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -513,7 +513,7 @@ fun HubScreen(
                             CircularProgressIndicator(
                                 modifier = Modifier
                                     .height(24.dp)
-                                    .semantics { contentDescription = stringResource(R.string.starting_the_download) },
+                                    .semantics { contentDescription = "Starting the download" },
                             )
                             Text(stringResource(R.string.starting_download))
                         }
@@ -618,14 +618,14 @@ fun HubScreen(
                     // The idle state. This used to render nothing at all: a
                     // fresh screen was a text field, a button, and 24 dp of
                     // bottom padding, which is indistinguishable from a screen
-                    // that failed to load. A user who opened stringResource(R.string.download_a_model)
+                    // that failed to load. A user who opened "Download a model"
                     // and saw nothing had no way to learn what the field wanted
                     // in it.
                     Text(
                         text = if (technical) {
-                            stringResource(R.string.start_typing_a_model_name_and_pick_a)
+                            stringResource(R.string.start_typing_a_model_name_and_pick_a_3)
                         } else {
-                            stringResource(R.string.search_for_a_model_you_ll_see_what_fits)
+                            stringResource(R.string.search_for_a_model_you_ll_see_what_fits_3)
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -635,8 +635,7 @@ fun HubScreen(
                     // public and hosts a real model, and would otherwise read as empty.
                     if (technical) {
                         Text(
-                            text = stringResource(R.string.litert_lm_litertlm_files_in_a) +
-                                stringResource(R.string.listed_with_their_size_and_can_be),
+                            text = stringResource(R.string.litert_lm_litertlm_files_in_a_2),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 8.dp),
@@ -649,9 +648,9 @@ fun HubScreen(
                         enabled = state.plan?.isAllowed == true,
                     ) {
                         // WHY the label changes: the button's action changes too.
-                        // stringResource(R.string.download) on a file that is already in app storage
+                        // "Download" on a file that is already in app storage
                         // promises 668 MB of transfer that will not happen, and
-                        // stringResource(R.string.add_to_models) is the action that will.
+                        // "Add to models" is the action that will.
                         Text(
                             when {
                                 state.alreadyOnDevice -> stringResource(R.string.add_to_models)

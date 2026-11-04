@@ -262,8 +262,8 @@ fun PermissionScreen(
             Text(
                 text = when (outstanding) {
                     0 -> stringResource(R.string.all_set)
-                    1 -> pluralStringResource(R.plurals.permissions_off, 1, 1)
-                    else -> pluralStringResource(R.plurals.permissions_off, outstanding, outstanding)
+                    1 -> context.resources.getQuantityString(R.plurals.permissions_off, 1, 1)
+                    else -> context.resources.getQuantityString(R.plurals.permissions_off, outstanding, outstanding)
                 },
                 style = MaterialTheme.typography.titleMedium,
             )
@@ -962,7 +962,6 @@ private fun PermissionCard(
 }
 
 @Composable
-@ReadOnlyComposable
 private fun PermissionStatus.label(): String = when (this) {
         PermissionStatus.GRANTED -> stringResource(R.string.on)
         PermissionStatus.NOT_ASKED -> stringResource(R.string.off)

@@ -269,4 +269,35 @@
     <string name="listing">Listing…</string>
     <string name="choose_from_list">Choose from list</string>
     <string name="showing_the_first_of_type_any_other_id">Showing the first %1$s of %2$s. Type any other id in Settings.</string>
+
+    <!-- auto: HubScreen.kt -->
+    <string name="the_size_and_the_memory_figure_are_read_2">The size and the memory figure are read from the model\'s own header, over the network, before you download it. Not a measurement of this phone.</string>
+    <string name="the_figure_above_is_the_one_the_load_2">" The figure above is the one the load gate will use."</string>
+    <string name="that_is_wide_enough_for_the_verdict_2">" That is wide enough for the verdict above to go either way."</string>
+    <string name="start_typing_a_model_name_and_pick_a_2">Start typing a model name and pick a match, or type a full owner/name and tap Search. You see each file\'s size and whether it fits in this phone\'s memory before anything is downloaded. Gated repositories need a licence accepted on huggingface.co first.</string>
+    <string name="search_for_a_model_you_ll_see_what_fits_2">Search for a model. You\'ll see what fits your phone before anything downloads.</string>
+    <string name="litert_lm_litertlm_files_in_a_2">LiteRT-LM (.litertlm) files in a repository are listed with their size and can be downloaded and added to Models.</string>
+
+    <!-- auto: ChatScreen.kt -->
+    <string name="you_re_on_mobile_data_wi_fi_is_better_2">You\'re on mobile data. Wi-Fi is better for a download this size.</string>
+
+    <!-- auto: ModelManagerScreen.kt -->
+    <string name="have_a_litertlm_litert_lm_model_import_2">Have a .litertlm (LiteRT-LM) model? Import it from the menu like a GGUF. The app copies it into its own storage first, which takes its size in free space and a while for a multi-GB file. Download lists GGUFs only.</string>
+    <string name="copied_a_gguf_onto_this_phone_with_a_2">Copied a .gguf onto this phone with a cable, or downloaded one already? Find models on this phone in the menu finds models the app can already see.</string>
+    <string name="ram_figures_are_calculated_from_the_2">RAM figures are calculated from the file size and the model\'s header. They are not measured on this phone.</string>
+    <string name="this_model_will_not_load_on_this_phone_2">This model will not load on this phone. It needs about %1$s and this device has %2$s usable for the app. The load gate refuses it rather than letting the system kill the app part-way through a task.</string>
+    <string name="the_only_way_to_make_this_phone_run_2">The only way to make this phone run something is a smaller model. A lower quantization of the same family is usually the cheapest way there.</string>
+
+    <!-- HubScreen.kt -->
+    <string name="the_size_and_the_memory_figure_are_read_3">The size and the memory figure are read from the model\'s own header, over the network, before you download it. Not a measurement of this phone.</string>
+    <string name="the_figure_above_is_the_one_the_load_3">" The figure above is the one the load gate will use."</string>
+    <string name="that_is_wide_enough_for_the_verdict_3">" That is wide enough for the verdict above to go either way."</string>
+    <string name="start_typing_a_model_name_and_pick_a_3">Start typing a model name and pick a match, or type a full owner/name and tap Search. You see each file\'s size and whether it fits in this phone\'s memory before anything is downloaded. Gated repositories need a licence accepted on huggingface.co first.</string>
+    <string name="search_for_a_model_you_ll_see_what_fits_3">Search for a model. You\'ll see what fits your phone before anything downloads.</string>
+
+    <!-- ChatScreen.kt -->
+    <string name="you_re_on_mobile_data_wi_fi_is_better_3">You\'re on mobile data. Wi-Fi is better for a download this size.</string>
+
+    <!-- ModelManagerScreen.kt -->
+    <string name="ram_figures_are_calculated_from_the_3">RAM figures are calculated from the file size and the model\'s header. They are not measured on this phone.</string>
 </resources>

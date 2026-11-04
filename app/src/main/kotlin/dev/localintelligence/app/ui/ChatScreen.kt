@@ -144,7 +144,7 @@ fun ChatScreen(
      * preferences and the default matches the setting's own default.
      */
     toolCallsAutoCollapse: Boolean = true,
-    /** The skills store. Null hides stringResource(R.string.save_as_skill), for hosts that have no store. */
+    /** The skills store. Null hides "Save as skill", for hosts that have no store. */
     skills: SkillRepository? = null,
     /** The name from Settings, used in the empty chat's first line. Blank: no name. */
     assistantName: String = "",
@@ -167,7 +167,7 @@ fun ChatScreen(
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
     val messages by viewModel.messages.collectAsStateWithLifecycle()
-    // stringResource(R.string.save_as_skill) draft for the answer on screen, if the run used 2+ tools.
+    // "Save as skill" draft for the answer on screen, if the run used 2+ tools.
     // Shown in SkillEditorDialog; nothing is written until the user taps Save.
     val skillDraft = remember(messages) { saveAsSkillDraft(messages) }
     var editingSkill by rememberSaveable { mutableStateOf<String?>(null) }
@@ -880,7 +880,7 @@ private fun NoticeLine(text: String) {
 private fun progressLine(state: RunState): String? = when (state) {
     RunState.Idle, is RunState.Finished -> null
     RunState.LoadingModel -> state.progressLabel
-    RunState.Running -> stringResource(R.string.working_on_it)
+    RunState.Running -> "Working on it…"
     is RunState.AwaitingApproval -> state.progressLabel
 }
 
@@ -1020,9 +1020,9 @@ private fun EmptyPersonaRow(personas: List<Persona>, onChoose: (Long?) -> Unit) 
 
 /** The three first things a new user can ask, tapped to send. */
 private val STARTER_EXAMPLES = listOf(
-    stringResource(R.string.how_much_battery_do_i_have),
-    stringResource(R.string.set_a_timer_for_10_minutes),
-    stringResource(R.string.wake_me_up_at_7_tomorrow),
+    "How much battery do I have?",
+    "Set a timer for 10 minutes",
+    "Wake me up at 7 tomorrow",
 )
 
 /**
@@ -1060,7 +1060,7 @@ private fun StarterPanel(
             val metered = remember { isOnMeteredNetwork(context) }
             if (metered) {
                 Text(
-                    text = stringResource(R.string.you_re_on_mobile_data_wi_fi_is_better),
+                    text = stringResource(R.string.you_re_on_mobile_data_wi_fi_is_better_3),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
