@@ -166,7 +166,7 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
         val chat = requireChat()
         if (text.isBlank()) return error("send needs text in arg")
         val before = chat.messages.value.size
-        val composed = chat.input.value
+        val composed = chat.composerText
         chat.onInputChange(text)
         chat.send()
         val started = chat.messages.value.size > before
@@ -255,6 +255,10 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
                     is ChatMessage.User -> JSONObject().put("role", "user").put("text", cap(message.text, ROW_CAP))
                     is ChatMessage.Assistant -> JSONObject().put("role", "assistant").put("text", cap(message.text, ROW_CAP))
                     is ChatMessage.Notice -> JSONObject().put("role", "notice").put("text", cap(message.text, ROW_CAP))
+                    is ChatMessage.Transcript -> JSONObject().put("role", "transcript")
+                        .put("title", message.title)
+                        .put("running", message.running)
+                        .put("text", cap(message.text, ROW_CAP))
                     is ChatMessage.ToolStep -> JSONObject().put("role", "tool")
                         .put("tool", message.toolName)
                         .put("success", message.success)
