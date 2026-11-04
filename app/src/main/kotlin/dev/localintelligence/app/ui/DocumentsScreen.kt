@@ -54,7 +54,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * The documents the assistant can answer from: add a PDF, text, Markdown or CSV file,
+ * The documents the assistant can answer from: add a PDF, Word, EPUB, text, Markdown or CSV file,
  * see what is there, remove one.
  *
  * Adding goes through the system file picker, which grants read access to the one
@@ -138,7 +138,7 @@ fun DocumentsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Ask about a PDF or text file. It stays on this phone.",
+                "Ask about a PDF, Word, EPUB or text file. It stays on this phone.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

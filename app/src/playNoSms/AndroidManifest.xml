@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      Overlay for the play flavor built with -PplayNoSms=true (docs/build.md). It is applied only
+      by app/build.gradle.kts when that property is set, and it removes the texts and call-log
+      permissions from the merged manifest. The tools then report that the build lacks them
+      (messages/MessageTools.kt), and the Permissions screen hides the three rows.
+      RECEIVE_SMS is not declared anywhere in this app today; it is listed so that a future
+      declaration cannot slip into this build.
+    -->
+    <uses-permission android:name="android.permission.READ_SMS" tools:node="remove" />
+    <uses-permission android:name="android.permission.SEND_SMS" tools:node="remove" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" tools:node="remove" />
+</manifest>

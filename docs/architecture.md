@@ -256,6 +256,15 @@ NETWORK_EGRESS          -> confirm, every call
 PRIVILEGED              -> disabled in v0
 ```
 
+Simple mode is the exception to "confirm" for the tiers above. Its Approvals
+switches read true (`SimpleSetup.values`), so `EXTERNAL_COMMUNICATION`,
+`DESTRUCTIVE` and `NETWORK_EGRESS` run without the ordinary prompt. Technical mode
+keeps its own stored switches, which default to false. The evaluation order in
+`RiskPolicy` does not change: a call the message did not request, a bulk change,
+a path outside app storage, a bare-link message, `neverAutoAccept` names
+(`sms.send`, `phone.call`), screen control and Android permission dialogs still ask
+or refuse in Simple mode.
+
 Classification lives in `ToolDefinition.risk`. `ToolRisk.requiresConfirmation` is
 derived, not declared, so a tool cannot lie about needing permission.
 

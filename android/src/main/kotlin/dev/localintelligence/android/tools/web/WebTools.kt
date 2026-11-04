@@ -1,9 +1,12 @@
 package dev.localintelligence.android.tools.web
 
+import dev.localintelligence.core.documents.HtmlEntities
+import dev.localintelligence.core.documents.PageText
 import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.CancellationSignal
+import dev.localintelligence.core.tool.ObservationStore
 import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
 import dev.localintelligence.core.tool.ToolDefinition
@@ -85,8 +88,11 @@ import javax.net.ssl.SSLException
 // `ToolDefinition.observationOrigin`, and `docs/threat-model.md` (T3).
 // ===========================================================================
 
-/** Hard ceiling on the raw body we will pull off the socket, in bytes. */
-internal const val MAX_BODY_BYTES: Int = 256 * 1024
+/** Hard ceiling on the raw body web.fetch pulls off the socket, in bytes. */
+internal const val MAX_BODY_BYTES: Int = 2 * 1024 * 1024
+
+/** The search-results page cap. Kept at its old size: search reads a results page, not an article. */
+internal const val SEARCH_MAX_BODY_BYTES: Int = 256 * 1024
 
 /**
  * Characters of page text a fetch returns. Generous on purpose: the agent loop
@@ -694,33 +700,6 @@ internal object HtmlText {
 
     private val ANY_TAG = Regex("<[a-zA-Z/!?][^>]{0,$MAX_TAG_CHARS}>", RegexOption.DOT_MATCHES_ALL)
 
-    private val NAMED = mapOf(
-        "amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'",
-        "nbsp" to " ", "ensp" to " ", "emsp" to " ", "thinsp" to " ",
-        "copy" to "©", "reg" to "®", "trade" to "™", "deg" to "°",
-        "euro" to "€", "pound" to "£", "yen" to "¥", "cent" to "¢",
-        "sect" to "§", "para" to "¶", "middot" to "·", "bull" to "•",
-        "dagger" to "†", "prime" to "′", "laquo" to "«", "raquo" to "»",
-        "ldquo" to "“", "rdquo" to "”", "lsquo" to "‘", "rsquo" to "’",
-        "mdash" to "—", "ndash" to "–", "hellip" to "…",
-        "times" to "×", "divide" to "÷", "plusmn" to "±", "frac12" to "½",
-        "frac14" to "¼", "sup2" to "²", "sup3" to "³", "micro" to "µ",
-        "ne" to "≠", "le" to "≤", "ge" to "≥", "larr" to "←", "rarr" to "→",
-        "harr" to "↔", "infin" to "∞", "alpha" to "α", "beta" to "β",
-        "gamma" to "γ", "delta" to "δ", "pi" to "π", "sigma" to "σ",
-        "omega" to "ω", "euro " to "€",
-    )
-
-    private val ENTITY = Regex("&(#[0-9]{1,8}|#[xX][0-9a-fA-F]{1,7}|[a-zA-Z][a-zA-Z0-9]{1,9});")
-
-    /**
-     * Control and format characters, which a page can use to break a keyword
-     * apart (`acme\u200Bcorp` reads as `acmecorp`) or to smuggle a direction
-     * override into the observation. Newline and tab are excluded because
-     * `collapseWhitespace` already handles them meaningfully.
-     */
-    private val CONTROL = Regex("[\\p{Cc}\\p{Cf}&&[^\\n\\t]]")
-
     fun toPlainText(source: String, maxChars: Int, contentType: String? = null): PlainText {
         val budget = maxChars.coerceAtLeast(MIN_MAX_CHARS)
         val looksHtml = WebFetchContent.looksHtml(contentType, source)
@@ -736,30 +715,18 @@ internal object HtmlText {
         text = UNCLOSED_SCRIPT.replace(text, " ")
         text = BLOCK_TAG.replace(text, "\n")
         text = ANY_TAG.replace(text, " ")
-        text = decodeEntities(text)
-        text = CONTROL.replace(text, "")
+        text = HtmlEntities.decode(text)
+        text = HtmlEntities.stripControl(text)
         text = collapseWhitespace(text)
         return finish(text, budget, fromHtml = true)
     }
 
-    /** Single pass, so `&amp;lt;` decodes to the literal text `&lt;`. */
-    private fun decodeEntities(text: String): String =
-        ENTITY.replace(text) { m ->
-            val body = m.groupValues[1]
-            when {
-                body.startsWith("#x") || body.startsWith("#X") ->
-                    codePoint(body.substring(2), 16)?.let(::safeChar) ?: m.value
-                body.startsWith("#") ->
-                    codePoint(body.substring(1), 10)?.let(::safeChar) ?: m.value
-                else -> NAMED[body] ?: m.value
-            }
-        }
-
-    private fun codePoint(digits: String, radix: Int): Int? =
-        digits.toIntOrNull(radix)?.takeIf { it in 1..0x10FFFF && !(it in 0xD800..0xDFFF) }
-
-    /** Lone surrogates become U+FFFD rather than corrupting the String. */
-    private fun safeChar(cp: Int): String = if (cp in 0xD800..0xDFFF) "�" else String(Character.toChars(cp))
+    /**
+     * Cuts text that [PageText] has already extracted to [maxChars], with the same
+     * marker and word-break rule as [toPlainText]. The text is final: it is not stripped again.
+     */
+    fun cutPageText(pageText: String, maxChars: Int): PlainText =
+        finish(pageText, maxChars.coerceAtLeast(MIN_MAX_CHARS), fromHtml = true)
 
     private fun collapseWhitespace(text: String): String {
         val noSpaces = text.replace(Regex("[\\t\\x0B\\f\\u00A0 ]+"), " ")
@@ -1041,18 +1008,52 @@ internal class WebFetcher(
                 )
                 val bodyBudget = (budget - header.length - NEWLINE_SECTION.length)
                     .coerceIn(MIN_MAX_CHARS, budget)
-                val text = HtmlText.toPlainText(raw, bodyBudget, response?.contentType)
-                val observation = ObservationTruncator.truncate(
-                    buildString {
-                        append(header)
-                        if (text.text.isEmpty()) {
-                            append("\nThe page had no readable text.")
-                        } else {
-                            append(NEWLINE_SECTION).append(text.text)
-                        }
-                    },
-                    budget,
-                )
+                // The main text comes from PageText (menus and language lists left out). If it
+                // throws, the old tag stripper still answers, so a page never fails on extraction.
+                // WHY only "html" types: PageText reads <title> as raw text, which would drop every
+                // headline in an RSS or Atom feed. XML types keep the old stripper. With no type, sniff.
+                val declared = response?.contentType?.lowercase()
+                val pageHtml = if (declared.isNullOrEmpty()) {
+                    WebFetchContent.looksHtml(null, raw)
+                } else {
+                    declared.contains("html")
+                }
+                // The main text is cut to the budget. The detached text after the marker is kept whole,
+                // because the saved observation must hold it for observations.read; the agent loop
+                // previews the observation to the budget and cuts it when nothing is saved.
+                val text = if (pageHtml) {
+                    try {
+                        val page = PageText.fullText(raw)
+                        val split = page.indexOf(PageText.OTHER_TEXT_MARKER)
+                        val main = HtmlText.cutPageText(if (split >= 0) page.substring(0, split) else page, bodyBudget)
+                        // The detached text is kept only for the default budget (a caller asking for less gets
+                        // the main text), and cut so the saved observation fits the store.
+                        val room = ObservationStore.MAX_STORED_CHARS - header.length -
+                            NEWLINE_SECTION.length - main.text.length
+                        val keepDetached = split >= 0 && budget == DEFAULT_MAX_CHARS &&
+                            room > PageText.OTHER_TEXT_MARKER.length
+                        val detached = if (keepDetached) page.substring(split).take(room) else ""
+                        PlainText(main.text + detached, truncated = main.truncated, fromHtml = true)
+                    } catch (e: Exception) {
+                        android.util.Log.w("WebFetch", "page extraction failed, using the plain stripper", e)
+                        HtmlText.toPlainText(raw, bodyBudget, response?.contentType)
+                    } catch (e: LinkageError) {
+                        // WHY: a failed static initialiser is an Error, not an Exception. Without this one
+                        // bad regex on one Android version breaks every page instead of falling back.
+                        android.util.Log.w("WebFetch", "page extraction failed, using the plain stripper", e)
+                        HtmlText.toPlainText(raw, bodyBudget, response?.contentType)
+                    }
+                } else {
+                    HtmlText.toPlainText(raw, bodyBudget, response?.contentType)
+                }
+                val observation = buildString {
+                    append(header)
+                    if (text.text.isEmpty()) {
+                        append("\nThe page had no readable text.")
+                    } else {
+                        append(NEWLINE_SECTION).append(text.text)
+                    }
+                }
                 return ToolResult(
                     success = true,
                     observation = observation,
@@ -1277,8 +1278,8 @@ class WebFetchTool private constructor(
                                 "description",
                                 JsonPrimitive(
                                     "Characters of text to return, $DEFAULT_MAX_CHARS by default, " +
-                                        "at most $MAX_MAX_CHARS. A long page is saved: you see its " +
-                                        "start and end, and observations.read gives the rest.",
+                                        "at most $MAX_MAX_CHARS. A long page is saved: you see the " +
+                                        "main text first, and observations.read gives the rest.",
                                 ),
                             )
                         },

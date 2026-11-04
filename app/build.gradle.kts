@@ -11,6 +11,10 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// -PplayNoSms=true builds the play flavor without texts and call-log permissions (docs/build.md).
+// Default false: the Play build declares them, with the assistant-role declaration (docs/roadmap.md).
+val playNoSms: Boolean = (findProperty("playNoSms") as? String)?.toBoolean() ?: false
+
 // Release signing. The keystores and their passwords live outside the repository, in the
 // properties file named by `liSigningProps` in ~/.gradle/gradle.properties (see docs/build.md,
 // "Release builds"). Without that property, or when the file is missing (every other machine and
@@ -90,6 +94,14 @@ android {
             versionNameSuffix = "-full"
             buildConfigField("boolean", "FULL_BUILD", "true")
             signingConfig = signingConfigs.findByName("fullRelease")
+        }
+    }
+
+    // The overlay replaces the play flavor's manifest only when -PplayNoSms=true; the default play
+    // build keeps the texts and call-log permissions. The full flavor is never affected.
+    if (playNoSms) {
+        sourceSets.getByName("play") {
+            manifest.srcFile("src/playNoSms/AndroidManifest.xml")
         }
     }
 

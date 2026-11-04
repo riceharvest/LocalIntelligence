@@ -172,6 +172,7 @@ class ExecutionService : Service() {
                     intent.getStringExtra(EXTRA_SCHEDULED_TASK_ID),
                     startId,
                     replyChat,
+                    intent.getStringExtra(EXTRA_REPLACING),
                 )
             }
 
@@ -276,7 +277,13 @@ class ExecutionService : Service() {
 
     // ----------------------------------------------------------------- internals
 
-    private fun startRun(task: String, scheduledTaskId: String?, startId: Int, replyChat: Long?) {
+    private fun startRun(
+        task: String,
+        scheduledTaskId: String?,
+        startId: Int,
+        replyChat: Long?,
+        replacing: String?,
+    ) {
         // One run at a time, across BOTH entry points.
         //
         // serviceScope is a pool scope, not a mutex, and this service receives a
@@ -401,7 +408,15 @@ class ExecutionService : Service() {
             // result rather than re-deriving it from a failure string is the
             // whole point: a task that never ran must not be reported as a run
             // that failed.
-            container.ensureModelReady().also { readinessInFlight = it }
+            val ready = container.ensureModelReady().also { readinessInFlight = it }
+            // ensureModelReady restores the stored conversation first, so the replaced turn is found
+            // here after a restart too. The replace runs even when the model is not ready: the chat
+            // already shows that turn as replaced, and the stored conversation has to agree with it.
+            if (replacing == null || container.replaceLastTurn(replacing)) {
+                ready
+            } else {
+                ModelAvailability.Failed("The message to replace is no longer the last one. Nothing was run.")
+            }
         }
     }
 
@@ -695,6 +710,9 @@ class ExecutionService : Service() {
 
         /** The Telegram chat a run answers. [NO_REPLY_CHAT] when there is none. */
         const val EXTRA_REPLY_CHAT_ID = "replyChatId"
+
+        /** The newest user turn a retry or edit replaces; see [AgentGateway.start]. */
+        const val EXTRA_REPLACING = "replacing"
         private const val NO_REPLY_CHAT = Long.MIN_VALUE
         private const val BUSY_REPLY = "The phone is already running a task. Send it again when that one has finished."
 
@@ -722,12 +740,19 @@ class ExecutionService : Service() {
          * contract, not a workaround, which is why this stayed a plain
          * `startForegroundService` instead of growing a fallback path.
          */
-        fun start(context: Context, task: String, scheduledTaskId: String? = null, replyChatId: Long? = null) {
+        fun start(
+            context: Context,
+            task: String,
+            scheduledTaskId: String? = null,
+            replyChatId: Long? = null,
+            replacing: String? = null,
+        ) {
             val intent = Intent(context, ExecutionService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_TASK, task)
                 .putExtra(EXTRA_SCHEDULED_TASK_ID, scheduledTaskId)
                 .putExtra(EXTRA_REPLY_CHAT_ID, replyChatId ?: NO_REPLY_CHAT)
+                .putExtra(EXTRA_REPLACING, replacing)
             ContextCompat.startForegroundService(context, intent)
         }
 
@@ -806,7 +831,7 @@ class ServiceAgentGateway(
     override val streamingText: StateFlow<String> get() = sinks.streamingText
     override val runningTool: StateFlow<RunningTool?> get() = sinks.runningTool
 
-    override fun start(task: String) = ExecutionService.start(context, task)
+    override fun start(task: String, replacing: String?) = ExecutionService.start(context, task, replacing = replacing)
 
     override fun confirm(approved: Boolean) = ExecutionService.confirm(context, approved)
 

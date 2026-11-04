@@ -95,10 +95,18 @@ class AgentViewModel(
         queuedMedia = attachments?.take()?.map { it.media }.orEmpty()
     }
 
-    override fun start(task: String) {
+    override fun start(task: String, replacing: String?) {
         // One run at a time. The STOP button is not a queue.
         if (job?.isActive == true) {
             attachments?.clear()
+            return
+        }
+        // The replace needs the service's pre-run path, where the stored conversation is restored
+        // first. This in-process controller has no such path, so it refuses rather than answering
+        // on top of the turn the user asked to replace.
+        if (replacing != null) {
+            attachments?.clear()
+            publish(AgentResult.Stop(reason = "Replacing a message needs the assistant service.", trace = emptyList()))
             return
         }
         takeQueuedMedia()
@@ -454,7 +462,12 @@ interface AgentGateway {
     /** The tool call in flight right now, or null. Not a trace entry: see [RunningTool]. */
     val runningTool: StateFlow<RunningTool?>
 
-    fun start(task: String)
+    /**
+     * Starts [task]. A non-null [replacing] is the text of the newest user turn that [task] replaces
+     * (a retry or an edit): that turn and the replies after it are removed first, and the run does
+     * not start if the conversation no longer ends with it.
+     */
+    fun start(task: String, replacing: String? = null)
     fun confirm(approved: Boolean)
     fun cancel()
 }

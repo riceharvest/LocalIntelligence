@@ -146,6 +146,16 @@ Output: `app/build/outputs/apk/play/debug/app-play-debug.apk` (or `app/build/out
 Full instructions, required SDK components, and two traps that will
 otherwise cost you an hour: [docs/build.md](docs/build.md).
 
+## Updating the full build
+
+The Play build updates through Google Play. The full build is installed outside Play, so it updates by hand:
+
+- **Manual:** download the APK of the newest release from the repository's Releases page and install it over the old one. Android installs an update only when it is signed with the same key as the installed copy.
+- **Obtainium:** add `https://github.com/riceharvest/LocalIntelligence` as an app source. Obtainium then offers each new release.
+- **In the app:** Settings, then "Check for updates" (full build only). It asks first, then makes one request to GitHub's releases API. Nothing is checked in the background and nothing is installed.
+
+There are no GitHub Releases yet (checked 2026-11-04), so both routes have nothing to offer until the first one is published.
+
 ## Contributing
 
 Read [docs/architecture.md](docs/architecture.md) and

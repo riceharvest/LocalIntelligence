@@ -1,5 +1,6 @@
 package dev.localintelligence.core.tool
 
+import dev.localintelligence.core.documents.PageText
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.catalogue.CatalogueAgreement
 import dev.localintelligence.core.tool.catalogue.V0ToolCatalogue
@@ -286,9 +287,10 @@ object ObservationTruncator {
      * nothing was cut, so there is nothing more to read. A budget too small for the
      * frame falls back to [truncate]. Cuts never split a surrogate pair.
      */
-    fun preview(text: String, budget: Int = DEFAULT_BUDGET_CHARS, id: Long?): String {
+    fun preview(text: String, budget: Int = DEFAULT_BUDGET_CHARS, id: Long?, keepTail: Boolean = true): String {
         if (budget <= 0) return ""
         if (text.length <= budget) return text
+        if (!keepTail) return headPreview(text, budget, id)
         val footer = if (id == null) "" else
             "[obs#$id: ${groupedCount(text.length)} chars. More: ${ObservationStore.READ_TOOL} " +
                 "with id $id and a query or an offset]"
@@ -308,6 +310,25 @@ object ObservationTruncator {
             append(head).append('\n').append(marker).append('\n').append(tail)
             if (footer.isNotEmpty()) append('\n').append(footer)
         }
+    }
+
+    /**
+     * The start of a page that puts its main text first (web.fetch), up to [budget]. The text after
+     * [PageText.OTHER_TEXT_MARKER] is not shown: it is saved under [id] and the footer says it is there.
+     * WHY no tail: a tail would show menus and footers, which the main text was split from.
+     */
+    private fun headPreview(text: String, budget: Int, id: Long?): String {
+        val split = text.indexOf(PageText.OTHER_TEXT_MARKER)
+        val main = if (split >= 0) text.substring(0, split) else text
+        val footer = if (id == null) "" else
+            "[obs#$id: ${groupedCount(text.length)} chars. More: ${ObservationStore.READ_TOOL} " +
+                "with id $id and a query or an offset" +
+                (if (split >= 0) ". Other page text is in ${ObservationStore.READ_TOOL} too" else "") + "]"
+        val room = budget - (if (footer.isEmpty()) 0 else footer.length + 1)
+        // Too little room for the footer: a plain cut of the main part, so the detached text never shows here.
+        if (room < MIN_PREVIEW_ROOM) return truncate(main, budget)
+        val head = if (main.length <= room) main.trimEnd() else headOf(main, room)
+        return if (footer.isEmpty()) head else head + "\n" + footer
     }
 
     /** Below this much room for text, a head-and-tail split shows too little of either to be worth it. */
