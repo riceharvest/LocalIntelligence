@@ -1,6 +1,5 @@
 package dev.localintelligence.app
 
-import dev.localintelligence.core.settings.CoreSettings
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
@@ -12,6 +11,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
@@ -19,26 +20,27 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.PendingAttachment
 import dev.localintelligence.app.media.encodeBitmapPicture
 import dev.localintelligence.app.ui.LocalIntelligenceTheme
+import dev.localintelligence.core.settings.CoreSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,40 +51,62 @@ import kotlinx.coroutines.withContext
  * WHY IT FORWARDS INSTEAD OF RUNNING THE CHAT HERE: the chat view model is built
  * inside [MainActivity] around a gateway to the agent service. Building a second
  * one here would duplicate that wiring, so the text goes to MainActivity through
- * the same ACTION_SEND path a share uses, exactly as [ProcessTextActivity] does.
- * The answer therefore appears in the main chat, not in this overlay.
+ * the same ACTION_SEND path a share uses, or into hands-free mode when opened
+ * from a wake-word detection.
  *
  * Reached from the session (see [AssistantSession]) and from the ASSIST intent.
  * Exported because the system starts it.
  */
 class AssistActivity : ComponentActivity() {
 
+    private var dictation: LiveDictation? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setFinishOnTouchOutside(true)
+        WakeWordService.onAssistOverlayActive(true)
+        val container = (application as LocalIntelligenceApp).container
+        val handsFree = intent?.getBooleanExtra(EXTRA_HANDS_FREE, false) == true
+        val silenceMillis = (container.settings[CoreSettings.HANDS_FREE_SILENCE] * 1000).toLong()
+        val liveDictation = if (handsFree) LiveDictation(this).also { dictation = it } else null
+
         // Read once, when the overlay opens. The capture is what the user saw
         // when they invoked the assistant, and it may be replaced while they type.
         val screenshot = AssistantScreenshot.latest()
-        val assistantName = (application as LocalIntelligenceApp).container
+        val assistantName = container
             .settings[CoreSettings.ASSISTANT_NAME].trim().ifBlank { "LocalIntelligence" }
         setContent {
             LocalIntelligenceTheme {
                 AssistOverlay(
                     assistantName = assistantName,
                     screenshot = screenshot,
+                    handsFree = handsFree,
+                    silenceMillis = silenceMillis,
+                    dictation = liveDictation,
                     onSend = { text, screen ->
                         // The capture goes into the same holder the chat run takes from,
                         // before the text reaches the chat, so the run sees it with the message.
-                        (application as LocalIntelligenceApp).container.pendingAttachments.add(
-                            listOfNotNull(screen),
-                        )
-                        startActivity(
-                            Intent(this, MainActivity::class.java).apply {
-                                action = Intent.ACTION_SEND
-                                putExtra(Intent.EXTRA_TEXT, text)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                            },
-                        )
+                        container.pendingAttachments.add(listOfNotNull(screen))
+                        if (handsFree) {
+                            WakeWordService.onHandsFreeActive(true, this)
+                            startActivity(
+                                Intent(this, MainActivity::class.java).apply {
+                                    putExtra(MainActivity.EXTRA_START_HANDS_FREE, true)
+                                    if (text.isNotBlank()) {
+                                        putExtra(MainActivity.EXTRA_HANDS_FREE_PROMPT, text)
+                                    }
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                                },
+                            )
+                        } else {
+                            startActivity(
+                                Intent(this, MainActivity::class.java).apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(Intent.EXTRA_TEXT, text)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                                },
+                            )
+                        }
                         finish()
                     },
                     onCancel = { finish() },
@@ -90,12 +114,26 @@ class AssistActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onDestroy() {
+        dictation?.release()
+        dictation = null
+        WakeWordService.onAssistOverlayActive(false)
+        super.onDestroy()
+    }
+
+    companion object {
+        const val EXTRA_HANDS_FREE = "dev.localintelligence.app.extra.ASSIST_HANDS_FREE"
+    }
 }
 
 @Composable
 private fun AssistOverlay(
     assistantName: String,
     screenshot: Bitmap?,
+    handsFree: Boolean,
+    silenceMillis: Long,
+    dictation: LiveDictation?,
     onSend: (text: String, screen: PendingAttachment?) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -106,12 +144,10 @@ private fun AssistOverlay(
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-        keyboard?.show()
-    }
-    val submit = {
-        val send = text.trim()
+    val listening = dictation?.listening?.collectAsStateWithLifecycle()?.value ?: false
+
+    val submit: (String) -> Unit = { rawText ->
+        val send = rawText.trim()
         // Encoding a full screen is slow enough to stall the overlay, so it runs off the main thread.
         scope.launch {
             val screen = if (includeScreen && screenshot != null) {
@@ -121,23 +157,50 @@ private fun AssistOverlay(
             }
             onSend(send, screen)
         }
-        Unit
     }
+
+    LaunchedEffect(handsFree) {
+        if (handsFree && dictation != null) {
+            val started = dictation.startHandsFree(
+                current = "",
+                silenceMillis = silenceMillis,
+                onText = { text = it },
+                onEnd = { spoken, _ ->
+                    val candidate = (spoken ?: text).trim()
+                    if (candidate.isNotEmpty()) {
+                        submit(candidate)
+                    }
+                },
+            )
+            if (!started) {
+                // Device has no SpeechRecognizer for the overlay; hand off directly to
+                // MainActivity's hands-free mode (which also supports audio-clip models).
+                submit("")
+            }
+        } else {
+            focusRequester.requestFocus()
+            keyboard?.show()
+        }
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         shape = MaterialTheme.shapes.large,
         tonalElevation = 6.dp,
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Ask $assistantName", style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (listening) "Listening…" else "Ask $assistantName",
+                style = MaterialTheme.typography.titleMedium,
+            )
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text("Ask anything") },
+                placeholder = { Text(if (listening) "Speak now…" else "Ask anything") },
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                 minLines = 2,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { if (ready) submit() }),
+                keyboardActions = KeyboardActions(onSend = { if (ready) submit(text) }),
             )
             if (screenshot != null) {
                 Row(
@@ -156,7 +219,7 @@ private fun AssistOverlay(
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onCancel) { Text("Cancel") }
-                Button(onClick = { submit() }, enabled = ready) { Text("Ask") }
+                Button(onClick = { submit(text) }, enabled = ready) { Text("Ask") }
             }
             Text(
                 "The answer opens in LocalIntelligence",

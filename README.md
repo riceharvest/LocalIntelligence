@@ -174,3 +174,5 @@ Two rules that are easy to get wrong here:
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+Wake-word spotting uses [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) and the `sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01` keyword-spotting model (Apache-2.0).

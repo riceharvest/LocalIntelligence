@@ -265,10 +265,10 @@ Open:
 [?] document search with embeddings (EmbeddingGemma 2) next to BM25, hybrid ranking  [#100]
 [ ] Simple mode: offer the EmbeddingGemma 2 download (0.31 GB) with one tap when the first
       document is added (today it comes from the hub)
-[ ] wake word: "Hey <assistant name>" with sherpa-onnx open-vocabulary keyword spotting,
+[?] wake word: "Hey <assistant name>" with sherpa-onnx open-vocabulary keyword spotting,
       off by default. The keyword encoding must run in the app for any name; if it can't,
       use one fixed phrase. Android 14+ won't start a microphone service from the
-      background, so after a reboot listening resumes when the app is next opened
+      background, so after a reboot listening resumes when the app is next opened [#?]
 [ ] `full` build, installed outside Play from GitHub Releases: screen control through
       Accessibility (docs/adr/0002)
 [ ] privacy policy page on GitHub Pages (Play needs one for any release)

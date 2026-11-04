@@ -641,6 +641,19 @@ storage, bare-link messages and blocks always ask. Scheduled runs use it only
 when "Also in scheduled tasks" is on. The permission check now runs after the
 confirmation gates; before, a tool declaring a permission skipped them.
 
+**Wake word** (`:core` `voice/WakePhraseTokens.kt`, `:android` `voice/WakeWordSpotter.kt`,
+`:app` `WakeWordService.kt`). Open-vocabulary keyword spotting runs through
+`sherpa-onnx` v2.0.1 using the bundled int8 Zipformer GigaSpeech 3.3M transducer
+model (`assets/kws/`). Rather than pulling a native SentencePiece library,
+`WakePhraseTokens` in `:core` normalises the wake phrase (defaulting to
+`"Hey <assistant name>"` or `"Hey assistant"`), strips diacritics, and segments
+each word with Viterbi over the 500-piece score table in `kws-pieces.tsv`.
+`WakeWordService` is a `microphone` foreground service started from the UI when
+`voice.wake_word` is switched on. After a reboot, `AssistantInteractionService.onReady()`
+starts it again when the app is the phone's default assistant; otherwise, because
+Android 14+ forbids starting a `microphone` foreground service from `BOOT_COMPLETED`,
+the app posts a `"Tap to resume listening"` notification instead.
+
 ## 19. Rules for every change
 
 ```

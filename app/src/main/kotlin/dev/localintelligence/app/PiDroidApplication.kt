@@ -1,6 +1,7 @@
 package dev.localintelligence.app
 
 import android.app.Application
+import dev.localintelligence.core.settings.CoreSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,6 +46,12 @@ class LocalIntelligenceApp : Application() {
                 .map { TelegramService.wanted(container) }
                 .distinctUntilChanged()
                 .collect { TelegramService.sync(this@LocalIntelligenceApp, container) }
+        }
+        gatewayScope.launch {
+            container.settings.changes
+                .map { container.settings[CoreSettings.WAKE_WORD] to WakeWordService.activePhrase(container) }
+                .distinctUntilChanged()
+                .collect { WakeWordService.sync(this@LocalIntelligenceApp, container) }
         }
     }
 }

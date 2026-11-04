@@ -24,6 +24,18 @@ fun openAssistantSettings(context: Context) {
     }
 }
 
+/** True when LocalIntelligence is the phone's default digital assistant. */
+fun isDefaultAssistant(context: Context): Boolean {
+    if (AssistantInteractionService.isReady()) return true
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val roles = context.getSystemService(RoleManager::class.java)
+        if (roles != null && roles.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
+            return roles.isRoleHeld(RoleManager.ROLE_ASSISTANT)
+        }
+    }
+    return false
+}
+
 /** The system role request when it can be made right now, else null. Android 10+ only. */
 private fun assistantRoleRequest(context: Context): Intent? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null

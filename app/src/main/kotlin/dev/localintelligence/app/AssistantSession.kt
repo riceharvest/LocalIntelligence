@@ -21,7 +21,11 @@ class AssistantSession(context: Context) : VoiceInteractionSession(context) {
 
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
-        startAssistantActivity(Intent(context, AssistActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val handsFree = args?.getBoolean(AssistantInteractionService.EXTRA_HANDS_FREE, false) == true
+        val intent = Intent(context, AssistActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .putExtra(AssistActivity.EXTRA_HANDS_FREE, handsFree)
+        startAssistantActivity(intent)
         hide()
     }
 

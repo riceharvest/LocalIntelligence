@@ -55,6 +55,7 @@ import dev.localintelligence.app.ui.ChatGptSettingsCard
 import dev.localintelligence.app.ui.ChatMessage
 import dev.localintelligence.app.ui.ChatScreen
 import dev.localintelligence.app.ui.ChatViewModel
+import dev.localintelligence.app.ui.HandsFreePhase
 import dev.localintelligence.app.ui.DocumentsScreen
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
 import dev.localintelligence.app.ui.HubScreen
@@ -104,12 +105,23 @@ class MainActivity : ComponentActivity() {
 
     private var deliveredIntent by mutableStateOf<Intent?>(null)
 
+    override fun onResume() {
+        super.onResume()
+        val container = (application as LocalIntelligenceApp).container
+        if (WakeWordService.wanted(this, container)) {
+            WakeWordService.sync(this, container)
+        }
+    }
+
     /**
      * The closest thing to app exit that Android gives a screen. Only a real
      * finish releases the text-to-speech engine; a rotation is not a finish.
      */
     override fun onDestroy() {
-        if (isFinishing) (application as LocalIntelligenceApp).container.speaker.shutdown()
+        if (isFinishing) {
+            WakeWordService.onHandsFreeActive(false)
+            (application as LocalIntelligenceApp).container.speaker.shutdown()
+        }
         super.onDestroy()
     }
 
@@ -159,11 +171,30 @@ class MainActivity : ComponentActivity() {
                     chat.seedRestored(container.launchRestore.await())
                 }
 
+                val handsFreeState by chat.handsFree.collectAsStateWithLifecycle()
+                LaunchedEffect(handsFreeState.phase) {
+                    WakeWordService.onHandsFreeActive(
+                        active = handsFreeState.phase != HandsFreePhase.Off,
+                        context = applicationContext,
+                    )
+                }
+
                 // A SEND intent arrives on cold start or warm via onNewIntent.
                 // Keyed on deliveredIntent so new arrivals re-run, and consumed
                 // once so recomposition or rotation does not repeat the action.
                 LaunchedEffect(deliveredIntent) {
                     val incoming = deliveredIntent ?: return@LaunchedEffect
+                    if (incoming.getBooleanExtra(EXTRA_START_HANDS_FREE, false)) {
+                        val prompt = incoming.getStringExtra(EXTRA_HANDS_FREE_PROMPT)
+                        WakeWordService.onHandsFreeActive(true, applicationContext)
+                        container.launchRestore.await()
+                        if (nav.currentDestination?.route != ROUTE_CHAT) {
+                            nav.popBackStack(ROUTE_CHAT, inclusive = false)
+                        }
+                        chat.startHandsFree(prompt)
+                        deliveredIntent = null
+                        return@LaunchedEffect
+                    }
                     // Shared text goes into the message box and is never sent by
                     // itself. This activity is exported, so any app on the phone
                     // can start it with ACTION_SEND; the user has to tap Send (#150).
@@ -667,7 +698,7 @@ class MainActivity : ComponentActivity() {
         deliveredIntent = intent
     }
 
-    private companion object {
+    companion object {
         const val ROUTE_CHAT = "chat"
         const val ROUTE_TRACE = "trace"
         const val ROUTE_MODELS = "models"
@@ -684,6 +715,9 @@ class MainActivity : ComponentActivity() {
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
         const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"
         const val DESTINATION_SCHEDULE = ROUTE_SCHEDULE
+
+        const val EXTRA_START_HANDS_FREE = "dev.localintelligence.app.extra.START_HANDS_FREE"
+        const val EXTRA_HANDS_FREE_PROMPT = "dev.localintelligence.app.extra.HANDS_FREE_PROMPT"
     }
 }
 

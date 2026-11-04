@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import dev.localintelligence.app.ExecutionService
+import dev.localintelligence.app.LocalIntelligenceApp
+import dev.localintelligence.app.WakeWordService
 import dev.localintelligence.app.data.ScheduledTask
 import dev.localintelligence.app.data.ScheduledTaskStore
 import dev.localintelligence.app.data.TaskCadence
@@ -257,6 +259,9 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
      */
     private fun rearmAll(context: Context) {
         val appContext = context.applicationContext
+        (appContext as? LocalIntelligenceApp)?.let { app ->
+            WakeWordService.onBootOrPackageReplaced(appContext, app.container)
+        }
         val store = ScheduledTaskStore(appContext)
 
         if (!TaskAlarmScheduler.canScheduleExactAlarms(appContext)) {

@@ -1,6 +1,9 @@
 package dev.localintelligence.app.ui
 
+import android.Manifest
 import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -91,6 +94,8 @@ import dev.localintelligence.android.gateway.telegram.TelegramSettings
 import dev.localintelligence.android.mcp.McpSettings
 import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.android.tools.OBSERVATIONS_FAMILY_ID
+import dev.localintelligence.app.LocalIntelligenceApp
+import dev.localintelligence.app.WakeWordService
 import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.openAssistantSettings
 import dev.localintelligence.app.settings.SettingsStore
@@ -108,6 +113,7 @@ import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.hub.formatBytes
 import dev.localintelligence.core.settings.SettingsMode
 import dev.localintelligence.core.settings.mode
+import dev.localintelligence.core.voice.WakePhraseTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -432,7 +438,11 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
         else -> null
     } else null
     when (def) {
-        is SettingDef.Toggle -> SwitchRow(def.title, help, store.stored(def), note = note) { store.set(def, it) }
+        is SettingDef.Toggle -> if (def === CoreSettings.WAKE_WORD) {
+            WakeWordToggleRow(store, def, help, note)
+        } else {
+            SwitchRow(def.title, help, store.stored(def), note = note) { store.set(def, it) }
+        }
         is SettingDef.Choice -> if (def === CoreSettings.THEME_COLOR) {
             ColorRow(store, def, help, note)
         } else {
@@ -550,6 +560,28 @@ private fun ColorRow(store: SettingsStore, def: SettingDef.Choice, help: String,
     }
 }
 
+@Composable
+private fun WakeWordToggleRow(store: SettingsStore, def: SettingDef.Toggle, help: String, note: String?) {
+    val context = LocalContext.current
+    val container = (context.applicationContext as LocalIntelligenceApp).container
+    val requestRecordAudio = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            store.set(def, true)
+            WakeWordService.sync(context, container)
+        }
+    }
+    SwitchRow(def.title, help, store.stored(def), note = note) { enable ->
+        if (enable && !WakeWordService.hasRecordPermission(context)) {
+            requestRecordAudio.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            store.set(def, enable)
+            WakeWordService.sync(context, container)
+        }
+    }
+}
+
 /** Up to this many characters, a text setting is one line (a name), not a note. */
 private const val SHORT_TEXT = 80
 
@@ -566,6 +598,11 @@ private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: Str
     // Saved, not remembered: an unsaved draft must survive a rotation. Keyed on [stored] so
     // a Save or Clear still resets the field to the new stored value.
     var draft by rememberSaveable(stored) { mutableStateOf(stored) }
+    val placeholderText = if (def === CoreSettings.WAKE_PHRASE) {
+        WakePhraseTokens.effectivePhrase("", store.stored(CoreSettings.ASSISTANT_NAME))
+    } else {
+        null
+    }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         RowTitle(def.title, help, note = note)
         // A name-sized value gets one line; a note gets room to write.
@@ -573,6 +610,7 @@ private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: Str
         OutlinedTextField(
             value = draft,
             onValueChange = { draft = it.take(def.maxLength) },
+            placeholder = placeholderText?.let { text -> { Text(text) } },
             singleLine = short,
             minLines = if (short) 1 else 3,
             modifier = Modifier.fillMaxWidth(),
