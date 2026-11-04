@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
@@ -271,6 +272,7 @@ private fun SkillFormDialog(onDismiss: () -> Unit, onConfirm: (String) -> String
     var name by rememberSaveable { mutableStateOf("") }
     var whenToUse by rememberSaveable { mutableStateOf("") }
     var steps by rememberSaveable { mutableStateOf("") }
+    val context = LocalContext.current
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -307,9 +309,9 @@ private fun SkillFormDialog(onDismiss: () -> Unit, onConfirm: (String) -> String
         confirmButton = {
             TextButton(onClick = {
                 error = when {
-                    name.isBlank() -> "Give the skill a name."
-                    whenToUse.isBlank() -> "Say when to use it."
-                    steps.isBlank() -> "Write the steps."
+                    name.isBlank() -> context.getString(R.string.skill_give_a_name)
+                    whenToUse.isBlank() -> context.getString(R.string.skill_say_when_to_use)
+                    steps.isBlank() -> context.getString(R.string.skill_write_the_steps)
                     else -> onConfirm(SkillParser.render(name.trim(), whenToUse.trim(), steps.trim()))
                 }
             }) { Text(stringResource(R.string.save)) }

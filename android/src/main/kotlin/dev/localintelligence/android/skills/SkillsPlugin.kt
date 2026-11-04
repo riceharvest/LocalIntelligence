@@ -1,7 +1,12 @@
 package dev.localintelligence.android.skills
 
+import dev.localintelligence.core.agent.NATIVE_CORE_TOOLS
+import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.plugin.PluginHooks
+import dev.localintelligence.core.plugin.ToolGate
+import dev.localintelligence.core.tool.ObservationStore
+import dev.localintelligence.core.tool.ToolFinder
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.settings.SettingsReader
@@ -24,6 +29,33 @@ object SkillSettings {
         help = "The most characters of skill text added to one request. Longer skills are cut.",
         section = SettingSection.PLUGINS,
         default = 1500, min = 200, max = 6000, step = 100,
+    )
+
+    /**
+     * Off switch for the "Save this as a skill?" offer. Technical only: Simple users get the offer.
+     * Not `simple`, so a Simple-mode read returns the default, which is on.
+     */
+    val REPEAT_OFFER = SettingDef.Toggle(
+        key = "skills.repeat_offer",
+        title = "Offer to save repeated requests",
+        help = "After you ask for the same thing the same way three times, offer to save it as a skill. " +
+            "Matching runs on the phone; nothing is sent anywhere.",
+        section = SettingSection.PLUGINS,
+        default = true,
+    )
+
+    /**
+     * The "not now" record for one repeated request, keyed by [RepeatDetector.keyFor]. Dynamic, so it
+     * is not listed on the settings screen. `simple = true`, so a declined request stays declined in
+     * Simple mode too.
+     */
+    fun declined(candidateKey: String): SettingDef.Toggle = SettingDef.Toggle(
+        key = "skill.repeat.$candidateKey.declined",
+        title = candidateKey,
+        help = "Do not offer to save this repeated request.",
+        section = SettingSection.PLUGINS,
+        default = false,
+        simple = true,
     )
 
     /**
@@ -54,7 +86,11 @@ class SkillsPlugin(private val repository: SkillRepository) : AgentPlugin {
     override val id: String = "skills"
     override val title: String = "Skills"
     override val summary: String = "Step-by-step instructions you saved. Used when a request matches one."
-    override val settings: List<SettingDef<*>> = listOf(SkillSettings.MAX_PER_STEP, SkillSettings.CHAR_BUDGET)
+    override val settings: List<SettingDef<*>> = listOf(
+        SkillSettings.MAX_PER_STEP,
+        SkillSettings.CHAR_BUDGET,
+        SkillSettings.REPEAT_OFFER,
+    )
 
     override fun hooks(settings: SettingsReader): PluginHooks? {
         val enabled: List<Skill> = repository.list()
@@ -75,8 +111,40 @@ class SkillsPlugin(private val repository: SkillRepository) : AgentPlugin {
     ) : PluginHooks {
         private val selector = SkillSelector()
 
-        override fun contextForStep(task: String): List<String> {
+        /**
+         * The tools a scoped skill allows for the current step, or null when no restriction
+         * applies. Set by [contextForStep] at the start of every step, so a run that reuses this
+         * object never keeps the last run's scope.
+         */
+        @Volatile private var allowed: Set<String>? = null
+
+        override fun beforeTool(name: String, args: ToolArgs): ToolGate {
+            val scope = allowed ?: return ToolGate.Proceed
+            if (name in scope || name in CORE_TOOLS) return ToolGate.Proceed
+            return ToolGate.Deny(
+                "The skill for this request allows only: ${scope.sorted().joinToString(", ")}, " +
+                    "and the core tools.",
+            )
+        }
+
+        /**
+         * The scope the run's prompt and grammar are built from (see PluginHooks.toolScope). It is the
+         * same selection contextForStep makes for this task, so the two never disagree.
+         */
+        override fun toolScope(task: String): Set<String>? {
+            choose(task)
+            return allowed
+        }
+
+        /** Picks this task's skills and sets [allowed] from them. Called by [toolScope] and [contextForStep]. */
+        private fun choose(task: String): List<Skill> {
             val chosen = selector.select(task, skills, max)
+            allowed = scopeOf(chosen)
+            return chosen
+        }
+
+        override fun contextForStep(task: String): List<String> {
+            val chosen = choose(task)
             if (chosen.isEmpty()) return emptyList()
             val lines = ArrayList<String>()
             var left = budget
@@ -94,6 +162,22 @@ class SkillsPlugin(private val repository: SkillRepository) : AgentPlugin {
     private companion object {
         /** Below this the header alone would be the whole injection, which is not useful. */
         const val MIN_BODY = 40
+
+        /**
+         * The tools every step may call whatever skill runs: the controller's core list, the
+         * saved-result reader and the tool finder. Restricting these would strand the model.
+         */
+        val CORE_TOOLS: Set<String> = NATIVE_CORE_TOOLS.toSet() + setOf(ObservationStore.READ_TOOL, ToolFinder.NAME)
+
+        /**
+         * The union of what the chosen skills allow, or null when no restriction applies. A step
+         * is restricted only when every chosen skill names tools: one unscoped skill among them
+         * keeps today's behaviour, because it may need a tool the others do not name.
+         */
+        fun scopeOf(chosen: List<Skill>): Set<String>? {
+            if (chosen.isEmpty() || chosen.any { it.allowedTools.isEmpty() }) return null
+            return chosen.flatMap { it.allowedTools }.toSet()
+        }
 
         /** Cuts at a word boundary and marks the cut, so the model knows the text is partial. */
         fun clip(text: String, max: Int): String {

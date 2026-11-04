@@ -16,6 +16,8 @@ import dev.localintelligence.core.model.MediaInput
 import dev.localintelligence.core.plugin.PluginHooks
 import dev.localintelligence.core.plugin.ToolGate
 import dev.localintelligence.core.model.ModelBackend
+import dev.localintelligence.core.model.ObservationOrigin
+import kotlinx.serialization.json.longOrNull
 import dev.localintelligence.core.model.StopReason
 import dev.localintelligence.core.metrics.RunMetrics
 import dev.localintelligence.core.metrics.RunRecorder
@@ -47,9 +49,12 @@ import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.ToolRequest
 import dev.localintelligence.core.tool.ToolSelector
+import dev.localintelligence.core.tool.ArgumentCoercion
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlin.math.min
 import dev.localintelligence.core.compaction.RetainedHistory
+import dev.localintelligence.core.compaction.ToolResultPrune
 
 /**
  * The agent loop. One `while` loop, under 300 meaningful lines, no graph and no
@@ -101,9 +106,9 @@ private const val TERMINATE_MARKER = "You have made no progress"
  * WHY A FIXED SET: the listed tools sit in the prompt's cached prefix. Measured on
  * a Samsung A05s with LFM3-1.7B: a list that differed per conversation prefilled
  * 842 new tokens (81 s) on the first message, against 33-38 s before; with the same
- * list every time, a new chat prefills only its own user turn. These nine are the
- * everyday tools, about 1,330 tokens of schema together. The picker's other picks
- * are described in the turn and are callable (see [planNativeTurnTools]).
+ * list every time, a new chat prefills only its own user turn. These ten are the
+ * everyday tools, about 1,330 tokens of schema together before todo.update was added.
+ * The picker's other picks are described in the turn and are callable (see [planNativeTurnTools]).
  *
  * WHY weather.get: from tools.find's listing alone, LFM3-1.7B answered "What's the
  * weather in Utrecht tomorrow?" with web searches in 2 of 6 runs; listed, it called
@@ -119,7 +124,14 @@ val NATIVE_CORE_TOOLS: List<String> = listOf(
     "calendar.search",
     "location.get",
     "weather.get",
+    "todo.update",
 )
+
+/**
+ * How a run ends after a second repetition loop: the [AgentResult.Stop] reason. Public so the chat can
+ * recognise this stop and show its own plain sentence, not the generic failure.
+ */
+const val REPETITION_STOP_REASON = "The reply kept repeating the same text, so the answer was stopped."
 
 class AgentController(
     private val model: ModelBackend,
@@ -318,6 +330,14 @@ class AgentController(
      * leaves the phone with the request (docs/threat-model.md T10). A screen confirmation says so.
      */
     private val screenTextLeavesPhone: Boolean = false,
+    /**
+     * Set only on a subtask (see Subtask.kt): the user's own message, which the "not requested"
+     * guard judges every call against. Null on the parent, where the message is [task]. A subtask's
+     * goal is written by the model, so judging against it would let the model grant itself a tool.
+     */
+    private val policyRequest: String? = null,
+    /** Numbers the user gave the parent. A subtask grounds these and nothing from its own goal. */
+    private val groundedFromUser: Set<String> = emptySet(),
 ) {
     /**
      * Run state. It outlives a single call because
@@ -332,11 +352,20 @@ class AgentController(
     private var step: Int = 0
     private var malformedStreak: Int = 0
 
+    /** Repetition loops this run has already answered with a correction. A second one ends the run. */
+    private var repetitionStrikes: Int = 0
+
     /** Whether this run saved a tool result under an `obs#` handle (see [truncate]). Reset per run. */
     private var savedObservation: Boolean = false
 
     /** Whether this run already sent the model back once for naming an internal id. Reset per run. */
     private var handleRetried: Boolean = false
+
+    /** Once per run: the answer check has already told the model about a value with no source. */
+    private var answerRetried: Boolean = false
+
+    /** True while a resumed run is going: its non-read-only steps wait for the user. See [resume]. */
+    private var resuming: Boolean = false
     private var pending: PendingCall? = null
 
     /**
@@ -381,6 +410,12 @@ class AgentController(
 
     /** Sticky: a cancelled controller stays cancelled. Reuse means a new controller. */
     private var cancelled: Boolean = false
+
+    /** A subtask whose own confirmation the user has not answered yet. See [delegate]. */
+    private var parkedSubtask: ParkedSubtask? = null
+
+    /** The subtask running right now, so [cancel] can reach it. */
+    private var runningSubtask: AgentController? = null
 
     private data class PendingCall(
         val name: String,
@@ -429,6 +464,45 @@ class AgentController(
         val permissionGranted: Boolean = true,
     )
 
+    /**
+     * Continues a run the process died in, from the window the session restored.
+     *
+     * WHY NO NEW TURN: the interrupted task is already the newest user turn in the window, and
+     * its finished tool results are in the window too. The loop picks up from them, so a call
+     * whose result is saved is not made again. [RESUME_NOTE] tells the model that, once, as a
+     * note rather than as the user speaking.
+     *
+     * WHY NON-READ-ONLY STEPS ARE GATED: a step that changes something must not run because a
+     * restart happened. While [resuming] is set, [handleCall] parks any such step for the user,
+     * exactly as a first-time confirmation would. The flag ends when this run stops or parks.
+     */
+    suspend fun resume(): AgentResult = measured {
+        val interrupted = sessions.lastUserText()
+            ?: return@measured Stop("There is no interrupted task to continue.", trace.toList())
+        task = interrupted
+        media = emptyList()
+        trace.clear()
+        step = 0
+        malformedStreak = 0
+        savedObservation = false
+        handleRetried = false
+        answerRetried = false
+        pending = null
+        lastPrompt = emptyList()
+        loopDetector.reset()
+        noProgress.reset()
+        riskPolicy.resetTask()
+        metrics?.beginStep(0)
+        sessions.observe(RESUME_NOTE)
+        resuming = true
+        val outcome = try {
+            loop()
+        } finally {
+            resuming = false
+        }
+        settle(outcome)
+    }
+
     suspend fun run(task: String, media: List<MediaInput> = emptyList()): AgentResult = measured {
         this.task = task
         this.media = media
@@ -440,7 +514,11 @@ class AgentController(
         malformedStreak = 0
         savedObservation = false
         handleRetried = false
+        answerRetried = false
         pending = null
+        // A scoped skill narrows what this run lists and may call. Set per run, from the task, before
+        // the tool list is planned: the session is shared, so a scope left from an earlier run must not stay.
+        sessions.toolScope = hooks.toolScope(task)?.also { log("skill scope: ${it.sorted().joinToString()} plus the core tools") }
         // The session is NOT cleared here, and this is load-bearing.
         //
         // `sessions` is ONE long-lived conversation shared by every run (see
@@ -457,7 +535,14 @@ class AgentController(
         // 200-action and 20-destructive-action caps would carry over between
         // conversations, so a user who legitimately deleted 19 things today
         // could not delete one more tomorrow without a reinstall.
-        riskPolicy.resetTask()
+        // A subtask shares its parent's policy, so the blast radius counts across both. Resetting
+        // it here would hand the subtask a fresh destructive-action quota in the middle of a task.
+        if (policyRequest == null) riskPolicy.resetTask()
+        parkedSubtask = null
+        // The task list is kept only while it is unfinished: a finished list belongs to the last
+        // task, and would be read back into this message as if it were still open.
+        if (!sessions.todos.hasOpen) sessions.todos.clear()
+        repetitionStrikes = 0
         metrics?.beginStep(0)
         // The turn is rendered once: the task comes first, then the clock (for a
         // time-related task), the memories found for it and matched skill hints,
@@ -487,6 +572,12 @@ class AgentController(
             task
         }
         sessions.start(task, rendered)
+        if (policyRequest != null) {
+            // The goal was just grounded like a user turn. The model wrote it, so keep only the numbers
+            // the user gave the parent: a subtask must not be able to text a number it invented.
+            sessions.groundedNumbers.clear()
+            sessions.groundedNumbers += groundedFromUser
+        }
         val outcome = loop()
         // The session is long-lived now - one instance per app, shared by chat
         // and scheduled runs - so it has to be bounded here rather than left to
@@ -501,7 +592,17 @@ class AgentController(
         // leave the list untrimmed until the next one, which is deliberate -
         // a finally block here would trim a session whose run is still being
         // unwound and whose messages are still being read by the trace.
+        settle(outcome)
+    }
+
+    /**
+     * What every run does with its window once the loop has returned: bounds it and, on an
+     * answer, settles the working state. Shared by [run], [resume] and [confirmAndResume].
+     */
+    private suspend fun settle(outcome: AgentResult): AgentResult {
         if (outcome !is AgentResult.AwaitingConfirmation) {
+            // The skill scope lasts for the run. A run paused for approval keeps it, so the resumed run is scoped too.
+            sessions.toolScope = null
             // Over the message cap, fold into the working state rather than drop
             // the oldest turns: a drop shifts every later token, so each message
             // after it would prefill the whole conversation again. The bound
@@ -516,7 +617,7 @@ class AgentController(
             settleWorkingState()
             afterAnswer?.invoke(this)
         }
-        outcome
+        return outcome
     }
 
     /**
@@ -540,6 +641,13 @@ class AgentController(
      * execute it, tells the model, and continues so it can route around it.
      */
     suspend fun confirmAndResume(approved: Boolean): AgentResult = measured {
+        // A subtask is waiting on its own confirmation. The answer goes to it, and this run continues
+        // after the subtask finishes, so the user is asked the same question as in a run of their own.
+        parkedSubtask?.let { parked ->
+            if (cancelled) return@measured AgentResult.Cancelled
+            val early = resumeSubtask(parked, approved)
+            return@measured settleRun(early ?: loop())
+        }
         val call = pending
         pending = null
 
@@ -623,22 +731,7 @@ class AgentController(
             )
         }
         val outcome = early ?: loop()
-        if (outcome !is AgentResult.AwaitingConfirmation) {
-            // Over the message cap, fold into the working state rather than drop
-            // the oldest turns: a drop shifts every later token, so each message
-            // after it would prefill the whole conversation again. The bound
-            // stays as the backstop for a window compaction cannot fold.
-            if (sessions.messages.size > RetainedHistory.MAX_RETAINED_MESSAGES) {
-                compactNow("${sessions.messages.size} messages, over ${RetainedHistory.MAX_RETAINED_MESSAGES}")
-            }
-            RetainedHistory.bound(sessions.messages)
-            sessions.pruneIdentities()
-        }
-        if (outcome is AgentResult.Success) {
-            settleWorkingState()
-            afterAnswer?.invoke(this)
-        }
-        outcome
+        settle(outcome)
     }
 
     /**
@@ -648,6 +741,9 @@ class AgentController(
     fun cancel() {
         cancelled = true
         model.cancel()
+        // A subtask reads its own cancelled flag, not this one, so it is stopped here too.
+        runningSubtask?.cancel()
+        parkedSubtask?.child?.cancel()
     }
 
     // ---------------------------------------------------------------- the loop
@@ -665,9 +761,10 @@ class AgentController(
             // A turn boundary: the one place a compaction costs nothing extra,
             // because the new user turn has to be prefilled anyway.
             if (step == 1) compactIfNeeded(boundary = true, visible = visible)
-            // Stream only when somebody is listening. generate() is the same
-            // code path with a null sink, so this is not a second implementation
-            // to keep in sync - it is the same call with the callback attached.
+            // Stream whenever the backend can. generate() is the same code path
+            // with a null sink, so this is not a second implementation to keep in
+            // sync. Streaming is what lets the repetition watch below cut a loop
+            // while it forms, rather than after the whole output budget is spent.
             // What the model may call: the listed tools plus any it found with
             // tools.find, which the prompt does not list (their descriptions are
             // in the lookup's result). With tool lookup on, every enabled tool.
@@ -678,13 +775,22 @@ class AgentController(
             // backend that cannot stream still works, it just returns one blob:
             // capability detection, not a cast that throws on a cold path.
             val streaming = model as? StreamingModelBackend
-            val generation = if (onToken != null && streaming != null) {
+            // Set by the watch when the reply has become a repetition loop. The watch
+            // cancels the generation through model.cancel(), not this.cancel(), which
+            // would be sticky for the whole run.
+            val loopTripped = AtomicBoolean(false)
+            val watch = RepetitionWatch()
+            val generation = if (streaming != null) {
                 streaming.generateStreaming(request) { token ->
                     // A sink that throws must not kill the run: the model has
                     // already produced the token and the transcript still needs
                     // it. Swallowing here keeps a UI bug from turning into a
                     // failed generation the user cannot explain.
-                    runCatching { onToken(token) }
+                    if (onToken != null) runCatching { onToken(token) }
+                    if (!loopTripped.get() && watch.feed(token)) {
+                        loopTripped.set(true)
+                        model.cancel()
+                    }
                 }
             } else {
                 model.generate(request)
@@ -701,7 +807,15 @@ class AgentController(
                 parsedAction is ActionParseResult.Parsed &&
                 parsedAction.action is AgentAction.CallTool &&
                 !generation.text.contains("</tool>")
-            val parsed = if (cutToolCall) {
+            // A loop is found while the reply streamed, or in the finished text (a backend
+            // that cannot stream, or a reply cut by the output limit). A reply the user
+            // cancelled is never judged: its text is the answer they were reading.
+            val repeating = loopTripped.get() ||
+                (generation.stopReason != StopReason.CANCELLED && generation.stopReason != StopReason.ERROR &&
+                    RepetitionGuard.isLooping(generation.text))
+            val parsed = if (repeating) {
+                ActionParseResult.Malformed(REPETITION_REASON, generation.text)
+            } else if (cutToolCall) {
                 ActionParseResult.Malformed(
                     "the output limit cut the tool call short. Reply with a shorter <tool> call.",
                     generation.text,
@@ -715,28 +829,41 @@ class AgentController(
             // not drawn as an answer (ChatViewModel.renderTrace), so a reply the loop asks
             // the model to redo never stays on screen. A stopped generation is not judged:
             // it returns below, and its row is kept as the partial answer it was.
-            val stopped = generation.stopReason == StopReason.CANCELLED ||
+            val stopped = (generation.stopReason == StopReason.CANCELLED && !loopTripped.get()) ||
                 generation.stopReason == StopReason.ERROR
             val idRetry = !stopped && !handleRetried && savedObservation &&
                 parsed is ActionParseResult.Parsed &&
                 (parsed.action as? AgentAction.Respond)?.text?.let(INTERNAL_HANDLE_RE::containsMatchIn) == true
+            // The answer check runs only on a final answer that follows tool use in this run.
+            // A reply with no tools is never checked, so a plain chat answer is not held up.
+            val unsupported: String? = if (!stopped && !idRetry && !answerRetried &&
+                parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond &&
+                trace.any { it.kind == StepTrace.Kind.TOOL_CALL }
+            ) {
+                val answer = (parsed.action as AgentAction.Respond).text
+                sessions.locked { AnswerCheck.unsupported(answer, sessions::isSourced) }
+            } else {
+                null
+            }
             val rejection: String? = when {
                 stopped -> null
                 parsed is ActionParseResult.Malformed -> parsed.reason
                 idRetry -> "the reply names an internal id"
+                unsupported != null -> "the reply gives a value no tool result shows"
                 else -> null
             }
             trace += StepTrace(
                 step, StepTrace.Kind.GENERATION,
                 // An unfinished generation is kept whole: it is bounded by the output limit,
                 // and it is the partial answer the user was reading when they stopped.
-                if (completed) generation.text.take(TRACE_DETAIL_CHARS) else generation.text,
+                if (completed || repeating) generation.text.take(TRACE_DETAIL_CHARS) else generation.text,
                 generation.prefillMs + generation.decodeMs, completed && rejection == null,
                 thought = generation.thought ?: GenerationProse.thought(generation.text).takeIf { it.isNotEmpty() },
+                speed = ReplySpeed(generation.promptTokens, generation.completionTokens, generation.prefillMs, generation.decodeMs),
             )
 
             when (generation.stopReason) {
-                StopReason.CANCELLED -> return AgentResult.Cancelled
+                StopReason.CANCELLED -> if (!loopTripped.get()) return AgentResult.Cancelled
                 StopReason.ERROR -> return Stop("model failed: ${generation.text.take(120)}", trace.toList())
                 else -> Unit
             }
@@ -754,7 +881,17 @@ class AgentController(
             }
 
             when (parsed) {
-                is ActionParseResult.Malformed -> {
+                is ActionParseResult.Malformed -> if (repeating) {
+                    // Judged like a malformed reply, once. A second loop in the same run ends
+                    // the answer with a plain message, because the model has already been told.
+                    trace += StepTrace(step, StepTrace.Kind.MALFORMED, parsed.reason, success = false)
+                    if (repetitionStrikes > 0) return Stop(REPETITION_STOP_REASON, trace.toList())
+                    repetitionStrikes += 1
+                    sessions.observe(
+                        "That reply repeated the same text and was not used. Answer once, in fewer words. " +
+                            actionHint(callable),
+                    )
+                } else {
                     malformedStreak += 1
                     trace += StepTrace(step, StepTrace.Kind.MALFORMED, parsed.reason, success = false)
                     if (malformedStreak >= config.maxMalformedRetries) {
@@ -773,6 +910,11 @@ class AgentController(
                             // recorded, so the next reply is judged on its own.
                             handleRetried = true
                             sessions.observe(HANDLE_CORRECTION)
+                        } else if (unsupported != null) {
+                            // Same shape as the id retry: once per run, the reply is not recorded,
+                            // and the model is told which value it cannot source.
+                            answerRetried = true
+                            sessions.observe(answerCorrection(unsupported))
                         } else {
                             val text = if (savedObservation && INTERNAL_HANDLE_RE.containsMatchIn(action.text)) {
                                 log("reply still named an internal id after one retry; removed those sentences")
@@ -790,7 +932,7 @@ class AgentController(
 
                         is AgentAction.CallTool -> {
                             sessions.recordCall(generation.text)
-                            handleCall(action, callable, generation.text)?.let { return it }
+                            handleCall(coerceCall(action, callable), callable, generation.text)?.let { return it }
                         }
                     }
                 }
@@ -883,7 +1025,8 @@ class AgentController(
         // WHY the message and not the model: the model chooses these calls itself, even when
         // the message needs no tool (measured: "What is 17 times 23?" set a real timer). A tool
         // whose name or tags the message does not mention is one the user did not ask for.
-        val requested = ToolRequest.asksFor(task, tool.definition)
+        // The task list is the runtime's own bookkeeping, not an action the message must name.
+        val requested = ToolRequest.asksFor(policyRequest ?: task, tool.definition) || tool.definition.name == TodoList.TOOL_NAME
         // Screen tools resolve the index against the live screen. The result is the app and the
         // control the policy judges, and it is kept with the parked call so an approval records the
         // grant for the app the person was shown.
@@ -892,9 +1035,16 @@ class AgentController(
         } else {
             null
         }
-        val decision = riskPolicy.evaluate(
+        // Whether this conversation has read text from outside the phone, in this run or an earlier
+        // turn that is still in the session. The session is long-lived, so an earlier turn's web
+        // page still counts: a page read on Monday must not let a later "I like tea" write unasked.
+        val untrustedRead = sessions.messages.any {
+            it is ChatMessage.ToolObservation && it.origin == ObservationOrigin.NETWORK
+        }
+        val evaluated = riskPolicy.evaluate(
             tool.definition, action.arguments, tool.describeTarget(action.arguments), requested,
             screen = screen,
+            untrustedRead = untrustedRead,
         ).let { d ->
             // The confirmation card says so when a remote model answers: the screen text it reads
             // goes to that provider. Only the sentence changes, never the outcome.
@@ -903,6 +1053,14 @@ class AgentController(
             } else {
                 d
             }
+        }
+        // A resumed run does not run a step that changes something on its own (see [resume]).
+        val decision = if (resuming && evaluated.outcome == PolicyOutcome.EXECUTE &&
+            tool.definition.risk != ToolRisk.READ_ONLY
+        ) {
+            evaluated.copy(outcome = PolicyOutcome.REQUIRE_CONFIRMATION)
+        } else {
+            evaluated
         }
         if (decision.rule == PolicyRule.NOT_REQUESTED) {
             log("guard: ${action.name} not asked for by the message, confirming first")
@@ -1045,6 +1203,9 @@ class AgentController(
         // four-second prefill on an overflow is the failure this exists to
         // prevent. Returns non-null only when the step must not run at all.
         refuseUnaffordableStep(call, reply)?.let { return it }
+        // The loop runs a subtask itself: a subtask needs this run's state, and a tool's execute
+        // can return a result but not a confirmation the user must answer.
+        if (call.name == SUBTASK_TOOL_NAME) return delegate(call)
 
         val context = ToolContext(
             userConfirmed = call.userConfirmed,
@@ -1077,7 +1238,22 @@ class AgentController(
             failed(call.name, "${t::class.java.simpleName}: ${t.message}")
         }
         val durationMs = (System.nanoTime() - startedAt) / 1_000_000
+        return finish(call, reply, result, argsText, durationMs, children = emptyList())
+    }
 
+    /**
+     * Records a finished tool call: its observation, its trace rows and the blast-radius charge, then
+     * the no-progress checks. Returns non-null when the run must stop. Shared by a tool that ran here
+     * and by a subtask that answered, so both are recorded the same way.
+     */
+    private suspend fun finish(
+        call: PendingCall,
+        reply: String,
+        result: ToolResult,
+        argsText: String,
+        durationMs: Long,
+        children: List<StepTrace>,
+    ): AgentResult? {
         val observation = truncate(call.name, hooks.afterTool(call.name, call.args, result.observation, result.success))
         loopDetector.recordResult(call.name, observation, result.success, result.error)
         sessions.appendToolObservation(call.tool, withArgumentsOnFirstUse(call.tool, observation), result.success)
@@ -1091,8 +1267,13 @@ class AgentController(
             durationMs, result.success,
             toolName = call.name,
             toolArgs = argsText,
+            children = children,
+            toolArgsJson = call.args.toString(),
         )
-        trace += StepTrace(call.step, StepTrace.Kind.OBSERVATION, observation, success = result.success)
+        trace += StepTrace(
+            call.step, StepTrace.Kind.OBSERVATION, observation, success = result.success,
+            changeId = (result.data?.get("change_id") as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull,
+        )
         metrics?.endPhase(StepTrace.Kind.TOOL_CALL, result.success)
         try {
             onToolDone?.invoke(trace.toList())
@@ -1134,6 +1315,159 @@ class AgentController(
             sessions.observe(nudge)
         }
         return null
+    }
+
+    // ------------------------------------------------------------- subtasks
+
+    /** A subtask that is waiting for the user's answer to one of its own calls. */
+    private class ParkedSubtask(
+        val child: AgentController,
+        val call: PendingCall,
+        val argsText: String,
+        val startedAt: Long,
+    )
+
+    /**
+     * Runs one `task.delegate` call: a fresh child run on this same model, with its own session, its
+     * own step cap and the tools the model named. Only the child's capped answer comes back as this
+     * call's observation. Returns non-null when this run must stop or wait on the user.
+     *
+     * WHY HERE AND NOT IN THE TOOL: a child can ask the user to confirm a call, and only the loop can
+     * hand that question to the app, because `run` and `confirmAndResume` are the only calls that
+     * return a confirmation. A tool's execute can return a result and nothing else.
+     */
+    private suspend fun delegate(call: PendingCall): AgentResult? {
+        val argsText = compactArgs(call.args)
+        try {
+            onToolStart?.invoke(call.name, argsText)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Throwable) {
+        }
+        val startedAt = System.nanoTime()
+        val goal = subtaskGoal(call.args)
+        if (goal == null || policyRequest != null) {
+            // A child that asks for a subtask is refused here as well as by its registry, so no path
+            // leads to a grandchild whatever the registry holds.
+            val reason = if (goal == null) "needs a goal: what the subtask should do" else "a subtask cannot start a subtask"
+            val refused = ToolResult(
+                success = false,
+                observation = "${call.name} did not run: $reason. Do the work yourself, or answer without it.",
+                error = ToolError.InvalidArguments(reason),
+            )
+            return finish(call, "", refused, argsText, 0, children = emptyList())
+        }
+        val child = newSubtask(subtaskToolNames(call.args))
+        runningSubtask = child
+        val outcome = try {
+            child.run(goal)
+        } finally {
+            runningSubtask = null
+        }
+        return settleSubtask(child, call, argsText, startedAt, outcome)
+    }
+
+    /** Continues a parked subtask after the user answered its confirmation. Null when it finished. */
+    private suspend fun resumeSubtask(parked: ParkedSubtask, approved: Boolean): AgentResult? {
+        runningSubtask = parked.child
+        val outcome = try {
+            parked.child.confirmAndResume(approved)
+        } finally {
+            runningSubtask = null
+        }
+        return settleSubtask(parked.child, parked.call, parked.argsText, parked.startedAt, outcome)
+    }
+
+    /**
+     * Turns a subtask's outcome into this run's next step. A confirmation the subtask raised is
+     * parked and returned to the app unchanged. Anything else becomes one observation for the parent.
+     */
+    private suspend fun settleSubtask(
+        child: AgentController,
+        call: PendingCall,
+        argsText: String,
+        startedAt: Long,
+        outcome: AgentResult,
+    ): AgentResult? {
+        if (outcome is AgentResult.AwaitingConfirmation) {
+            parkedSubtask = ParkedSubtask(child, call, argsText, startedAt)
+            return outcome
+        }
+        parkedSubtask = null
+        if (outcome is AgentResult.Cancelled) return AgentResult.Cancelled
+        val result = when (outcome) {
+            is AgentResult.Success -> ToolResult(success = true, observation = capSummary(outcome.text))
+            is AgentResult.StepLimitReached -> ToolResult(
+                success = false,
+                observation = "${call.name} did not finish within $SUBTASK_MAX_STEPS steps. Do the rest " +
+                    "yourself, or answer with what you have.",
+                error = ToolError.Internal("step limit"),
+            )
+            is AgentResult.Stop -> ToolResult(
+                success = false,
+                observation = "${call.name} stopped: ${outcome.reason.take(LINE_CHARS)}. Do something else, " +
+                    "or answer without it.",
+                error = ToolError.Internal(outcome.reason.take(LINE_CHARS)),
+            )
+            else -> ToolResult(success = false, observation = "${call.name} failed.", error = ToolError.Internal("unexpected"))
+        }
+        // Cost, unmeasured: the subtask's prompts ran through the same model and replaced the parent's
+        // prefilled prefix. warmPrefix re-prefills the parent's system prompt and core tools, but only
+        // in the model's native tool format; elsewhere the next step pays that prefill itself.
+        warmPrefix()
+        val durationMs = (System.nanoTime() - startedAt) / 1_000_000
+        return finish(call, "", result, argsText, durationMs, children = child.traceSnapshot)
+    }
+
+    /**
+     * A fresh child controller on this same model and collaborators. It shares the parent's risk policy
+     * (one blast radius), grounds only what the user gave the parent, and takes no per-run state from
+     * the parent: its own loop detector, no metrics, no memory write, no UI callbacks.
+     *
+     * Its hooks are the parent's, so a plugin veto still applies to a subtask's calls. Its run end does
+     * not reach the plugins (see [measured]), so a plugin that counts runs counts the user's turn once.
+     */
+    private fun newSubtask(names: Set<String>?): AgentController = AgentController(
+        model = model,
+        parser = parser,
+        tools = SubtaskRegistry(tools, names),
+        toolSelector = toolSelector,
+        validator = validator,
+        loopDetector = LoopDetector(),
+        contextBuilder = contextBuilder,
+        memory = memory,
+        sessions = Session(),
+        config = config.copy(maxSteps = SUBTASK_MAX_STEPS),
+        riskPolicy = riskPolicy,
+        compactor = compactor,
+        stepEnforcer = stepEnforcer,
+        sampling = sampling,
+        hooks = hooks,
+        constrainOutput = constrainOutput,
+        useModelTemplate = useModelTemplate,
+        useNativeToolFormat = useNativeToolFormat,
+        thinkingBudget = thinkingBudget,
+        log = log,
+        observationStore = observationStore,
+        screenTextLeavesPhone = screenTextLeavesPhone,
+        policyRequest = policyRequest ?: task,
+        groundedFromUser = sessions.locked { sessions.groundedNumbers.toSet() },
+    )
+
+    /** Settles a run after a parked subtask resolved. Same bookkeeping as the end of [run]. */
+    private suspend fun settleRun(outcome: AgentResult): AgentResult {
+        if (outcome !is AgentResult.AwaitingConfirmation) {
+            if (sessions.messages.size > RetainedHistory.MAX_RETAINED_MESSAGES) {
+                compactNow("${sessions.messages.size} messages, over ${RetainedHistory.MAX_RETAINED_MESSAGES}")
+            }
+            RetainedHistory.bound(sessions.messages)
+            sessions.pruneIdentities()
+        }
+        if (outcome is AgentResult.Success) {
+            settleWorkingState()
+            afterAnswer?.invoke(this)
+        }
+        return outcome
     }
 
     // ------------------------------------------------- the per-step budget gate
@@ -1397,6 +1731,10 @@ class AgentController(
      * family switched off), when the prompt changes anyway.
      */
     private fun planTurnTools(): List<AgentTool> {
+        // A scoped run lists its scope's tools in full (see [selectTools]) and describes nothing extra.
+        // Planning here would rewrite the conversation's list from the scope, and the next unscoped
+        // run would inherit that narrower list.
+        if (sessions.toolScope != null) return emptyList()
         val all = tools.all()
         val byName = all.associateBy { it.definition.name }
         // With tool lookup on the model decides, so nothing is picked for it here: the list is the
@@ -1510,8 +1848,21 @@ class AgentController(
 
     /** The session's tool list, as it stands for this step. */
     private fun selectTools(): List<AgentTool> {
+        // A skill scope lists the scope's tools and the core tools from the registry. The session's list
+        // is not changed for it, so the next unscoped run still gets the list it had.
+        if (sessions.toolScope != null) return tools.all().filter { inScope(it.definition.name) }
         val byName = tools.all().associateBy { it.definition.name }
         return sessions.epochTools.mapNotNull { byName[it] }
+    }
+
+    /**
+     * Whether the active skill scope lets [name] be listed or called this run. With no scope every tool
+     * may be. The core tools (the controller's own list and tools.find) are never scoped out, or the
+     * model would be left unable to read a saved result or look a tool up.
+     */
+    private fun inScope(name: String): Boolean {
+        val scope = sessions.toolScope ?: return true
+        return name in scope || name in NATIVE_CORE_TOOLS || name == ObservationStore.READ_TOOL || name == ToolFinder.NAME
     }
 
     /** The turn lines that describe [extra] tools, so the model knows it may call them. */
@@ -1601,12 +1952,12 @@ class AgentController(
     private fun withDiscovered(visible: List<AgentTool>): List<AgentTool> {
         if (config.toolLookup) {
             val listed = visible.map { it.definition.name }.toSet()
-            return visible + tools.all().filter { it.definition.name !in listed }
+            return visible + tools.all().filter { it.definition.name !in listed && inScope(it.definition.name) }
         }
         if (sessions.discoveredTools.isEmpty()) return visible
         val listed = visible.map { it.definition.name }.toSet()
         val byName = tools.all().associateBy { it.definition.name }
-        return visible + sessions.discoveredTools.filter { it !in listed }.mapNotNull { byName[it] }
+        return visible + sessions.discoveredTools.filter { it !in listed && inScope(it) }.mapNotNull { byName[it] }
     }
 
     /**
@@ -1617,6 +1968,7 @@ class AgentController(
         visible: List<AgentTool>,
         task: String = this.task,
         history: List<ChatMessage> = withWorkingSummary(sessions.messages),
+        withTodos: Boolean = true,
     ): List<ChatMessage> {
         // The working state goes in BEFORE the builder, because
         // [DefaultContextBuilder] recognises a summary by position and prefix
@@ -1633,7 +1985,21 @@ class AgentController(
             // prompt.
             history
         }
-        return built
+        return if (withTodos) withTodoList(built) else built
+    }
+
+    /**
+     * [prompt] with the task list at its end, as a note from the runtime (see [TodoList.render]).
+     *
+     * WHY AT THE END: after the task and every step of this run, so the new text lands where the
+     * prompt grows and the cached prefix before it does not change. WHY ONLY WHILE THERE IS A LIST:
+     * a model that never writes one gets exactly the prompt it always did. WHY NOT WHEN THE TOOL IS
+     * OFF: the list would be shown with no way to change it.
+     */
+    private fun withTodoList(prompt: List<ChatMessage>): List<ChatMessage> {
+        if (!sessions.todos.hasItems || tools.byName(TodoList.TOOL_NAME) == null) return prompt
+        val block = sessions.todos.render() ?: return prompt
+        return prompt + ChatMessage.User(block, note = true)
     }
 
     private fun request(
@@ -1766,6 +2132,17 @@ class AgentController(
     }
 
 
+    /**
+     * [action] with its arguments coerced to the types the tool's schema declares (see
+     * [ArgumentCoercion]). Done before the validator, so every later decision reads the
+     * arguments the tool will run with, and the confirmation binds to those.
+     */
+    private fun coerceCall(action: AgentAction.CallTool, visible: List<AgentTool>): AgentAction.CallTool {
+        val schema = visible.firstOrNull { it.definition.name == action.name }?.definition?.schema ?: return action
+        val fixed = ArgumentCoercion.coerce(schema, action.arguments)
+        return if (fixed === action.arguments) action else action.copy(arguments = fixed)
+    }
+
     private fun compactArgs(args: ToolArgs): String =
         args.entries.take(6)
             .joinToString(", ", "{", "}") { (key, value) -> "$key=${value.toString().take(40)}" }
@@ -1791,7 +2168,29 @@ class AgentController(
         val tokens = requestTokens(prompt, visible)
         val limit = if (boundary) turnLimit(prompt, visible, window) else hardLimit(window)
         if (tokens <= limit) return
+        // Cheapest first: shrink old tool results and calls (no model call, the stored rows keep
+        // their full text). Only when that is not enough does the window fold.
+        if (pruneToolResults()) {
+            val pruned = requestTokens(buildPrompt(visible), visible)
+            if (pruned <= limit) return
+            foldUntilUnder(limit, visible, pruned, if (boundary) "turn" else "mid-answer")
+            return
+        }
         foldUntilUnder(limit, visible, tokens, if (boundary) "turn" else "mid-answer")
+    }
+
+    /**
+     * Applies [ToolResultPrune] to the window and returns true when anything shrank.
+     *
+     * WHY ONE LOCKED PASS: the plan reads the window and every replacement edits it, and a
+     * compaction on another thread must not change the list between the two.
+     */
+    private fun pruneToolResults(): Boolean = sessions.locked {
+        val plan = ToolResultPrune.plan(sessions.messages)
+        if (plan.isEmpty()) return@locked false
+        plan.forEach { (index, message) -> sessions.replaceKeepingIdentity(index, message) }
+        log("shrank ${plan.size} tool results and calls before compacting")
+        true
     }
 
     /**
@@ -1874,6 +2273,7 @@ class AgentController(
             core,
             task = PREFIX_TASK,
             history = listOf(ChatMessage.User(PREFIX_TASK)),
+            withTodos = false,
         )
         // No media: an attachment belongs to a real message, and the prefix must not carry one.
         model.warmPrefix(request(prompt, core, core).copy(media = emptyList()))
@@ -2057,7 +2457,8 @@ class AgentController(
     private suspend fun measured(body: suspend () -> AgentResult): AgentResult {
         val result = guarded { body() }
         lastRunMetrics = metrics?.finish(result is AgentResult.Success)
-        hooks.onRunEnd(result)
+        // A subtask is not a run of its own: a plugin that counts runs must count the user's turn once.
+        if (policyRequest == null) hooks.onRunEnd(result)
         return result
     }
 
@@ -2222,6 +2623,19 @@ class AgentController(
         const val HANDLE_CORRECTION = "Your reply named an internal id, which the user must never see. " +
             "Read the saved result with observations.read and the id from its obs# line, for the rest of " +
             "the page, or answer from what you already have. Do not mention ids or observations to the user."
+
+        /** The one-time note to a resumed run: what happened, and not to repeat what is saved above. */
+        const val RESUME_NOTE = "The app closed while this task was running. Continue the task from the " +
+            "results above. Do not repeat a tool call whose result is already there."
+
+        /** The one-time note when the answer check finds a value with no source in the window. */
+        fun answerCorrection(value: String): String =
+            "Your reply gives \"$value\", and no tool result or message in this conversation shows it. " +
+                "Check it against the tool results. If it is there, keep it and say where it came from; " +
+                "if not, correct it or leave it out. Do not mention this check to the user."
+
+        /** Why a reply that looped is rejected. The model reads it in the correction, and the trace shows it. */
+        const val REPETITION_REASON = "the reply repeated the same text over and over"
 
         /** What the user is told when, after the one retry, nothing of the reply is left to show. */
         const val HANDLE_FALLBACK = "I couldn't read far enough into that page."

@@ -33,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.Assistant
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
@@ -105,10 +107,12 @@ import dev.localintelligence.android.gateway.telegram.TelegramSettings
 import dev.localintelligence.android.mcp.McpSettings
 import dev.localintelligence.android.scripts.ScriptPlugin
 import dev.localintelligence.android.tools.OBSERVATIONS_FAMILY_ID
+import dev.localintelligence.android.tools.TODO_FAMILY_ID
 import dev.localintelligence.app.LocalIntelligenceApp
 import dev.localintelligence.app.WakeWordService
 import dev.localintelligence.app.export.ChatExporter
 import dev.localintelligence.app.openAssistantSettings
+import dev.localintelligence.app.settings.SettingText
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.update.UpdateCheckRow
 import dev.localintelligence.app.settings.SuggestedModel
@@ -164,6 +168,10 @@ fun SettingsScreen(
     onOpenScripts: () -> Unit = {},
     /** Opens the Photo search screen. Null hides the row: the row exists only in the full build. */
     onOpenPhotos: (() -> Unit)? = null,
+    /** Opens My desktop. Null hides the row: it exists only in the full build. */
+    onOpenDesktop: (() -> Unit)? = null,
+    /** Opens Search my phone. Shown in both modes; null hides the row. */
+    onOpenPhoneSearch: (() -> Unit)? = null,
     /** The ChatGPT row, shown in Simple mode. Null hides it. */
     chatGptRow: (@Composable () -> Unit)? = null,
     /** The folder of generated images and videos, for the Storage row. Null hides the row. */
@@ -234,11 +242,13 @@ fun SettingsScreen(
                     NavRow(Icons.Filled.Person, stringResource(R.string.personas), onOpenPersonas)
                     NavRow(Icons.Filled.Description, stringResource(R.string.documents), onOpenDocuments)
                     onOpenPhotos?.let { NavRow(Icons.Filled.PhotoLibrary, stringResource(R.string.photo_search), it) }
+                    onOpenPhoneSearch?.let { NavRow(Icons.Filled.Search, stringResource(R.string.phone_search_title), it) }
                     NavRow(Icons.Filled.Schedule, stringResource(R.string.schedule_shortcut_long), onOpenSchedule)
                     onOpenExtras?.let { NavRow(Icons.Filled.Star, stringResource(R.string.extras), it) }
                     NavRow(Icons.Filled.Lock, stringResource(R.string.permissions_title)) { openPermissionScreen(context) }
                     NavRow(Icons.Filled.Assistant, stringResource(R.string.set_as_phone_assistant)) { openAssistantSettings(context) }
                     if (technical) NavRow(Icons.Filled.Extension, stringResource(R.string.script_plugins), onOpenScripts)
+                    onOpenDesktop?.let { NavRow(Icons.AutoMirrored.Filled.Send, stringResource(R.string.desktop_settings_row), it) }
                     onExportChat?.let { ExportRow(it) }
                 }
 
@@ -250,7 +260,7 @@ fun SettingsScreen(
                     // layers), Technical mode only.
                     val speedTestHere = technical && speedTest != null && section == SettingSection.MODEL
                     if (inSection.isEmpty() && !speedTestHere) continue
-                    SectionHeader(section.title)
+                    SectionHeader(SettingText.section(LocalContext.current, section))
                     inSection.forEach { def ->
                         // The Add a server helper sits above the first remote MCP address row.
                         if (def === McpSettings.urls[0]) McpAddServerRow(store)
@@ -271,7 +281,7 @@ fun SettingsScreen(
                     }
                     // Script plugins have their own screen, with the same switch, so they are not repeated here.
                     // Saved results are always on: every long tool result's preview names their tool.
-                    plugins.filterNot { it is ScriptPlugin || it.id == OBSERVATIONS_FAMILY_ID }.forEach { plugin ->
+                    plugins.filterNot { it is ScriptPlugin || it.id == OBSERVATIONS_FAMILY_ID || it.id == TODO_FAMILY_ID }.forEach { plugin ->
                         SwitchRow(
                             title = plugin.title,
                             help = plugin.summary,
@@ -453,10 +463,10 @@ private fun ModeSwitch(store: SettingsStore) {
                     selected = store.stored(def) == option.id,
                     onClick = { store.set(def, option.id) },
                     shape = SegmentedButtonDefaults.itemShape(index, def.options.size),
-                ) { Text(option.label) }
+                ) { Text(SettingText.option(LocalContext.current, def, option)) }
             }
         }
-        Text(def.help, style = MaterialTheme.typography.bodySmall)
+        Text(SettingText.help(LocalContext.current, def), style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -511,7 +521,7 @@ private fun SpeedTestRow(runner: SpeedTestRunner) {
 
 @Composable
 private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Boolean) {
-    val help = def.help
+    val help = SettingText.help(LocalContext.current, def)
     // "Applies now" is the common case and says nothing; only a delay is worth a line.
     val note = if (technical) when (def.applies) {
         SettingApplies.NEXT_RUN -> stringResource(R.string.applies_next_message)
@@ -522,13 +532,13 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
         is SettingDef.Toggle -> when {
             def === CoreSettings.WAKE_WORD -> WakeWordToggleRow(store, def, help, note)
             def === CoreSettings.APP_LOCK -> AppLockRow(store, def, help, note)
-            else -> SwitchRow(def.title, help, store.stored(def), note = note) { store.set(def, it) }
+            else -> SwitchRow(SettingText.title(LocalContext.current, def), help, store.stored(def), note = note) { store.set(def, it) }
         }
         is SettingDef.Choice -> if (def === CoreSettings.THEME_COLOR) {
             ColorRow(store, def, help, note)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                RowTitle(def.title, help, note = note)
+                RowTitle(SettingText.title(LocalContext.current, def), help, note = note)
                 if (def.options.size <= 3) {
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                         def.options.forEachIndexed { index, option ->
@@ -536,7 +546,7 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
                                 selected = store.stored(def) == option.id,
                                 onClick = { store.set(def, option.id) },
                                 shape = SegmentedButtonDefaults.itemShape(index, def.options.size),
-                            ) { Text(option.label) }
+                            ) { Text(SettingText.option(LocalContext.current, def, option)) }
                         }
                     }
                 } else {
@@ -548,7 +558,7 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
         is SettingDef.FloatValue -> {
             val value = store.stored(def)
             Column {
-                RowTitle(def.title, help, valueText = String.format(Locale.ROOT, "%.2f", value), note = note) {
+                RowTitle(SettingText.title(LocalContext.current, def), help, valueText = String.format(Locale.ROOT, "%.2f", value), note = note) {
                     store.reset(def)
                 }
                 Slider(
@@ -564,7 +574,7 @@ private fun SettingRow(store: SettingsStore, def: SettingDef<*>, technical: Bool
             val value = store.stored(def)
             val span = def.max.toLong() - def.min.toLong()
             Column {
-                RowTitle(def.title, help, valueText = value.toString(), note = note) { store.reset(def) }
+                RowTitle(SettingText.title(LocalContext.current, def), help, valueText = value.toString(), note = note) { store.reset(def) }
                 if (span in 1..500) {
                     Slider(
                         value = value.toFloat(),
@@ -589,7 +599,7 @@ private fun ChipChoices(store: SettingsStore, def: SettingDef.Choice) {
             FilterChip(
                 selected = store.stored(def) == option.id,
                 onClick = { store.set(def, option.id) },
-                label = { Text(option.label) },
+                label = { Text(SettingText.option(LocalContext.current, def, option)) },
             )
         }
     }
@@ -602,7 +612,7 @@ private fun ColorRow(store: SettingsStore, def: SettingDef.Choice, help: String,
     val context = LocalContext.current
     val chosen = store.stored(def)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        RowTitle(def.title, help, note = note)
+        RowTitle(SettingText.title(LocalContext.current, def), help, note = note)
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -634,7 +644,7 @@ private fun ColorRow(store: SettingsStore, def: SettingDef.Choice, help: String,
                         ) {
                             if (selected) Icon(Icons.Filled.Check, contentDescription = null, tint = themeSwatchOn(option.id, context))
                         }
-                        Text(option.label, style = MaterialTheme.typography.labelSmall)
+                        Text(SettingText.option(LocalContext.current, def, option), style = MaterialTheme.typography.labelSmall)
                     }
                 }
         }
@@ -653,7 +663,7 @@ private fun WakeWordToggleRow(store: SettingsStore, def: SettingDef.Toggle, help
             WakeWordService.sync(context, container)
         }
     }
-    SwitchRow(def.title, help, store.stored(def), note = note) { enable ->
+    SwitchRow(SettingText.title(LocalContext.current, def), help, store.stored(def), note = note) { enable ->
         if (enable && !WakeWordService.hasRecordPermission(context)) {
             requestRecordAudio.launch(Manifest.permission.RECORD_AUDIO)
         } else {
@@ -685,7 +695,7 @@ private fun TextSettingRow(store: SettingsStore, def: SettingDef.Text, help: Str
         null
     }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        RowTitle(def.title, help, note = note)
+        RowTitle(SettingText.title(LocalContext.current, def), help, note = note)
         // A name-sized value gets one line; a note gets room to write.
         val short = def.maxLength <= SHORT_TEXT
         OutlinedTextField(
@@ -720,7 +730,7 @@ private fun SecretRow(store: SettingsStore, def: SettingDef.Secret, help: String
     var refused by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        RowTitle(def.title, help, valueText = if (isSet) stringResource(R.string.saved) else stringResource(R.string.not_set), note = note)
+        RowTitle(SettingText.title(LocalContext.current, def), help, valueText = if (isSet) stringResource(R.string.saved) else stringResource(R.string.not_set), note = note)
         OutlinedTextField(
             value = draft,
             onValueChange = {

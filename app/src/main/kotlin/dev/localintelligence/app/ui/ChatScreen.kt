@@ -70,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
@@ -85,6 +86,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.localintelligence.android.skills.SkillRepository
+import dev.localintelligence.android.tools.phonesearch.PhoneSearchLink
+import dev.localintelligence.core.skill.SkillDraft
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.RunOutcome
 import dev.localintelligence.app.RunState
@@ -94,6 +97,7 @@ import dev.localintelligence.app.isActive
 import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.ShownAttachment
 import dev.localintelligence.app.settings.SuggestedModel
+import dev.localintelligence.core.agent.ReplySpeed
 import dev.localintelligence.app.ui.components.ApprovalRow
 import dev.localintelligence.app.ui.components.ChatComposer
 import dev.localintelligence.app.ui.components.MarkdownText
@@ -101,7 +105,9 @@ import dev.localintelligence.app.ui.components.PendingToolRow
 import dev.localintelligence.app.ui.components.RunningToolRow
 import dev.localintelligence.app.ui.components.SentAttachments
 import dev.localintelligence.app.ui.components.ToolCallGroup
+import dev.localintelligence.app.ui.components.MemoryRow
 import dev.localintelligence.app.ui.components.ToolStepRow
+import dev.localintelligence.app.settings.SettingsMemoryBlockStore
 import dev.localintelligence.app.ui.components.TranscriptEntry
 import dev.localintelligence.app.ui.components.clipLength
 import dev.localintelligence.app.ui.components.groupToolCalls
@@ -144,8 +150,26 @@ fun ChatScreen(
      * preferences and the default matches the setting's own default.
      */
     toolCallsAutoCollapse: Boolean = true,
+    /**
+     * Keeps the screen on while a run is in flight (the setting, read by the host). Off by
+     * default; the flag is set only for the length of a run and cleared when it ends.
+     */
+    keepScreenAwake: Boolean = false,
+    /** Technical mode: each reply shows its speed line (prefill, first token, decode). */
+    technical: Boolean = false,
+    /**
+     * The memory block, for the "Remembered: ..." line and Undo under a call that wrote it. Null
+     * hides both, for a host with no block.
+     */
+    memoryBlock: SettingsMemoryBlockStore? = null,
     /** The skills store. Null hides "Save as skill", for hosts that have no store. */
     skills: SkillRepository? = null,
+    /** Whether the "Save this as a skill?" offer for a repeated request is on (its Technical switch). */
+    repeatOfferOn: Boolean = false,
+    /** Whether the user has said "not now" to the offer with this key, from an earlier session. */
+    repeatDeclined: (String) -> Boolean = { false },
+    /** Records that the offer with this key is done: "not now", or saved. It is not offered again. */
+    onDeclineRepeat: (String) -> Unit = {},
     /** The name from Settings, used in the empty chat's first line. Blank: no name. */
     assistantName: String = "",
     /** The model Simple mode recommends, offered on the empty chat when there is no model. */
@@ -170,6 +194,26 @@ fun ChatScreen(
     // "Save as skill" draft for the answer on screen, if the run used 2+ tools.
     // Shown in SkillEditorDialog; nothing is written until the user taps Save.
     val skillDraft = remember(messages) { saveAsSkillDraft(messages) }
+    // The repeat offer for the answer on screen, hidden once the user answers it.
+    val repeatContext = LocalContext.current
+    val repeatOffer = remember(messages, repeatOfferOn) {
+        if (skills != null && repeatOfferOn) repeatOfferFor(messages) else null
+    }
+    var repeatAnswered by rememberSaveable { mutableStateOf<String?>(null) }
+    val visibleOffer = repeatOffer?.takeIf { it.candidate.key != repeatAnswered && !repeatDeclined(it.candidate.key) }
+    fun acceptRepeat(offer: RepeatOffer) {
+        val store = skills ?: return
+        val text = SkillDraft.render(offer.candidate.request, offer.steps, offer.candidate.tools.toSet())
+        when (val saved = store.save(text)) {
+            is SkillRepository.SaveResult.Saved -> {
+                repeatAnswered = offer.candidate.key
+                onDeclineRepeat(offer.candidate.key)
+                Toast.makeText(repeatContext, repeatContext.getString(R.string.skill_saved), Toast.LENGTH_SHORT).show()
+            }
+            is SkillRepository.SaveResult.Refused ->
+                Toast.makeText(repeatContext, saved.reason, Toast.LENGTH_LONG).show()
+        }
+    }
     var editingSkill by rememberSaveable { mutableStateOf<String?>(null) }
     editingSkill?.let { draft ->
         val store = skills
@@ -214,10 +258,19 @@ fun ChatScreen(
     // local instead of resting on a coincidence in another file.
     val transcribing by viewModel.transcribing.collectAsStateWithLifecycle()
     val busy = runState.isActive || transcribing
+    // The view's keep-screen-on flag is the window flag FLAG_KEEP_SCREEN_ON, set for this
+    // composition's run only. It is cleared when the run ends or the screen leaves composition.
+    val view = LocalView.current
+    DisposableEffect(keepScreenAwake && busy) {
+        view.keepScreenOn = keepScreenAwake && busy
+        onDispose { view.keepScreenOn = false }
+    }
     val blocked = modelState.blockingReason()
     // Retry and Edit both act on the last turn, so they are offered only there. A turn with
     // pictures or a voice clip cannot be sent again: the media bytes are not kept.
     val lastUserIndex = messages.indexOfLast { it is ChatMessage.User }
+    // Read here so the memory rows redraw after an Undo, which bumps the store's revision.
+    val memoryRevision = memoryBlock?.revision?.collectAsStateWithLifecycle()?.value ?: 0
     val lastAnswerIndex = messages.indexOfLast { it is ChatMessage.Assistant }
     val lastUserReplayable = (messages.getOrNull(lastUserIndex) as? ChatMessage.User)?.attached?.isEmpty() == true
     val canRetry = !busy && lastUserReplayable && lastAnswerIndex > lastUserIndex &&
@@ -241,6 +294,7 @@ fun ChatScreen(
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val voiceSeconds by viewModel.voiceSeconds.collectAsStateWithLifecycle()
     val handsFree by viewModel.handsFree.collectAsStateWithLifecycle()
+    val interrupted by viewModel.interruptedRun.collectAsStateWithLifecycle()
     val handsFreeOn = handsFree.phase != HandsFreePhase.Off
     val canReadAudio = remember(modelState) { viewModel.modelCapabilities().supportsAudioInput }
     val dictation = remember { LiveDictation(context.applicationContext) }
@@ -256,7 +310,7 @@ fun ChatScreen(
     ) { granted ->
         val resume = whenMicGranted
         whenMicGranted = null
-        if (granted) resume?.invoke() else viewModel.showNotice("Microphone access is needed for voice input.")
+        if (granted) resume?.invoke() else viewModel.showNotice(context.getString(R.string.microphone_access_needed))
     }
     // The system photo picker needs no permission, and returns only the file the user chose.
     val pickPicture = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -310,7 +364,7 @@ fun ChatScreen(
     val onHandsFree: () -> Unit = {
         when {
             handsFreeOn -> viewModel.stopHandsFree()
-            dictating || voiceSeconds != null -> viewModel.showNotice("Finish the voice input first.")
+            dictating || voiceSeconds != null -> viewModel.showNotice(context.getString(R.string.finish_the_voice_input_first))
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED -> viewModel.startHandsFree()
             else -> {
@@ -323,7 +377,7 @@ fun ChatScreen(
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP && viewModel.handsFree.value.phase != HandsFreePhase.Off) {
-                viewModel.stopHandsFree("Hands-free stopped because the app went to the background.")
+                viewModel.stopHandsFree(context.getString(R.string.hands_free_stopped_in_background))
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -334,7 +388,7 @@ fun ChatScreen(
             if (canReadAudio) {
                 viewModel.startVoiceClip()
             } else if (!dictation.start(input) { viewModel.onInputChange(it) }) {
-                viewModel.showNotice("Speech recognition is not available on this phone.")
+                viewModel.showNotice(context.getString(R.string.speech_recognition_unavailable))
             }
         }
         when {
@@ -348,7 +402,7 @@ fun ChatScreen(
             }
         }
     }
-    val liveStatus = voiceSeconds?.let { "Recording ${clipLength(it)}" }
+    val liveStatus = voiceSeconds?.let { context.getString(R.string.recording_with_length, clipLength(it)) }
         ?: if (dictating) stringResource(R.string.listening) else null
         ?: when (handsFree.phase) {
             HandsFreePhase.Off -> null
@@ -362,7 +416,7 @@ fun ChatScreen(
     // While the runtime waits on an approval, the call's own row (with its
     // Allow and Deny) says so, so the progress line stays silent to avoid saying it twice.
     val awaiting = runState as? RunState.AwaitingApproval
-    val progress = if (awaiting != null) null else progressLine(runState)
+    val progress = if (awaiting != null) null else progressLine(runState, stringResource(R.string.working_on_it))
     val entries = remember(messages) { groupToolCalls(messages) }
     val animate = rememberMotionEnabled()
     val rowCount = messages.size +
@@ -437,6 +491,13 @@ fun ChatScreen(
         // twice.
         modifier = modifier,
         bottomBar = {
+          Column {
+            if (interrupted) {
+                InterruptedRunOffer(
+                    onContinue = viewModel::continueInterrupted,
+                    onDismiss = viewModel::dismissInterrupted,
+                )
+            }
             ChatComposer(
                 input = input,
                 busy = busy,
@@ -467,6 +528,7 @@ fun ChatScreen(
                     else -> null
                 },
             )
+          }
         },
     ) { padding ->
         LazyColumn(
@@ -516,30 +578,50 @@ fun ChatScreen(
                                 null
                             },
                         )
-                        is ChatMessage.Assistant -> AssistantBubble(
-                            text = message.text,
-                            thought = message.thought,
-                            speaking = speakingText == message.text,
-                            onSpeak = { viewModel.toggleSpeak(message.text) },
-                            onReport = { reportingReply = message.text },
-                            onRetry = if (canRetry && message === messages.getOrNull(lastAnswerIndex)) {
-                                { viewModel.retryLast() }
-                            } else {
-                                null
-                            },
-                            onSaveAsSkill = if (skills != null && skillDraft != null && message === messages.last()) {
-                                { editingSkill = skillDraft }
-                            } else {
-                                null
-                            },
-                        )
-                        is ChatMessage.Notice -> NoticeLine(message.text)
+                        is ChatMessage.Assistant -> Column {
+                            AssistantBubble(
+                                text = message.text,
+                                thought = message.thought,
+                                speed = if (technical) message.speed else null,
+                                photos = message.photos,
+                                phoneLinks = message.phoneLinks,
+                                speaking = speakingText == message.text,
+                                onSpeak = { viewModel.toggleSpeak(message.text) },
+                                onReport = { reportingReply = message.text },
+                                onRetry = if (canRetry && message === messages.getOrNull(lastAnswerIndex)) {
+                                    { viewModel.retryLast() }
+                                } else {
+                                    null
+                                },
+                                onSaveAsSkill = if (skills != null && skillDraft != null && message === messages.last()) {
+                                    { editingSkill = skillDraft }
+                                } else {
+                                    null
+                                },
+                            )
+                            val offer = visibleOffer
+                            if (offer != null && message === messages.last()) {
+                                RepeatOfferRow(
+                                    onSave = { acceptRepeat(offer) },
+                                    onNotNow = {
+                                        repeatAnswered = offer.candidate.key
+                                        onDeclineRepeat(offer.candidate.key)
+                                    },
+                                )
+                            }
+                        }
+                        is ChatMessage.Notice -> NoticeLine(message.textRes?.let { stringResource(it) } ?: message.text)
                         is ChatMessage.Transcript -> TranscriptCard(message) { viewModel.saveTranscript(it) }
                         is ChatMessage.Approval -> ApprovalRow(message)
-                        is ChatMessage.ToolStep -> ToolStepRow(message, animate)
+                        is ChatMessage.ToolStep -> ToolStepRow(
+                            message, animate, memory = memoryRowFor(message, memoryBlock, memoryRevision),
+                        )
                     }
                     is TranscriptEntry.Group -> if (entry.steps.size == 1) {
-                        ToolStepRow(entry.steps.first(), animate)
+                        ToolStepRow(
+                            entry.steps.first(), animate,
+                            memory = memoryRowFor(entry.steps.first(), memoryBlock, memoryRevision),
+                        )
                     } else {
                         // Live only while it is the last thing in the transcript
                         // and the run is still going; an approval pending row is
@@ -647,6 +729,9 @@ private fun UserBubble(text: String, attached: List<ShownAttachment>, onEdit: ((
 private fun AssistantBubble(
     text: String,
     thought: String?,
+    speed: ReplySpeed? = null,
+    photos: List<String> = emptyList(),
+    phoneLinks: List<PhoneSearchLink> = emptyList(),
     speaking: Boolean,
     onSpeak: () -> Unit,
     onReport: () -> Unit,
@@ -659,6 +744,16 @@ private fun AssistantBubble(
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
         if (thought != null) ThoughtRow(thought)
         SelectionContainer { MarkdownText(text) }
+        if (photos.isNotEmpty()) PhotoHitsRow(photos)
+        if (phoneLinks.isNotEmpty()) PhoneHitsRow(phoneLinks)
+        if (speed != null) {
+            Text(
+                text = replySpeedLine(speed),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+            )
+        }
         // One traversal group: TalkBack moves through the reply's actions together, in order.
         Row(
             modifier = Modifier.semantics { isTraversalGroup = true },
@@ -714,6 +809,18 @@ private fun AssistantBubble(
  * The model's reasoning for an answer, folded: a single line that opens to the text. Folded
  * by default so the answer is what the eye lands on; the thought is there for anyone who asks.
  */
+/**
+ * The Technical speed line under a reply: prefill rate, first-token time, decode rate. A rate
+ * whose timer or count is zero reads as "n/a", never as a figure made up from nothing.
+ */
+@Composable
+private fun replySpeedLine(speed: ReplySpeed): String {
+    val na = stringResource(R.string.reply_speed_not_available)
+    val prefill = speed.prefillTokensPerSecond?.let { "%.1f".format(it) } ?: na
+    val decode = speed.decodeTokensPerSecond?.let { "%.1f".format(it) } ?: na
+    return stringResource(R.string.reply_speed_line, prefill, speed.prefillMs, decode)
+}
+
 @Composable
 private fun ThoughtRow(thought: String) {
     var expanded by rememberSaveable { mutableStateOf(false) }
@@ -877,10 +984,10 @@ private fun NoticeLine(text: String) {
  * `AgentAction` is `Respond | CallTool` and the model has no thought channel to
  * report. A "thinking…" label would be a narration the system cannot back.
  */
-private fun progressLine(state: RunState): String? = when (state) {
+private fun progressLine(state: RunState, working: String): String? = when (state) {
     RunState.Idle, is RunState.Finished -> null
     RunState.LoadingModel -> state.progressLabel
-    RunState.Running -> "Working on it…"
+    RunState.Running -> working
     is RunState.AwaitingApproval -> state.progressLabel
 }
 
@@ -940,7 +1047,10 @@ private fun EmptyState(
         }
         Text(
             text = blockedReason
-                ?: "Ask ${assistantName.trim().ifEmpty { "the assistant" }} to do something on this phone.",
+                ?: stringResource(
+                    R.string.ask_assistant_to_do_something,
+                    assistantName.trim().ifEmpty { stringResource(R.string.the_assistant) },
+                ),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -1019,12 +1129,6 @@ private fun EmptyPersonaRow(personas: List<Persona>, onChoose: (Long?) -> Unit) 
 }
 
 /** The three first things a new user can ask, tapped to send. */
-private val STARTER_EXAMPLES = listOf(
-    "How much battery do I have?",
-    "Set a timer for 10 minutes",
-    "Wake me up at 7 tomorrow",
-)
-
 /**
  * The first-run panel of Simple mode: one button for the download, then progress, then the wait for
  * the first answer. No model name, quant or reason is shown; the user only needs to know what happens.
@@ -1038,7 +1142,7 @@ private fun StarterPanel(
     onOpenModels: () -> Unit,
 ) {
     // It opens the sentence, so a capital: "the assistant runs on your phone" with no name set.
-    val name = assistantName.trim().ifEmpty { "the assistant" }.replaceFirstChar { it.uppercase() }
+    val name = assistantName.trim().ifEmpty { stringResource(R.string.the_assistant) }.replaceFirstChar { it.uppercase() }
     when (starter) {
         is SetupState.Idle -> {
             Text(
@@ -1144,11 +1248,16 @@ private fun StarterPanel(
 /** The three example questions, each a 48dp button that sends its text. */
 @Composable
 private fun ExampleChips(onExample: (String) -> Unit) {
+    val starterExamples = listOf(
+        stringResource(R.string.starter_battery),
+        stringResource(R.string.starter_timer),
+        stringResource(R.string.starter_wake),
+    )
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        STARTER_EXAMPLES.forEach { text ->
+        starterExamples.forEach { text ->
             OutlinedButton(
                 onClick = { onExample(text) },
                 modifier = Modifier.heightIn(min = 48.dp),
@@ -1249,4 +1358,41 @@ private fun formatElapsed(seconds: Int): String = when {
     seconds < 60 -> "${seconds}s"
     seconds < 3600 -> "%dm %02ds".format(seconds / 60, seconds % 60)
     else -> "%dh %02dm".format(seconds / 3600, (seconds % 3600) / 60)
+}
+
+/**
+ * The memory line for a call that wrote the memory block, or null for every other call. The
+ * revision is read by the caller so that a change or an Undo redraws the row.
+ */
+private fun memoryRowFor(
+    step: ChatMessage.ToolStep,
+    store: SettingsMemoryBlockStore?,
+    @Suppress("UNUSED_PARAMETER") revision: Int,
+): MemoryRow? {
+    val id = step.changeId ?: return null
+    if (store == null) return null
+    val note = store.noteOf(id) ?: return null
+    return MemoryRow(
+        note = note,
+        cleared = note.isEmpty(),
+        undoable = store.canUndo(id),
+        onUndo = { store.undo(id) },
+    )
+}
+
+/** "Save this as a skill?" under the answer to a request the user has made three times. */
+@Composable
+private fun RepeatOfferRow(onSave: () -> Unit, onNotNow: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            stringResource(R.string.repeat_offer_question),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onNotNow) { Text(stringResource(R.string.repeat_offer_not_now)) }
+        TextButton(onClick = onSave) { Text(stringResource(R.string.repeat_offer_save)) }
+    }
 }

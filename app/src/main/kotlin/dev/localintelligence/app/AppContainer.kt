@@ -7,6 +7,8 @@ import dev.localintelligence.android.data.lazyObservationStore
 import dev.localintelligence.core.tool.ObservationStore
 import android.content.Context
 import dev.localintelligence.android.data.LocalIntelligenceDatabase
+import dev.localintelligence.android.data.DesktopDao
+import dev.localintelligence.android.data.lazyDesktopDao
 import dev.localintelligence.android.data.lazyPhotoCaptionDao
 import dev.localintelligence.android.data.resilientMemoryStore
 import dev.localintelligence.android.inference.ImportedModel
@@ -15,10 +17,14 @@ import dev.localintelligence.inference.litertlm.ModelBackendRouter
 import dev.localintelligence.inference.litertlm.tensorGenerationOfThisPhone
 import dev.localintelligence.android.inference.ModelImporter
 import dev.localintelligence.android.cloud.ChatGptChatBackend
+import dev.localintelligence.android.inference.GeminiNanoBackend
 import dev.localintelligence.android.cloud.ChatGptPlugin
 import dev.localintelligence.android.cloud.ChatGptSignIn
 import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.android.cloud.ExtrasSettings
+import dev.localintelligence.android.cloud.LanModelScan
+import dev.localintelligence.android.cloud.LanModelServer
+import dev.localintelligence.android.cloud.RemoteProviderSettings
 import dev.localintelligence.android.cloud.OpenRouterChatBackend
 import dev.localintelligence.android.cloud.RemoteChatOffer
 import dev.localintelligence.android.cloud.RemoteProviders
@@ -49,6 +55,7 @@ import dev.localintelligence.app.settings.ContextChoice
 import dev.localintelligence.app.settings.ContextLength
 import dev.localintelligence.app.settings.DeviceFacts
 import dev.localintelligence.app.execution.ScheduledRunReporter
+import dev.localintelligence.app.settings.SettingsMemoryBlockStore
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.ComputeChoice
 import dev.localintelligence.app.settings.SimpleSetup
@@ -146,7 +153,7 @@ import kotlinx.coroutines.sync.withLock
  * for a global.
  */
 /** Tools a Play build offers only to a run the person started in the app. See `pluginTools`. */
-private val PLAY_ATTENDED_ONLY_TOOLS = setOf("sms.search", "sms.send", "calls.recent")
+private val PLAY_ATTENDED_ONLY_TOOLS = setOf("sms.search", "sms.send", "calls.recent", "phone.search")
 
 class AppContainer(private val context: Context) {
 
@@ -255,6 +262,12 @@ class AppContainer(private val context: Context) {
 
     val settings: SettingsStore by lazy { SettingsStore(context) { SimpleSetup.values(deviceFacts) } }
 
+    /**
+     * The memory block. One instance: its undo ledger lives in it, and the chat rows read it.
+     * Passed to the tool family, so the agent and the chat share the same ledger.
+     */
+    val memoryBlockStore: SettingsMemoryBlockStore by lazy { SettingsMemoryBlockStore(settings) }
+
     /** The app lock, one for the process. Created at app start so it sees every activity from the first one. */
     val appLock: dev.localintelligence.app.security.AppLock by lazy {
         dev.localintelligence.app.security.AppLock(context, settings)
@@ -290,7 +303,7 @@ class AppContainer(private val context: Context) {
     val scriptRepository: ScriptPluginRepository by lazy { ScriptPluginRepository(File(context.filesDir, "plugins")) }
 
     private val builtInPlugins: List<AgentPlugin> by lazy {
-        val families = androidToolPlugins(context, settings)
+        val families = androidToolPlugins(context, settings, session.todos, memoryBlockStore)
         val flavor = FlavorPlugins.plugins(context, settings)
         val cloud = openRouterPlugin
         val sandbox = sandboxPlugin
@@ -636,6 +649,8 @@ class AppContainer(private val context: Context) {
         }
         if (history.isEmpty()) return
         val adopted = session.restore(history)
+        settleInterruptedMark(store, id, history, adopted)
+        restoreTodos(store, id)
         // Everything restored is already on disk, so the writer must not
         // re-append it. With identity-based writing the equivalent is marking
         // those exact message objects as already written, rather than setting a
@@ -896,6 +911,114 @@ class AppContainer(private val context: Context) {
     fun persistRunEnd() {
         val pending = snapshotPendingMessages()
         if (pending.isNotEmpty()) launchWrite(pending)
+        saveTodos()
+        // Any terminal state ends the run, Stop included, so the mark comes off with it.
+        clearRunInFlight()
+    }
+
+    /**
+     * Writes the turns a run has reached so far, without waiting for it to end. Called after each
+     * tool result: a process killed mid-run then leaves its finished steps in the store, and the
+     * Continue offer resumes from them. Same snapshot as [persistRunEnd], so nothing is written twice.
+     */
+    fun persistProgress() {
+        val pending = snapshotPendingMessages()
+        if (pending.isNotEmpty()) launchWrite(pending)
+        saveTodos()
+    }
+
+    /**
+     * Saves the task checklist with the session row. It is encoded here, on the caller's thread,
+     * so the write sees the list as it was at this step.
+     */
+    private fun saveTodos() {
+        val store = sessionStore ?: return
+        val id = pinnedSessionId ?: return
+        val json = session.todos.encode()
+        appScope.launch {
+            try {
+                withContext(Dispatchers.IO) { store.setTodos(id, json) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                android.util.Log.w(TAG, "Could not save the task list.", t)
+            }
+        }
+    }
+
+    /** Puts the saved task checklist back into the session, with the turns it belongs to. */
+    private suspend fun restoreTodos(store: SessionStore, id: Long) {
+        try {
+            session.todos.restore(withContext(Dispatchers.IO) { store.todos(id) })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "Could not read the task list.", t)
+        }
+    }
+
+    /**
+     * Sets the in-flight mark for the conversation, creating its row if needed. A foreground run
+     * calls this as it starts. A mark still set at the next launch means the process died mid-run.
+     */
+    suspend fun markRunInFlight() {
+        val store = sessionStore ?: return
+        try {
+            val id = durableSessionId(store)
+            withContext(Dispatchers.IO) { store.setRunInFlight(id, true) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "Could not mark the run in flight.", t)
+        }
+    }
+
+    /** Clears the in-flight mark in the background. Safe when no conversation row exists yet. */
+    fun clearRunInFlight() = setRunFlag(false)
+
+    /** Withdraws the Continue offer and clears the mark it was based on. */
+    fun dismissInterruptedRun() {
+        runSinks.interruptedRun.value = false
+        setRunFlag(false)
+    }
+
+    private fun setRunFlag(inFlight: Boolean) {
+        val store = sessionStore ?: return
+        val id = pinnedSessionId ?: return
+        appScope.launch {
+            try {
+                withContext(Dispatchers.IO) { store.setRunInFlight(id, inFlight) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                android.util.Log.w(TAG, "Could not update the run mark.", t)
+            }
+        }
+    }
+
+    /**
+     * Decides the launch offer from the mark left by the last process. The offer is due only when
+     * the mark is set AND the restored window ends inside the run (a tool result or the user's turn,
+     * never a finished answer) AND something was adopted. Anything else clears the mark, so a
+     * stale mark is not offered on every later launch.
+     */
+    private suspend fun settleInterruptedMark(store: SessionStore, id: Long, history: List<ChatMessage>, adopted: Int) {
+        val marked = try {
+            withContext(Dispatchers.IO) { store.runInFlight(id) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "Could not read the run mark.", t)
+            return
+        }
+        if (!marked) return
+        val last = history.lastOrNull()
+        val open = last is ChatMessage.ToolObservation || (last is ChatMessage.User && !last.note)
+        if (open && adopted > 0) {
+            runSinks.interruptedRun.value = true
+        } else {
+            setRunFlag(false)
+        }
     }
 
     /**
@@ -1014,6 +1137,40 @@ class AppContainer(private val context: Context) {
         )
     }
 
+    /**
+     * Gemini Nano, the model AICore runs on the phone. It has no file, so the Models screen
+     * offers it as its own row, and it is resident only while the user has picked it, like ChatGPT.
+     * Built by [backendRouter], the one place a backend is constructed.
+     */
+    val geminiNanoBackend: GeminiNanoBackend by lazy { backendRouter.geminiNano() }
+
+    /** True while Gemini Nano is the model answering. */
+    val geminiNanoActive: Boolean get() = loadedBackend === geminiNanoBackend
+
+    /**
+     * Makes Gemini Nano the resident backend, unloading the local model that held the memory.
+     * Returns null when it is answering now, or the reason it cannot. The previous model is kept
+     * when it cannot. Like [useChatGpt], the choice is not saved, so a restart comes back to the
+     * local model.
+     */
+    suspend fun useGeminiNano(): String? = readinessLock.withLock {
+        val backend = geminiNanoBackend
+        try {
+            backend.load(ModelSpec(id = GeminiNanoBackend.BACKEND_ID, displayName = "Gemini Nano"))
+        } catch (_: Exception) {
+            return@withLock context.getString(R.string.gemini_nano_not_ready)
+        }
+        val previous = loadedBackend
+        if (previous != null && previous !== backend) {
+            stopPrefixWork()
+            loadedBackend = null
+            previous.unload()
+        }
+        loadedBackend = backend
+        modelAvailability.set(ModelAvailability.Ready(displayName = context.getString(R.string.gemini_nano_ready)))
+        null
+    }
+
     /** Extras: the monthly subscription that supplies managed keys. Off unless the backend address is set. */
     val extras: ExtrasBilling by lazy { ExtrasBilling(context, settings, BuildConfig.EXTRAS_BACKEND_URL) }
 
@@ -1129,6 +1286,31 @@ class AppContainer(private val context: Context) {
     }
 
     /**
+     * Looks for model servers on this phone's Wi-Fi. Called only from the Find button on the Models
+     * page: nothing scans in the background.
+     */
+    suspend fun findLanModelServers(): List<LanModelServer> = withContext(Dispatchers.IO) { LanModelScan.scan() }
+
+    /**
+     * Makes [server] the chat model, using its first listed model id, and turns the remote chat
+     * option on. Returns false when the server lists no model. Like [useRemoteChat], the choice is
+     * not kept across a restart.
+     */
+    suspend fun useLanModelServer(server: LanModelServer): Boolean = readinessLock.withLock {
+        val model = server.models.firstOrNull() ?: return@withLock false
+        settings.set(RemoteProviderSettings.LAN_BASE_URL, server.baseUrl)
+        settings.set(RemoteProviderSettings.LAN_MODEL, model)
+        settings.setPluginEnabled(openRouterPlugin, true)
+        useRemoteChatLocked()
+    }
+
+    /** Clears the found server, so remote chat goes back to the chosen provider. */
+    fun forgetLanModelServer() {
+        settings.set(RemoteProviderSettings.LAN_BASE_URL, "")
+        settings.set(RemoteProviderSettings.LAN_MODEL, "")
+    }
+
+    /**
      * Makes the remote chat model the resident backend, unloading whatever local model
      * was holding the memory. Returns false, changing nothing, when the option is off.
      *
@@ -1208,8 +1390,8 @@ class AppContainer(private val context: Context) {
      */
     private fun speedTestTarget(): SpeedTestTarget? {
         if (modelAvailability.current !is ModelAvailability.Ready) return null
-        // The remote model has no file on this phone to measure.
-        if (remoteChatActive || chatGptActive) return null
+        // The remote model and Gemini Nano have no file on this phone to measure.
+        if (remoteChatActive || chatGptActive || geminiNanoActive) return null
         val model = selectedModel ?: return null
         val file = model.uri.path?.takeIf { model.uri.scheme == "file" }?.let { File(it).name }
         val backend = residentBackend()
@@ -1290,6 +1472,9 @@ class AppContainer(private val context: Context) {
      * out directly — see there for why a failure to open must not be fatal.
      */
     val database: LocalIntelligenceDatabase by lazy { LocalIntelligenceDatabase.build(context) }
+
+    /** The My desktop table (full build). Opened on first use, through the :android factory. */
+    val desktopDao: () -> DesktopDao = lazyDesktopDao(context)
 
     /**
      * Long tool results, saved whole so the model can read past the preview.
@@ -1391,7 +1576,7 @@ class AppContainer(private val context: Context) {
     suspend fun ejectModel(): Boolean = readinessLock.withLock {
         if (runGate.isBusy) return@withLock false
         val resident = loadedBackend ?: return@withLock false
-        if (resident === remoteChatBackend || resident === chatGptBackend) return@withLock false
+        if (resident === remoteChatBackend || resident === chatGptBackend || resident === geminiNanoBackend) return@withLock false
         stopIdleWork()
         stopPrefixWork()
         loadedBackend = null
@@ -1531,7 +1716,7 @@ class AppContainer(private val context: Context) {
         when {
             previous == null -> modelAvailability.set(failed)
             loadedBackend === previous -> modelAvailability.set(before)
-            previous === remoteChatBackend || previous === chatGptBackend -> {
+            previous === remoteChatBackend || previous === chatGptBackend || previous === geminiNanoBackend -> {
                 loadedBackend = previous
                 modelAvailability.set(before)
             }
@@ -2203,7 +2388,7 @@ class AppContainer(private val context: Context) {
     suspend fun removeModel(model: ImportedModel) {
         readinessLock.withLock {
             val uriText = model.uri.toString()
-            if (selectedModel?.uri == model.uri && loadedBackend !== remoteChatBackend && loadedBackend !== chatGptBackend) {
+            if (selectedModel?.uri == model.uri && loadedBackend !== remoteChatBackend && loadedBackend !== chatGptBackend && loadedBackend !== geminiNanoBackend) {
                 stopPrefixWork()
                 loadedBackend?.let { runCatching { it.unload() } }
                 loadedBackend = null

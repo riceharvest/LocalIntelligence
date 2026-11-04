@@ -59,6 +59,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.android.cloud.LanModelServer
 import dev.localintelligence.android.cloud.RemoteChatOffer
 import dev.localintelligence.android.inference.ImportedModel
 import dev.localintelligence.android.inference.ModelImporter
@@ -164,8 +165,18 @@ fun ModelManagerScreen(
     onListRemoteModels: (suspend () -> List<String>)? = null,
     /** Saves the picked model id for the remote provider. */
     onPickRemoteModel: ((String) -> Unit)? = null,
+    /** Looks for model servers on this Wi-Fi, on tap only. Null hides the Find card. */
+    onFindLanServers: (suspend () -> List<LanModelServer>)? = null,
+    /** Makes a found server the chat model. Returns false when it lists no model. */
+    onUseLanServer: (suspend (LanModelServer) -> Boolean)? = null,
+    /** True while a found server is the chat model; Forget is then offered. */
+    lanServerActive: Boolean = false,
+    /** Clears the found server. */
+    onForgetLanServer: (() -> Unit)? = null,
     /** The ChatGPT entry (sign in, model picker, use). Null hides it. */
     chatGptCard: (@Composable () -> Unit)? = null,
+    /** The Gemini Nano row (beta, Technical only). Null hides it. */
+    geminiNanoCard: (@Composable () -> Unit)? = null,
     /**
      * Makes a local model the resident one, the way import does. Returns the outcome so a
      * model that does not fit is reported here rather than shown as a silent no-op.
@@ -222,7 +233,7 @@ fun ModelManagerScreen(
     var copying by remember { mutableStateOf<Pair<String, Pair<Long, Long>>?>(null) }
 
     // What the spinner row says: "Checking file…" for an import or scan, "Loading model…" for Use.
-    var busyLabel by remember { mutableStateOf("Checking file…") }
+    var busyLabel by remember { mutableStateOf(context.getString(R.string.checking_file)) }
     var menuOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -243,7 +254,7 @@ fun ModelManagerScreen(
         }
         importError = null
         scanNotice = null
-        busyLabel = "Checking file…"
+        busyLabel = context.getString(R.string.checking_file)
         busy = true
         scope.launch {
             // The container is sniffed before `onImport`, because `onImport` reads a
@@ -266,7 +277,7 @@ fun ModelManagerScreen(
                         }
                     } catch (e: java.io.IOException) {
                         Log.w("ModelManager", "Copying $name failed", e)
-                        importError = "Couldn't add \"$name\". Check there is enough free space and try again."
+                        importError = context.getString(R.string.couldnt_add_name, name)
                         null
                     } finally {
                         copying = null
@@ -329,16 +340,14 @@ fun ModelManagerScreen(
                                     enabled = !busy,
                                     onClick = {
                                         menuOpen = false
-                                        busyLabel = "Checking file…"
+                                        busyLabel = context.getString(R.string.checking_file)
                                         busy = true
                                         importError = null
                                         scope.launch {
                                             runCatching { scan() }
                                                 .onFailure { importError = describeLoadFailure(it) }
                                                 .onSuccess {
-                                                    scanNotice = "Scanned this app's own storage for " +
-                                                        "GGUF files. Anything found is now in the " +
-                                                        "list."
+                                                    scanNotice = context.getString(R.string.scan_notice)
                                                 }
                                             busy = false
                                         }
@@ -470,6 +479,20 @@ fun ModelManagerScreen(
                 if (chatGptCard != null) {
                     item(key = "chatgpt") { chatGptCard() }
                 }
+                if (geminiNanoCard != null) {
+                    item(key = "gemini-nano") { geminiNanoCard() }
+                }
+                if (onFindLanServers != null && onUseLanServer != null) {
+                    item(key = "lan-find") {
+                        LanServersCard(
+                            active = lanServerActive,
+                            enabled = !busy,
+                            onFind = onFindLanServers,
+                            onUse = onUseLanServer,
+                            onForget = onForgetLanServer,
+                        )
+                    }
+                }
                 if (remoteChatOffer != null && onUseRemoteChat != null) {
                     item(key = "remote-chat") {
                         RemoteChatCard(
@@ -479,7 +502,7 @@ fun ModelManagerScreen(
                             onListModels = onListRemoteModels,
                             onPickModel = onPickRemoteModel,
                             onUse = {
-                                busyLabel = "Loading model…"
+                                busyLabel = context.getString(R.string.loading_model)
                                 busy = true
                                 importError = null
                                 scanNotice = null
@@ -507,20 +530,20 @@ fun ModelManagerScreen(
                         isLoaded = model.uri.toString() == loadedModelUri,
                         onEject = onEjectModel?.let { eject ->
                             {
-                                busyLabel = "Ejecting…"
+                                busyLabel = context.getString(R.string.ejecting_model)
                                 busy = true
                                 importError = null
                                 scanNotice = null
                                 scope.launch {
                                     val ejected = runCatching { eject() }.getOrDefault(false)
-                                    if (!ejected) importError = "The model can't be ejected while a task is running."
+                                    if (!ejected) importError = context.getString(R.string.model_cannot_be_ejected)
                                     busy = false
                                 }
                             }
                         },
                         onUse = onUseModel?.let { use ->
                             {
-                                busyLabel = "Loading model…"
+                                busyLabel = context.getString(R.string.loading_model)
                                 busy = true
                                 importError = null
                                 scanNotice = null
@@ -615,13 +638,13 @@ private fun ImportErrorBanner(message: String, onDismiss: () -> Unit) {
  * with less than the band's comfortable headroom is "Tight", since its margin is inside
  * the estimate's measured error.
  */
-private fun fitLabel(totalBytes: Long, fits: Boolean): String {
-    if (!fits) return "Too big"
+private fun fitLabel(context: Context, totalBytes: Long, fits: Boolean): String {
+    if (!fits) return context.getString(R.string.fit_too_big)
     val usable = RamEstimate.usableDeviceBytes()
     val headroom = if (totalBytes <= 0L) 0.0 else (usable - totalBytes).toDouble() / totalBytes.toDouble()
     return when (FitGate.MarginBand.of(headroom)) {
-        FitGate.MarginBand.CONFIDENT -> "Fits"
-        FitGate.MarginBand.TIGHT, FitGate.MarginBand.MARGINAL -> "Tight"
+        FitGate.MarginBand.CONFIDENT -> context.getString(R.string.fit_fits)
+        FitGate.MarginBand.TIGHT, FitGate.MarginBand.MARGINAL -> context.getString(R.string.fit_tight)
     }
 }
 
@@ -657,7 +680,7 @@ private fun ModelRow(
     // is why it is still shown — as its own line, labelled, below.
     val totalBytes = model.estimate.totalBytes(loadContext)
     val fits = model.fitsOnDevice(loadContext)
-    val fitWord = fitLabel(totalBytes, fits)
+    val fitWord = fitLabel(context, totalBytes, fits)
 
     // The model in use gets its own container colour, so the row that answers the chat
     // is the one that stands out.
@@ -684,7 +707,7 @@ private fun ModelRow(
                         listOfNotNull(
                             model.quantType,
                             model.architecture,
-                            model.parameterCount?.let { "${formatParams(it)} params" },
+                            model.parameterCount?.let { context.getString(R.string.params_count, formatParams(it)) },
                         ).joinToString(" · ")
                     } else {
                         model.parameterCount?.let { formatParams(it) }.orEmpty()
@@ -738,22 +761,22 @@ private fun ModelRow(
                 // arithmetic on that number plus the header, and the card says so
                 // once, here, instead of leaving four confident figures looking
                 // equally solid.
-                FactLine("On disk (measured)", formatBytes(model.fileSizeBytes))
-                FactLine("Weights, estimated", formatBytes(model.estimate.weightBytes))
-                FactLine("RAM at load (estimated)", formatBytes(totalBytes))
-                FactLine("Fit", fitWord)
+                FactLine(stringResource(R.string.fact_on_disk_measured), formatBytes(model.fileSizeBytes))
+                FactLine(stringResource(R.string.fact_weights_estimated), formatBytes(model.estimate.weightBytes))
+                FactLine(stringResource(R.string.fact_ram_at_load), formatBytes(totalBytes))
+                FactLine(stringResource(R.string.fact_fit), fitWord)
                 // A LiteRT-LM file does not expose its KV geometry, so the line is
                 // omitted rather than shown as 0 B, which would read as a claim.
                 model.estimate.kvBytes(loadContext)?.let { kv ->
                     FactLine("  of which KV cache", formatBytes(kv))
                 }
-                FactLine("Context at load", "$loadContext tokens")
+                FactLine(stringResource(R.string.fact_context_at_load), stringResource(R.string.fact_tokens, loadContext))
                 model.trainedContextLength?.let { trained ->
                     // The trained length is a property of the file, and it is NOT
                     // what this app will use. Shown because it is genuinely useful
                     // to know the model is capable of more, labelled so that it is
                     // never read as the size of the cache about to be allocated.
-                    FactLine("Model's own max context", "$trained tokens (not used)")
+                    FactLine(stringResource(R.string.fact_model_max_context), stringResource(R.string.fact_tokens_not_used, trained))
                 }
                 // The disclaimer the numbers above need: nothing has been profiled
                 // on a phone, so every RAM number is arithmetic on the file size and
@@ -766,7 +789,7 @@ private fun ModelRow(
             }
 
             if (technical && !model.hasChatTemplate) {
-                FactLine("Chat template", "missing — tool calls will be unreliable")
+                FactLine(stringResource(R.string.fact_chat_template), stringResource(R.string.fact_chat_template_missing))
             }
 
             if (!fits) {
@@ -804,7 +827,7 @@ private fun ModelRow(
             // so offer the real one from the provider when it disagrees.
             val resolved = remember(model.uri) { displayNameOf(context, model.uri) }
             if (technical && resolved != null && resolved != model.displayName) {
-                FactLine("File", resolved)
+                FactLine(stringResource(R.string.fact_file), resolved)
             }
 
             // The speed test sits under the resident model only: it measures the
@@ -813,6 +836,104 @@ private fun ModelRow(
             // is unloaded, labelled with the date, so it is not lost.
             if (technical && speedTest != null) {
                 SpeedTestSection(model = model, runner = speedTest, isLoaded = isLoaded)
+            }
+        }
+    }
+}
+
+/**
+ * Finds model servers on this Wi-Fi. Nothing is searched until Find is tapped, and a found server is
+ * shown as a plain row with its address and the sentence that messages go to that computer. Use makes
+ * it the chat model through the custom endpoint path; Forget clears it.
+ */
+@Composable
+private fun LanServersCard(
+    active: Boolean,
+    enabled: Boolean,
+    onFind: suspend () -> List<LanModelServer>,
+    onUse: suspend (LanModelServer) -> Boolean,
+    onForget: (() -> Unit)?,
+) {
+    val scope = rememberCoroutineScope()
+    var searching by remember { mutableStateOf(false) }
+    var found by remember { mutableStateOf<List<LanModelServer>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.lan_find_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = stringResource(R.string.lan_find_explain),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (active && onForget != null) {
+                TextButton(onClick = onForget, enabled = enabled) { Text(stringResource(R.string.lan_forget)) }
+            }
+            TextButton(
+                enabled = enabled && !searching,
+                onClick = {
+                    searching = true
+                    error = null
+                    found = null
+                    scope.launch {
+                        runCatching { onFind() }
+                            .onSuccess { found = it }
+                            .onFailure { error = it.message.orEmpty().take(120) }
+                        searching = false
+                    }
+                },
+            ) { Text(if (searching) stringResource(R.string.lan_finding) else stringResource(R.string.lan_find_button)) }
+            error?.let {
+                Text(
+                    text = stringResource(R.string.lan_find_failed, it),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            found?.let { servers ->
+                if (servers.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.lan_none_found),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                servers.forEach { server ->
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = stringResource(R.string.lan_server_line, server.name, server.address),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = stringResource(R.string.lan_server_model, server.models.firstOrNull() ?: stringResource(R.string.lan_no_model_listed)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = stringResource(R.string.lan_messages_go_there),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (server.models.isNotEmpty()) {
+                            TextButton(
+                                enabled = enabled,
+                                onClick = {
+                                    scope.launch {
+                                        runCatching { onUse(server) }
+                                        found = null
+                                    }
+                                },
+                            ) { Text(stringResource(R.string.use)) }
+                        }
+                    }
+                }
             }
         }
     }
@@ -839,6 +960,7 @@ private fun RemoteChatCard(
     onPickModel: ((String) -> Unit)?,
     onUse: () -> Unit,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var listing by remember { mutableStateOf(false) }
     var listed by remember { mutableStateOf<List<String>?>(null) }
@@ -849,7 +971,7 @@ private fun RemoteChatCard(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                text = "${offer.providerLabel}: ${offer.model.ifBlank { "no model chosen" }}",
+                text = "${offer.providerLabel}: ${offer.model.ifBlank { context.getString(R.string.no_model_chosen) }}",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -878,7 +1000,7 @@ private fun RemoteChatCard(
                                 .onSuccess { listed = it }
                                 .onFailure {
                                     listed = null
-                                    listError = "Could not list models. ${it.message.orEmpty().take(120)}"
+                                    listError = context.getString(R.string.could_not_list_models, it.message.orEmpty().take(120))
                                 }
                             listing = false
                         }

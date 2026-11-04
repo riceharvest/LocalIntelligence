@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import dev.localintelligence.app.LocalIntelligenceApp
 import dev.localintelligence.app.security.AppLock
 import dev.localintelligence.app.security.PinCheck
+import dev.localintelligence.app.settings.SettingText
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.core.security.PinCode
 import dev.localintelligence.core.settings.SettingDef
@@ -54,7 +55,7 @@ fun AppLockRow(store: SettingsStore, def: SettingDef.Toggle, help: String, note:
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(def.title, style = MaterialTheme.typography.bodyLarge)
+                Text(SettingText.title(LocalContext.current, def), style = MaterialTheme.typography.bodyLarge)
                 Text(help, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 note?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }

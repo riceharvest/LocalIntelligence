@@ -101,9 +101,29 @@ object RemoteProviderSettings {
         SettingSection.PLUGINS, default = "", maxLength = 300, blankMeansDefault = true,
     )
 
+    /**
+     * A model server found by Find on the Models page, as its base URL. Set only by that Find
+     * action; while it is set, remote chat goes to this server, and Forget clears it. Not
+     * Technical only: Simple mode reads a row as its default unless it is simple, so the
+     * found server would be lost there. The row is therefore simple, and Simple mode shows it.
+     */
+    val LAN_BASE_URL = SettingDef.Text(
+        "cloud.lan.base_url", "Server found on this network",
+        "Set by Find on the Models page. While it is set, messages go to this computer, not to " +
+            "the chat provider. Forget it on the Models page to go back.",
+        SettingSection.PLUGINS, default = "", maxLength = 300, blankMeansDefault = true, simple = true,
+    )
+
+    /** The model id listed by the found server. Blank: the custom model rule applies. */
+    val LAN_MODEL = SettingDef.Text(
+        "cloud.lan.model", "Model on the server found on this network",
+        "The model id the found server lists. Chosen by Find, or from its list on the Models page.",
+        SettingSection.PLUGINS, default = "", maxLength = 200, blankMeansDefault = true, simple = true,
+    )
+
     val all: List<SettingDef<*>> = listOf(
         PROVIDER, GROQ_KEY, CEREBRAS_KEY, DEEPSEEK_KEY, TOGETHER_KEY, MISTRAL_KEY, GEMINI_KEY,
-        CUSTOM_KEY, CUSTOM_BASE_URL,
+        CUSTOM_KEY, CUSTOM_BASE_URL, LAN_BASE_URL, LAN_MODEL,
     )
 
     private fun secret(key: String, title: String, site: String) = SettingDef.Secret(
@@ -157,6 +177,15 @@ object RemoteProviders {
      * model may still be blank; that is for the caller to report.
      */
     fun endpoint(reader: SettingsReader): RemoteEndpoint? {
+        // A server found on this network is the custom endpoint, and it wins over the chosen provider
+        // while it is set. Its own model id is used; blank falls back to the custom model rule.
+        normalizedCustomBase(reader[RemoteProviderSettings.LAN_BASE_URL])?.let { lanBase ->
+            val lanModel = reader[RemoteProviderSettings.LAN_MODEL].ifBlank { modelFor(reader, RemoteProvider.CUSTOM) }
+            return RemoteEndpoint(
+                RemoteProvider.CUSTOM, lanBase,
+                CredentialSource.keyFor(reader, RemoteProvider.CUSTOM), lanModel,
+            )
+        }
         val provider = selected(reader)
         val base = when (provider.fixedBaseUrl) {
             null -> normalizedCustomBase(reader[RemoteProviderSettings.CUSTOM_BASE_URL]) ?: return null

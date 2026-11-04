@@ -100,6 +100,24 @@ Consequences:
 If you find yourself wanting to `import android.*` in `:core`, the design is wrong.
 Push the platform out to a function type or an interface owned by `:core` instead.
 
+**Subtasks (added 2026-11-04, owner's decision).** The model may hand one self-contained job to a
+child run with `task.delegate`. This was ruled out before, because a second agent loop is a second
+set of state to get wrong on a phone. It is allowed now under these limits, all in `:core`:
+
+- One child at a time, on the same resident model, with a fresh session and a 6-step cap.
+  No nesting: the child's registry drops `task.delegate` and the loop refuses it again.
+- The child shares the parent's `RiskPolicy`. Its calls are judged against the user's own
+  message, never the goal the model wrote, so a child cannot gain a tool or a permission the
+  parent did not have. A child's confirmation goes to the user as a normal card.
+- Only the child's answer, capped at 600 characters, returns to the parent's context. The
+  child's steps are shown to the user in a folded row and never enter the parent's prompt.
+- After a child runs, the parent's prefix is re-prefilled through the existing `warmPrefix`
+  path. That path only does work in the native tool format; elsewhere the next step pays it.
+  The cost is unmeasured.
+
+The subtask is a tool call, so it uses the one output channel the model already has. The
+threat model is T13 in `docs/threat-model.md`.
+
 ---
 
 ## 3. Dependency graph
@@ -161,7 +179,8 @@ sealed interface AgentAction {
 ```
 
 Not `thought`. Not `plan`. Not `critique`. Not `confidence`. Not `reflection`.
-Not `subagent_request`. Not `state_mutation`.
+Not `subagent_request`: a subtask is the `task.delegate` tool call (section 2), not a new
+output kind. Not `state_mutation`.
 
 Reasoning stays inside the model. Everything the runtime must reason about is handled
 deterministically in Kotlin.
@@ -410,6 +429,21 @@ most) that goes into the system prompt; and **`history.search`**
 (`memory.history`), a read-only tool over earlier messages in Room. Documents
 (`documents.search`, BM25 over the user's files) are separate from memory.
 
+**The memory block (owner decision, 2026-11-04).** One text of at most 1,000
+characters (`MemoryBlock.TEXT`, a settings row, `memory.block.text`), shown to the model
+in every session as a line of the system prompt. The agent edits it through one tool,
+`memory.update_block` (REVERSIBLE; `add`, `replace` or `clear`), which is the only
+model-driven write to memory. Why the rule changed: the block is visible and editable
+in Settings, so nothing in it is hidden from the user. A write in a conversation that
+has read text from outside the phone (any NETWORK-origin observation still in the
+session) is refused unless the user's own message asks for it (`RiskPolicy`,
+`untrustedRead`). Confirmation alone is not enough for that case, because a
+clicked-through prompt would carry page text into the block.
+
+**Not built yet:** the chat row ("Remembered: ...") and its Undo, which the owner asked
+for. Until they exist, a change is visible only in Settings. Undo needs the previous text
+kept per change, and the row needs a ChatScreen hook; both are open.
+
 **Do not build model-based memory extraction.** No per-interaction classifier, no
 summarising model, no deduplication model, no consolidation pass. That is a lot of
 inference for an unmeasured benefit. The pattern filter in `MemoryWritePolicy` is the
@@ -600,6 +634,7 @@ order:
 
 | Hook | Where the loop calls it | What it can do |
 |---|---|---|
+| `toolScope` | once per run, before the tool list is built | narrow the tools the prompt and the grammar list (see 18c) |
 | `contextForStep` | building each request | add lines to the system prompt |
 | `beforeTool` | after validation, before the risk policy | deny the call with a reason |
 | `afterTool` | after the tool returns, before truncation | rewrite the observation |
@@ -678,6 +713,25 @@ Android 14+ forbids starting a `microphone` foreground service from `BOOT_COMPLE
 the app posts a `"Tap to resume listening"` notification instead.
 
 **Storage modes.** The app operates in two storage modes corresponding to the two distribution builds (docs/adr/0002-play-and-full-builds.md). The Google Play build uses scoped storage and the Storage Access Framework (SAF): files are accessed via `content://` URIs granted through the system file picker or Downloads inserts. The sideloaded `full` build declares `MANAGE_EXTERNAL_STORAGE` ("All files access"): when `Environment.isExternalStorageManager()` is granted, file tools accept plain absolute paths under `Environment.getExternalStorageDirectory()` (refusing traversal segments, escaping symlinks, and `Android/data`/`Android/obb`), returning filesystem paths next to `content://` URIs while ensuring any path outside app storage still triggers RiskPolicy step 4 confirmation.
+
+## 18c. Skill scope and repeat offers
+
+**Skill scope.** A `SKILL.md` with `allowed-tools:` restricts the run while the skill is matched.
+`PluginHooks.toolScope(task)` is asked once at the start of each run, before the tool list is built.
+The skills plugin returns the union of the matched skills' tools, or null when any matched skill names
+none, since that skill may need a tool the others do not name. The controller then lists only those
+tools plus the core tools (the saved-result reader, `tools.find` and the controller's own core list),
+and the grammar allows only the same set. `tools.find` lists and loads only those too. The session's
+tool list is not rewritten for a scoped run, so the next unscoped message gets the list it had. The
+`beforeTool` refusal stays as a backstop. A scoped run pays one prompt prefill, since the listed tools
+are in the cached prefix.
+
+**Repeat offers.** After the same request has been answered the same way three times, the chat offers
+one line, "Save this as a skill?" (`RepeatDetector`, `REQUESTS = 3`). A request matches when at least half
+its meaningful words are shared, and the runs use the same tools, each successful, with at least two
+tools. The match is lexical and on the phone, with no model call. It reads only the chat transcript,
+not other conversations. "Not now" is recorded per request key, so the offer does not come back for it.
+The setting is `skills.repeat_offer`.
 
 ## 19. Rules for every change
 

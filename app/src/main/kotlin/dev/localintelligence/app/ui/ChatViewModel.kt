@@ -15,6 +15,9 @@ import dev.localintelligence.app.AgentGateway
 import dev.localintelligence.app.BuildConfig
 import dev.localintelligence.app.ModelAvailability
 import dev.localintelligence.app.ModelAvailabilityHolder
+import dev.localintelligence.app.R
+import dev.localintelligence.android.tools.phonesearch.PhoneSearchLink
+import dev.localintelligence.android.tools.phonesearch.PhoneSearchLinks
 import dev.localintelligence.app.RunOutcome
 import dev.localintelligence.app.RunState
 import dev.localintelligence.app.RunningTool
@@ -31,6 +34,9 @@ import dev.localintelligence.app.media.ShownAttachment
 import dev.localintelligence.app.media.VoiceClipRecorder
 import dev.localintelligence.app.notice
 import dev.localintelligence.app.speech.Speaker
+import dev.localintelligence.app.photos.PhotoSearchHits
+import dev.localintelligence.core.agent.REPETITION_STOP_REASON
+import dev.localintelligence.core.agent.ReplySpeed
 import dev.localintelligence.core.agent.StepTrace
 import dev.localintelligence.core.context.GenerationProse
 import dev.localintelligence.core.model.ChatMessage as CoreChatMessage
@@ -136,6 +142,11 @@ class ChatViewModel(
     private val reportSender: ReplyReportSender? = null,
     /** The model that transcribes: the one resident now. Null in a host with no model. */
     private val transcriptionModel: () -> ModelBackend? = { null },
+    /**
+     * Keeps the process alive while a transcription runs: true when it starts, false when it ends.
+     * The host passes [dev.localintelligence.app.TranscriptionService]; a bare view model does nothing.
+     */
+    private val transcriptionForeground: (Boolean) -> Unit = {},
     /** Decodes a picked audio file into 30 s PCM chunks. Host-supplied because it needs a Context. */
     private val decodeAudio: suspend (String, suspend (ByteArray) -> Boolean) -> Unit = { _, _ -> },
     /** Where a saved transcript goes. Null in a host without the document store. */
@@ -178,6 +189,15 @@ class ChatViewModel(
     /** A one-line complaint from the composer, such as a refused photo. Null when there is none. */
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
+
+    /** The launch offer "That task was interrupted. Continue?". See [RunSinks.interruptedRun]. */
+    val interruptedRun: StateFlow<Boolean> get() = gateway.interruptedRun
+
+    /** Continue: the interrupted run goes on as a normal foreground run. */
+    fun continueInterrupted() = gateway.resumeInterrupted()
+
+    /** Dismiss: the offer goes away and is not shown again for that run. */
+    fun dismissInterrupted() = gateway.dismissInterrupted()
 
     /**
      * Hands-free mode. Declared before the `init` block below, which reads it: the collectors
@@ -552,7 +572,12 @@ class ChatViewModel(
                 false
             }
             is RunOutcome.Failed -> {
-                stopHandsFree("Hands-free stopped: something went wrong with the answer.")
+                val reason = if (outcome.reason == REPETITION_STOP_REASON) {
+                    "Hands-free stopped: the reply kept repeating itself."
+                } else {
+                    "Hands-free stopped: something went wrong with the answer."
+                }
+                stopHandsFree(reason)
                 false
             }
         }
@@ -639,6 +664,12 @@ class ChatViewModel(
 
         val generations = steps.filter { it.kind == StepTrace.Kind.GENERATION }
         val lastGeneration = generations.lastOrNull()
+        // Only a run whose photo search succeeded shows thumbnails; the holder is cleared by every search.
+        val searchedPhotos = steps.any { it.kind == StepTrace.Kind.TOOL_CALL && it.toolName == "photos.search" && it.success }
+        val shownPhotos = if (searchedPhotos) PhotoSearchHits.latest else emptyList()
+        // The same for phone.search: its rows open the items it found, under the final answer only.
+        val searchedPhone = steps.any { it.kind == StepTrace.Kind.TOOL_CALL && it.toolName == "phone.search" && it.success }
+        val shownPhoneLinks = if (searchedPhone) PhoneSearchLinks.latest else emptyList()
 
         // Built purely, then assigned once: `StateFlow.update` may run its block
         // more than once, so nothing here may have a side effect.
@@ -697,7 +728,11 @@ class ChatViewModel(
                     }
 
                     narrationPlacements += entry to (baseSize + base)
-                    additions += ChatMessage.Assistant(text, entry.thought)
+                    additions += ChatMessage.Assistant(
+                        text, entry.thought, entry.speed,
+                        photos = if (isFinal) shownPhotos else emptyList(),
+                        phoneLinks = if (isFinal) shownPhoneLinks else emptyList(),
+                    )
                     base += 1
                 }
 
@@ -735,6 +770,10 @@ class ChatViewModel(
                         // defaulted this to `true`, so a call the policy had
                         // refused rendered in the colour of a success.
                         success = observation?.success ?: false,
+                        changeId = observation?.changeId,
+                        subSteps = entry.children
+                            .filter { it.kind == StepTrace.Kind.TOOL_CALL }
+                            .map { it.detail.take(SUBSTEP_CHARS) },
                     )
                     base += 1
                 }
@@ -819,7 +858,9 @@ class ChatViewModel(
             is RunOutcome.Cancelled -> if (hasPartialText) CANCELLED_MID_ANSWER else outcome.transcriptLine()
             else -> outcome.transcriptLine()
         }
-        appendRows(listOf(ChatMessage.Notice(notice)))
+        // A repetition stop is not a failure to explain: say what happened, in the app's own words.
+        val repeated = outcome is RunOutcome.Failed && outcome.reason == REPETITION_STOP_REASON
+        appendRows(listOf(if (repeated) ChatMessage.Notice(REPEATED_STOP_TEXT, R.string.chat_repetition_stopped) else ChatMessage.Notice(notice)))
     }
 
     /**
@@ -1171,6 +1212,7 @@ class ChatViewModel(
         transcribeStopped = false
         transcribingWith = backend
         _transcribing.value = true
+        transcriptionForeground(true)
         _notice.value = null
         val text = StringBuilder()
         var row = ChatMessage.Transcript(TRANSCRIPT_TITLE, "", running = true)
@@ -1206,6 +1248,7 @@ class ChatViewModel(
             } finally {
                 transcribingWith = null
                 _transcribing.value = false
+                transcriptionForeground(false)
                 redraw(running = false)
                 failure?.let { showNotice(it) }
             }
@@ -1358,6 +1401,7 @@ class ChatViewModel(
         private val readPicture: (String) -> PendingAttachment? = { null },
         private val reportSender: ReplyReportSender? = null,
         private val transcriptionModel: () -> ModelBackend? = { null },
+        private val transcriptionForeground: (Boolean) -> Unit = {},
         private val decodeAudio: suspend (String, suspend (ByteArray) -> Boolean) -> Unit = { _, _ -> },
         private val documents: DocumentStore? = null,
     ) : ViewModelProvider.Factory {
@@ -1386,6 +1430,7 @@ class ChatViewModel(
                 readPicture = readPicture,
                 reportSender = reportSender,
                 transcriptionModel = transcriptionModel,
+                transcriptionForeground = transcriptionForeground,
                 decodeAudio = decodeAudio,
                 documents = documents,
             ) as T
@@ -1455,6 +1500,9 @@ class ChatViewModel(
  * gigabytes of weights the same process is already holding resident.
  */
 private const val MAX_TRANSCRIPT_ROWS = 200
+
+/** Characters of one subtask step shown under its row. */
+private const val SUBSTEP_CHARS = 160
 
 /** The most photos one message carries. A vision encoder's cost grows with each one. */
 internal const val MAX_PICTURES_PER_MESSAGE = 3
@@ -1532,9 +1580,23 @@ sealed interface ChatMessage {
     /**
      * A finished answer. [thought] is the model's reasoning for it, when the model thought
      * and the reply carried it; shown folded above the answer and never sent back to the model.
+     * [speed] is the generation's own counts and timers, shown in Technical mode only and only for
+     * replies made in this session (a reloaded transcript has none).
      */
-    data class Assistant(val text: String, val thought: String? = null) : ChatMessage
-    data class Notice(val text: String) : ChatMessage
+    data class Assistant(
+        val text: String,
+        val thought: String? = null,
+        val speed: ReplySpeed? = null,
+        /** Photo URIs a `photos.search` in this run found, shown as thumbnails under the final answer. */
+        val photos: List<String> = emptyList(),
+        /** Rows a `phone.search` in this run found, each opening its item, shown under the final answer. */
+        val phoneLinks: List<PhoneSearchLink> = emptyList(),
+    ) : ChatMessage
+    /**
+     * [text] is the English fallback (it is what the export writes). [textRes], when set, is the string
+     * the chat shows instead, so a notice can be translated.
+     */
+    data class Notice(val text: String, val textRes: Int? = null) : ChatMessage
 
     /**
      * A transcript of a picked audio file. [text] grows while [running] is true, one chunk
@@ -1567,6 +1629,10 @@ sealed interface ChatMessage {
         val detail: String,
         val durationMs: Long,
         val success: Boolean,
+        /** The memory-block change this call made, when it wrote the block: the row offers Undo for it. */
+        val changeId: Long? = null,
+        /** For `task.delegate`: one line per tool call the subtask made, shown folded under the row. Empty otherwise. */
+        val subSteps: List<String> = emptyList(),
     ) : ChatMessage {
         /**
          * Fills in the result that arrived after this row was drawn.
@@ -1579,6 +1645,7 @@ sealed interface ChatMessage {
             observation = observation.detail,
             durationMs = observation.durationMs,
             success = observation.success,
+            changeId = observation.changeId ?: changeId,
         )
     }
 
@@ -1621,6 +1688,9 @@ internal fun RunOutcome.transcriptLine(): String = when (this) {
     RunOutcome.Cancelled -> "Stopped."
     is RunOutcome.Answer -> notice
 }
+
+/** The English text of a repetition stop, for the export. The chat shows the string resource instead. */
+private const val REPEATED_STOP_TEXT = "The reply kept repeating itself, so I stopped it. Try asking again."
 
 /** The start of the runtime's reason when the prompt no longer fits the context window. */
 private const val CONTEXT_TOO_SMALL = "context window too small"

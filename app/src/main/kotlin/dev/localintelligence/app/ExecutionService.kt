@@ -177,6 +177,23 @@ class ExecutionService : Service() {
                 )
             }
 
+            ACTION_RESUME -> {
+                // The Continue offer: an ordinary foreground run that picks up the restored window.
+                // Nothing is sent as a new turn, so the task is an empty string here.
+                startTaskForeground()
+                startRun("", null, startId, null, null, resume = true)
+            }
+
+            ACTION_DISMISS_INTERRUPTED -> {
+                // A plain startService, like ACTION_CONFIRM: nothing to run, so when no run is live
+                // this service has to stop itself rather than stay resident.
+                container.dismissInterruptedRun()
+                if (agent == null) {
+                    stopForegroundAndSelf()
+                    return START_NOT_STICKY
+                }
+            }
+
             ACTION_CONFIRM -> {
                 // Already foreground: a run awaiting approval never stopped the
                 // service. If the process died in between there is no controller
@@ -263,6 +280,8 @@ class ExecutionService : Service() {
         // the same sentence the watcher would have written had it lived long
         // enough to see the cancel land.
         reportOutcome(sinks.state.value, interruptedIfUnfinished = true)
+        // A run that ends with the service is over, so it is no longer offered for Continue.
+        container.clearRunInFlight()
         agent?.cancel()
         watcher?.cancel()
         stopForegroundAndSelf()
@@ -284,6 +303,7 @@ class ExecutionService : Service() {
         startId: Int,
         replyChat: Long?,
         replacing: String?,
+        resume: Boolean = false,
     ) {
         // One run at a time, across BOTH entry points.
         //
@@ -393,6 +413,9 @@ class ExecutionService : Service() {
                         sinks.trace.value = snapshot
                         sinks.streamingText.value = ""
                         sinks.runningTool.value = null
+                        // Each finished tool result is written now, not at run end, so a process that
+                        // dies mid-run leaves its finished steps in the store for Continue to use.
+                        container.persistProgress()
                     },
                     // A rejected reply was streamed into the live bubble; clear it before the
                     // model is asked again, so the redo is the only text on screen.
@@ -407,7 +430,7 @@ class ExecutionService : Service() {
             attachments = if (!unattended) container.pendingAttachments else null,
         )
         this.agent = agent
-        agent.prepareThenStart(task) {
+        agent.prepareThenStart(task, resume = resume) {
             // ONE load, exactly as before. This is the same call
             // `ensureModelReady` always got — the wrapper only *records what it
             // returned*, so the reporter can tell "the run was blocked before it
@@ -420,6 +443,9 @@ class ExecutionService : Service() {
             // here after a restart too. The replace runs even when the model is not ready: the chat
             // already shows that turn as replaced, and the stored conversation has to agree with it.
             if (replacing == null || container.replaceLastTurn(replacing)) {
+                // The mark is set only for a foreground run that can really start. A scheduled or
+                // Telegram run is unattended and is never offered after a kill, so it sets no mark.
+                if (!unattended && ready.canRun) container.markRunInFlight()
                 ready
             } else {
                 ModelAvailability.Failed("The message to replace is no longer the last one. Nothing was run.")
@@ -707,6 +733,8 @@ class ExecutionService : Service() {
         const val ACTION_START = "dev.localintelligence.app.START"
         const val ACTION_CONFIRM = "dev.localintelligence.app.CONFIRM"
         const val ACTION_CANCEL = "dev.localintelligence.app.CANCEL"
+        const val ACTION_RESUME = "dev.localintelligence.app.RESUME"
+        const val ACTION_DISMISS_INTERRUPTED = "dev.localintelligence.app.DISMISS_INTERRUPTED"
         const val EXTRA_TASK = "task"
         const val EXTRA_APPROVED = "approved"
 
@@ -781,6 +809,18 @@ class ExecutionService : Service() {
             context.startService(intent)
         }
 
+        /** The Continue button of the launch offer. A normal foreground start, so it is claimed and reported like any run. */
+        fun resume(context: Context) {
+            val intent = Intent(context, ExecutionService::class.java).setAction(ACTION_RESUME)
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        /** The Dismiss button of the launch offer. A plain startService, like [confirm]. */
+        fun dismissInterrupted(context: Context) {
+            val intent = Intent(context, ExecutionService::class.java).setAction(ACTION_DISMISS_INTERRUPTED)
+            runCatching { context.startService(intent) }
+        }
+
         /**
          * The STOP button. `runCatching` because the service may legitimately be
          * gone by the time a user hits Stop on a result that just finished, and a
@@ -841,9 +881,25 @@ class ServiceAgentGateway(
     override val streamingText: StateFlow<String> get() = sinks.streamingText
     override val runningTool: StateFlow<RunningTool?> get() = sinks.runningTool
 
-    override fun start(task: String, replacing: String?) = ExecutionService.start(context, task, replacing = replacing)
+    override fun start(task: String, replacing: String?) {
+        // A new message answers the offer by passing it: the interrupted run is not continued.
+        sinks.interruptedRun.value = false
+        ExecutionService.start(context, task, replacing = replacing)
+    }
 
     override fun confirm(approved: Boolean) = ExecutionService.confirm(context, approved)
 
     override fun cancel() = ExecutionService.cancel(context)
+
+    override val interruptedRun: StateFlow<Boolean> get() = sinks.interruptedRun
+
+    override fun resumeInterrupted() {
+        sinks.interruptedRun.value = false
+        ExecutionService.resume(context)
+    }
+
+    override fun dismissInterrupted() {
+        sinks.interruptedRun.value = false
+        ExecutionService.dismissInterrupted(context)
+    }
 }

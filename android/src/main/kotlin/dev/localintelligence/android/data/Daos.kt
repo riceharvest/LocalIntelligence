@@ -18,6 +18,18 @@ interface SessionDao {
     @Query("UPDATE sessions SET last_active_at = :at WHERE id = :id")
     suspend fun touch(id: Long, at: Long): Int
 
+    @Query("UPDATE sessions SET run_in_flight = :inFlight WHERE id = :id")
+    suspend fun setRunInFlight(id: Long, inFlight: Boolean): Int
+
+    @Query("SELECT run_in_flight FROM sessions WHERE id = :id")
+    suspend fun runInFlight(id: Long): Boolean?
+
+    @Query("UPDATE sessions SET todo_json = :json WHERE id = :id")
+    suspend fun setTodoJson(id: Long, json: String?): Int
+
+    @Query("SELECT todo_json FROM sessions WHERE id = :id")
+    suspend fun todoJson(id: Long): String?
+
     @Query("SELECT COUNT(*) FROM sessions")
     suspend fun count(): Int
 

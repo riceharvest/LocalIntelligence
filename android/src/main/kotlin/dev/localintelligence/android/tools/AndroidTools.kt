@@ -6,6 +6,7 @@ import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.android.tools.alarm.alarmTools
 import dev.localintelligence.android.tools.apps.appTools
 import dev.localintelligence.android.tools.calendar.calendarTools
+import dev.localintelligence.android.tools.subtask.subtaskTools
 import dev.localintelligence.android.tools.clipboard.clipboardTools
 import dev.localintelligence.android.tools.contacts.contactsTools
 import dev.localintelligence.android.tools.device.deviceTools
@@ -16,10 +17,15 @@ import dev.localintelligence.android.tools.messages.messageTools
 import dev.localintelligence.android.tools.files.fileTools
 import dev.localintelligence.android.tools.notifications.notificationTools
 import dev.localintelligence.android.tools.phone.phoneTools
+import dev.localintelligence.android.tools.memory.MemoryBlockFamily
+import dev.localintelligence.android.tools.phonesearch.phoneSearchTools
 import dev.localintelligence.android.tools.observations.observationTools
+import dev.localintelligence.android.tools.todo.todoTools
+import dev.localintelligence.core.agent.TodoList
 import dev.localintelligence.android.tools.info.infoTools
 import dev.localintelligence.android.tools.web.WebSearchSettings
 import dev.localintelligence.android.tools.web.webTools
+import dev.localintelligence.core.memory.MemoryBlockStore
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingsReader
 import dev.localintelligence.core.tool.AgentTool
@@ -79,6 +85,7 @@ fun androidTools(context: Context, settings: SettingsReader): List<AgentTool> {
         addAll(draftTools(appContext))
         addAll(observationTools(lazyObservationStore(appContext)))
         addAll(historyTools(appContext))
+        addAll(phoneSearchTools(appContext, settings))
     }
     return requireCatalogueAgreement(tools)
 }
@@ -90,7 +97,12 @@ fun androidTools(context: Context, settings: SettingsReader): List<AgentTool> {
  * Catalogue agreement is checked over all of them at once, before any is
  * switched off, so a disabled family cannot hide a drifted risk tier.
  */
-fun androidToolPlugins(context: Context, settings: SettingsReader): List<AgentPlugin> {
+fun androidToolPlugins(
+    context: Context,
+    settings: SettingsReader,
+    todos: TodoList,
+    memoryBlock: MemoryBlockStore? = null,
+): List<AgentPlugin> {
     val app = context.applicationContext
     val grant = AndroidPlatformGrant(app)
     val families = listOf(
@@ -121,6 +133,12 @@ fun androidToolPlugins(context: Context, settings: SettingsReader): List<AgentPl
         },
         ToolFamily("tools.location", "Location", "Current approximate location") { locationTools(app, grant) },
         ToolFamily("tools.drafts", "Drafts", "Open a message or email draft for you to send") { draftTools(app) },
+        ToolFamily("tools.subtask", "Subtasks", "Hand a job to a helper run on this model") { subtaskTools() },
+        // Not a user switch, and not listed in Settings: the list is part of how the agent
+        // plans every multi-step task, and it needs no permission. See TODO_FAMILY_ID.
+        ToolFamily(TODO_FAMILY_ID, "Task list", "Keep a checklist for a multi-step task") {
+            todoTools(todos)
+        },
         // Not a user switch: a long result's preview tells the model to call this tool,
         // so turning it off would leave that instruction pointing at nothing. The
         // Settings screen skips it; see OBSERVATIONS_FAMILY_ID.
@@ -130,9 +148,15 @@ fun androidToolPlugins(context: Context, settings: SettingsReader): List<AgentPl
         ToolFamily("memory.history", "Past chats", "Search what was said in earlier conversations") {
             historyTools(app)
         },
+        ToolFamily(
+            "tools.phone_search", "Search my phone",
+            "Finds what you chose to index in Search my phone: notifications, texts, calendar, contact names, files and photo captions",
+        ) { phoneSearchTools(app, settings) },
     )
-    requireCatalogueAgreement(families.flatMap { it.tools() })
-    return families
+    // The memory block family exists only when the app passes a store. Its tool is in the catalogue.
+    val all: List<AgentPlugin> = families + listOfNotNull<AgentPlugin>(memoryBlock?.let { MemoryBlockFamily(it) })
+    requireCatalogueAgreement(all.flatMap { it.tools() })
+    return all
 }
 
 /**
@@ -140,6 +164,9 @@ fun androidToolPlugins(context: Context, settings: SettingsReader): List<AgentPl
  * Settings, because the preview of every long tool result names the tool.
  */
 const val OBSERVATIONS_FAMILY_ID: String = "tools.observations"
+
+/** Id of the task-list family (`todo.update`). Always on and not listed in Settings, like the saved-results family. */
+const val TODO_FAMILY_ID: String = "tools.todo"
 
 private class ToolFamily(
     override val id: String,

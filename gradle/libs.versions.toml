@@ -39,6 +39,9 @@ litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", ve
 # (google-ai-edge/LiteRT#7787). 0.17.1 + 2.3.0 is the pair that has run on a
 # Pixel 10 Pro (off-grid-ai/OGAM#702). Change both together.
 litert-npu-google-tensor = { module = "com.google.ai.edge.litert:litert-npu-runtime-google-tensor", version = "2.3.0" }
+# Gemini Nano through ML Kit GenAI Prompt (AICore). Beta. Its minSdk is 26, the same as
+# the app, so no SDK_INT gate is needed; genai-common is its transitive dependency.
+genai-prompt = { module = "com.google.mlkit:genai-prompt", version = "1.0.0-beta3" }
 
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }

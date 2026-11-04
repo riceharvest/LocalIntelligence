@@ -15,6 +15,7 @@ threat model does not apply.
 |---|---|---|
 | Conversation history | Room `sessions` DB | High — may contain personal detail |
 | Long-term memory | Room `memories` DB | High — extracted from conversations |
+| Memory block | Settings row `memory.block.text` | High — written by the agent on request, visible and reversible |
 | Files, contacts, calendar | Android OS, via tools | High |
 | Model weights | App storage | Low — freely redistributable |
 | HF API token | Android Keystore | High — never in a DB or a log |
@@ -52,6 +53,16 @@ Mitigations in place:
   reads only user turns.
 - Credentials are excluded from automatic memory entirely, so an injected
   "remember that my password is X" cannot persist.
+- **Memory block writes (2026-11-04).** The agent may edit the memory block
+  through `memory.update_block`. The rule changed, and this is why: the block is
+  visible and editable in Settings, so a write is not a hidden persistence path.
+  The chat row and Undo the owner asked for are NOT built yet, so today a write is
+  visible only in Settings (see docs/architecture.md section 14).
+  The write is blocked, not confirmed, in any conversation that has read text
+  from outside the phone (`RiskPolicy`, `untrustedRead`), unless the user's own
+  message asks for it. Confirmation alone would not do: a user who clicks through
+  a prompt would carry a page's text into the block. Extraction by a separate
+  model pass stays banned.
 
 **Known limits.** All of this is instruction- and structure-level, not
 sandboxing. There is no capability system: a model that is talked into calling
@@ -218,6 +229,7 @@ account. Nothing is sent before then. The shared rules are enforced in code:
 | Email (`email.*`) | Technical mode and an app password (Gmail, iCloud, Fastmail or custom) | TLS only. Connections open per call, with no background sync. `email.send` asks, and the card shows to, subject and full body. Mail text is fenced. |
 | Home Assistant (`home.*`) | Technical mode, the user's address and token | `home.secure` (lock and cover) is `DESTRUCTIVE`. Alarm panels are refused. Loopback and link-local addresses are refused in both schemes. |
 | Texts and call log (`sms.*`, `calls.recent`) | The app is the default assistant (`RoleManager.ROLE_ASSISTANT`), checked on every call | Reads are only for the default assistant, and the permission dialogs are withheld until the role is held. `sms.send` and `phone.call` ask. Texts are fenced. |
+| Search my phone (`phone.search`, table `phone_index`) | Each source is a Settings switch, off by default. Texts also need the default assistant role, checked on every read. Unattended Play runs do not get the tool at all (`PLAY_ATTENDED_ONLY_TOOLS`). The charger refresh reads texts only in the full build. | The index is in the app's own database and sends nothing. Contact names only, never numbers. Notifications are kept only from when the switch is on. Results are fenced as network text. Deleting a source removes its rows, and a refresh drops rows for items that no longer exist on the phone. A cloud chat model that answers the run receives the matches, as with any tool result. |
 | Search providers (`web.search`) | Technical mode and the user's key for Brave, Tavily or Exa, or the user's SearXNG address | A provider error is reported as an error. The search does not fall back to another provider, because the user chose where the query goes. |
 | Remote chat presets | Technical mode and the key for each provider | The conversation goes only to the endpoint the user chose. OpenRouter-only request fields are sent only to OpenRouter. Model lists come from that provider's `GET /models`. |
 | Extras (Play subscription) | A Play purchase. Not offered until the Extras server is deployed (`EXTRAS_BACKEND_URL`) | The Extras server sees the Play purchase token and a random install id. It stores only SHA-256 hashes of tokens and install ids, and AES-GCM encrypts provider keys. Provider keys carry monthly limits. The app sends only over https. A paused, ended or refunded subscription disables the keys. |
@@ -230,6 +242,10 @@ account. Nothing is sent before then. The shared rules are enforced in code:
   deletes them yet.
 - The text-only address check in T2 applies to every host in this table, including the
   user's own Daytona, SSH and custom endpoints. Nothing resolves DNS at validation time.
+- Search my phone is keyword search only (BM25). The embedding model is not used, so a question
+  worded differently from a text or file is not found. Notifications are kept as the phone shows
+  them, so a one-time code in a notification is in the index until it is deleted or aged out
+  (2000 items per source). The charger refresh has not been run on a phone.
 - The Telegram, sandbox, browser, email, Home Assistant and Extras paths have not been run
   against their live services. No key has been used against a real account yet.
 
@@ -348,6 +364,83 @@ Mitigations in code:
 - The server reads only `messages`, `max_tokens`, `temperature`, `top_p`, and `stream`. Other
   OpenAI fields (`stop`, `n`, `logprobs`, `tools`) are ignored or refused, so a client cannot
   rely on them.
+
+### T13. A subtask acts beyond what the user asked — mitigated, with stated gaps
+
+`task.delegate` (`AgentController.delegate`, `Subtask.kt`) runs a child run on the same model with its
+own session, a 6-step cap, and the tools the model named. It is `REVERSIBLE`, and because no message
+names it, the policy asks before the first one runs (`NOT_REQUESTED`).
+
+**Threat.** A model could hand a job to a subtask to get around a confirmation: a child calls a tool the
+user never asked for, or a tool the parent may not call, or it invents a phone number the user never
+gave, or it reads outside its own goal and steers the parent with the answer.
+
+**Mitigations.**
+- The child's calls are the barrier. `task.delegate` itself is not confirmed as "not requested": it only
+  starts a child (`NOT_REQUESTED_EXEMPT` in `RiskPolicy`). Every call the child makes is judged on its own
+  against the parent's own user message, never the goal the model wrote, so a goal that names a tool cannot
+  grant it. A child's confirmation still reaches the user, so a call that needs one still asks.
+- The child shares the parent's `RiskPolicy`, so one blast radius covers both.
+- A child's grounded phone numbers are the parent's, not the goal's. A number written into the goal is
+  refused like any other ungrounded number.
+- A child that needs a confirmation raises it to the user as a normal card. The answer is forwarded to the
+  child. Declining is handled the same way as in a run of the user's own.
+- The child's registry drops `task.delegate`, and the loop refuses it again. There is no nesting.
+- Only the child's answer, capped at 600 characters, comes back, and it is fenced as untrusted text
+  (`task.delegate` uses the default `NETWORK` origin). The child's steps are shown to the user, never
+  sent to the parent's model.
+- A child gets no memory write (`turnRecorder` is null), no metrics, and no UI callbacks of its own.
+- Stop cancels the running or parked child.
+
+**Stated gaps.**
+- A child's model-visible tools are the parent's list, not a fixed safe list, when the model names none.
+  Each of those calls is still judged by the policy, but the set of tools a child can reach is wider than a
+  narrow allow-list would give. The user sees each guarded call.
+- The child reads memories for its own goal. Those are the same user's memories, but they are read for a
+  job the user did not phrase.
+- Plugin hooks are shared, so a plugin veto still applies to a child's calls. `onRunEnd` does not fire for a
+  child, so a plugin that counts runs counts the user's turn once.
+- Nothing is measured yet: the child's cost on a phone, and whether a 6-step child can finish a job at all.
+
+### T14. My desktop bridge — full build, opt-in, Tailscale-identity-checked
+
+`desktop-bridge/desklink.py` runs on the user's own computer, bound to 127.0.0.1 and published only by
+`tailscale serve`. The phone's My desktop screen (full build only) lists the coding agents there, shows
+their terminal text, sends messages and single keys to them. Nothing starts by itself.
+
+**Threat.** A key press or message is an input to a coding agent that can run commands on that desktop.
+Anyone who reaches the bridge could approve or send. Text read back is untrusted: it is what a coding agent
+printed, and it can contain instructions from a web page or a file.
+
+Mitigations in code:
+
+- Loopback only (`127.0.0.1`), and `tailscale serve` is the only route in. The bridge refuses any request
+  without a `Tailscale-User-Login` header, or whose value differs from `--login`, compared in constant time.
+  Tailscale does not fill that header for tagged devices, so those are refused.
+- A request with an `Origin` header is refused, which stops a browser page from reaching the bridge through
+  the user's browser. The `Host` header must be one the bridge expects.
+- Keys are a fixed list (`1 2 3 y n enter esc up down`); a key outside it is refused. There is no ctrl+c and
+  no shell. Messages go through the agent's own prompt command, with an argument list, never a shell.
+- Each key press carries the state sequence number the user saw. If the agent has changed, the bridge
+  refuses with `stale`, so a tap cannot answer a question the user did not read.
+- A message to a blocked agent is refused (`agent_blocked`), so nothing is typed into an approval dialog.
+- Notifications (ntfy) carry a fixed title and no agent name or terminal text.
+- The phone accepts only an `https://` address. Cached text is read-only and shows no answer buttons.
+- The phone does not send desktop text to a model. Nothing in the app reads it except the screen.
+
+**Stated gaps:**
+
+- Tailscale's documentation says identity headers can be set by a client that reaches the service without
+  serve. On loopback, that needs code already running as the user on the desktop, which can reach the agents
+  anyway. The check defends against other tailnet devices and users, not against local code.
+- The ntfy topic is a name, not a secret: anyone who knows it can see that a notification was sent, but not
+  the agent name or text, which the bridge never includes.
+- Live text uses a 1.5 s re-read on the desktop while a view is open. The bridge does not subscribe to
+  herdr's event stream. tmux agents have no status, so they send no notifications.
+- Herdr's output shapes for `agent read`, `prompt` and `wait` were taken from its help and API schema. They
+  have not been run against live agents. The bridge handles a plain-text read and a JSON-wrapped read.
+- The phone's cache of read text is in the app's database, so it is included wherever the app data goes.
+  This entry describes the code; nothing has run on a device.
 
 ## Deliberately not defended
 
