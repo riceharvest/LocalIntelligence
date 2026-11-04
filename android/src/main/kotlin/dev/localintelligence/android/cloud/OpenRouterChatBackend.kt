@@ -151,6 +151,7 @@ class OpenRouterChatBackend(
                 stopReason = stream.stop,
                 prefillMs = stream.firstTokenMs,
                 decodeMs = stream.decodeMs(startedAt),
+                firstTokenMs = stream.firstTokenMs.takeIf { it > 0L },
             )
         } catch (e: CancellationException) {
             throw e

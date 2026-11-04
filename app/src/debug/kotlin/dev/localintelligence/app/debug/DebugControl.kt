@@ -288,8 +288,9 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
  * The DONE line: one JSON object per run, with null for anything the run did not measure.
  *
  * WHY nulls: GenerationResult defaults its numbers to zero when a backend does not
- * report them, so a zero here means "not reported" and is shown as null. Tokens reused
- * and first-token time are not carried by the metrics at all, so they are always null.
+ * report them, so a zero here means "not reported" and is shown as null. Reused tokens
+ * and first-token time are null-typed on the result: a backend that does not report
+ * them gets null here, never a figure derived from the whole prompt.
  */
 private fun doneLine(
     result: AgentResult,
@@ -372,15 +373,14 @@ private fun generationRow(g: GenerationRecord): JSONObject {
     } else {
         null
     }
+    val prefillTokPerS = g.prefillTokensPerSecond?.let { Math.round(it * 100.0) / 100.0 }
     return JSONObject()
         .put("promptTokens", g.promptTokens.nonZero())
-        // The metrics do not carry the prompt-prefix reuse count, so the tokens actually prefilled are unknown.
-        // That makes prefill tok/s unknown too.
-        .put("tokensReused", JSONObject.NULL)
+        .put("tokensReused", g.reusedTokens ?: JSONObject.NULL)
+        .put("tokensPrefilled", g.prefilledTokens ?: JSONObject.NULL)
         .put("prefillMs", g.prefillMs.takeIf { it > 0 } ?: JSONObject.NULL)
-        .put("prefillTokPerS", JSONObject.NULL)
-        // Not measured by the run: the generation result has no time-to-first-token field.
-        .put("firstTokenMs", JSONObject.NULL)
+        .put("prefillTokPerS", prefillTokPerS ?: JSONObject.NULL)
+        .put("firstTokenMs", g.firstTokenMs ?: JSONObject.NULL)
         .put("decodeTokens", g.completionTokens.nonZero())
         .put("decodeTokPerS", decodeTokPerS ?: JSONObject.NULL)
         .put("stop", g.stopReason.name)

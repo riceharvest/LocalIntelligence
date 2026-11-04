@@ -4,6 +4,8 @@ import dev.localintelligence.core.agent.StepTrace
 import dev.localintelligence.core.model.GenerationResult
 import dev.localintelligence.core.model.StopReason
 import dev.localintelligence.core.model.ToolArgs
+import dev.localintelligence.core.model.prefillRateOf
+import dev.localintelligence.core.model.prefilledTokensOf
 
 /**
  * One generation as the backend reported it. Zero means "not reported", which is
@@ -15,7 +17,14 @@ data class GenerationRecord(
     val prefillMs: Long,
     val decodeMs: Long,
     val stopReason: StopReason,
-)
+    /** Prompt tokens reused from an earlier step; null when the backend did not report it. */
+    val reusedTokens: Int? = null,
+    /** Milliseconds from request start to the first token; null when the backend did not report it. */
+    val firstTokenMs: Long? = null,
+) {
+    val prefilledTokens: Int? get() = prefilledTokensOf(promptTokens, reusedTokens)
+    val prefillTokensPerSecond: Double? get() = prefillRateOf(prefilledTokens, prefillMs)
+}
 
 /**
  * Accumulates one run's metrics while it happens, and hands back a [RunMetrics].
@@ -78,6 +87,8 @@ class RunRecorder(
             prefillMs = result.prefillMs,
             decodeMs = result.decodeMs,
             stopReason = result.stopReason,
+            reusedTokens = result.reusedTokens,
+            firstTokenMs = result.firstTokenMs,
         )
         inputTokens += result.promptTokens
         outputTokens += result.completionTokens

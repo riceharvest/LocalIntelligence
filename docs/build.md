@@ -260,6 +260,9 @@ Raw form, for the flavor you want: `adb shell am broadcast -n dev.localintellige
 Every run ends with one `LIControl` line at INFO, `DONE {json}`: `outcome` (answer, failed, step_limit,
 cancelled), `answer` (capped at 3,000 characters, with `answerCut`), `total_ms`, `tools` (name, success, ms;
 ms is null for a call the runtime refused), and `generations` (per generation: `promptTokens`, `decodeTokens`,
-`decodeTokPerS`, `prefillMs`, and `stop`). Values the run did not measure are null. Today that means
-`tokensReused`, `prefillTokPerS` and `firstTokenMs` are always null, because the metrics do not carry them.
+`decodeTokPerS`, `prefillMs`, and `stop`). Values the run did not measure are null. On llama.cpp every
+generation carries `tokensReused` (prompt tokens restored from the previous step), `tokensPrefilled`
+(promptTokens minus reused), `prefillTokPerS` (tokensPrefilled over prefillMs) and `firstTokenMs` (request start to
+the first sampled token). Remote, LiteRT-LM and Gemini Nano report `firstTokenMs` only: their reuse is not
+known, so `tokensReused`, `tokensPrefilled` and `prefillTokPerS` are null there.
 `ask` clears the whole logcat buffer before it sends, because logcat has no per-tag clear.

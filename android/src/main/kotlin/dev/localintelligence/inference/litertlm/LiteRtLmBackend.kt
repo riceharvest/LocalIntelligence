@@ -989,6 +989,7 @@ class LiteRtLmBackend(
             stopReason = stop,
             prefillMs = firstTokenMs,
             decodeMs = decodeMs,
+            firstTokenMs = if (firstTokenAt > 0L) firstTokenMs else null,
         )
     }
 

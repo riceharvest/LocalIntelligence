@@ -866,14 +866,16 @@ private fun AssistantBubble(
  */
 /**
  * The Technical speed line under a reply: prefill rate, first-token time, decode rate. A rate
- * whose timer or count is zero reads as "n/a", never as a figure made up from nothing.
+ * whose timer or count is zero, and a first-token time the backend did not report, read as "n/a",
+ * never as a figure made up from nothing.
  */
 @Composable
 private fun replySpeedLine(speed: ReplySpeed): String {
     val na = stringResource(R.string.reply_speed_not_available)
     val prefill = speed.prefillTokensPerSecond?.let { "%.1f".format(it) } ?: na
+    val firstToken = speed.firstTokenMs?.let { "$it ms" } ?: na
     val decode = speed.decodeTokensPerSecond?.let { "%.1f".format(it) } ?: na
-    return stringResource(R.string.reply_speed_line, prefill, speed.prefillMs, decode)
+    return stringResource(R.string.reply_speed_line, prefill, firstToken, decode)
 }
 
 @Composable

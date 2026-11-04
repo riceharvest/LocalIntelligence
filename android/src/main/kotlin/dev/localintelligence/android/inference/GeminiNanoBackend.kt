@@ -243,6 +243,7 @@ class GeminiNanoBackend(
             stopReason = stop,
             prefillMs = firstMs,
             decodeMs = ((now - startedAt) / 1_000_000 - firstMs).coerceAtLeast(0L),
+            firstTokenMs = if (firstTokenAt > 0L) firstMs else null,
         )
     }
 

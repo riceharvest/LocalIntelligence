@@ -1409,7 +1409,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeTakeResult(JNIEnv
     }
     std::lock_guard<std::mutex> lock(h->outcome_mutex);
     // Serialised so JNI carries one string instead of a struct:
-    //   stop|promptTokens|completionTokens|prefillMs|decodeMs|error|<text>
+    //   stop|promptTokens|completionTokens|prefillMs|decodeMs|reused|firstTokenMs|error|<text>
+    // reused and firstTokenMs are -1 when the generation never reached them; LlamaBridge reads -1 as null.
     std::string out;
     out += std::to_string(h->outcome.stop);
     out += '|';
@@ -1420,6 +1421,10 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeTakeResult(JNIEnv
     out += std::to_string(h->outcome.prefill_ms);
     out += '|';
     out += std::to_string(h->outcome.decode_ms);
+    out += '|';
+    out += std::to_string(h->outcome.reused_tokens);
+    out += '|';
+    out += std::to_string(h->outcome.first_token_ms);
     out += '|';
     std::string err = h->outcome.error;
     std::replace(err.begin(), err.end(), '\n', ' ');
@@ -1640,6 +1645,8 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
         grammar_str.clear();
     }
 
+    // The clock for first-token time starts at the request, before the prompt is evaluated.
+    const int64_t request_start = now_ms();
     h->cancelled.store(false);
     h->generating.store(true);
 
@@ -2090,6 +2097,12 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
     }
 
     const int64_t after_prefill = now_ms();
+    // A cancel that landed inside the prefill loop left an unknown part of the prompt processed.
+    // The timer above is the partial time, so the reused count cannot give a tokens-processed
+    // figure for it: report the reuse as not reported, and the rate stays null.
+    if (outcome.stop == static_cast<int32_t>(StopCode::CANCELLED)) {
+        outcome.reused_tokens = -1;
+    }
     if (!failed) {
         outcome.prefill_ms = after_prefill - start;
         __android_log_print(ANDROID_LOG_INFO, "LocalLlama",
@@ -2198,6 +2211,9 @@ Java_dev_localintelligence_android_inference_LlamaBridge_nativeGenerate(
             }
             llama_sampler_accept(chain, id);
             outcome.completion_tokens++;
+            if (outcome.completion_tokens == 1) {
+                outcome.first_token_ms = now_ms() - request_start;
+            }
             gen_tokens.push_back(id);
 
             // Decode the sampled token so the next one has context.

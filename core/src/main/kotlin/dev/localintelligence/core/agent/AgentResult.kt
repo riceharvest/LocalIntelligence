@@ -1,6 +1,8 @@
 package dev.localintelligence.core.agent
 
 import dev.localintelligence.core.model.ToolArgs
+import dev.localintelligence.core.model.prefillRateOf
+import dev.localintelligence.core.model.prefilledTokensOf
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ToolCallValidator
 import dev.localintelligence.core.tool.ToolRegistry
@@ -100,19 +102,24 @@ data class StepTrace(
 }
 
 /**
- * One generation's token counts and timers, as the backend reported them. [prefillMs] is the
- * prompt time: on the remote backends it is the time to the first token, and on llama.cpp it is
- * the native prefill. Rates are derived, never stored, so a zero timer shows as "no rate", not
- * as a number invented from nothing.
+ * One generation's token counts and timers, as the backend reported them. Rates are derived,
+ * never stored, so a zero timer shows as "no rate", not as a number invented from nothing.
+ *
+ * [prefillTokensPerSecond] is over the tokens actually processed (the prompt minus [reusedTokens]),
+ * and [firstTokenMs] is the time to the first token, which is what the reply shows as "first token".
+ * Both are null when the backend did not report them.
  */
 data class ReplySpeed(
     val promptTokens: Int,
     val completionTokens: Int,
     val prefillMs: Long,
     val decodeMs: Long,
+    val reusedTokens: Int? = null,
+    val firstTokenMs: Long? = null,
 ) {
-    /** Prompt tokens per second, or null when the prefill timer is zero. */
-    val prefillTokensPerSecond: Double? get() = if (prefillMs > 0 && promptTokens > 0) promptTokens * 1000.0 / prefillMs else null
+    /** Prompt tokens processed per second, or null when the count or the prefill timer is missing. */
+    val prefillTokensPerSecond: Double?
+        get() = prefillRateOf(prefilledTokensOf(promptTokens, reusedTokens), prefillMs)
 
     /** Generated tokens per second, or null when the decode timer is zero. */
     val decodeTokensPerSecond: Double? get() = if (decodeMs > 0 && completionTokens > 0) completionTokens * 1000.0 / decodeMs else null
