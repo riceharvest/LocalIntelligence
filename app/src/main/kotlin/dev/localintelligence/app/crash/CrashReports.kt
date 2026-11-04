@@ -100,11 +100,11 @@ object CrashReports {
     fun newest(context: Context): File? = reports(context).firstOrNull()
 
     /** The start of the report, for the preview. Blocking file IO: call it off the main thread. */
-    fun preview(file: File): String {
+    fun preview(context: Context, file: File): String {
         val text = runCatching { file.readText() }.getOrDefault("")
         if (text.length <= PREVIEW_CHARS) return text
         return text.take(PREVIEW_CHARS) +
-            "\n\n... ${text.length - PREVIEW_CHARS} more characters. The share includes the whole report."
+            context.getString(R.string.crash_preview_more, text.length - PREVIEW_CHARS)
     }
 
     /** Removes every saved report. The watermark stays, so a deleted ANR is not imported again. */

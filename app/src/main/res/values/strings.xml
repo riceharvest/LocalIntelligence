@@ -1553,4 +1553,5 @@
     <string name="model_load_damaged">That model couldn\'t be loaded. It may be damaged or in a format this app can\'t read.</string>
     <string name="model_none_add">Add a model to start chatting. Everything stays on your phone.</string>
     <string name="model_getting_ready">Getting the model ready…</string>
+    <string name="crash_preview_more">\n\n... %1$d more characters. The share includes the whole report.</string>
 </resources>
