@@ -8,6 +8,9 @@ import dev.localintelligence.core.documents.Passage
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -68,6 +71,10 @@ class DocumentStore(
     private val json = Json { ignoreUnknownKeys = true }
     private val indexFile = File(root, "index.json")
     private val lock = Any()
+    private val _changes = MutableStateFlow(0)
+
+    /** Bumps when a document is added or removed, so UI can react without polling. */
+    val changes: StateFlow<Int> = _changes.asStateFlow()
 
     /** The built index, with the vectors for [vectorsModel] when they were made. */
     private class Snapshot(
@@ -114,6 +121,7 @@ class DocumentStore(
         synchronized(lock) {
             writeIndex(listOf(entry) + readIndex())
             cached = null
+            _changes.value += 1
         }
         return entry
     }
@@ -129,6 +137,7 @@ class DocumentStore(
         File(root, "$id.txt").delete()
         File(root, "$id.vec").delete()
         cached = null
+        _changes.value += 1
         true
     }
 

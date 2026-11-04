@@ -77,6 +77,21 @@ val DOCUMENT_RESULTS: SettingDef.IntValue = SettingDef.IntValue(
 /** Where the embedding model comes from: the EmbeddingGemma 2 Q8_0 build the hub suggests. */
 const val DEFAULT_EMBEDDING_REPO: String = "ggml-org/embeddinggemma-2-GGUF"
 const val DEFAULT_EMBEDDING_FILE: String = "embeddinggemma-2-Q8_0.gguf"
+/** The expected file size of the default embedding model on Hugging Face (309,855,456 B / ~0.31 GB). */
+const val DEFAULT_EMBEDDING_SIZE_BYTES: Long = 309_855_456L
+
+/**
+ * Whether the inline embedding model download card in chat was dismissed by the user.
+ * Once dismissed or downloaded, the chat card is never shown again.
+ */
+val EMBEDDING_DOWNLOAD_DISMISSED: SettingDef.Toggle = SettingDef.Toggle(
+    key = "documents.download_dismissed",
+    title = "Embedding download dismissed",
+    help = "Whether the search model download card was dismissed in chat.",
+    section = SettingSection.PLUGINS,
+    default = false,
+    simple = true,
+)
 
 const val SEARCH_MODE_HYBRID: String = "hybrid"
 const val SEARCH_MODE_KEYWORD: String = "keyword"
