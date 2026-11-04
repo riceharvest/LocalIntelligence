@@ -132,8 +132,8 @@ Requires **JDK 21** and an Android SDK (platform 36, an NDK, CMake 3.22.1).
 export JAVA_HOME=/path/to/jdk-21
 export ANDROID_HOME=/path/to/android-sdk
 
-# llama.cpp is pinned to tag b11988 and is not vendored.
-git clone --depth 1 --branch b11988 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
+# llama.cpp is pinned to tag b12110 and is not vendored.
+git clone --depth 1 --branch b12110 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
 
 PIDROID_LLAMA_DIR=/tmp/llama.cpp ./gradlew :app:assemblePlayDebug
 # Or for the full build (sideloaded outside Google Play; see docs/adr/0002-play-and-full-builds.md):
