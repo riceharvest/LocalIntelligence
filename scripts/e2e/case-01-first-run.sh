@@ -44,7 +44,15 @@ until [[ "$(app_file_size "models/$LFM3_FILE")" == "$LFM3_BYTES" ]]; do
   fail "the model file never reached $LFM3_BYTES bytes (is $(app_file_size "models/$LFM3_FILE"))"
 done
 echo "  download complete"
-wait_text "(four|4)" 240 || fail "the queued question 'What is two plus two' got no answer containing 4 / four"
+# The reply comes from the debug channel (what the assistant answered), then it must be on screen too.
+for _ in $(seq 1 60); do
+  answer="$(dctl state | sed -n 's/.*"lastAnswer":"\([^"]*\)".*/\1/p')"
+  [[ -n "$answer" ]] && break
+  sleep 5
+done
+echo "  answer: $answer"
+[[ "$answer" =~ (four|4) ]] || fail "the queued question got no correct answer (lastAnswer='$answer')"
 screen_text | grep -qi "two plus two" || fail "the question is not on screen"
+screen_text | grep -qi "four" || fail "the answer is not on screen"
 assert_no_banned_words
-case_end "answered after $(( $(now) - t0 ))s from file complete; estimate shown"
+case_end "answered '$answer' $(( $(now) - t0 ))s after the file completed; estimate shown"

@@ -16,7 +16,7 @@
 #   E2E_SERIAL   the emulator to drive (default emulator-5554)
 #   E2E_APK      the APK to install (default: this worktree's full debug build)
 #   E2E_OUT      where screenshots, dumps and results.tsv go
-#   E2E_HUB_PORT the fake hub's port on the host (default 8765)
+#   E2E_HUB_PORT the fake hub's port on the host (default 18765)
 
 set -uo pipefail
 
@@ -25,8 +25,10 @@ REPO_DIR="$(cd "$E2E_DIR/../.." && pwd)"
 PKG="${LI_PKG:-dev.localintelligence.app.full}"
 SERIAL="${E2E_SERIAL:-emulator-5554}"
 APK="${E2E_APK:-$REPO_DIR/app/build/outputs/apk/full/debug/app-full-debug.apk}"
+# A build restricted to one ABI (-Pandroid.injected.build.abi) leaves its APK under intermediates.
+[[ -f "$APK" ]] || APK="$REPO_DIR/app/build/intermediates/apk/full/debug/app-full-debug.apk"
 OUT="${E2E_OUT:-/tmp/claude-1000/e2e/out}"
-HUB_PORT="${E2E_HUB_PORT:-8765}"
+HUB_PORT="${E2E_HUB_PORT:-18765}"
 SDK="${ANDROID_HOME:-$HOME/Android/Sdk}"
 mkdir -p "$OUT"
 
@@ -38,7 +40,7 @@ CASE_START=0
 # Safety: emulator only
 # ---------------------------------------------------------------------------------------------
 
-REAL_ADB="$(command -v adb)"
+REAL_ADB="$(type -P adb)"
 
 # Every adb call in every script goes through here. It adds the serial and refuses a device that is
 # not an emulator. The few commands that are not about one device pass through untouched.
@@ -132,6 +134,8 @@ check() {
 # Emulator lifecycle
 # ---------------------------------------------------------------------------------------------
 
+# The guest gets the host CPU's instruction set (-qemu -cpu host). Without it the emulator's default CPU
+# has no AVX2, the app loads its slowest CPU backend, and a first answer takes 11 minutes instead of one.
 # emu_start AVD [PORT]: boots the AVD headless under the project's resource limits and waits
 # (at most 240 s) until it is ready, then turns animations off (the spinner starves the guest).
 emu_start() {
@@ -144,7 +148,7 @@ emu_start() {
   else
     (systemd-run --user --scope -q -p MemoryMax=6G -p CPUQuota=400% nice -n 10 \
       "$SDK/emulator/emulator" -avd "$avd" -port "$port" -no-window -no-audio -no-boot-anim \
-      -gpu swangle_indirect -no-metrics -no-snapshot-save ${E2E_EMU_ARGS:-} \
+      -gpu swangle_indirect -no-metrics -no-snapshot-save ${E2E_EMU_ARGS:--qemu -cpu host} \
       > "$OUT/emulator-$avd.log" 2>&1 &)
   fi
   local i
