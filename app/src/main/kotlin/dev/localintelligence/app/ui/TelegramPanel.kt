@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
@@ -102,6 +103,7 @@ fun TelegramPanel(store: SettingsStore) {
 /** A chat that sent /start while the link window was open. Approved only by the owner's tap. */
 @Composable
 private fun PendingChat(store: SettingsStore, chat: TelegramChat, linked: List<TelegramChat>) {
+    val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             stringResource(R.string.asked_to_talk_to_this_phone_approve, chat.name, chat.id),
@@ -112,7 +114,7 @@ private fun PendingChat(store: SettingsStore, chat: TelegramChat, linked: List<T
                 store.set(TelegramSettings.LINKED, TelegramChats.encodeList(linked.filterNot { it.id == chat.id } + chat))
                 store.set(TelegramSettings.PENDING, "")
                 store.set(TelegramSettings.LINK_OPEN_UNTIL, "0")
-                TelegramReplies.send(store, chat.id, "This chat is linked to LocalIntelligence. Send a message to run it on the phone.")
+                TelegramReplies.send(store, chat.id, context.getString(R.string.telegram_chat_linked))
             }) { Text(stringResource(R.string.approve)) }
             OutlinedButton(onClick = { store.set(TelegramSettings.PENDING, "") }) { Text(stringResource(R.string.decline)) }
         }

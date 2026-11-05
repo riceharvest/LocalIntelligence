@@ -1922,4 +1922,7 @@
     <string name="audio_no_format">This file\'s audio has no format the phone can read.</string>
     <string name="audio_cannot_decode">This phone cannot decode %1$s audio.</string>
     <string name="audio_unsupported_sample_format">This phone decodes this audio to an unsupported sample format.</string>
+    <string name="chatgpt_signed_out_unconfirmed">Signed out here. OpenAI did not confirm the sign-out. You can also disconnect the app in ChatGPT settings.</string>
+    <string name="telegram_chat_linked">This chat is linked to LocalIntelligence. Send a message to run it on the phone.</string>
+    <string name="update_no_notes">This release has no notes.</string>
 </resources>
