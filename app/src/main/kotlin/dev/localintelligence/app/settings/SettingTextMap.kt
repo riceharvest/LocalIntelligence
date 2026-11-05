@@ -26,6 +26,7 @@ internal object SettingTextMap {
         "voice.rate" to R.string.setting_voice_rate_label,
         "voice.pitch" to R.string.setting_voice_pitch_label,
         "voice.hands_free_silence" to R.string.setting_voice_hands_free_silence_label,
+        "voice.hands_free_barge_in" to R.string.setting_voice_hands_free_barge_in_label,
         "voice.wake_word" to R.string.setting_voice_wake_word_label,
         "voice.wake_phrase" to R.string.setting_voice_wake_phrase_label,
         "model.compute" to R.string.setting_model_compute_label,
@@ -68,6 +69,7 @@ internal object SettingTextMap {
         "phone_index.files" to R.string.setting_phone_index_files_label,
         "phone_index.photos" to R.string.setting_phone_index_photos_label,
         "phone_index.files_folder" to R.string.setting_phone_index_files_folder_label,
+        "model.projector_links" to R.string.setting_model_projector_links_label,
         "desktop.serve_url" to R.string.setting_desktop_serve_url_label,
         "screen.control.blocked" to R.string.setting_screen_control_blocked_label,
         "screen.control.consent" to R.string.setting_screen_control_consent_label,
@@ -154,8 +156,10 @@ internal object SettingTextMap {
         "web.search.tavily_key" to R.string.setting_web_search_tavily_key_label,
         "web.search.exa_key" to R.string.setting_web_search_exa_key_label,
         "web.search.searxng_url" to R.string.setting_web_search_searxng_url_label,
+        "setup.smaller_starter" to R.string.setting_setup_smaller_starter_label,
         "model.compute_auto_winner" to R.string.setting_model_compute_auto_winner_label,
         "model.gpu_blocked" to R.string.setting_model_gpu_blocked_label,
+        "model.load_rung" to R.string.setting_model_load_rung_label,
     )
     /** Setting key to the help string resource. */
     val helps: Map<String, Int> = mapOf(
@@ -177,6 +181,7 @@ internal object SettingTextMap {
         "voice.rate" to R.string.setting_voice_rate_desc,
         "voice.pitch" to R.string.setting_voice_pitch_desc,
         "voice.hands_free_silence" to R.string.setting_voice_hands_free_silence_desc,
+        "voice.hands_free_barge_in" to R.string.setting_voice_hands_free_barge_in_desc,
         "voice.wake_word" to R.string.setting_voice_wake_word_desc,
         "voice.wake_phrase" to R.string.setting_voice_wake_phrase_desc,
         "model.compute" to R.string.setting_model_compute_desc,
@@ -219,6 +224,7 @@ internal object SettingTextMap {
         "phone_index.files" to R.string.setting_phone_index_files_desc,
         "phone_index.photos" to R.string.setting_phone_index_photos_desc,
         "phone_index.files_folder" to R.string.setting_phone_index_files_folder_desc,
+        "model.projector_links" to R.string.setting_model_projector_links_desc,
         "desktop.serve_url" to R.string.setting_desktop_serve_url_desc,
         "screen.control.blocked" to R.string.setting_screen_control_blocked_desc,
         "screen.control.consent" to R.string.setting_screen_control_consent_desc,
@@ -305,8 +311,10 @@ internal object SettingTextMap {
         "web.search.tavily_key" to R.string.setting_web_search_tavily_key_desc,
         "web.search.exa_key" to R.string.setting_web_search_exa_key_desc,
         "web.search.searxng_url" to R.string.setting_web_search_searxng_url_desc,
+        "setup.smaller_starter" to R.string.setting_setup_smaller_starter_desc,
         "model.compute_auto_winner" to R.string.setting_model_compute_auto_winner_desc,
         "model.gpu_blocked" to R.string.setting_model_gpu_blocked_desc,
+        "model.load_rung" to R.string.setting_model_load_rung_desc,
     )
     /** "key/option id" to the option label string resource. */
     val options: Map<String, Int> = mapOf(

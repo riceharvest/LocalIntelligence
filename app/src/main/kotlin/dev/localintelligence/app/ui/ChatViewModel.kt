@@ -29,6 +29,7 @@ import dev.localintelligence.app.isActive
 import dev.localintelligence.app.isTerminal
 import android.speech.SpeechRecognizer
 import dev.localintelligence.app.media.AudioFileDecoder
+import dev.localintelligence.app.media.BargeInDetector
 import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.wavOf
 import dev.localintelligence.app.media.PendingAttachment
@@ -131,6 +132,8 @@ class ChatViewModel(
     private val dictation: LiveDictation? = null,
     /** Hands-free pause before a turn is sent, in seconds. Read at each listen. */
     private val handsFreeSilence: () -> Float = { CoreSettings.HANDS_FREE_SILENCE.default },
+    /** Hands-free: talking while a reply is read stops it (see [BargeInDetector]). Read at each reply. */
+    private val handsFreeBargeIn: () -> Boolean = { false },
     /**
      * Survives process death, which the system does often on a 3.6 GB phone while a model is
      * resident. The typed draft and the queued pictures' URIs are kept here; voice clips are not.
@@ -218,6 +221,12 @@ class ChatViewModel(
 
     /** The one thing hands-free mode is waiting on: a relisten, or the end of speech. Cancelled on stop. */
     private var handsFreeJob: Job? = null
+
+    /** Hears the person talk over a reply being read (hands-free only). */
+    private val bargeIn = BargeInDetector(scope)
+
+    /** Speech heard by [bargeIn] before it triggered, for an audio model's clip to start with. */
+    private var bargeInPreRoll: ByteArray? = null
 
     /** Listens in a row that heard nothing. Two stop the mode. */
     private var emptyListens = 0
@@ -489,7 +498,29 @@ class ChatViewModel(
         _handsFree.value = HandsFreeState(HandsFreePhase.Off, notice)
         voice.stop()
         dictation?.stop()
+        bargeIn.stop()
         if (was != HandsFreePhase.Off) speaker?.stop()
+    }
+
+    /**
+     * Stops the reply being read and listens to the person now. Called when they talk over it, tap the
+     * screen or press a volume key. Does nothing unless hands-free mode is reading a reply.
+     */
+    fun interruptSpeech() {
+        scope.launch { interrupt(preRoll = null) }
+    }
+
+    private suspend fun interrupt(preRoll: ByteArray?) {
+        if (_handsFree.value.phase != HandsFreePhase.Speaking) return
+        // The wait below must not also relisten when the speech stops.
+        handsFreeJob?.cancel()
+        handsFreeJob = null
+        speaker?.stop()
+        // The microphone is opened by the next listener, so the detector lets go of it first.
+        bargeIn.stopAndWait()
+        if (_handsFree.value.phase != HandsFreePhase.Speaking) return
+        bargeInPreRoll = preRoll
+        startListening()
     }
 
     private fun startListening() {
@@ -499,7 +530,9 @@ class ChatViewModel(
 
     /** Audio-capable model: record until the user pauses. The clip is sent as it is, like a voice note. */
     private fun listenForClip() {
-        val started = voice.startUntilPause(handsFreeSilence()) { wav, seconds ->
+        val preRoll = bargeInPreRoll
+        bargeInPreRoll = null
+        val started = voice.startUntilPause(handsFreeSilence(), preRoll) { wav, seconds ->
             scope.launch { handsFreeClip(wav, seconds) }
         }
         if (!started) stopHandsFree(context.getString(R.string.chat_mic_unavailable))
@@ -604,8 +637,13 @@ class ChatViewModel(
         }
         _handsFree.value = HandsFreeState(HandsFreePhase.Speaking)
         tts.speak(text)
+        if (handsFreeBargeIn()) {
+            // Failing to open the microphone only means no talk-over; tap and volume keys still work.
+            bargeIn.start { heard -> scope.launch { interrupt(heard) } }
+        }
         handsFreeJob = scope.launch {
             tts.speakingText.first { it == null }
+            bargeIn.stopAndWait()
             relistenSoon()
         }
     }
@@ -1357,6 +1395,7 @@ class ChatViewModel(
     /** The screen is gone, so the microphone must not keep recording for its remaining seconds. */
     override fun onCleared() {
         stopHandsFree()
+        bargeIn.stop()
         dictation?.release()
         voice.stop()
         super.onCleared()

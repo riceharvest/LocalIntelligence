@@ -166,6 +166,12 @@ object CoreSettings {
         "Hands-free mode: how long a pause ends your turn, in seconds.",
         SettingSection.VOICE, default = 1.2f, min = 0.6f, max = 3f, step = 0.1f, applies = SettingApplies.NOW,
     )
+    val HANDS_FREE_BARGE_IN = Toggle(
+        "voice.hands_free_barge_in", "Talk over the reply",
+        "Hands-free mode: start talking while a reply is being read and it stops and listens to you. " +
+            "Turn it off if the reply's own voice cuts itself off. Tapping the screen or pressing a volume key also stops it.",
+        SettingSection.VOICE, default = true, applies = SettingApplies.NOW,
+    )
     val WAKE_WORD = Toggle(
         "voice.wake_word", "Wake word",
         "Listen for “Hey …” and open the assistant hands-free",
@@ -488,7 +494,7 @@ object CoreSettings {
         MODE, ASSISTANT_NAME, THEME_COLOR, APPEARANCE,
         AUTO_ACCEPT_DESTRUCTIVE, AUTO_ACCEPT_EXTERNAL, AUTO_ACCEPT_NETWORK, AUTO_ACCEPT_IN_BACKGROUND,
         TOOL_CALLS_AUTO_COLLAPSE, KEEP_SCREEN_AWAKE,
-        READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE, WAKE_WORD, WAKE_PHRASE,
+        READ_REPLIES_ALOUD, VOICE_SOURCE, MODEL_VOICE, SPEECH_RATE, SPEECH_PITCH, HANDS_FREE_SILENCE, HANDS_FREE_BARGE_IN, WAKE_WORD, WAKE_PHRASE,
         TEMPERATURE, TOP_P, TOP_K, MIN_P, REPEAT_PENALTY, PENALTY_LAST_N, FREQUENCY_PENALTY, PRESENCE_PENALTY,
         COMPUTE, GPU_LAYERS, CONTEXT_LENGTH, KV_CACHE_TYPE,
         SEED, MAX_OUTPUT_TOKENS, CONSTRAINED_OUTPUT, MODEL_CHAT_TEMPLATE, NATIVE_TOOL_FORMAT, THINKING_BUDGET, HF_READ_TOKEN,

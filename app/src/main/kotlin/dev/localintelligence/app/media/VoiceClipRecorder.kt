@@ -53,9 +53,14 @@ class VoiceClipRecorder(
      * Starts a clip that ends after [silenceSeconds] of quiet following speech.
      * [onEnd] receives the WAV, or null when no speech was heard before the clip gave up.
      * [stop] still ends it early, and then the clip is delivered as usual.
+     * [preRoll] is speech already heard (16 kHz mono 16-bit PCM) that the clip starts with, so an
+     * interruption does not lose the words that triggered it.
      */
-    fun startUntilPause(silenceSeconds: Float, onEnd: (wav: ByteArray?, seconds: Int) -> Unit): Boolean =
-        begin(PauseRule((silenceSeconds * BYTES_PER_SECOND).toInt(), onEnd))
+    fun startUntilPause(
+        silenceSeconds: Float,
+        preRoll: ByteArray? = null,
+        onEnd: (wav: ByteArray?, seconds: Int) -> Unit,
+    ): Boolean = begin(PauseRule((silenceSeconds * BYTES_PER_SECOND).toInt(), onEnd, preRoll))
 
     @SuppressLint("MissingPermission")
     private fun begin(pause: PauseRule?): Boolean {
@@ -93,6 +98,10 @@ class VoiceClipRecorder(
         val chunk = ByteArray(CHUNK_BYTES)
         var heardSpeech = false
         var quietBytes = 0
+        if (pause?.preRoll != null && pause.preRoll.isNotEmpty()) {
+            pcm.write(pause.preRoll, 0, minOf(pause.preRoll.size, MAX_BYTES))
+            heardSpeech = true
+        }
         try {
             record.startRecording()
             while (!stopRequested && pcm.size() < MAX_BYTES) {
@@ -131,7 +140,11 @@ class VoiceClipRecorder(
     }
 
     /** How a hands-free clip ends: after this many quiet bytes once speech has started. */
-    private class PauseRule(val silenceBytes: Int, val onEnd: (wav: ByteArray?, seconds: Int) -> Unit)
+    private class PauseRule(
+        val silenceBytes: Int,
+        val onEnd: (wav: ByteArray?, seconds: Int) -> Unit,
+        val preRoll: ByteArray? = null,
+    )
 
     companion object {
         const val SAMPLE_RATE = 16_000

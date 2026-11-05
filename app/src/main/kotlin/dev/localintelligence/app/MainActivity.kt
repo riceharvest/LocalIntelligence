@@ -165,6 +165,25 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    /** The chat of the open screen, so a volume key can stop a reply hands-free mode is reading. */
+    @Volatile
+    private var handsFreeChat: ChatViewModel? = null
+
+    /**
+     * A volume key stops the reply hands-free mode is reading and lets the person speak. At any other
+     * time the keys do what they always do.
+     */
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) {
+            val chat = handsFreeChat
+            if (chat != null && chat.handsFree.value.phase == HandsFreePhase.Speaking) {
+                chat.interruptSpeech()
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onPause() {
         // Only this activity's host is cleared, so a newer activity's host is never removed by an older one.
         if (ToolAccess.host === accessPrompts) ToolAccess.host = null
@@ -214,6 +233,7 @@ class MainActivity : FragmentActivity() {
                             },
                             dictation = LiveDictation(applicationContext),
                             handsFreeSilence = { container.settings[CoreSettings.HANDS_FREE_SILENCE] },
+                            handsFreeBargeIn = { container.settings[CoreSettings.HANDS_FREE_BARGE_IN] },
                             // Picked pictures are read again from their URIs after process death.
                             readPicture = { encodePickedPicture(applicationContext.contentResolver, Uri.parse(it)) },
                             // The developer's report form. A build without one reports "not set up".
@@ -253,6 +273,11 @@ class MainActivity : FragmentActivity() {
                 }
 
                 val handsFreeState by chat.handsFree.collectAsStateWithLifecycle()
+                // The volume keys stop a reply that hands-free mode is reading (see onKeyDown).
+                DisposableEffect(chat) {
+                    handsFreeChat = chat
+                    onDispose { if (handsFreeChat === chat) handsFreeChat = null }
+                }
                 LaunchedEffect(handsFreeState.phase) {
                     WakeWordService.onHandsFreeActive(
                         active = handsFreeState.phase != HandsFreePhase.Off,
