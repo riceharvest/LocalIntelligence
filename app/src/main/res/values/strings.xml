@@ -1910,4 +1910,12 @@
     <string name="speedtest_counts_estimated">Token counts are estimated by this backend.</string>
     <string name="model_needs_memory_technical">This model needs about %1$s of memory and this phone has about %2$s free. Try a smaller model or a smaller version of it.</string>
     <string name="document_model_saved">Saved as the document search model.</string>
+    <string name="extras_price_per_month">%1$s a month, charged by Google Play.</string>
+    <string name="extras_play_not_available">Extras is not available from Google Play on this phone right now.</string>
+    <string name="extras_play_processing">Google Play is still processing the payment. Extras starts once it clears.</string>
+    <string name="extras_play_no_purchase">Google Play has no active Extras purchase for this account. Try again in a moment.</string>
+    <string name="extras_play_not_active">Google Play says this Extras subscription is not active.</string>
+    <string name="extras_play_unreachable">Google Play could not be reached. Try again later.</string>
+    <string name="extras_play_refused">Google Play did not start the Extras subscription. Try again later.</string>
+    <string name="extras_on_until">Extras is on until %1.</string>
 </resources>

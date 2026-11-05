@@ -2,6 +2,8 @@ package dev.localintelligence.app.extras
 
 import android.app.Activity
 import android.content.Context
+import androidx.annotation.StringRes
+import dev.localintelligence.app.R
 import com.android.billingclient.api.AcknowledgePurchaseParams
 import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
@@ -117,10 +119,10 @@ class ExtrasBilling(
     suspend fun subscribe(activity: Activity) {
         if (!enabled) return
         _notice.value = null
-        val play = connect() ?: return setNotice(PLAY_UNREACHABLE)
-        val details = productDetails(play) ?: return setNotice("Extras is not available from Google Play on this phone right now.")
+        val play = connect() ?: return setNotice(R.string.extras_play_unreachable)
+        val details = productDetails(play) ?: return setNotice(R.string.extras_play_not_available)
         val offer = details.subscriptionOfferDetails?.firstOrNull()
-            ?: return setNotice("Extras is not available from Google Play on this phone right now.")
+            ?: return setNotice(R.string.extras_play_not_available)
         val flow = BillingFlowParams.newBuilder()
             .setProductDetailsParamsList(
                 listOf(
@@ -138,12 +140,12 @@ class ExtrasBilling(
             when (launched.responseCode) {
                 BillingClient.BillingResponseCode.OK -> {
                     val (result, purchases) = withTimeoutOrNull(SHEET_WAIT_MS) { sheet.await() }
-                        ?: return setNotice(PLAY_UNREACHABLE)
+                        ?: return setNotice(R.string.extras_play_unreachable)
                     handleSheet(play, result, purchases)
                 }
                 BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> restoreOwned(play)
                 BillingClient.BillingResponseCode.USER_CANCELED -> Unit
-                else -> setNotice(PLAY_REFUSED)
+                else -> setNotice(R.string.extras_play_refused)
             }
         } finally {
             awaitingSheet = null
@@ -154,17 +156,17 @@ class ExtrasBilling(
         when (result.responseCode) {
             BillingClient.BillingResponseCode.OK -> {
                 val purchase = purchases.orEmpty().firstOrNull { it.products.contains(ExtrasSettings.PRODUCT_ID) }
-                    ?: return setNotice(PLAY_REFUSED)
+                    ?: return setNotice(R.string.extras_play_refused)
                 when (purchase.purchaseState) {
                     Purchase.PurchaseState.PURCHASED -> activate(purchase.purchaseToken)
                     Purchase.PurchaseState.PENDING ->
-                        setNotice("Google Play is still processing the payment. Extras starts once it clears.")
-                    else -> setNotice(PLAY_REFUSED)
+                        setNotice(R.string.extras_play_processing)
+                    else -> setNotice(R.string.extras_play_refused)
                 }
             }
             BillingClient.BillingResponseCode.USER_CANCELED -> Unit
             BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> restoreOwned(play)
-            else -> setNotice(PLAY_REFUSED)
+            else -> setNotice(R.string.extras_play_refused)
         }
     }
 
@@ -172,8 +174,8 @@ class ExtrasBilling(
     private suspend fun restoreOwned(play: BillingClient) {
         when (val owned = ownedPurchase(play)) {
             is Owned.Found -> activate(owned.purchase.purchaseToken)
-            Owned.None -> setNotice("Google Play has no active Extras purchase for this account. Try again in a moment.")
-            Owned.Unknown -> setNotice(PLAY_UNREACHABLE)
+            Owned.None -> setNotice(R.string.extras_play_no_purchase)
+            Owned.Unknown -> setNotice(R.string.extras_play_unreachable)
         }
     }
 
@@ -224,12 +226,12 @@ class ExtrasBilling(
             is ExtrasReply.Granted -> {
                 store(reply.grant, purchaseToken)
                 if (!quiet) {
-                    setNotice("Extras is on until ${shortDate(reply.grant.expiresAt)}.")
+                    setNotice(context.getString(R.string.extras_on_until, shortDate(reply.grant.expiresAt)))
                 }
             }
             ExtrasReply.NotActive -> {
                 clear()
-                if (!quiet) setNotice("Google Play says this Extras subscription is not active.")
+                if (!quiet) setNotice(R.string.extras_play_not_active)
             }
             is ExtrasReply.Failed -> if (!quiet) setNotice(reply.message)
         }
@@ -291,6 +293,11 @@ class ExtrasBilling(
         class Found(val purchase: Purchase) : Owned
     }
 
+    private fun setNotice(@StringRes res: Int) {
+        _notice.value = context.getString(res)
+    }
+
+    /** A sentence that is already in the phone's language, such as one the backend sent. */
     private fun setNotice(text: String) {
         _notice.value = text
     }
@@ -308,8 +315,6 @@ class ExtrasBilling(
         /** Start-time refresh window: a grant that ends within this is refreshed. */
         private val REFRESH_WINDOW: Duration = Duration.ofDays(3)
         private const val SHEET_WAIT_MS = 15 * 60 * 1000L
-        private const val PLAY_UNREACHABLE = "Google Play could not be reached. Try again later."
-        private const val PLAY_REFUSED = "Google Play did not start the Extras subscription. Try again later."
 
         /** The Play page where the user cancels or changes the subscription. */
         fun manageUrl(packageName: String): String =
