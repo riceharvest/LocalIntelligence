@@ -211,7 +211,9 @@ account. Nothing is sent before then. The shared rules are enforced in code:
   `AUTO_ACCEPT_EXTERNAL`, `AUTO_ACCEPT_NETWORK`, `AUTO_ACCEPT_IN_BACKGROUND`) read true from
   `SimpleSetup.values`. Technical mode keeps its own stored values (default false), and
   switching modes does not rewrite them. The guards in `RiskPolicy` are unchanged and still
-  ask or refuse in Simple mode: a call the user's message did not ask for (`notRequested`);
+  ask or refuse in Simple mode: a call the user's message did not ask for (`notRequested`), except
+  `web.search` and opening an address that this run's own search returned (owner, 2026-11-05: a question
+  that needs the web just searches; a search query or a result address is the accepted exposure);
   a bulk change of more than ten items (a destructive one of 100 or more is refused); a path
   outside the app's storage; a message that is only a link; texts and calls (`sms.send`,
   `phone.call`, named in `neverAutoAccept`); screen control, which asks per app and per

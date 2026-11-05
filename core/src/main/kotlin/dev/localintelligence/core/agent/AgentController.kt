@@ -17,6 +17,8 @@ import dev.localintelligence.core.plugin.PluginHooks
 import dev.localintelligence.core.plugin.ToolGate
 import dev.localintelligence.core.model.ModelBackend
 import dev.localintelligence.core.model.ObservationOrigin
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
 import dev.localintelligence.core.model.StopReason
 import dev.localintelligence.core.metrics.RunMetrics
@@ -488,6 +490,7 @@ class AgentController(
         handleRetried = false
         answerRetried = false
         heldReply = null
+        searchResultUrls.clear()
         pending = null
         lastPrompt = emptyList()
         loopDetector.reset()
@@ -517,6 +520,7 @@ class AgentController(
         handleRetried = false
         answerRetried = false
         heldReply = null
+        searchResultUrls.clear()
         pending = null
         // A scoped skill narrows what this run lists and may call. Set per run, from the task, before
         // the tool list is planned: the session is shared, so a scope left from an earlier run must not stay.
@@ -965,6 +969,9 @@ class AgentController(
 
     private var heldReply: HeldReply? = null
 
+    /** Addresses this run's own web.search returned. */
+    private val searchResultUrls = HashSet<String>()
+
     private suspend fun deliverHeld(held: HeldReply): AgentResult {
         heldReply = null
         log("answer check: the retry was not a reply, keeping the first answer")
@@ -1056,7 +1063,12 @@ class AgentController(
         // the message needs no tool (measured: "What is 17 times 23?" set a real timer). A tool
         // whose name or tags the message does not mention is one the user did not ask for.
         // The task list is the runtime's own bookkeeping, not an action the message must name.
-        val requested = ToolRequest.asksFor(policyRequest ?: task, tool.definition) || tool.definition.name == TodoList.TOOL_NAME
+        // Opening a result of this run's own search is part of that search. Any other address still asks, as a URL
+        // can carry data to any host.
+        val openingResult = tool.definition.name == "web.fetch" &&
+            (action.arguments["url"] as? JsonPrimitive)?.contentOrNull?.trim() in searchResultUrls
+        val requested = ToolRequest.asksFor(policyRequest ?: task, tool.definition) ||
+            tool.definition.name == TodoList.TOOL_NAME || openingResult
         // Screen tools resolve the index against the live screen. The result is the app and the
         // control the policy judges, and it is kept with the parked call so an approval records the
         // grant for the app the person was shown.
@@ -1286,6 +1298,9 @@ class AgentController(
     ): AgentResult? {
         val observation = truncate(call.name, hooks.afterTool(call.name, call.args, result.observation, result.success))
         loopDetector.recordResult(call.name, observation, result.success, result.error)
+        if (call.name == "web.search" && result.success) {
+            RESULT_URL.findAll(observation).forEach { searchResultUrls += it.value.trimEnd('.', ',', ';') }
+        }
         sessions.appendToolObservation(call.tool, withArgumentsOnFirstUse(call.tool, observation), result.success)
         // Charge the call to the task's blast radius. This happens on the
         // EXECUTE path only, and a denied call never reaches it, which is what
@@ -2659,6 +2674,8 @@ class AgentController(
             "results above. Do not repeat a tool call whose result is already there."
 
         /** The one-time note when the answer check finds a value with no source in the window. */
+        private val RESULT_URL = Regex("https?://[^\\s\"'<>)\\]]+")
+
         fun answerCorrection(value: String): String =
             "Your reply gives \"$value\", and no tool result or message in this conversation shows it. " +
                 "Check it against the tool results and reply now, without calling a tool. If it is there, keep it; " +

@@ -689,8 +689,11 @@ private val MEMORY_WRITES = setOf("memory.update_block")
  * Tools the not-requested guard does not confirm. `task.delegate` only starts a child run: every call
  * the child makes is still judged on its own against the user's message, so confirming the start would
  * ask the same question twice. The child's calls are the barrier, not the start.
+ *
+ * `web.search` is the owner's call (2026-11-05): a question that needs the web just searches, whatever words
+ * it used. Its approval tier still applies, so this changes Simple mode only, where that tier is allowed.
  */
-private val NOT_REQUESTED_EXEMPT = setOf("task.delegate")
+private val NOT_REQUESTED_EXEMPT = setOf("task.delegate", "web.search")
 
 private fun isGuarded(definition: ToolDefinition): Boolean =
     definition.risk != ToolRisk.READ_ONLY || definition.name in PRIVATE_READS || definition.name in MEMORY_WRITES
