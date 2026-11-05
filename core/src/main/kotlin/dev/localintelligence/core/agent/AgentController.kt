@@ -965,7 +965,7 @@ class AgentController(
 
     private var heldReply: HeldReply? = null
 
-    private fun deliverHeld(held: HeldReply): AgentResult {
+    private suspend fun deliverHeld(held: HeldReply): AgentResult {
         heldReply = null
         log("answer check: the retry was not a reply, keeping the first answer")
         sessions.appendAssistant(held.text, rendered = held.rendered)
