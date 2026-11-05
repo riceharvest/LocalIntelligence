@@ -904,10 +904,15 @@ class AgentController(
             // The smallest starter, after a tool gave it the answer, sometimes writes "I'm sorry, I can't do that"
             // anyway (measured on a 2 GB emulator: 1 of 4 first tries at the battery question). The result is
             // in front of it, so it is told once to answer from it.
+            // The same retry covers a one-line brush-off to a real request ("Sleep well!" for "Give me a sleep tip":
+            // 1 of 8 first tries): a reply of a few letters, with no number in it, to a message of four words or more.
             val refusalAfterResult = !stopped && !idRetry && !emptyReply && unsupported == null && !refusalRetried &&
-                config.requestedToolsOnly == RequestedToolsOnly.ALWAYS && lastSuccess != null &&
+                config.requestedToolsOnly == RequestedToolsOnly.ALWAYS &&
                 parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond &&
-                REFUSAL_RE.containsMatchIn((parsed.action as AgentAction.Respond).text)
+                (parsed.action as AgentAction.Respond).text.let { reply ->
+                    (lastSuccess != null && REFUSAL_RE.containsMatchIn(reply)) ||
+                        (reply.trim().length < 14 && reply.none { it.isDigit() } && task.trim().split(Regex("\\s+")).size >= 4)
+                }
             val wrongLanguage = !stopped && !idRetry && !emptyReply && unsupported == null && !refusalAfterResult && !languageRetried &&
                 parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond &&
                 ReplyLanguage.mismatch(task, (parsed.action as AgentAction.Respond).text)
@@ -1009,8 +1014,8 @@ class AgentController(
                             refusalRetried = true
                             heldReply = HeldReply(action.text, generation.text)
                             sessions.observe(
-                                "The result above already answers the question. Answer from it in one plain " +
-                                    "sentence, without apologising.",
+                                "Answer the question properly now, in one or two plain sentences. If a result above " +
+                                    "answers it, use it. Do not apologise.",
                             )
                         } else if (wrongLanguage) {
                             // Same shape: once per run, and the first reply is kept if the retry is no reply.

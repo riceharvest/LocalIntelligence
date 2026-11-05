@@ -2286,7 +2286,9 @@ class AppContainer(private val context: Context) {
             persistConversation()
             memory
         },
-        sampling = snapshot.samplingParams(),
+        // The smallest starter samples cooler: at the default it answered a request for a sleep tip with "Sleep well!"
+        // or a refusal about one time in three; cooler, it keeps to the ordinary answer.
+        sampling = snapshot.samplingParams().let { if (floorTier) it.copy(temperature = minOf(it.temperature, 0.3f)) else it },
         hooks = pluginSet.hooks,
         constrainOutput = snapshot[CoreSettings.CONSTRAINED_OUTPUT],
         useModelTemplate = snapshot[CoreSettings.MODEL_CHAT_TEMPLATE],
@@ -2601,4 +2603,4 @@ object SessionStoreFactory {
  * itself fixes the questions that need no tool.
  */
 internal const val FLOOR_TIER_LINE: String =
-    "You can chat and answer questions yourself, from what you know. Use a tool only to look at or change something on this phone, or the web."
+    "You can chat and answer questions yourself, from what you know. When asked for a tip or advice, give one concrete suggestion in a full sentence. Use a tool only to look at or change something on this phone, or the web."
