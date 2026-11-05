@@ -6,6 +6,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import dev.localintelligence.app.R
 import dev.localintelligence.core.media.AudioChunks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,9 +41,9 @@ object AudioFileDecoder {
             try {
                 extractor.setDataSource(context, uri, null)
                 val track = audioTrack(extractor)
-                    ?: throw IllegalArgumentException("This file has no audio track.")
+                    ?: throw IllegalArgumentException(context.getString(R.string.audio_no_track))
                 extractor.selectTrack(track.index)
-                decodeTrack(extractor, track.format, onChunk)
+                decodeTrack(context, extractor, track.format, onChunk)
             } finally {
                 extractor.release()
             }
@@ -60,21 +61,22 @@ object AudioFileDecoder {
     }
 
     private suspend fun decodeTrack(
+        context: Context,
         extractor: MediaExtractor,
         format: MediaFormat,
         onChunk: suspend (ByteArray) -> Boolean,
     ) {
         val mime = format.getString(MediaFormat.KEY_MIME)
-            ?: throw IllegalArgumentException("This file's audio has no format the phone can read.")
+            ?: throw IllegalArgumentException(context.getString(R.string.audio_no_format))
         val codec = try {
             MediaCodec.createDecoderByType(mime)
         } catch (e: Exception) {
-            throw IllegalArgumentException("This phone cannot decode $mime audio.", e)
+            throw IllegalArgumentException(context.getString(R.string.audio_cannot_decode, mime), e)
         }
         try {
             codec.configure(format, null, null, 0)
             codec.start()
-            val pump = Pump(extractor, codec, onChunk)
+            val pump = Pump(context, extractor, codec, onChunk)
             pump.run()
         } finally {
             runCatching { codec.stop() }
@@ -84,6 +86,7 @@ object AudioFileDecoder {
 
     /** One decode loop: feeds compressed samples in, takes PCM out, and writes chunks. */
     private class Pump(
+        private val context: Context,
         private val extractor: MediaExtractor,
         private val codec: MediaCodec,
         private val onChunk: suspend (ByteArray) -> Boolean,
@@ -143,7 +146,7 @@ object AudioFileDecoder {
             floatPcm = when (encoding) {
                 AudioFormat.ENCODING_PCM_16BIT -> false
                 AudioFormat.ENCODING_PCM_FLOAT -> true
-                else -> throw IllegalArgumentException("This phone decodes this audio to an unsupported sample format.")
+                else -> throw IllegalArgumentException(context.getString(R.string.audio_unsupported_sample_format))
             }
             resampler = MonoResampler(rate, AudioChunks.SAMPLE_RATE)
         }

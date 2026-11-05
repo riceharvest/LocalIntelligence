@@ -1,8 +1,10 @@
 package dev.localintelligence.app.speedtest
 
+import android.content.Context
 import dev.localintelligence.android.inference.LlamaCompute
 import dev.localintelligence.android.inference.LlamaCppBackend
 import dev.localintelligence.android.inference.ModelImporter
+import dev.localintelligence.app.R
 import dev.localintelligence.app.settings.ComputeChoice
 import dev.localintelligence.core.execution.RunGate
 import dev.localintelligence.core.model.AcceleratorAware
@@ -135,6 +137,7 @@ sealed interface SpeedTestStatus {
  * test holds the gate, so a late tap cannot cancel a chat run that started after it.
  */
 class SpeedTestRunner(
+    private val context: Context,
     private val scope: CoroutineScope,
     private val runGate: RunGate,
     /** Called after the gate is claimed, so the model cannot change under the test. */
@@ -174,7 +177,7 @@ class SpeedTestRunner(
         val claim = runGate.tryClaim()
         if (claim == null) {
             _status.value = SpeedTestStatus.Refused(
-                "An agent run is active. The speed test can run once it finishes.",
+                context.getString(R.string.speedtest_refused_agent_running),
             )
             return
         }
@@ -185,7 +188,7 @@ class SpeedTestRunner(
                 // a model that is replaced a moment later.
                 val target = resolveTarget()
                 if (target == null) {
-                    _status.value = SpeedTestStatus.Refused("Load a model first. The speed test measures the loaded model.")
+                    _status.value = SpeedTestStatus.Refused(context.getString(R.string.speedtest_refused_no_model))
                     return
                 }
                 synchronized(lock) { activeBackend = target.backend }
@@ -215,7 +218,7 @@ class SpeedTestRunner(
                 _status.value = SpeedTestStatus.Failed(e.message.orEmpty(), e.detail)
             } catch (t: Throwable) {
                 _status.value = SpeedTestStatus.Failed(
-                    "The model stopped with an error.",
+                    context.getString(R.string.speedtest_model_error),
                     t.message ?: t::class.java.simpleName,
                 )
             } finally {
@@ -333,7 +336,7 @@ class SpeedTestRunner(
         val decodeTokens = full.result.completionTokens - one.result.completionTokens
         val decodeMs = full.wallMs - one.wallMs
         if (decodeTokens <= 0 || decodeMs <= 0.0) {
-            throw SpeedTestFailure("the backend returned too few tokens to time the decode.")
+            throw SpeedTestFailure(context.getString(R.string.speedtest_too_few_decode_tokens))
         }
         return PassRates(
             prefill = promptTokens * 1000.0 / one.wallMs,
@@ -369,11 +372,11 @@ class SpeedTestRunner(
         when {
             result.stopReason == StopReason.CANCELLED -> throw CancellationException("speed test cancelled")
             result.stopReason == StopReason.ERROR ->
-                throw SpeedTestFailure("The model stopped with an error.", result.text.ifBlank { null })
+                throw SpeedTestFailure(context.getString(R.string.speedtest_model_error), result.text.ifBlank { null })
             // A short answer is not a decode rate: the figure would describe a few
             // tokens, not 64. Refuse rather than report it.
             result.completionTokens < minTokens ->
-                throw SpeedTestFailure("only ${result.completionTokens} tokens came back, too few to time.")
+                throw SpeedTestFailure(context.getString(R.string.speedtest_too_few_tokens, result.completionTokens))
         }
     }
 
@@ -445,25 +448,37 @@ internal fun median(values: List<Double>): Double {
 }
 
 /** The line the Models screen and the Settings screen both show. */
-fun SpeedTestResult.summary(): String {
+fun SpeedTestResult.summary(context: Context): String {
     val backend = if (backendId == ModelImporter.BACKEND_LLAMA_CPP) "llama.cpp" else backendId
-    return "Prefill ${rate(prefillTokensPerSecond)} tok/s · Decode ${rate(decodeTokensPerSecond)} tok/s · " +
-        "$backend on $accelerator · $modelFile"
+    return context.getString(
+        R.string.speedtest_summary,
+        rate(prefillTokensPerSecond),
+        rate(decodeTokensPerSecond),
+        backend,
+        accelerator,
+        modelFile,
+    )
 }
 
 /** "CPU 143.3 / 14.3 · GPU (Vulkan) 80.1 / 20.4 tok/s", or null when nothing was compared. */
-fun SpeedTestResult.comparison(): String? {
+fun SpeedTestResult.comparison(context: Context): String? {
     if (compared.size < 2) return null
-    return compared.joinToString(" · ", prefix = "Compared (prefill / decode): ") { run ->
-        run.error?.let { "${run.label} failed: $it" }
-            ?: "${run.label} ${rate(run.prefillTokensPerSecond)} / ${rate(run.decodeTokensPerSecond)} tok/s"
+    val runs = compared.joinToString(" · ") { run ->
+        run.error?.let { context.getString(R.string.speedtest_run_failed, run.label, it) }
+            ?: context.getString(
+                R.string.speedtest_run_rates,
+                run.label,
+                rate(run.prefillTokensPerSecond),
+                rate(run.decodeTokensPerSecond),
+            )
     }
+    return context.getString(R.string.speedtest_compared, runs)
 }
 
 /** The date line under a result, in the phone's own locale. */
-fun SpeedTestResult.measuredOn(): String {
+fun SpeedTestResult.measuredOn(context: Context): String {
     val date = DateFormat.getDateInstance(DateFormat.MEDIUM, Locale.getDefault()).format(Date(measuredAtMillis))
-    return "Measured on this phone, $date"
+    return context.getString(R.string.speedtest_measured_on, date)
 }
 
 private fun rate(value: Double): String = String.format(Locale.ROOT, "%.1f", value)

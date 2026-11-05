@@ -60,9 +60,9 @@ object ChatExporter {
         val stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
         val file = File(dir, "chat-$stamp.${format.extension}")
         when (format) {
-            Format.MARKDOWN -> file.writeText(toMarkdown(messages))
-            Format.JSON -> file.writeText(toJson(messages))
-            Format.PDF -> FileOutputStream(file).use { out -> toPdf(messages, out) }
+            Format.MARKDOWN -> file.writeText(toMarkdown(context, messages))
+            Format.JSON -> file.writeText(toJson(context, messages))
+            Format.PDF -> FileOutputStream(file).use { out -> toPdf(context, messages, out) }
         }
         return file
     }
@@ -96,7 +96,7 @@ object ChatExporter {
      */
     private data class Row(val role: String, val text: String, val tool: String?, val success: Boolean?)
 
-    private fun rows(messages: List<ChatMessage>): List<Row> = messages.map { message ->
+    private fun rows(context: Context, messages: List<ChatMessage>): List<Row> = messages.map { message ->
         when (message) {
             is ChatMessage.User -> Row("user", message.text, null, null)
             is ChatMessage.Assistant -> Row("assistant", message.text, null, null)
@@ -110,7 +110,10 @@ object ChatExporter {
             )
             is ChatMessage.Approval -> Row(
                 role = "approval",
-                text = if (message.approved) "Approved" else "Declined",
+                text = context.getString(
+                    if (message.approved) R.string.export_approved_tool else R.string.export_declined_tool,
+                    message.toolName.orEmpty(),
+                ),
                 tool = message.toolName,
                 success = null,
             )
@@ -126,22 +129,20 @@ object ChatExporter {
      * decided stays in the file. A failed tool call is marked, since the line
      * otherwise reads like a success.
      */
-    fun toMarkdown(messages: List<ChatMessage>): String {
+    fun toMarkdown(context: Context, messages: List<ChatMessage>): String {
         val out = StringBuilder()
-        out.append("# Chat export\n\n")
-        for (row in rows(messages)) {
+        out.append("# ").append(context.getString(R.string.export_title)).append("\n\n")
+        for (row in rows(context, messages)) {
             when (row.role) {
-                "user" -> out.append("## You\n\n").append(row.text).append("\n\n")
-                "assistant" -> out.append("## Assistant\n\n").append(row.text).append("\n\n")
+                "user" -> out.append("## ").append(context.getString(R.string.export_you)).append("\n\n")
+                    .append(row.text).append("\n\n")
+                "assistant" -> out.append("## ").append(context.getString(R.string.export_assistant)).append("\n\n")
+                    .append(row.text).append("\n\n")
                 "tool" -> {
-                    val failed = if (row.success == false) " (failed)" else ""
-                    out.append("> used ").append(row.tool.orEmpty()).append(failed).append("\n\n")
+                    val line = if (row.success == false) R.string.export_tool_used_failed else R.string.export_tool_used
+                    out.append("> ").append(context.getString(line, row.tool.orEmpty())).append("\n\n")
                 }
-                "approval" -> out.append("> ")
-                    .append(row.text.lowercase())
-                    .append(" ")
-                    .append(row.tool.orEmpty())
-                    .append("\n\n")
+                "approval" -> out.append("> ").append(row.text).append("\n\n")
                 else -> out.append("_").append(row.text).append("_\n\n")
             }
         }
@@ -167,8 +168,8 @@ object ChatExporter {
     private val rowListSerializer: KSerializer<List<JsonRow>> = ListSerializer(JsonRow.serializer())
 
     /** An array of `{role, text, tool?}`. */
-    fun toJson(messages: List<ChatMessage>): String {
-        val list = rows(messages).map { JsonRow(role = it.role, text = it.text, tool = it.tool) }
+    fun toJson(context: Context, messages: List<ChatMessage>): String {
+        val list = rows(context, messages).map { JsonRow(role = it.role, text = it.text, tool = it.tool) }
         return json.encodeToString(rowListSerializer, list)
     }
 
@@ -189,19 +190,19 @@ object ChatExporter {
      * a block that does not fit on the current page continues on the next one
      * rather than being pushed whole, and nothing is cut in the middle of a line.
      */
-    fun toPdf(messages: List<ChatMessage>, out: java.io.OutputStream) {
+    fun toPdf(context: Context, messages: List<ChatMessage>, out: java.io.OutputStream) {
         val document = PdfDocument()
         try {
             val writer = PdfWriter(document)
-            for (row in rows(messages)) {
+            for (row in rows(context, messages)) {
                 when (row.role) {
-                    "user" -> writer.block("You", row.text)
-                    "assistant" -> writer.block("Assistant", row.text)
+                    "user" -> writer.block(context.getString(R.string.export_you), row.text)
+                    "assistant" -> writer.block(context.getString(R.string.export_assistant), row.text)
                     "tool" -> {
-                        val failed = if (row.success == false) " (failed)" else ""
-                        writer.line("used ${row.tool.orEmpty()}$failed")
+                        val line = if (row.success == false) R.string.export_tool_used_failed else R.string.export_tool_used
+                        writer.line(context.getString(line, row.tool.orEmpty()))
                     }
-                    "approval" -> writer.line("${row.text.lowercase()} ${row.tool.orEmpty()}")
+                    "approval" -> writer.line(row.text)
                     else -> writer.line(row.text)
                 }
             }

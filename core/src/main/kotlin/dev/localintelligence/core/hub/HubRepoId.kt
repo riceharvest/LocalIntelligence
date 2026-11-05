@@ -1,6 +1,25 @@
 package dev.localintelligence.core.hub
 
 /**
+ * Why a repository id was refused. A code rather than a sentence: `:core` has no
+ * Android resources, so the app turns each code into the phone's own words.
+ */
+enum class RepoIdProblem {
+    EMPTY,
+    TOO_LONG,
+    NOT_OWNER_NAME,
+    TOO_MANY_SLASHES,
+    BACKSLASH,
+    OWNER_CHARACTERS,
+    NAME_CHARACTERS,
+    DOT_SEGMENT,
+    OWNER_STARTS_DOT,
+    NAME_STARTS_DOT,
+    OWNER_DASH,
+    NAME_DASH,
+}
+
+/**
  * A validated HuggingFace repository identifier, `owner/name`.
  *
  * ## Why this is a type and not a String
@@ -59,29 +78,29 @@ data class HubRepoId private constructor(
          */
         fun parse(raw: String): Result {
             val trimmed = raw.trim()
-            if (trimmed.isEmpty()) return Result.Invalid("Enter a repository like Qwen/Qwen3-0.6B-GGUF.")
+            if (trimmed.isEmpty()) return Result.Invalid(RepoIdProblem.EMPTY)
             if (trimmed.length > MAX_SEGMENT_LENGTH * 2 + 1) {
-                return Result.Invalid("Repository id is too long.")
+                return Result.Invalid(RepoIdProblem.TOO_LONG)
             }
 
             val slash = trimmed.indexOf('/')
-            if (slash <= 0) return Result.Invalid("Repository id must be owner/name, for example Qwen/Qwen3-0.6B-GGUF.")
+            if (slash <= 0) return Result.Invalid(RepoIdProblem.NOT_OWNER_NAME)
             if (trimmed.indexOf('/', slash + 1) >= 0) {
-                return Result.Invalid("Repository id must be owner/name with exactly one slash.")
+                return Result.Invalid(RepoIdProblem.TOO_MANY_SLASHES)
             }
-            if (trimmed.contains('\\')) return Result.Invalid("Repository id must not contain a backslash.")
+            if (trimmed.contains('\\')) return Result.Invalid(RepoIdProblem.BACKSLASH)
 
             val owner = trimmed.substring(0, slash)
             val name = trimmed.substring(slash + 1)
-            if (!isSegment(owner)) return Result.Invalid("Owner must be letters, digits, dot, dash or underscore.")
-            if (!isSegment(name)) return Result.Invalid("Name must be letters, digits, dot, dash or underscore.")
+            if (!isSegment(owner)) return Result.Invalid(RepoIdProblem.OWNER_CHARACTERS)
+            if (!isSegment(name)) return Result.Invalid(RepoIdProblem.NAME_CHARACTERS)
             if (owner == "." || owner == ".." || name == "." || name == "..") {
-                return Result.Invalid("Repository id must not contain . or ..")
+                return Result.Invalid(RepoIdProblem.DOT_SEGMENT)
             }
-            if (owner.startsWith('.')) return Result.Invalid("Owner must not start with a dot.")
-            if (name.startsWith('.')) return Result.Invalid("Name must not start with a dot.")
-            if (owner.startsWith('-') || owner.endsWith('-')) return Result.Invalid("Owner must not start or end with a dash.")
-            if (name.startsWith('-') || name.endsWith('-')) return Result.Invalid("Name must not start or end with a dash.")
+            if (owner.startsWith('.')) return Result.Invalid(RepoIdProblem.OWNER_STARTS_DOT)
+            if (name.startsWith('.')) return Result.Invalid(RepoIdProblem.NAME_STARTS_DOT)
+            if (owner.startsWith('-') || owner.endsWith('-')) return Result.Invalid(RepoIdProblem.OWNER_DASH)
+            if (name.startsWith('-') || name.endsWith('-')) return Result.Invalid(RepoIdProblem.NAME_DASH)
 
             return Result.Valid(HubRepoId(owner, name))
         }
@@ -97,7 +116,7 @@ data class HubRepoId private constructor(
     /** Either a usable id or a message safe to show a user verbatim. */
     sealed interface Result {
         data class Valid(val repoId: HubRepoId) : Result
-        data class Invalid(val message: String) : Result
+        data class Invalid(val problem: RepoIdProblem) : Result
     }
 }
 

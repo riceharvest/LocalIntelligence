@@ -15,6 +15,7 @@ import dev.localintelligence.core.hub.HubError
 import dev.localintelligence.core.hub.HubFilePath
 import dev.localintelligence.core.hub.HubGgufFile
 import dev.localintelligence.core.hub.HubRepoId
+import dev.localintelligence.core.hub.RepoIdProblem
 import dev.localintelligence.core.hub.HubRequest
 import dev.localintelligence.core.hub.HubTokenSource
 import dev.localintelligence.core.hub.HubTransport
@@ -605,7 +606,7 @@ class HubViewModel(
         when (val parsed = HubRepoId.parse(raw)) {
             is HubRepoId.Result.Invalid -> {
                 pendingPrefill = null
-                _state.update { it.copy(error = parsed.message, files = emptyList(), selected = null, recommended = null, plan = null) }
+                _state.update { it.copy(error = repoIdProblemText(context, parsed.problem), files = emptyList(), selected = null, recommended = null, plan = null) }
                 return
             }
             is HubRepoId.Result.Valid -> {
@@ -1435,3 +1436,21 @@ internal fun chooseProjector(files: List<HubGgufFile>): HubGgufFile? {
         ?: projectors.firstOrNull { it.fileName.contains("f16", ignoreCase = true) }
         ?: projectors.minByOrNull { it.sizeBytes }
 }
+
+/** The sentence for a refused repository id, in the phone's language. */
+internal fun repoIdProblemText(context: Context, problem: RepoIdProblem): String = context.getString(
+    when (problem) {
+        RepoIdProblem.EMPTY -> R.string.repo_id_empty
+        RepoIdProblem.TOO_LONG -> R.string.repo_id_too_long
+        RepoIdProblem.NOT_OWNER_NAME -> R.string.repo_id_owner_name
+        RepoIdProblem.TOO_MANY_SLASHES -> R.string.repo_id_one_slash
+        RepoIdProblem.BACKSLASH -> R.string.repo_id_backslash
+        RepoIdProblem.OWNER_CHARACTERS -> R.string.repo_id_owner_characters
+        RepoIdProblem.NAME_CHARACTERS -> R.string.repo_id_name_characters
+        RepoIdProblem.DOT_SEGMENT -> R.string.repo_id_dot_segment
+        RepoIdProblem.OWNER_STARTS_DOT -> R.string.repo_id_owner_dot
+        RepoIdProblem.NAME_STARTS_DOT -> R.string.repo_id_name_dot
+        RepoIdProblem.OWNER_DASH -> R.string.repo_id_owner_dash
+        RepoIdProblem.NAME_DASH -> R.string.repo_id_name_dash
+    },
+)

@@ -125,7 +125,7 @@ object CrashReports {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.exports", file)
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "LocalIntelligence crash report")
+            putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.crash_report_subject))
             putExtra(Intent.EXTRA_STREAM, uri)
             clipData = ClipData.newRawUri(null, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

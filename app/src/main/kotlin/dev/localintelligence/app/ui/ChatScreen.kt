@@ -1209,7 +1209,7 @@ private fun EmptyState(
                 Text(stringResource(R.string.download_4, suggestion.name, formatBytes(suggestion.sizeBytes)))
             }
             Text(
-                text = suggestion.reason,
+                text = stringResource(suggestion.reasonRes),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

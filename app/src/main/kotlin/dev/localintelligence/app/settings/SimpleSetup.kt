@@ -2,6 +2,7 @@ package dev.localintelligence.app.settings
 
 import android.app.ActivityManager
 import android.content.Context
+import dev.localintelligence.app.R
 import dev.localintelligence.android.documents.DEFAULT_EMBEDDING_FILE
 import dev.localintelligence.android.documents.DEFAULT_EMBEDDING_REPO
 import dev.localintelligence.core.settings.CoreSettings
@@ -62,7 +63,8 @@ data class SuggestedModel(
     /** What the user sees: "LFM3 1.7B", not the file name with its quant. */
     val name: String,
     val sizeBytes: Long,
-    val reason: String,
+    /** The line under the name, as a string resource so each phone language gets its own. */
+    val reasonRes: Int,
     /** An opt-in on phones with room: bigger, slower, and not the default. Shown as a second, smaller card. */
     val alternative: SuggestedModel? = null,
 ) {
@@ -105,7 +107,7 @@ object SimpleSetup {
         file = "Spark-X2.6-4B-Q4_K_M.gguf",
         name = "Spark X2.6 4B",
         sizeBytes = 3_543_441_312,
-        reason = "Smarter, about 3x slower.",
+        reasonRes = R.string.model_reason_spark,
     )
 
     /**
@@ -198,7 +200,7 @@ object SimpleSetup {
         file = "LFM3-1.7B-QAD-Q4_0.gguf",
         name = "LFM3 1.7B",
         sizeBytes = 1_049_615_680,
-        reason = "Fast on this phone, and good at getting things done in its apps.",
+        reasonRes = R.string.model_reason_lfm3,
     )
 
     // QAD Q4_0, like LFM3's: the fastest format on phone CPUs.
@@ -207,7 +209,7 @@ object SimpleSetup {
         file = "LFM2.5-230M-QAD-Q4_0.gguf",
         name = "LFM2.5 230M",
         sizeBytes = 149_081_056,
-        reason = "Small enough for this phone's memory. It handles simple requests.",
+        reasonRes = R.string.model_reason_lfm2_5,
     )
 
     /** The smallest starter: what a phone that cannot run the pick is moved to (a 149 MB file). */
@@ -287,7 +289,7 @@ object SimpleSetup {
      * card adds about this phone, or null. A model that does not fit gets its real cut-off as a
      * note, never a "too big" claim: the 4B is recommended from 12 GB, and is not refused below it.
      */
-    data class RecommendedModel(val model: SuggestedModel, val fitsThisPhone: Boolean, val note: String?)
+    data class RecommendedModel(val model: SuggestedModel, val fitsThisPhone: Boolean, val noteRes: Int?)
 
     /**
      * Every model the Play build's Simple mode may download. The phone's suggestion comes first,
@@ -302,13 +304,13 @@ object SimpleSetup {
             RecommendedModel(
                 LFM3_1_7B,
                 fitsThisPhone = ram >= LFM3_MIN_RAM,
-                note = if (ram >= LFM3_MIN_RAM) null else "Too big for this phone.",
+                noteRes = if (ram >= LFM3_MIN_RAM) null else R.string.model_note_too_big,
             ),
-            RecommendedModel(LFM2_5_230M, fitsThisPhone = true, note = null),
+            RecommendedModel(LFM2_5_230M, fitsThisPhone = true, noteRes = null),
             RecommendedModel(
                 SPARK_4B,
                 fitsThisPhone = ram >= SPARK_MIN_RAM,
-                note = if (ram >= SPARK_MIN_RAM) null else "Best on phones with 12 GB or more.",
+                noteRes = if (ram >= SPARK_MIN_RAM) null else R.string.model_note_spark_12gb,
             ),
         ).sortedWith(
             compareBy<RecommendedModel> { it.model.repo != suggestion.repo || it.model.file != suggestion.file }
