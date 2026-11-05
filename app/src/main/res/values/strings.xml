@@ -1162,7 +1162,7 @@
     <string name="plain_memory_cleared">Cleared what I remember.</string>
     <string name="plain_plan_updated">Updated the plan</string>
     <string name="plain_helper_ran">Looked at one part of it</string>
-    <string name="plain_interrupted">The last answer stopped when the app closed. Continue?</string>
+    <string name="plain_interrupted">The last answer stopped before it finished. Continue?</string>
     <string name="plain_search_intro">Find things on this phone by words: notifications, texts, calendar, contact names, text files in a folder you choose, and photo captions. Each one is on or off.</string>
     <string name="plain_search_privacy">Your index stays on this phone and sends nothing anywhere. If a cloud assistant answers, what it finds is sent to it in the chat, like any other result.</string>
     <string name="plain_search_charging">Texts, calendar, contact names and files update about every six hours, only while the phone is charging. Notifications are saved as they arrive.</string>
@@ -1675,6 +1675,8 @@
     <string name="setup_free_storage">Free up %1$s of storage, then try again.</string>
     <string name="setup_starter_cannot_run">This phone can\'t run the assistant. Free up some memory, then try again.</string>
     <string name="setup_embedding_cannot_download">This phone cannot download this model.</string>
+    <string name="setup_site_down">The download site is having trouble right now. Try again in a few minutes.</string>
+    <string name="setup_site_busy">The download site asked us to wait. Try again in a few minutes.</string>
     <string name="setup_waiting_network">No internet right now. The download starts by itself when the phone is back online.</string>
     <string name="setup_mobile_data">You are on mobile data. The download is about %1$s. Tap Try again to download over mobile data, or connect to Wi-Fi first.</string>
     <string name="setup_damaged_again">The downloaded file was damaged, so it was removed. Tap Try again to download it again.</string>

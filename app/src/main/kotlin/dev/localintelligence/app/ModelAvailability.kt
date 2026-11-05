@@ -177,6 +177,7 @@ internal fun loadFailureKind(cause: Throwable?): SimpleWording.Kind {
     val words = cause?.message?.lowercase().orEmpty()
     return when {
         cause is OutOfMemoryError -> SimpleWording.Kind.LOW_MEMORY
+        "enospc" in words || "no space" in words -> SimpleWording.Kind.STORAGE_FULL
         "alloc" in words || "memory" in words || "mmap" in words -> SimpleWording.Kind.LOW_MEMORY
         else -> SimpleWording.Kind.LOAD_FAILED
     }

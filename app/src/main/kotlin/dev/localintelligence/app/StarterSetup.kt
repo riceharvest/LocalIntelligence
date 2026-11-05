@@ -471,6 +471,7 @@ class StarterSetup(
     private fun kindOf(error: HubError): SimpleWording.Kind = when (error) {
         is HubError.InsufficientStorage -> SimpleWording.Kind.STORAGE_FULL
         is HubError.ChecksumMismatch, is HubError.InvalidInput -> SimpleWording.Kind.DOWNLOAD_FAILED
+        is HubError.ServerUnavailable, is HubError.RateLimited -> SimpleWording.Kind.DOWNLOAD_FAILED
         else -> SimpleWording.Kind.NO_NETWORK
     }
 
@@ -483,6 +484,9 @@ class StarterSetup(
         is HubError.InsufficientStorage -> storageSentence(error)
         is HubError.ChecksumMismatch -> context.getString(R.string.setup_checksum_damaged)
         is HubError.InvalidInput -> context.getString(R.string.setup_could_not_save)
+        // The download site answered, so the phone is online: say the site is the problem, not the connection.
+        is HubError.ServerUnavailable -> context.getString(R.string.setup_site_down)
+        is HubError.RateLimited -> context.getString(R.string.setup_site_busy)
         else -> context.getString(R.string.setup_network_failed)
     }
 
