@@ -473,6 +473,17 @@ object CoreSettings {
         SettingSection.GENERAL, default = "", maxLength = 2048, simple = true, applies = SettingApplies.NOW,
     )
 
+    /**
+     * The vision files the person linked to a model by hand in the Models screen, one line per model
+     * (see [dev.localintelligence.core.model.ProjectorLinks]). Not in [all]: the Models screen is the
+     * editor. `simple = true` so Simple mode reads the saved link back instead of its default.
+     */
+    val MODEL_PROJECTORS = Text(
+        "model.projector_links", "Linked vision files",
+        "Which vision file (mmproj) goes with which model. Set from the Models screen.",
+        SettingSection.MODEL, default = "", maxLength = 8192, simple = true, applies = SettingApplies.NEXT_MODEL_LOAD,
+    )
+
     val all: List<SettingDef<*>> = listOf(
         MODE, ASSISTANT_NAME, THEME_COLOR, APPEARANCE,
         AUTO_ACCEPT_DESTRUCTIVE, AUTO_ACCEPT_EXTERNAL, AUTO_ACCEPT_NETWORK, AUTO_ACCEPT_IN_BACKGROUND,

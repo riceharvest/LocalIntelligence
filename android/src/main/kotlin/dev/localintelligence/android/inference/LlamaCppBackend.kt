@@ -166,7 +166,8 @@ class LlamaCppBackend(
         // A text-only model asks for one logits row per batch, which saves the
         // output head's reserve; a model with a projector may speak, and the
         // audio head reads every row, so it keeps the default.
-        val outputsMax = if (findProjector(uri) == null) 1 else 0
+        val projectorFile = projectorFor(model, uri)
+        val outputsMax = if (projectorFile == null) 1 else 0
 
         fun loadNative(compute: LlamaCompute): String? {
             computeSource.loadStarting(compute)
@@ -227,7 +228,7 @@ class LlamaCppBackend(
         // A projector next to the model gives it eyes and/or ears. Optional: a
         // model without one is text-only, and a projector that fails to load
         // leaves the text model working.
-        val projectorCaps = findProjector(uri)?.let { projector ->
+        val projectorCaps = projectorFile?.let { projector ->
             if (LlamaBridge.loadProjector(bridgeHandle, projector.absolutePath) == null) {
                 LlamaBridge.projectorCaps(bridgeHandle)
             } else {
@@ -521,6 +522,13 @@ class LlamaCppBackend(
         // long as the native model might still read it.
         m?.close()
     }
+
+    /**
+     * The projector to load for [model]: the file the person linked in the Models screen when it is
+     * still there, else the one found beside the model file by name (see [findProjector]).
+     */
+    private fun projectorFor(model: ModelSpec, uri: android.net.Uri): java.io.File? =
+        model.projectorPath?.let(::File)?.takeIf { it.isFile } ?: findProjector(uri)
 
     /**
      * The projector (`mmproj`) beside a model file, or null. Two ways to pair:

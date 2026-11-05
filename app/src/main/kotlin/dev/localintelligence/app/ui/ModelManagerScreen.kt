@@ -71,6 +71,7 @@ import dev.localintelligence.app.speedtest.SpeedTestResultBlock
 import dev.localintelligence.app.speedtest.SpeedTestRunner
 import dev.localintelligence.core.hub.FitGate
 import dev.localintelligence.core.hub.formatBytes
+import dev.localintelligence.core.model.ProjectorLinks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -199,6 +200,12 @@ fun ModelManagerScreen(
      * Simple user sees every earlier download, not only the saved model.
      */
     onAutoScan: (suspend () -> Unit)? = null,
+    /** The vision file linked to a model by hand, as a file path, or null. */
+    projectorFor: (ImportedModel) -> String? = { null },
+    /** Copies a picked vision file into the models directory and returns the copy. Null hides the picker. */
+    copyProjector: (suspend (Uri, String, (Long, Long) -> Unit) -> java.io.File)? = null,
+    /** Links a model to a vision file path, or removes the link when the path is null. */
+    onSetProjector: ((ImportedModel, String?) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -261,6 +268,12 @@ fun ModelManagerScreen(
             // GGUF header and a LiteRT-LM FlatBuffer would fail that read with a
             // message that points at a re-download. The picker accepts `*/*`, so
             // both formats arrive here.
+            val pickedName = withContext(Dispatchers.IO) { displayNameOf(context, uri) }
+            if (pickedName != null && ProjectorLinks.isProjectorName(pickedName)) {
+                importError = context.getString(R.string.picked_file_is_vision_file, pickedName)
+                busy = false
+                return@launch
+            }
             when (val container = withContext(Dispatchers.IO) { sniffContainer(context, uri) }) {
                 // A LiteRT-LM bundle is copied into the app's own models directory
                 // and then imported from there, the same way a downloaded model is.
@@ -295,6 +308,52 @@ fun ModelManagerScreen(
                 ModelContainer.GGUF, ModelContainer.UNKNOWN ->
                     runCatching { onImport(uri) }
                         .onFailure { importError = describeLoadFailure(context, it) }
+            }
+            busy = false
+        }
+    }
+
+    // The model whose vision file is being picked, and a counter that redraws the rows after a link changes.
+    var projectorTarget by remember { mutableStateOf<ImportedModel?>(null) }
+    var projectorVersion by remember { mutableStateOf(0) }
+    val projectorPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val target = projectorTarget
+        projectorTarget = null
+        val copy = copyProjector
+        val link = onSetProjector
+        if (uri == null || target == null || copy == null || link == null) return@rememberLauncherForActivityResult
+        importError = null
+        scanNotice = null
+        busyLabel = context.getString(R.string.checking_file)
+        busy = true
+        scope.launch {
+            val name = withContext(Dispatchers.IO) { displayNameOf(context, uri) } ?: uri.lastPathSegment ?: "mmproj.gguf"
+            val isGguf = withContext(Dispatchers.IO) { sniffContainer(context, uri) } == ModelContainer.GGUF
+            if (!isGguf) {
+                importError = context.getString(R.string.vision_file_not_gguf, name)
+            } else {
+                try {
+                    val copied = copyProjector(uri, name) { done, total ->
+                        scope.launch { copying = name to (done to total) }
+                    }
+                    link(target, copied.absolutePath)
+                    projectorVersion++
+                    scanNotice = context.getString(R.string.vision_file_linked, name)
+                    // A model in use is loaded again, so the file takes effect now.
+                    if (target.uri.toString() == loadedModelUri && onUseModel != null) {
+                        busyLabel = context.getString(R.string.loading_model)
+                        val outcome = runCatching { onUseModel(target) }
+                            .getOrElse { ModelAvailability.Failed(describeLoadFailure(context, it)) }
+                        if (outcome is ModelAvailability.Failed) importError = outcome.reason
+                    }
+                } catch (e: java.io.IOException) {
+                    Log.w("ModelManager", "Copying $name failed", e)
+                    importError = context.getString(R.string.couldnt_add_name, name)
+                } finally {
+                    copying = null
+                }
             }
             busy = false
         }
@@ -528,6 +587,22 @@ fun ModelManagerScreen(
                         onDelete = { pendingDelete = model },
                         speedTest = speedTest,
                         isLoaded = model.uri.toString() == loadedModelUri,
+                        projectorPath = remember(model.uri, projectorVersion) { projectorFor(model) },
+                        onPickProjector = if (copyProjector != null && onSetProjector != null) {
+                            {
+                                projectorTarget = model
+                                projectorPicker.launch(arrayOf("application/octet-stream", "*/*"))
+                            }
+                        } else {
+                            null
+                        },
+                        onClearProjector = onSetProjector?.let { link ->
+                            {
+                                link(model, null)
+                                projectorVersion++
+                                scanNotice = context.getString(R.string.vision_file_unlinked)
+                            }
+                        },
                         onEject = onEjectModel?.let { eject ->
                             {
                                 busyLabel = context.getString(R.string.ejecting_model)
@@ -662,6 +737,12 @@ private fun ModelRow(
     onUse: (() -> Unit)? = null,
     /** Unloads the resident model. Shown only on the row in use. Null hides the button. */
     onEject: (() -> Unit)? = null,
+    /** The vision file linked to this model by hand, or null for the automatic one. */
+    projectorPath: String? = null,
+    /** Opens the file picker for a vision file. Null hides the line. */
+    onPickProjector: (() -> Unit)? = null,
+    /** Removes the link. */
+    onClearProjector: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     // WHY THIS IS `DEFAULT_CONTEXT_LENGTH` AND NOT THE MODEL'S TRAINED ONE:
@@ -828,6 +909,21 @@ private fun ModelRow(
             val resolved = remember(model.uri) { displayNameOf(context, model.uri) }
             if (technical && resolved != null && resolved != model.displayName) {
                 FactLine(stringResource(R.string.fact_file), resolved)
+            }
+
+            // The vision file: picked by hand for a model whose file has none beside it, or a different one.
+            // A LiteRT-LM bundle carries its own, so only a GGUF gets the line.
+            if (technical && onPickProjector != null && !model.uri.toString().endsWith(".litertlm", ignoreCase = true)) {
+                FactLine(
+                    stringResource(R.string.fact_vision_file),
+                    projectorPath?.let { java.io.File(it).name } ?: stringResource(R.string.fact_vision_file_auto),
+                )
+                Row {
+                    TextButton(onClick = onPickProjector) { Text(stringResource(R.string.choose_vision_file)) }
+                    if (projectorPath != null && onClearProjector != null) {
+                        TextButton(onClick = onClearProjector) { Text(stringResource(R.string.remove_vision_link)) }
+                    }
+                }
             }
 
             // The speed test sits under the resident model only: it measures the

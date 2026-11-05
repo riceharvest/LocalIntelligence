@@ -1851,4 +1851,12 @@
     <string name="access_usage">To show your screen time, allow LocalIntelligence on the Usage access page.</string>
     <string name="access_notifications">To read notifications and control music, allow LocalIntelligence on the notification access page.</string>
     <string name="access_exact_alarm">To set an alarm at an exact time, allow alarms and reminders for LocalIntelligence.</string>
+    <string name="vision_file_not_gguf">\"%1$s\" is not a vision file. Pick the mmproj file that goes with your vision model.</string>
+    <string name="vision_file_linked">Linked \"%1$s\" to this model. It is used the next time the model loads.</string>
+    <string name="vision_file_unlinked">Removed the link. The model looks for a vision file beside it again.</string>
+    <string name="picked_file_is_vision_file">\"%1$s\" is a vision file, not a model. Open the vision model\'s card in this list and choose it there.</string>
+    <string name="fact_vision_file">Vision file</string>
+    <string name="fact_vision_file_auto">Automatic: the one beside the model, if any</string>
+    <string name="choose_vision_file">Choose vision file</string>
+    <string name="remove_vision_link">Remove link</string>
 </resources>

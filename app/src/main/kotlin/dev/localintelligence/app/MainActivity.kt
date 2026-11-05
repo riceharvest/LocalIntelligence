@@ -535,6 +535,9 @@ class MainActivity : FragmentActivity() {
                                     container.modelsDir,
                                 ).copy(uri, name, progress)
                             },
+                            projectorFor = { model -> container.projectorLinks()[model.uri.toString()] },
+                            copyProjector = { uri, name, progress -> container.copyProjector(uri, name, progress) },
+                            onSetProjector = { model, path -> container.setProjectorLink(model, path) },
                             onScanLocal = {
                                 // Adopt GGUF files already in app storage. A model
                                 // can be there because it was downloaded, pushed
@@ -547,7 +550,7 @@ class MainActivity : FragmentActivity() {
                                             file.isFile && (
                                                 file.name.endsWith(".gguf", ignoreCase = true) ||
                                                     file.name.endsWith(".litertlm", ignoreCase = true)
-                                                )
+                                                ) && !dev.localintelligence.core.model.ProjectorLinks.isProjectorName(file.name)
                                         }
                                 } ?: emptyList()
                                 var firstFailure: Throwable? = null

@@ -38,6 +38,12 @@ data class ModelSpec(
     val threads: Int = 0,
     /** Run on the CPU whatever Compute says. The last rung of the Simple load ladder. */
     val cpuOnly: Boolean = false,
+    /**
+     * The vision file (mmproj) the person linked to this model by hand, as a file path. Null: the
+     * backend looks for one beside the model by name, as before. A link to a file that is gone
+     * falls back to that search.
+     */
+    val projectorPath: String? = null,
 )
 
 data class ModelCapabilities(
