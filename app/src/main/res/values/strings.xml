@@ -1881,4 +1881,16 @@
     <string name="model_reason_lfm2_5">Small enough for this phone\'s memory. It handles simple requests.</string>
     <string name="model_note_too_big">Too big for this phone.</string>
     <string name="model_note_spark_12gb">Best on phones with 12 GB or more.</string>
+    <string name="repo_id_empty">Enter a repository like Qwen/Qwen3-0.6B-GGUF.</string>
+    <string name="repo_id_too_long">Repository id is too long.</string>
+    <string name="repo_id_owner_name">Repository id must be owner/name, for example Qwen/Qwen3-0.6B-GGUF.</string>
+    <string name="repo_id_one_slash">Repository id must be owner/name with exactly one slash.</string>
+    <string name="repo_id_backslash">Repository id must not contain a backslash.</string>
+    <string name="repo_id_owner_characters">Owner must be letters, digits, dot, dash or underscore.</string>
+    <string name="repo_id_name_characters">Name must be letters, digits, dot, dash or underscore.</string>
+    <string name="repo_id_dot_segment">Repository id must not contain . or ..</string>
+    <string name="repo_id_owner_dot">Owner must not start with a dot.</string>
+    <string name="repo_id_name_dot">Name must not start with a dot.</string>
+    <string name="repo_id_owner_dash">Owner must not start or end with a dash.</string>
+    <string name="repo_id_name_dash">Name must not start or end with a dash.</string>
 </resources>
