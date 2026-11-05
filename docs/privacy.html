@@ -87,6 +87,10 @@ handles it under its own privacy policy.</p>
       Mistral, Google Gemini, or your own server): the whole conversation, including tool results,
       screen text in the full build, and attached images or audio.</li>
   <li><strong>Image and video generation</strong> through OpenRouter: the prompt.</li>
+  <li><strong>Web search</strong> (the default, no key): the search words, sent to one service at a time.
+      The services are DuckDuckGo, then Bing, then Brave Search, then Wikipedia in your phone's language.
+      The next one is asked only when the one before it did not answer with results. Each one gets the
+      search words and nothing else: no account and no cookies.</li>
   <li><strong>Search with your own key</strong> (Brave, Tavily, Exa, or your SearXNG): the search words.</li>
   <li><strong>My desktop</strong> (full build only, off until you enter an address): your messages and the
       keys you tap go to the https address you set, which is your own computer over your Tailscale
