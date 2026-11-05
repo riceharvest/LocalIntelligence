@@ -1,5 +1,6 @@
 package dev.localintelligence.android.tools.alarm
 
+import dev.localintelligence.android.tools.access.SpecialAccess
 import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.Notification
@@ -20,6 +21,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import dev.localintelligence.android.tools.device.ArgCoerce
 import dev.localintelligence.android.tools.device.ArgResult
+import dev.localintelligence.android.tools.access.ToolAccess
+import dev.localintelligence.core.tool.contracts.ToolPermissions
 import dev.localintelligence.android.tools.device.guarded
 import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
@@ -847,13 +850,23 @@ class AlarmCreateTool(
                         },
                     )
                 }
-                return@guarded ToolResult(
-                    success = false,
-                    observation = "Android is blocking exact alarms for this app, so a reliable " +
-                        "alarm cannot be set. The user must turn on \"Alarms & reminders\" " +
-                        "permission for this app in Settings. Do not retry until they do.",
-                    error = ToolError.PermissionDenied("SCHEDULE_EXACT_ALARM not granted"),
-                )
+                // Simple mode opens the exact "Alarms & reminders" page for this app and carries on when the person
+                // comes back. Technical keeps the instruction text below, unchanged.
+                val returned = ToolAccess.openSpecialAccess(SpecialAccess.EXACT_ALARM, exactAlarmScreen())
+                if (!returned || !platform.canScheduleExactAlarms()) {
+                    return@guarded ToolResult(
+                        success = false,
+                        observation = if (ToolAccess.simpleMode()) {
+                            "Exact alarms are off for this app, so the alarm was not set. Tell the person in one sentence " +
+                                "that Alarms & reminders must be on for this app, then ask again if they switch it on."
+                        } else {
+                            "Android is blocking exact alarms for this app, so a reliable " +
+                                "alarm cannot be set. The user must turn on \"Alarms & reminders\" " +
+                                "permission for this app in Settings. Do not retry until they do."
+                        },
+                        error = ToolError.PermissionDenied("SCHEDULE_EXACT_ALARM not granted"),
+                    )
+                }
             }
 
             val now = platform.nowMillis()
@@ -1548,3 +1561,11 @@ fun alarmTools(context: Context, grant: PlatformGrant): List<AgentTool> {
         TimerSetTool(context.applicationContext),
     )
 }
+
+/**
+ * The page where "Alarms & reminders" is switched on for this app. Named by the exact-alarm intent
+ * rather than the general Settings screen, so the person lands on the switch itself.
+ */
+internal fun exactAlarmScreen(): Intent =
+    Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+        .setData(android.net.Uri.parse("package:" + (ToolAccess.appContext?.packageName ?: "")))

@@ -1,5 +1,6 @@
 package dev.localintelligence.android.tools.location
 
+import dev.localintelligence.android.tools.access.ToolAccess
 import android.annotation.SuppressLint
 import android.content.Context
 import android.location.Location
@@ -82,10 +83,14 @@ class LocationGetTool(
         withContext(Dispatchers.IO) {
             // Asked of the platform, not of ToolContext.permissionGranted, for the same
             // reason as contacts.search: that flag is never populated.
-            if (!grant.isGranted(ToolPermissions.LOCATION)) {
+            if (!grant.isGranted(ToolPermissions.LOCATION) && !ToolAccess.askRuntime(ToolPermissions.ACCESS_COARSE_LOCATION)) {
                 return@withContext ToolResult(
                     success = false,
-                    observation = PermissionDenial.observation("location.get", ToolPermissions.LOCATION),
+                    observation = ToolAccess.observe(
+                        "location.get",
+                        ToolPermissions.LOCATION,
+                        "Location is not on for this app, so the place is unknown. Ask the person which place they mean.",
+                    ),
                     error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.LOCATION)),
                 )
             }

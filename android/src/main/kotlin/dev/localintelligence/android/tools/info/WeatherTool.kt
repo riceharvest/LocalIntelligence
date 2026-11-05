@@ -1,5 +1,6 @@
 package dev.localintelligence.android.tools.info
 
+import dev.localintelligence.android.tools.access.ToolAccess
 import android.content.Context
 import dev.localintelligence.android.tools.location.phoneFix
 import dev.localintelligence.android.tools.web.WebArgs
@@ -103,15 +104,27 @@ class WeatherGetTool(
                         error = ToolError.NotFound("no place named $place"),
                     )
                 } else {
-                    if (!grant.isGranted(ToolPermissions.LOCATION)) return@withContext ToolResult(
+                    if (!grant.isGranted(ToolPermissions.LOCATION) && !ToolAccess.askRuntime(ToolPermissions.ACCESS_COARSE_LOCATION)) {
+                        return@withContext ToolResult(
                         success = false,
-                        observation = PermissionDenial.observation("weather.get", ToolPermissions.LOCATION),
+                        observation = ToolAccess.observe(
+                            "weather.get",
+                            ToolPermissions.LOCATION,
+                            "The place is not known: location is not on. Ask the person which city, then call " +
+                                "weather.get with that place. Use a city they named earlier in this chat if there is one.",
+                        ),
                         error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.LOCATION)),
-                    )
+                        )
+                    }
                     val fix = phoneFix(appContext) ?: return@withContext ToolResult(
                         success = false,
-                        observation = "No location is available, so the weather here cannot be read. " +
-                            "Tell the user to turn on Location, or ask again with a place name.",
+                        observation = if (ToolAccess.simpleMode()) {
+                            "No location fix is available, so the place is unknown. Ask the person which city, " +
+                                "then call weather.get with that place."
+                        } else {
+                            "No location is available, so the weather here cannot be read. " +
+                                "Tell the user to turn on Location, or ask again with a place name."
+                        },
                         error = ToolError.Unavailable("no location fix"),
                     )
                     Spot("your location", fix.latitude, fix.longitude)

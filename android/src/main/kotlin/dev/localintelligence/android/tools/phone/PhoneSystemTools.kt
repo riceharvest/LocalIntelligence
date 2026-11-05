@@ -1,5 +1,7 @@
 package dev.localintelligence.android.tools.phone
 
+import dev.localintelligence.android.tools.access.ToolAccess
+import dev.localintelligence.android.tools.access.SpecialAccess
 import android.app.NotificationManager
 import android.app.usage.UsageStatsManager
 import android.content.Context
@@ -73,6 +75,30 @@ internal fun specialAccessRefusal(
     return ToolResult(
         success = false,
         observation = PermissionDenial.observation(tool, requirement) + tail,
+        error = ToolError.PermissionDenied(PermissionDenial.summary(requirement)),
+    )
+}
+
+/**
+ * The one gate for a special access. Simple mode opens the exact Settings [screen] and carries on when the
+ * person comes back with it switched on; otherwise [simple] says what to do next. Null means the access is on.
+ * Technical keeps [specialAccessRefusal], the same refusal and screen as before.
+ */
+internal suspend fun specialAccessGate(
+    context: Context,
+    tool: String,
+    requirement: PlatformRequirement,
+    key: String,
+    screen: Intent,
+    grant: PlatformGrant,
+    simple: String,
+): ToolResult? {
+    if (grant.isGranted(requirement)) return null
+    if (!ToolAccess.simpleMode()) return specialAccessRefusal(context, tool, requirement, screen)
+    if (ToolAccess.openSpecialAccess(key, screen) && grant.isGranted(requirement)) return null
+    return ToolResult(
+        success = false,
+        observation = simple,
         error = ToolError.PermissionDenied(PermissionDenial.summary(requirement)),
     )
 }
@@ -184,10 +210,14 @@ class PhoneCallTool(private val appContext: Context, private val grant: Platform
                 "\"${ArgCoerce.ellipsize(raw, 24)}\" is not a phone number. Send digits with an " +
                     "optional leading +, e.g. +31612345678. Look up a name with contacts.search first.",
             )
-        if (!grant.isGranted(ToolPermissions.PHONE_CALL)) {
+        if (!grant.isGranted(ToolPermissions.PHONE_CALL) && !ToolAccess.askRuntime(ToolPermissions.CALL_PHONE)) {
             return ToolResult(
                 success = false,
-                observation = PermissionDenial.observation("phone.call", ToolPermissions.PHONE_CALL),
+                observation = ToolAccess.observe(
+                    "phone.call",
+                    ToolPermissions.PHONE_CALL,
+                    "Calling is not allowed for this app, so no call was placed. Use phone.dial to open the dialer instead.",
+                ),
                 error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.PHONE_CALL)),
             )
         }
@@ -244,9 +274,11 @@ class PhoneDndTool(private val appContext: Context, private val grant: PlatformG
                 "mode must be one word: ${DndMode.ARG_NAMES.joinToString(", ")}.",
             )
         }
-        if (!grant.isGranted(ToolPermissions.DO_NOT_DISTURB)) {
-            return specialAccessRefusal(appContext, "phone.dnd", ToolPermissions.DO_NOT_DISTURB, dndAccessScreen())
-        }
+        specialAccessGate(
+            appContext, "phone.dnd", ToolPermissions.DO_NOT_DISTURB, SpecialAccess.DND, dndAccessScreen(), grant,
+            "Do Not Disturb access is off for this app, so nothing changed. Tell the person in one sentence " +
+                "that it must be switched on for this app, then stop.",
+        )?.let { return it }
         if (context.signal.isCancelled()) return cancelledBefore("phone.dnd")
         return guarded("phone.dnd") { setFilter(mode) }
     }
@@ -300,13 +332,15 @@ class PhoneBrightnessTool(private val appContext: Context, private val grant: Pl
         if (!auto && level == null) {
             return invalidArgument("say a level from 0 to 100, or auto true to set brightness back to automatic.")
         }
-        if (!grant.isGranted(ToolPermissions.WRITE_SETTINGS_ACCESS)) {
-            val screen = Intent(
-                Settings.ACTION_MANAGE_WRITE_SETTINGS,
-                Uri.parse("package:${appContext.packageName}"),
-            )
-            return specialAccessRefusal(appContext, "phone.brightness", ToolPermissions.WRITE_SETTINGS_ACCESS, screen)
-        }
+        val screen = Intent(
+            Settings.ACTION_MANAGE_WRITE_SETTINGS,
+            Uri.parse("package:${appContext.packageName}"),
+        )
+        specialAccessGate(
+            appContext, "phone.brightness", ToolPermissions.WRITE_SETTINGS_ACCESS, SpecialAccess.WRITE_SETTINGS, screen, grant,
+            "Changing the screen brightness is off for this app, so nothing changed. Tell the person in one sentence " +
+                "that it must be switched on for this app, then stop.",
+        )?.let { return it }
         if (context.signal.isCancelled()) return cancelledBefore("phone.brightness")
         return guarded("phone.brightness") { apply(if (auto) null else level) }
     }
@@ -368,14 +402,12 @@ class DeviceScreenTimeTool(private val appContext: Context, private val grant: P
         if (period !in PERIODS) {
             return invalidArgument("period must be one of ${PERIODS.joinToString(", ")}, but was \"${ArgCoerce.ellipsize(period, 24)}\".")
         }
-        if (!grant.isGranted(ToolPermissions.USAGE_ACCESS)) {
-            return specialAccessRefusal(
-                appContext,
-                "device.screen_time",
-                ToolPermissions.USAGE_ACCESS,
-                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS),
-            )
-        }
+        specialAccessGate(
+            appContext, "device.screen_time", ToolPermissions.USAGE_ACCESS, SpecialAccess.USAGE,
+            Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS), grant,
+            "Screen time needs Usage access for this app, which is off, so nothing was read. Tell the person in one " +
+                "sentence that it must be switched on for this app, then stop.",
+        )?.let { return it }
         if (context.signal.isCancelled()) return cancelledBefore("device.screen_time")
         return guarded("device.screen_time") { report(period) }
     }

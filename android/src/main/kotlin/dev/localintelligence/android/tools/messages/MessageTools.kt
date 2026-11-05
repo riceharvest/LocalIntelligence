@@ -1,5 +1,6 @@
 package dev.localintelligence.android.tools.messages
 
+import dev.localintelligence.android.tools.access.ToolAccess
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -101,10 +102,18 @@ private fun stamp(context: Context, millis: Long): String = DateUtils.formatDate
 )
 
 /** The permission refusal for a tool, in the shared wording. */
-private fun permissionRefusal(tool: String, requirement: PlatformRequirement): ToolResult =
+/** Simple-mode fallback when text or call-log access is refused: says what to do next, never a dead end. */
+private const val NOT_ON_SIMPLE = "This app cannot read texts or the call history right now, so nothing was read. " +
+    "Tell the person in one sentence that it has to be switched on for this app, then stop."
+
+/** Simple-mode fallback for sending: the messaging app can still open with the text filled in. */
+private const val SEND_NOT_ON_SIMPLE = "This app cannot send texts right now, so nothing was sent. Use message.draft " +
+    "to open the messaging app with the text ready, and tell the person to tap send."
+
+private fun permissionRefusal(tool: String, requirement: PlatformRequirement, simple: String): ToolResult =
     ToolResult(
         success = false,
-        observation = PermissionDenial.observation(tool, requirement),
+        observation = ToolAccess.observe(tool, requirement, simple),
         error = ToolError.PermissionDenied(PermissionDenial.summary(requirement)),
     )
 
@@ -236,7 +245,9 @@ class SmsSearchTool(private val appContext: Context, private val grant: Platform
 
         if (!declaredInBuild(appContext, ToolPermissions.READ_SMS)) return notInBuild("sms.search")
         DefaultAssistant.refusalUnlessHeld(appContext, "Reading and sending texts")?.let { return it }
-        if (!grant.isGranted(ToolPermissions.SMS_READ)) return permissionRefusal("sms.search", ToolPermissions.SMS_READ)
+        if (!grant.isGranted(ToolPermissions.SMS_READ) && !ToolAccess.askRuntime(ToolPermissions.READ_SMS)) {
+            return permissionRefusal("sms.search", ToolPermissions.SMS_READ, NOT_ON_SIMPLE)
+        }
         if (context.signal.isCancelled()) return cancelledBefore("sms.search")
 
         return withContext(Dispatchers.IO) {
@@ -368,7 +379,9 @@ class SmsSendTool(private val appContext: Context, private val grant: PlatformGr
 
         if (!declaredInBuild(appContext, ToolPermissions.SEND_SMS)) return notInBuild("sms.send")
         DefaultAssistant.refusalUnlessHeld(appContext, "Reading and sending texts")?.let { return it }
-        if (!grant.isGranted(ToolPermissions.SMS_SEND)) return permissionRefusal("sms.send", ToolPermissions.SMS_SEND)
+        if (!grant.isGranted(ToolPermissions.SMS_SEND) && !ToolAccess.askRuntime(ToolPermissions.SEND_SMS)) {
+            return permissionRefusal("sms.send", ToolPermissions.SMS_SEND, SEND_NOT_ON_SIMPLE)
+        }
         if (context.signal.isCancelled()) return cancelledBefore("sms.send")
 
         return withContext(Dispatchers.IO) {
@@ -448,8 +461,8 @@ class CallsRecentTool(private val appContext: Context, private val grant: Platfo
 
         if (!declaredInBuild(appContext, ToolPermissions.READ_CALL_LOG)) return notInBuild("calls.recent")
         DefaultAssistant.refusalUnlessHeld(appContext, "Reading and sending texts")?.let { return it }
-        if (!grant.isGranted(ToolPermissions.CALL_LOG_READ)) {
-            return permissionRefusal("calls.recent", ToolPermissions.CALL_LOG_READ)
+        if (!grant.isGranted(ToolPermissions.CALL_LOG_READ) && !ToolAccess.askRuntime(ToolPermissions.READ_CALL_LOG)) {
+            return permissionRefusal("calls.recent", ToolPermissions.CALL_LOG_READ, NOT_ON_SIMPLE)
         }
         if (context.signal.isCancelled()) return cancelledBefore("calls.recent")
 
