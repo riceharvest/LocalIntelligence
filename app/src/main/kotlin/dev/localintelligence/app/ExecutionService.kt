@@ -397,6 +397,10 @@ class ExecutionService : Service() {
                     // cancel does not resurrect a finished transcript.
                     onToken = { token ->
                         if (sinks.state.value.isActive) {
+                            // The first words of a reply: the person's own message is stored now. A reply that
+                            // needs no tool never reaches onToolDone, so a process killed while it streams would
+                            // otherwise leave an empty chat and no word about the cut-off reply at the next launch.
+                            if (sinks.streamingText.value.isEmpty()) container.persistProgress()
                             sinks.streamingText.value += token
                         }
                     },

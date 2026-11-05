@@ -45,7 +45,11 @@ until [[ "$(state_field running)" == "true" ]]; do
   (( $(now) - t0 < 20 )) || fail "the reply never started"
   sleep 0.5
 done
-sleep 4   # inside generation
+t0="$(now)"
+until (( $(state_field streamedChars) > 30 )); do   # words are streaming: the reply is really in flight
+  (( $(now) - t0 < 90 )) || fail "no words ever streamed"
+  sleep 1
+done
 [[ "$(state_field running)" == "true" ]] || fail "the reply ended before the kill: use a longer one"
 pid="$(app_pid)"
 adb shell "run-as $PKG kill -9 $pid"

@@ -187,6 +187,7 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
                 JSONObject().put("tool", it.toolName).put("args", cap(it.arguments, ROW_CAP))
             } ?: JSONObject.NULL)
             .put("messages", chat.messages.value.size)
+            .put("streamedChars", container.runSinks.streamingText.value.length)
             .put("loadRung", container.selectedModel?.let { container.loadSafety.startRung(it.uri.toString()) } ?: JSONObject.NULL)
             .put("lastAnswer", lastAnswer?.let { cap(it, ANSWER_CAP) } ?: JSONObject.NULL)
     }

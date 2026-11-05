@@ -11,7 +11,11 @@ install_and_ready
 pid="$(app_pid)"
 dctl newchat >/dev/null; sleep 2
 dctl send "Write a long story about a dragon who learns to bake bread. Make it very long and detailed." | grep -q '"started":true' || fail "could not start the long reply"
-sleep 3
+t0="$(now)"
+until (( $(state_field streamedChars) > 30 )); do
+  (( $(now) - t0 < 90 )) || fail "no words ever streamed"
+  sleep 1
+done
 for level in RUNNING_MODERATE RUNNING_LOW RUNNING_CRITICAL; do
   adb shell am send-trim-memory "$PKG" "$level"
   sleep 1
