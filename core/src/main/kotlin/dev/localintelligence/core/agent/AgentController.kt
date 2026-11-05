@@ -373,6 +373,9 @@ class AgentController(
     /** The one retry for a reply in the wrong language, per run. */
     private var languageRetried: Boolean = false
 
+    /** One retry per run when the smallest starter apologises instead of using a result it just got. */
+    private var refusalRetried: Boolean = false
+
     /** True while a resumed run is going: its non-read-only steps wait for the user. See [resume]. */
     private var resuming: Boolean = false
     private var pending: PendingCall? = null
@@ -497,6 +500,7 @@ class AgentController(
         handleRetried = false
         answerRetried = false
         languageRetried = false
+        refusalRetried = false
         heldReply = null
         searchResultUrls.clear()
         runBlocked.clear()
@@ -535,6 +539,7 @@ class AgentController(
         handleRetried = false
         answerRetried = false
         languageRetried = false
+        refusalRetried = false
         heldReply = null
         searchResultUrls.clear()
         runBlocked.clear()
@@ -896,7 +901,14 @@ class AgentController(
             }
             val emptyReply = parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond &&
                 (parsed.action as AgentAction.Respond).text.isBlank()
-            val wrongLanguage = !stopped && !idRetry && !emptyReply && unsupported == null && !languageRetried &&
+            // The smallest starter, after a tool gave it the answer, sometimes writes "I'm sorry, I can't do that"
+            // anyway (measured on a 2 GB emulator: 1 of 4 first tries at the battery question). The result is
+            // in front of it, so it is told once to answer from it.
+            val refusalAfterResult = !stopped && !idRetry && !emptyReply && unsupported == null && !refusalRetried &&
+                config.requestedToolsOnly == RequestedToolsOnly.ALWAYS && lastSuccess != null &&
+                parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond &&
+                REFUSAL_RE.containsMatchIn((parsed.action as AgentAction.Respond).text)
+            val wrongLanguage = !stopped && !idRetry && !emptyReply && unsupported == null && !refusalAfterResult && !languageRetried &&
                 parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond &&
                 ReplyLanguage.mismatch(task, (parsed.action as AgentAction.Respond).text)
             val rejection: String? = when {
@@ -905,6 +917,7 @@ class AgentController(
                 idRetry -> "the reply names an internal id"
                 emptyReply -> "the reply was empty"
                 unsupported != null -> "the reply gives a value no tool result shows"
+                refusalAfterResult -> "the reply refuses although a result answers the question"
                 wrongLanguage -> "the reply is not in the language of the message"
                 else -> null
             }
@@ -992,6 +1005,13 @@ class AgentController(
                             answerRetried = true
                             heldReply = HeldReply(action.text, generation.text)
                             sessions.observe(answerCorrection(unsupported))
+                        } else if (refusalAfterResult) {
+                            refusalRetried = true
+                            heldReply = HeldReply(action.text, generation.text)
+                            sessions.observe(
+                                "The result above already answers the question. Answer from it in one plain " +
+                                    "sentence, without apologising.",
+                            )
                         } else if (wrongLanguage) {
                             // Same shape: once per run, and the first reply is kept if the retry is no reply.
                             languageRetried = true
@@ -2979,6 +2999,9 @@ class AgentController(
             "\\b(let me|i['’]ll|i will|i am going|i['’]m going|one moment)\\b|^(checking|looking)",
             RegexOption.IGNORE_CASE,
         )
+
+        /** An apology or a "cannot" at the start of a reply, for [refusalAfterResult]. */
+        private val REFUSAL_RE = Regex("^\\W*(i['’]?m sorry|sorry|i can['’]?t|i cannot|i am unable|unable to)", RegexOption.IGNORE_CASE)
 
         /** The word "tool" or "tools" on its own, for [withoutToolWord]. */
         private val TOOL_WORD_RE = Regex("\\btools?\\b", RegexOption.IGNORE_CASE)
