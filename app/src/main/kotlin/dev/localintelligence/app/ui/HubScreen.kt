@@ -572,7 +572,7 @@ fun HubScreen(
                         // A deliberate stop is not a failure: no error colour for it.
                         val userCancelled = stopped!!.error is HubError.Cancelled
                         Text(
-                            text = stopped.error.message,
+                            text = hubErrorText(LocalContext.current, stopped.error),
                             color = if (userCancelled) {
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             } else {
@@ -597,7 +597,7 @@ fun HubScreen(
                                 if (state.resumable) {
                                     stringResource(R.string.resume_download)
                                 } else {
-                                    "Download${state.sizeLabel(LocalContext.current)?.let { " ($it)" } ?: ""}"
+                                    downloadLabel(state.sizeLabel(LocalContext.current))
                                 },
                             )
                         }
@@ -610,7 +610,7 @@ fun HubScreen(
                         if (!technical && plan?.ram?.fits == false) {
                             stringResource(R.string.too_big_for_this_phone_try_a_smaller_2)
                         } else {
-                            blocked.message
+                            hubErrorText(LocalContext.current, blocked)
                         },
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium,
@@ -662,7 +662,7 @@ fun HubScreen(
                                 // full size next to it would be a second
                                 // overstatement on the same button.
                                 state.resumable -> stringResource(R.string.resume_download)
-                                else -> "Download${state.sizeLabel(LocalContext.current)?.let { " ($it)" } ?: ""}"
+                                else -> downloadLabel(state.sizeLabel(LocalContext.current))
                             },
                         )
                     }
@@ -693,13 +693,13 @@ private fun RecommendedModelCard(option: SimpleSetup.RecommendedModel, onDownloa
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                option.model.reason,
+                stringResource(option.model.reasonRes),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            option.note?.let { note ->
+            option.noteRes?.let { noteRes ->
                 Text(
-                    note,
+                    stringResource(noteRes),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -854,3 +854,8 @@ private fun compactCount(n: Int): String = when {
     n >= 1_000 -> String.format(Locale.ROOT, "%.1fK", n / 1_000.0)
     else -> n.toString()
 }
+
+/** The download button's words: the size is shown when the file has one. */
+@Composable
+private fun downloadLabel(size: String?): String =
+    if (size == null) stringResource(R.string.download) else stringResource(R.string.download_with_size, size)

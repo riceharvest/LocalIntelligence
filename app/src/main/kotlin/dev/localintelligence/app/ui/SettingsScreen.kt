@@ -569,7 +569,7 @@ private fun SuggestionCard(suggestion: SuggestedModel, onOpenHub: () -> Unit) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(stringResource(R.string.recommended_for_this_phone), style = MaterialTheme.typography.labelLarge)
             Text(suggestion.name, style = MaterialTheme.typography.titleMedium)
-            Text(suggestion.reason, style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(suggestion.reasonRes), style = MaterialTheme.typography.bodySmall)
             FilledTonalButton(onClick = onOpenHub) { Text(stringResource(R.string.download_with_size, formatBytes(suggestion.sizeBytes))) }
         }
     }
@@ -580,7 +580,7 @@ private fun SuggestionCard(suggestion: SuggestedModel, onOpenHub: () -> Unit) {
 private fun AlternativeCard(alt: SuggestedModel, onOpenHub: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(stringResource(R.string.reason_and_name, alt.reason.trimEnd('.'), alt.name), style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.reason_and_name, stringResource(alt.reasonRes).trimEnd('.'), alt.name), style = MaterialTheme.typography.titleSmall)
             OutlinedButton(onClick = onOpenHub) { Text(stringResource(R.string.download_with_size, formatBytes(alt.sizeBytes))) }
         }
     }

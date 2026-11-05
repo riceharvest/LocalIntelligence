@@ -1876,4 +1876,9 @@
     <string name="export_approved_tool">Approved %1$s</string>
     <string name="export_declined_tool">Declined %1$s</string>
     <string name="crash_report_subject">LocalIntelligence crash report</string>
+    <string name="model_reason_spark">Smarter, about 3x slower.</string>
+    <string name="model_reason_lfm3">Fast on this phone, and good at getting things done in its apps.</string>
+    <string name="model_reason_lfm2_5">Small enough for this phone\'s memory. It handles simple requests.</string>
+    <string name="model_note_too_big">Too big for this phone.</string>
+    <string name="model_note_spark_12gb">Best on phones with 12 GB or more.</string>
 </resources>
