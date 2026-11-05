@@ -4,9 +4,12 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 import dev.localintelligence.android.phoneindex.PhoneIndexStore
+import dev.localintelligence.android.tools.access.ToolAccess
 import dev.localintelligence.app.crash.CrashReports
 import dev.localintelligence.app.phoneindex.PhoneIndexJob
 import dev.localintelligence.core.settings.CoreSettings
+import dev.localintelligence.core.settings.SettingsMode
+import dev.localintelligence.core.settings.mode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -48,6 +51,9 @@ class LocalIntelligenceApp : Application() {
         CrashReports.install(this)
         CrashReports.importExitReasons(this)
         container = AppContainer(this)
+        // Tools ask for access in the middle of a run only in Simple mode; see ToolAccess.
+        ToolAccess.appContext = this
+        ToolAccess.simpleMode = { container.settings.mode == SettingsMode.SIMPLE }
         // The app lock starts here, before any activity, so it counts every activity from the first one.
         container.appLock
         // Telegram follows the settings: it starts when it becomes wanted and stops when it stops being

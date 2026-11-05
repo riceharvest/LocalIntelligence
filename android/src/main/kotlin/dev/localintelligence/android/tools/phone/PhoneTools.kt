@@ -1,9 +1,12 @@
 package dev.localintelligence.android.tools.phone
 
+import dev.localintelligence.android.tools.access.SpecialAccess
+import dev.localintelligence.android.tools.access.ToolAccess
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.provider.Settings
 import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
@@ -367,7 +370,8 @@ class PhoneVolumeTool(private val appContext: Context) : AgentTool {
 
     override val definition = ToolDefinition(
         name = "phone.volume",
-        description = "Set the volume of one sound stream or the ringer mode, and return the new level.",
+        description = "Change how loud the phone is: volume up or down, mute, silent or vibrate for the ringer, " +
+            "and return the new level. Not for playing, pausing or skipping music; that is phone.media.",
         category = "phone",
         schema = VOLUME_SCHEMA,
         risk = ToolRisk.REVERSIBLE,
@@ -418,7 +422,7 @@ class PhoneVolumeTool(private val appContext: Context) : AgentTool {
         return guarded("phone.volume") { applyVolume(stream, level, mode) }
     }
 
-    private fun applyVolume(stream: VolumeStream, level: Int?, mode: RingerMode?): ToolResult {
+    private suspend fun applyVolume(stream: VolumeStream, level: Int?, mode: RingerMode?): ToolResult {
         val audio = appContext.getSystemService(AudioManager::class.java)
             ?: return ToolResult(
                 success = false,
@@ -434,13 +438,26 @@ class PhoneVolumeTool(private val appContext: Context) : AgentTool {
             } catch (e: SecurityException) {
                 if (mode != RingerMode.SILENT) throw e
                 // Silent is the one ringer mode that needs Do Not Disturb access. Open that screen
-                // rather than only saying so, the same way phone.dnd does.
-                return specialAccessRefusal(
-                    appContext,
-                    "phone.volume",
-                    ToolPermissions.DO_NOT_DISTURB,
-                    dndAccessScreen(),
-                )
+                // rather than only saying so, the same way phone.dnd does. Simple mode waits for the
+                // person to come back and tries once more; Technical keeps the refusal as it was.
+                if (!ToolAccess.simpleMode()) {
+                    return specialAccessRefusal(appContext, "phone.volume", ToolPermissions.DO_NOT_DISTURB, dndAccessScreen())
+                }
+                val back = ToolAccess.openSpecialAccess(SpecialAccess.DND, dndAccessScreen())
+                val retried = back && try {
+                    audio.ringerMode = mode.platform
+                    true
+                } catch (again: SecurityException) {
+                    false
+                }
+                if (!retried) {
+                    return ToolResult(
+                        success = false,
+                        observation = "Silent needs Do Not Disturb access for this app, which is off, so the ringer " +
+                            "was not changed. Tell the person in one sentence that it must be switched on for this app, then stop.",
+                        error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.DO_NOT_DISTURB)),
+                    )
+                }
             }
         }
 
@@ -485,7 +502,8 @@ class PhoneMediaTool(
 
     override val definition = ToolDefinition(
         name = "phone.media",
-        description = "Play, pause, skip or go back in the media app that is playing, and return what was sent.",
+        description = "Control playback in the music or podcast app that is playing: play, pause, next track or " +
+            "previous track. Does not change the volume; that is phone.volume.",
         category = "phone",
         schema = MEDIA_SCHEMA,
         risk = ToolRisk.REVERSIBLE,
@@ -506,7 +524,13 @@ class PhoneMediaTool(
                 "action must be one word: ${MediaAction.ARG_NAMES.joinToString(", ")}.",
             )
         }
-        if (!grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER)) return notificationAccessDenied()
+        // Simple mode opens the notification access page and carries on on return. Technical gets the same refusal as before.
+        if (!grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER) &&
+            !(ToolAccess.openSpecialAccess(SpecialAccess.NOTIFICATION_LISTENER, Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) &&
+                grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER))
+        ) {
+            return notificationAccessDenied()
+        }
         if (context.signal.isCancelled()) return cancelledBefore("phone.media")
         return guarded("phone.media") { sendControl(action) }
     }
@@ -548,7 +572,12 @@ class PhoneMediaTool(
 
     private fun notificationAccessDenied(): ToolResult = ToolResult(
         success = false,
-        observation = PermissionDenial.observation("phone.media", ToolPermissions.NOTIFICATION_LISTENER),
+        observation = ToolAccess.observe(
+            "phone.media",
+            ToolPermissions.NOTIFICATION_LISTENER,
+            "Notification access is off for this app, so nothing was sent. Tell the person in one sentence that it must " +
+                "be switched on for this app, then stop.",
+        ),
         error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.NOTIFICATION_LISTENER)),
     )
 }

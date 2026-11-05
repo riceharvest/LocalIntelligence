@@ -5,7 +5,9 @@ import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.database.Cursor
+import android.content.Intent
 import android.provider.CalendarContract
+import dev.localintelligence.android.tools.access.ToolAccess
 import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.tool.AgentTool
@@ -16,6 +18,7 @@ import dev.localintelligence.core.tool.ToolError
 import dev.localintelligence.core.tool.ToolResult
 import dev.localintelligence.core.tool.ToolRisk
 import dev.localintelligence.core.tool.contracts.PermissionDenial
+import dev.localintelligence.core.tool.contracts.PlatformRequirement
 import dev.localintelligence.core.tool.contracts.PlatformGrant
 import dev.localintelligence.core.tool.contracts.ToolPermissions
 import kotlinx.coroutines.CancellationException
@@ -526,6 +529,28 @@ internal interface CalendarProvider {
 }
 
 /** The production implementation. The only class in this file that touches ContentResolver. */
+/** The calendar app on today's date, the Simple-mode fallback when calendar access is refused. */
+internal fun calendarAppIntent(): Intent =
+    Intent(Intent.ACTION_VIEW, CalendarContract.CONTENT_URI.buildUpon().appendPath("time").build())
+
+/**
+ * Calendar access is off and the person said not now. Simple mode opens the calendar app on today
+ * instead, so the person can see or add the event themselves; Technical keeps the standard denial.
+ */
+private fun calendarDenied(tool: String, requirement: PlatformRequirement, outcome: String): ToolResult {
+    val opened = ToolAccess.simpleMode() && ToolAccess.start(calendarAppIntent())
+    val simple = if (opened) {
+        "Calendar access is not on, so $outcome. The calendar app is open on the day for the person instead."
+    } else {
+        "Calendar access is not on, so $outcome. Ask the person what they want, or to add it themselves."
+    }
+    return ToolResult(
+        success = false,
+        observation = ToolAccess.observe(tool, requirement, simple),
+        error = ToolError.PermissionDenied(PermissionDenial.summary(requirement)),
+    )
+}
+
 internal class ResolverCalendarProvider(private val resolver: ContentResolver) : CalendarProvider {
 
     override fun query(
@@ -705,7 +730,9 @@ class CalendarSearchTool internal constructor(
             // call. Trusting it fabricates a denial; ignoring it returns
             // "No events ... between ..." for a calendar the app was not
             // allowed to open, and the model tells the user they are free.
-            if (!grant.isGranted(ToolPermissions.CALENDAR_READ)) return@withContext denied()
+            if (!grant.isGranted(ToolPermissions.CALENDAR_READ) && !ToolAccess.askRuntime(ToolPermissions.READ_CALENDAR)) {
+                return@withContext calendarDenied("calendar.search", ToolPermissions.CALENDAR_READ, "no events were read")
+            }
             if (context.signal.isCancelled()) return@withContext cancelled()
 
             val now = System.currentTimeMillis()
@@ -773,7 +800,7 @@ class CalendarSearchTool internal constructor(
                     cursor.close()
                 }
             } catch (security: SecurityException) {
-                return@withContext denied()
+                return@withContext calendarDenied("calendar.search", ToolPermissions.CALENDAR_READ, "no events were read")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (t: Throwable) {
@@ -809,11 +836,6 @@ class CalendarSearchTool internal constructor(
             )
         }
 
-    private fun denied(): ToolResult = ToolResult(
-        success = false,
-        observation = PermissionDenial.observation("calendar.search", ToolPermissions.CALENDAR_READ),
-        error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.CALENDAR_READ)),
-    )
 
     private fun invalid(message: String): ToolResult = ToolResult(
         success = false,
@@ -937,7 +959,9 @@ class CalendarCreateTool internal constructor(
             // create path's failure mode is a provider insert that returns
             // null and is reported as "nothing was created" for a user who
             // simply lacks WRITE_CALENDAR.
-            if (!grant.isGranted(ToolPermissions.CALENDAR_WRITE)) return@withContext denied()
+            if (!grant.isGranted(ToolPermissions.CALENDAR_WRITE) && !ToolAccess.askRuntime(ToolPermissions.WRITE_CALENDAR)) {
+                return@withContext calendarDenied("calendar.create", ToolPermissions.CALENDAR_WRITE, "nothing was saved")
+            }
             if (context.signal.isCancelled()) return@withContext cancelled()
 
             val title = optionalString(args, "title", CalendarArgs.MAX_TITLE_CHARS)
@@ -1040,7 +1064,7 @@ class CalendarCreateTool internal constructor(
                     },
                 )
             } catch (security: SecurityException) {
-                denied()
+                calendarDenied("calendar.create", ToolPermissions.CALENDAR_WRITE, "nothing was saved")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (t: Throwable) {
@@ -1053,11 +1077,7 @@ class CalendarCreateTool internal constructor(
             }
         }
 
-    private fun denied(): ToolResult = ToolResult(
-        success = false,
-        observation = PermissionDenial.observation("calendar.create", ToolPermissions.CALENDAR_WRITE),
-        error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.CALENDAR_WRITE)),
-    )
+
 
     private fun invalid(message: String): ToolResult = ToolResult(
         success = false,

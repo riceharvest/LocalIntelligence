@@ -1811,4 +1811,20 @@
     <string name="plain_stop_interrupted">The task was interrupted before it finished. Try again.</string>
     <string name="plain_stop_steps">I couldn\'t finish that in the steps I had. Try asking for one thing at a time.</string>
     <string name="plain_done_so_far">Done so far: %1$s.</string>
+    <string name="access_continue">Continue</string>
+    <string name="access_not_now">Not now</string>
+    <string name="access_open_settings">Open settings</string>
+    <string name="access_contacts">To find who you mean, I need to read your contacts.</string>
+    <string name="access_calendar_read">To look at your calendar, I need permission to read it.</string>
+    <string name="access_calendar_write">To add this to your calendar, I need permission to change it.</string>
+    <string name="access_location">To know where you are, I need your approximate location.</string>
+    <string name="access_sms_read">To read your texts, I need permission to read text messages.</string>
+    <string name="access_sms_send">To send this text, I need permission to send text messages. You still confirm before it goes.</string>
+    <string name="access_call_log">To see your recent calls, I need permission to read your call history.</string>
+    <string name="access_call">To place this call, I need permission to make calls. You still confirm first.</string>
+    <string name="access_dnd">To turn Do Not Disturb on or off, allow LocalIntelligence on the Do Not Disturb access page.</string>
+    <string name="access_write_settings">To change the screen brightness, allow LocalIntelligence to change system settings.</string>
+    <string name="access_usage">To show your screen time, allow LocalIntelligence on the Usage access page.</string>
+    <string name="access_notifications">To read notifications and control music, allow LocalIntelligence on the notification access page.</string>
+    <string name="access_exact_alarm">To set an alarm at an exact time, allow alarms and reminders for LocalIntelligence.</string>
 </resources>

@@ -1,5 +1,9 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.android.tools.access.ToolAccess
+import dev.localintelligence.app.access.AccessPromptHost
+import dev.localintelligence.app.access.AccessPrompts
+import androidx.activity.result.contract.ActivityResultContracts
 import dev.localintelligence.android.skills.SkillSettings
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
@@ -124,12 +128,34 @@ class MainActivity : FragmentActivity() {
 
     private var deliveredIntent by mutableStateOf<Intent?>(null)
 
+    // Simple-mode runs ask for access through these while this activity is resumed (see AccessPrompts).
+    private val accessPrompts = AccessPrompts()
+    private val runtimeAccess = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        accessPrompts.runtimeAnswered(granted)
+    }
+    private val specialAccess = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        accessPrompts.specialReturned()
+    }
+
+    init {
+        accessPrompts.launchRuntime = { runtimeAccess.launch(it) }
+        accessPrompts.launchSettings = { specialAccess.launch(it) }
+    }
+
     override fun onResume() {
         super.onResume()
+        ToolAccess.host = accessPrompts
         val container = (application as LocalIntelligenceApp).container
         if (WakeWordService.wanted(this, container)) {
             WakeWordService.sync(this, container)
         }
+    }
+
+    override fun onPause() {
+        // Only this activity's host is cleared, so a newer activity's host is never removed by an older one.
+        if (ToolAccess.host === accessPrompts) ToolAccess.host = null
+        accessPrompts.paused()
+        super.onPause()
     }
 
     /**
@@ -153,6 +179,7 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             LocalIntelligenceTheme {
+                AccessPromptHost(accessPrompts)
                 val nav = rememberNavController()
                 // The gateway is the screen's whole handle on the agent. It holds
                 // no state of its own — it reads the process-scoped RunSinks the
