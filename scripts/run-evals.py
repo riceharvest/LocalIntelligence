@@ -144,6 +144,37 @@ def battery_level(answer: str) -> float | None:
     return float(m.group(1).replace(",", ".")) if m else None
 
 
+TIME_OF_DAY = re.compile(r"\b\d{1,2}[:.]\d{2}\b")
+
+
+def answer_is_clean(answer: str) -> bool:
+    """Non-empty, and no tool name or raw tool-call JSON in the reply the person would read."""
+    text = normalise(answer)
+    if not text.strip():
+        return False
+    if any(normalise(name) in text for name in KNOWN_TOOLS):
+        return False
+    return '"name"' not in text and "<tool_call" not in text
+
+
+def judge_device_answer(spec: dict, answer: str):
+    """A fixture answer checked on a phone, by what a phone can see: the reply is clean, has a number,
+    names a phrase from `any`, or shows a clock time. Each part present must hold."""
+    if spec.get("clean") and not answer_is_clean(answer):
+        return "fail", "device: empty answer or tool name in the reply"
+    if spec.get("number") and not re.search(r"\d", normalise(answer)):
+        return "fail", "device: no number in the answer"
+    if "any" in spec or spec.get("time_pattern"):
+        text = normalise(answer)
+        hit = [p for p in spec.get("any", []) if normalise(p) in text]
+        if not hit and spec.get("time_pattern") and TIME_OF_DAY.search(text):
+            hit = ["a clock time"]
+        if not hit:
+            return "fail", f"device: answer has none of {spec.get('any', [])} or a clock time"
+        return "pass", f"device: {hit[0]}"
+    return "pass", "device: clean answer"
+
+
 def check_one(check: dict, calls: list, answer: str, fixture_on_device: bool):
     """Returns (status, reason). status is pass, fail or unverified."""
     kind = check["type"]
@@ -167,7 +198,7 @@ def check_one(check: dict, calls: list, answer: str, fixture_on_device: bool):
             return "fail", f"no {check['name']} in {names}"
         results = []
         for c in matches:
-            if c.get("success") is False:  # the right call that did not work is not a pass
+            if c.get("success") is False and not check.get("allow_failed"):  # the right call that did not work is not a pass
                 results.append(False)
             elif "args" in check:
                 results.append(args_match(c.get("args"), check["args"]))
@@ -201,7 +232,10 @@ def check_one(check: dict, calls: list, answer: str, fixture_on_device: bool):
         if when and not any(n == when for n in names):
             return "pass", "skipped: " + when + " not called"
         if fixture_on_device:
-            return "unverified", "fixture answer on a phone: its tools return real data"
+            # The fixture values never reach a phone, so the check states what can be seen there instead.
+            if "device" not in check:
+                return "unverified", "fixture answer on a phone: its tools return real data"
+            return judge_device_answer(check["device"], answer)
         text = normalise(answer)
         if "all" in check:
             missing = [s for s in check["all"] if normalise(s) not in text]
