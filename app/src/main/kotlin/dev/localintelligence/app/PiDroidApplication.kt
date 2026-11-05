@@ -51,6 +51,7 @@ class LocalIntelligenceApp : Application() {
         CrashReports.install(this)
         CrashReports.importExitReasons(this)
         container = AppContainer(this)
+        AnswerNotifier.install(this)
         // Tools ask for access in the middle of a run only in Simple mode; see ToolAccess.
         ToolAccess.appContext = this
         ToolAccess.simpleMode = { container.settings.mode == SettingsMode.SIMPLE }

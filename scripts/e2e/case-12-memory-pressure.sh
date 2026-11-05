@@ -4,8 +4,10 @@
 # crash; the reply either finishes or says plainly why not, and the chat still works afterwards.
 source "$(dirname "$0")/lib.sh"
 case_begin 12 "Memory pressure during a reply"
-trap 'adb shell pkill -f "tail" >/dev/null 2>&1; emu_back 2>/dev/null' EXIT
+trap 'adb shell "for p in $(pidof tail); do kill $p; done" >/dev/null 2>&1; script_set ""; [[ "${E2E_ONLY_C:-}" == 1 ]] || emu_back 2>/dev/null' EXIT
 
+# E2E_ONLY_C=1: run only part (c), on the emulator already chosen with E2E_SERIAL (a 2 GB one).
+if [[ "${E2E_ONLY_C:-}" != 1 ]]; then
 # (a) trim-memory on the 4 GB phone with LFM3.
 install_and_ready
 pid="$(app_pid)"
@@ -55,4 +57,53 @@ fi
 wait_state_field modelState ready 180 || fail "no model after the hog"
 ask_battery "after the hog"
 assert_no_banned_words
-case_end "trim signals survived; 2 GB hog: app pid $([[ "$now_pid" == "$pid" ]] && echo kept || echo recovered)"
+else
+  install_and_ready
+fi
+
+# (c) The system kills the app for memory while a reply is in flight and the person has left it. What do they see on
+# return? A plain sentence or a working chat, with their message still there. The reply streams slowly (scripted) so
+# one is always in flight; the memory is eaten by a process in the shell that holds it for two minutes.
+STORY="alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu finale"
+wait_state_field modelState ready 180 || fail "(c) no model"
+dctl newchat >/dev/null; sleep 2
+script_set "@slow:250:<respond>$STORY</respond>"
+dctl send "Tell me the alphabet words" | grep -q '"started":true' || fail "(c) could not start the reply"
+sleep 6   # the scripted reply does not feed the streamed-characters counter
+adb shell input keyevent KEYCODE_HOME
+sleep 2
+pid="$(app_pid)"
+echo "  (c) app pid $pid, free before: $(adb shell 'grep MemAvailable /proc/meminfo' | tr -d '\r')"
+killed=0
+for n in 1 2 3 4 5 6; do
+  (adb shell "(head -c 700m /dev/zero; sleep 150) | tail > /dev/null" >/dev/null 2>&1 &)
+  sleep 12
+  echo "  (c) hog $n: free $(adb shell 'grep MemAvailable /proc/meminfo' | tr -d '\r'); app pid '$(app_pid)'"
+  if [[ -z "$(app_pid)" ]]; then killed=1; break; fi
+done
+reason="$(adb shell dumpsys activity exit-info "$PKG" | tr -d '\r' | grep -m3 -iE 'reason|description' | tr '\n' ';')"
+adb shell "for p in \$(pidof tail); do kill \$p; done" >/dev/null 2>&1 || true
+if (( killed )); then
+  echo "  (c) the system killed the app: $reason"
+else
+  echo "  (c) memory pressure alone did not kill it; asking the system to kill the background app as it does (am kill)"
+  adb shell am kill "$PKG"; sleep 2
+  [[ -z "$(app_pid)" ]] || adb shell "run-as $PKG kill -9 $(app_pid)"
+  sleep 2
+  reason="$(adb shell dumpsys activity exit-info "$PKG" | tr -d '\r' | grep -m3 -iE 'reason|description' | tr '\n' ';')"
+fi
+[[ -z "$(app_pid)" ]] || fail "(c) the app is still running"
+KILL_KIND=$([[ $killed == 1 ]] && echo "real low-memory kill" || echo "am kill (pressure alone did not kill it)")
+launch
+wait_text "stopped before it finished|Continue|Ask anything" 90 || fail "(c) nothing readable after the kill: $(screen_text | tr '\n' '|' | head -c 400)"
+echo "  (c) on return: $(screen_text | tr '\n' '|' | head -c 500)"
+screen_text | grep -q "Tell me the alphabet words" || fail "(c) the person's message is gone after the kill: $(screen_text | tr '\n' '|' | head -c 400)"
+screen_text | grep -Eqi "stopped before it finished|Continue" || fail "(c) no plain sentence about the interrupted answer"
+assert_no_banned_words
+screen_text | grep -Eqi "exception|error|crash|has stopped|null" && fail "(c) a raw error is visible: $(screen_text | grep -Ei 'exception|error|crash|null' | head -2)"
+wait_state_field modelState ready 180 || fail "(c) no assistant after the kill (state $(dctl state | head -c 200))"
+tap_exact_soft "Continue" || true
+wait_run_end 240 || fail "(c) Continue never finished"
+[[ -n "$(last_answer)" && "$(last_answer)" != null ]] || fail "(c) no answer after Continue"
+ask_battery "(c) after the kill"
+case_end "trim signals survived; hogs on 2 GB survived; (c) $KILL_KIND mid-reply: message kept, plain 'stopped before it finished / Continue', Continue answered, chat works"

@@ -468,6 +468,8 @@ class ChatViewModel(
                 val answer = state.outcome as? RunOutcome.Answer
                 val spokenByHandsFree = handsFreeRunEnded(state.outcome)
                 if (answer != null && !spokenByHandsFree && readRepliesAloud()) speaker?.speak(answer.text)
+                // A reply that finished while the app was out of sight: say so, so the person knows to look.
+                if (answer != null) dev.localintelligence.app.AnswerNotifier.replyReady(context, answer.text)
             }
         }
     }

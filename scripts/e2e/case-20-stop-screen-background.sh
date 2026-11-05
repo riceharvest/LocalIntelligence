@@ -58,7 +58,12 @@ until [[ "$(state_field running)" == "false" ]]; do
   sleep 3
 done
 echo "  finished in the background after $(( $(now) - t0 )) s"
-echo "  notifications: $(adb shell dumpsys notification --noredact | tr -d '\r' | grep -A12 "pkg=$PKG" | grep -E "android.title|android.text|channel" | head -6 | tr '\n' '|')"
+app_notes() { adb shell dumpsys notification --noredact | tr -d '\r' | awk -v p="pkg=$PKG" '/NotificationRecord\(/ {blk=index($0,p)>0} blk' | grep -E "android.title|android.text" | head -4 | tr '\n' '|'; }
+notes="$(app_notes)"
+echo "  notification: $notes"
+[[ "$notes" == *"Your answer is ready"* && "$notes" == *"alpha bravo"* ]] || fail "no 'answer is ready' notification with the reply while the app was away: $notes"
 launch
 wait_text "finale" 30 || fail "the answer is not on screen on return: $(screen_text | tr '\n' '|' | head -c 400)"
+sleep 2
+[[ "$(app_notes)" == *"Your answer is ready"* ]] && fail "the notification is still there after returning to the app"
 case_end "Stop then send works; screen off/on keeps the reply whole; Home mid-run finishes and the answer is there on return"
