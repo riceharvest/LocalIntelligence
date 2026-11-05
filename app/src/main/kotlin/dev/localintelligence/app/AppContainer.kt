@@ -2365,7 +2365,7 @@ class AppContainer(private val context: Context) {
         StarterSetup(
             context = context,
             scope = appScope,
-            suggestion = SimpleSetup.suggestedModel(deviceFacts),
+            suggestion = starterFor(settings.stored(StarterSetup.SMALLER_STARTER)),
             client = hubClient,
             downloader = hubDownloader,
             budget = hubBudget,
@@ -2377,7 +2377,18 @@ class AppContainer(private val context: Context) {
             availability = modelAvailability.state,
             adopt = { file -> adoptDownloaded(file) },
             awaitPrefix = { awaitPrefixWarm() },
+            smallest = SimpleSetup.smallestStarter(),
+            remember = { smaller -> settings.set(StarterSetup.SMALLER_STARTER, smaller.file) },
         )
+    }
+
+    /**
+     * The starter the first run offers: the smaller one once this phone was moved down to it (it could
+     * not run the first pick), else the table's pick.
+     */
+    private fun starterFor(rememberedFile: String): dev.localintelligence.app.settings.SuggestedModel {
+        val smallest = SimpleSetup.smallestStarter()
+        return if (rememberedFile.isNotEmpty() && rememberedFile == smallest.file) smallest else SimpleSetup.suggestedModel(deviceFacts)
     }
 
     /**

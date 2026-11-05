@@ -210,6 +210,9 @@ object SimpleSetup {
         reason = "Small enough for this phone's memory. It handles simple requests.",
     )
 
+    /** The smallest starter: what a phone that cannot run the pick is moved to (a 149 MB file). */
+    fun smallestStarter(): SuggestedModel = LFM2_5_230M
+
     /**
      * The device class a measured score is filed under: the RAM band and the CPU speed class the
      * table uses. scripts/run-evals.py and docs/scores/build_scores.py compute the same string,
