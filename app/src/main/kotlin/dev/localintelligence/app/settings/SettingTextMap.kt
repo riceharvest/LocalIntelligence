@@ -154,8 +154,10 @@ internal object SettingTextMap {
         "web.search.tavily_key" to R.string.setting_web_search_tavily_key_label,
         "web.search.exa_key" to R.string.setting_web_search_exa_key_label,
         "web.search.searxng_url" to R.string.setting_web_search_searxng_url_label,
+        "setup.smaller_starter" to R.string.setting_setup_smaller_starter_label,
         "model.compute_auto_winner" to R.string.setting_model_compute_auto_winner_label,
         "model.gpu_blocked" to R.string.setting_model_gpu_blocked_label,
+        "model.load_rung" to R.string.setting_model_load_rung_label,
     )
     /** Setting key to the help string resource. */
     val helps: Map<String, Int> = mapOf(
@@ -305,8 +307,10 @@ internal object SettingTextMap {
         "web.search.tavily_key" to R.string.setting_web_search_tavily_key_desc,
         "web.search.exa_key" to R.string.setting_web_search_exa_key_desc,
         "web.search.searxng_url" to R.string.setting_web_search_searxng_url_desc,
+        "setup.smaller_starter" to R.string.setting_setup_smaller_starter_desc,
         "model.compute_auto_winner" to R.string.setting_model_compute_auto_winner_desc,
         "model.gpu_blocked" to R.string.setting_model_gpu_blocked_desc,
+        "model.load_rung" to R.string.setting_model_load_rung_desc,
     )
     /** "key/option id" to the option label string resource. */
     val options: Map<String, Int> = mapOf(
