@@ -402,3 +402,123 @@ wait_percent() {
 data_free_bytes() { adb shell "df -k /data | tail -1" | awk '{print $4 * 1024}'; }
 
 [[ "${E2E_NO_GUARD:-}" == 1 ]] || e2e_guard
+
+# ---------------------------------------------------------------------------------------------
+# Weak phones and permissions (part 2)
+# ---------------------------------------------------------------------------------------------
+
+# The json field of the debug "state" answer, e.g. state_field modelState.
+state_field() { dctl state 2>/dev/null | sed -n "s/.*\"$1\":\"\\{0,1\\}\\([^\",}]*\\).*/\\1/p" | head -1; }
+
+# wait_state_field FIELD VALUE [SECONDS]: polls the debug channel until the field has the value.
+wait_state_field() {
+  local f="$1" v="$2" secs="${3:-120}" t0
+  t0="$(now)"
+  while (( $(now) - t0 < secs )); do
+    [[ "$(state_field "$f")" == "$v" ]] && return 0
+    sleep 2
+  done
+  return 1
+}
+
+# Taps through a fresh first run (Get started, the notification prompt) and waits for the model to be
+# ready. Sets READY_SECS to the seconds from the tap to Ready.
+first_run_to_ready() {
+  local limit="${1:-600}" t0
+  launch
+  wait_text "Get started" 60 || fail "no first-run panel"
+  t0="$(now)"
+  tap_text "Get started"
+  if wait_text "^Allow$" 8; then tap_text "Allow"; fi
+  wait_state_field modelState ready "$limit" || fail "the model never became ready within ${limit}s (state: $(dctl state | head -c 300))"
+  READY_SECS=$(( $(now) - t0 ))
+}
+
+# ask_json TEXT [SECONDS]: sends a question through the debug channel and prints the DONE json.
+ask_json() { dctl ask "$1" "${2:-300}"; }
+
+# json_field NAME: first value of "NAME" in the json on stdin.
+json_field() { sed -n "s/.*\"$1\":\"\\{0,1\\}\\([^\",}]*\\).*/\\1/p" | head -1; }
+
+# The hub-side name of the starter file the app holds on disk (empty when none).
+starter_on_disk() { app_files | awk '{print $NF}' | grep -E '\.gguf$' | tr '\n' ' '; }
+
+# Boots another AVD on its own port beside the main one and points SERIAL at it. Pair with emu_back.
+emu_other() {
+  MAIN_SERIAL="$SERIAL"
+  emu_start "$1" "${2:-5556}"
+}
+emu_back() {
+  emu_stop
+  SERIAL="$MAIN_SERIAL"
+  export SERIAL
+}
+
+# Writes (or removes, with an empty value) a debug control file in the app's files directory.
+debug_file() {
+  if [[ -z "$2" ]]; then
+    adb shell "run-as $PKG rm -f files/$1"
+  else
+    adb shell "run-as $PKG sh -c 'echo $2 > files/$1'"
+  fi
+}
+
+# Stops the app the way a person swiping it away would, then opens it again, and waits until the debug
+# channel answers (the chat screen exists).
+restart_app() {
+  adb shell am force-stop "$PKG"
+  sleep 1
+  launch
+  local t0; t0="$(now)"
+  until dctl state 2>/dev/null | grep -q '"ok":true'; do
+    (( $(now) - t0 < 60 )) || return 1
+    sleep 2
+  done
+}
+
+# Fresh install, first run to a ready model, ready for the case to start. Sets READY_SECS.
+install_and_ready() {
+  hubctl "reset=1"; hub_log_clear
+  fresh_install
+  adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 || true
+  first_run_to_ready 600
+}
+
+# Asks the battery question (the one every tier answers) and fails the case unless a percentage comes back.
+ask_battery() {
+  local label="$1" line
+  dctl newchat >/dev/null; sleep 2
+  line="$(ask_json "What is my battery level?" 300)"
+  echo "$line" | grep -q '"outcome":"answer"' || fail "$label: no answer to the battery question: $line"
+  echo "$line" | sed -n 's/.*"answer":"\([^"]*\)".*/\1/p' | grep -Eq '[0-9]+ ?%' || fail "$label: the answer has no percentage: $line"
+}
+
+# ---------------------------------------------------------------------------------------------
+# Permissions in a run
+# ---------------------------------------------------------------------------------------------
+
+# True when the app holds the runtime permission now.
+perm_granted() { adb shell "dumpsys package $PKG" | tr -d '\r' | grep -q "$1: granted=true"; }
+
+# Starts a question without waiting for the end of the run (the access sentence needs a tap first).
+send_q() {
+  dctl newchat >/dev/null; sleep 2
+  dctl send "$1" | grep -q '"started":true' || fail "the question was not started: $1"
+}
+
+# Waits for the run to end (running=false) and prints the last answer. Bounded.
+wait_run_end() {
+  local secs="${1:-240}" t0
+  t0="$(now)"
+  while (( $(now) - t0 < secs )); do
+    if [[ "$(state_field running)" == "false" ]]; then return 0; fi
+    sleep 2
+  done
+  return 1
+}
+
+# The last answer the assistant gave in the chat (json-escaped text).
+last_answer() { dctl state | sed -n 's/.*"lastAnswer":"\(.*\)"}$/\1/p'; }
+
+# The text of every tool step in the transcript, for judging what a tool told the model.
+tool_steps() { dctl transcript | python3 -I -c 'import json,sys; [print(r.get("tool"),"|",r.get("success"),"|",r.get("text")) for r in json.load(sys.stdin)["rows"] if r["role"]=="tool"]'; }

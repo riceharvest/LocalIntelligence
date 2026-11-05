@@ -1775,6 +1775,7 @@ class AppContainer(private val context: Context) {
             // means the load died inside llama.cpp, and the next load starts a rung lower.
             if (simple) loadSafety.attempting(key, rung)
             try {
+                DebugPorts.current?.beforeNativeLoad(rung)
                 backend.load(
                     ModelSpec(
                         // The backend opens this as a URI; see LlamaCppBackend.load.

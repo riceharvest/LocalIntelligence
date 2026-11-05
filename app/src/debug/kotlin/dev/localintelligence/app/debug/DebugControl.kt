@@ -115,6 +115,23 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
         java.io.File(app.filesDir, "debug-hub-base-url").readText().trim().trimEnd('/').takeIf { it.isNotEmpty() }
     }.getOrNull()
 
+    /**
+     * Test hooks for the load ladder, read from files so a test can set them with `run-as` and they survive
+     * a process kill: `debug-load-hold-ms` waits that long inside every load (the marker is already on disk,
+     * so a kill here is a crash inside the native load), and `debug-fail-load-rungs` makes the first N rungs
+     * fail as if llama.cpp had refused them.
+     */
+    override suspend fun beforeNativeLoad(rung: Int) {
+        val hold = debugNumber("debug-load-hold-ms")
+        if (hold > 0) kotlinx.coroutines.delay(hold)
+        if (rung < debugNumber("debug-fail-load-rungs")) {
+            throw IllegalStateException("forced load failure at rung $rung (debug)")
+        }
+    }
+
+    private fun debugNumber(name: String): Long =
+        runCatching { java.io.File(app.filesDir, name).readText().trim().toLong() }.getOrDefault(0L)
+
     override fun newRunRecorder(): RunRecorder? {
         val created = RunRecorder(modelId = container.residentBackend().id)
         recorder = created
@@ -170,6 +187,7 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
                 JSONObject().put("tool", it.toolName).put("args", cap(it.arguments, ROW_CAP))
             } ?: JSONObject.NULL)
             .put("messages", chat.messages.value.size)
+            .put("loadRung", container.selectedModel?.let { container.loadSafety.startRung(it.uri.toString()) } ?: JSONObject.NULL)
             .put("lastAnswer", lastAnswer?.let { cap(it, ANSWER_CAP) } ?: JSONObject.NULL)
     }
 

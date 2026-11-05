@@ -41,6 +41,14 @@ interface DebugPort {
      * what every build without a debug port uses.
      */
     fun hubBaseUrl(): String? = null
+
+    /**
+     * Called by the Simple load ladder right after the rung's marker is written and just before the native
+     * load. The emulator tests use it to hold a load open (so the process can be killed inside it, as a
+     * native crash would) and to fail the first rungs on purpose. It may throw; the ladder treats that as a
+     * failed rung. A build without a debug port does nothing here.
+     */
+    suspend fun beforeNativeLoad(rung: Int) {}
 }
 
 /** Holds the debug port. Written once, by the debug build's content provider, before the first screen opens. */
