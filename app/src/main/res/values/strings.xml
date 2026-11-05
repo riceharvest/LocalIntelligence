@@ -1636,7 +1636,7 @@
     <string name="setting_home_assistant_token_label">Long-lived access token</string>
     <string name="setting_home_assistant_token_desc">In Home Assistant: your profile, Security, Long-lived access tokens. Stored encrypted and never shown back.</string>
     <string name="setting_web_search_provider_label">Search provider</string>
-    <string name="setting_web_search_provider_desc">Where web.search sends your query. DuckDuckGo needs no key. Brave, Tavily and Exa need your own key; SearXNG needs your instance address. If the chosen provider fails, the search fails. It never switches to another provider.</string>
+    <string name="setting_web_search_provider_desc">Where web.search sends your query. DuckDuckGo needs no key; if it does not answer, Bing, Brave Search and Wikipedia are tried in turn. Brave, Tavily and Exa need your own key; SearXNG needs your instance address. If one of those fails, the search fails. It never switches to another provider.</string>
     <string name="setting_web_search_provider_option_duckduckgo">DuckDuckGo</string>
     <string name="setting_web_search_provider_option_brave">Brave Search</string>
     <string name="setting_web_search_provider_option_tavily">Tavily</string>

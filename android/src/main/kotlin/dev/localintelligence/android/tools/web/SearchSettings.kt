@@ -40,9 +40,10 @@ object WebSearchSettings {
      */
     val PROVIDER = SettingDef.Choice(
         "web.search.provider", "Search provider",
-        "Where web.search sends your query. DuckDuckGo needs no key. Brave, Tavily and Exa " +
-            "need your own key; SearXNG needs your instance address. If the chosen provider " +
-            "fails, the search fails. It never switches to another provider.",
+        "Where web.search sends your query. DuckDuckGo needs no key; if it does not answer, " +
+            "Bing, Brave Search and Wikipedia are tried in turn. Brave, Tavily and Exa need your " +
+            "own key; SearXNG needs your instance address. If one of those fails, the search " +
+            "fails. It never switches to another provider.",
         SettingSection.PLUGINS,
         default = SearchProvider.DUCKDUCKGO.id,
         options = SearchProvider.entries.map { SettingDef.Choice.Option(it.id, it.label) },

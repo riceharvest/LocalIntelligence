@@ -22,7 +22,7 @@ With no key, token or address set, that feature makes no network call. Nothing i
 |---|---|---|---|
 | Model downloads | You pick a model | Hugging Face Hub | File requests only. Nothing is uploaded. See [docs/hf-hub-download.md](docs/hf-hub-download.md). |
 | `web.fetch` | The model calls it; asks first and names the host | Any public HTTP(S) address the model names | The URL, including anything the model put in it. Loopback and private addresses are refused. |
-| `web.search` | Asks first | DuckDuckGo by default (`html.duckduckgo.com`, no key). Technical: Brave, Tavily, Exa or your own SearXNG | The search words, to the provider you chose |
+| `web.search` | Asks first | Free chain by default, no key: DuckDuckGo, then Bing, Brave Search, Wikipedia (`html.duckduckgo.com`, `www.bing.com`, `search.brave.com`, `*.wikipedia.org`). Technical: Brave, Tavily, Exa or your own SearXNG | The search words, to the provider you chose |
 | `weather.get`, `wiki.search`, `places.search` | Free, no key; asks first on each call | Open-Meteo, Wikipedia, OpenStreetMap Nominatim | The place or search words. Weather uses the phone's location only when no place is given. |
 | Remote chat model (Technical) | You pick it on the Models page and give its key | OpenRouter, Groq, Cerebras, DeepSeek, Together, Mistral, Google Gemini, or your own server (Custom) | The whole conversation, and any attached image or audio. Picking a local model stops it. |
 | ChatGPT as the chat model | You sign in with your ChatGPT account | OpenAI | The whole conversation, and any attached image |
