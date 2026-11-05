@@ -1,5 +1,6 @@
 package dev.localintelligence.app.speedtest
 
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
@@ -38,9 +39,10 @@ fun SpeedTestButton(runner: SpeedTestRunner, modifier: Modifier = Modifier) {
                 Spacer(Modifier.width(12.dp))
                 Text(
                     text = when {
-                        running.pass == 0 -> "Speed test, loading the model on ${running.on}…"
-                        running.on != null -> "Speed test on ${running.on}, pass ${running.pass} of ${running.passes}…"
-                        else -> "Speed test, pass ${running.pass} of ${running.passes}…"
+                        running.pass == 0 -> stringResource(R.string.speedtest_loading_model, running.on.orEmpty())
+                        running.on != null ->
+                            stringResource(R.string.speedtest_running_on, running.on, running.pass, running.passes)
+                        else -> stringResource(R.string.speedtest_running, running.pass, running.passes)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f),
@@ -84,13 +86,14 @@ fun SpeedTestButton(runner: SpeedTestRunner, modifier: Modifier = Modifier) {
  */
 @Composable
 fun SpeedTestResultBlock(result: SpeedTestResult, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
-            text = result.summary(),
+            text = result.summary(context),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        result.comparison()?.let {
+        result.comparison(context)?.let {
             Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
         }
         result.note?.let {
@@ -98,8 +101,8 @@ fun SpeedTestResultBlock(result: SpeedTestResult, modifier: Modifier = Modifier)
         }
         Text(
             text = buildString {
-                append("${result.measuredOn()}. Median of 2 runs: ${result.promptTokens}-token prompt, 64 tokens generated.")
-                if (!result.countsExact) append(" Token counts are estimated by this backend.")
+                append(context.getString(R.string.speedtest_result_footer, result.measuredOn(context), result.promptTokens))
+                if (!result.countsExact) append(" ").append(context.getString(R.string.speedtest_counts_estimated))
             },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

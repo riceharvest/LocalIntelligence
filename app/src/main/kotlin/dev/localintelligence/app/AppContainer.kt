@@ -1393,6 +1393,7 @@ class AppContainer(private val context: Context) {
      */
     val speedTest: SpeedTestRunner by lazy {
         SpeedTestRunner(
+            context = context,
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
             runGate = runGate,
             resolveTarget = ::speedTestTarget,
@@ -1649,8 +1650,7 @@ class AppContainer(private val context: Context) {
             val needed = model.estimate.totalBytes(loadContext)
             val have = RamEstimate.usableDeviceBytes()
             val reason = if (settings.mode == SettingsMode.TECHNICAL) {
-                "This model needs about ${formatBytes(needed)} of memory and this phone has about " +
-                    "${formatBytes(have)} free. Try a smaller model or a smaller version of it."
+                context.getString(R.string.model_needs_memory_technical, formatBytes(needed), formatBytes(have))
             } else {
                 context.getString(R.string.plain_too_big_for_phone)
             }
@@ -2430,7 +2430,7 @@ class AppContainer(private val context: Context) {
         if (isDocumentModelName(file.name)) {
             embeddingSetup.checkReady()
             settings.set(EMBEDDING_DOWNLOAD_DISMISSED, true)
-            return@withContext DownloadedModelRegistrar.Registered("Saved as the document search model.", chatReady = false)
+            return@withContext DownloadedModelRegistrar.Registered(context.getString(R.string.document_model_saved), chatReady = false)
         }
         val uri = android.net.Uri.fromFile(file)
         val model = runCatching { importer.inspect(uri) }.getOrNull() ?: return@withContext null

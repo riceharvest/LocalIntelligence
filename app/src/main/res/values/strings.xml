@@ -1893,4 +1893,21 @@
     <string name="repo_id_name_dot">Name must not start with a dot.</string>
     <string name="repo_id_owner_dash">Owner must not start or end with a dash.</string>
     <string name="repo_id_name_dash">Name must not start or end with a dash.</string>
+    <string name="speedtest_refused_agent_running">An agent run is active. The speed test can run once it finishes.</string>
+    <string name="speedtest_refused_no_model">Load a model first. The speed test measures the loaded model.</string>
+    <string name="speedtest_model_error">The model stopped with an error.</string>
+    <string name="speedtest_too_few_decode_tokens">The backend returned too few tokens to time the decode.</string>
+    <string name="speedtest_too_few_tokens">Only %1$d tokens came back, too few to time.</string>
+    <string name="speedtest_summary">Prefill %1$s tok/s · Decode %2$s tok/s · %3$s on %4$s · %5$s</string>
+    <string name="speedtest_compared">Compared (prefill / decode): %1$s</string>
+    <string name="speedtest_run_failed">%1$s failed: %2$s</string>
+    <string name="speedtest_run_rates">%1$s %2$s / %3$s tok/s</string>
+    <string name="speedtest_measured_on">Measured on this phone, %1$s</string>
+    <string name="speedtest_loading_model">Speed test, loading the model on %1$s…</string>
+    <string name="speedtest_running_on">Speed test on %1$s, pass %2$d of %3$d…</string>
+    <string name="speedtest_running">Speed test, pass %1$d of %2$d…</string>
+    <string name="speedtest_result_footer">%1$s. Median of 2 runs: %2$d-token prompt, 64 tokens generated.</string>
+    <string name="speedtest_counts_estimated">Token counts are estimated by this backend.</string>
+    <string name="model_needs_memory_technical">This model needs about %1$s of memory and this phone has about %2$s free. Try a smaller model or a smaller version of it.</string>
+    <string name="document_model_saved">Saved as the document search model.</string>
 </resources>
