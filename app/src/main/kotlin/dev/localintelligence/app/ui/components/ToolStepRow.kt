@@ -516,8 +516,7 @@ private fun ToolRow(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                // Two lines at large font sizes instead of an ellipsis; one line at the default size.
-                maxLines = 2,
+                // No line cap: a long translation wraps in full instead of being cut off mid-word.
                 modifier = Modifier.weight(1f),
             )
             StatusShape(state)
