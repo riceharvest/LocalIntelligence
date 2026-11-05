@@ -154,10 +154,24 @@ emu_start() {
   if "$REAL_ADB" devices | awk 'NR>1 && $2=="device" {print $1}' | grep -qx "$SERIAL"; then
     echo "emulator $SERIAL is already running"
   else
-    (systemd-run --user --scope -q -p MemoryMax="${E2E_EMU_MEM:-6G}" -p CPUQuota=400% nice -n 10 \
-      "$SDK/emulator/emulator" -avd "$avd" -port "$port" -no-window -no-audio -no-boot-anim \
-      -gpu swangle_indirect -no-metrics -no-snapshot-save ${E2E_EMU_ARGS:--qemu -cpu host} \
-      > "$OUT/emulator-$avd.log" 2>&1 &)
+    # An emulator that starts while the previous one on this port is still shutting down runs without its
+    # console port (so without adb) for ever. Start it, and if the port is not listening a minute later, kill
+    # that process and start it once more.
+    local attempt
+    for attempt in 1 2 3; do
+      (systemd-run --user --scope -q -p MemoryMax="${E2E_EMU_MEM:-6G}" -p CPUQuota=400% nice -n 10 \
+        "$SDK/emulator/emulator" -avd "$avd" -port "$port" -no-window -no-audio -no-boot-anim \
+        -gpu swangle_indirect -no-metrics -no-snapshot-save ${E2E_EMU_ARGS:--qemu -cpu host} \
+        > "$OUT/emulator-$avd.log" 2>&1 &)
+      local j
+      for j in $(seq 1 45); do
+        ss -ltn 2>/dev/null | grep -q "127.0.0.1:$port " && break 2
+        sleep 2
+      done
+      echo "emulator on port $port has no console after 90 s (attempt $attempt): restarting it" >&2
+      ps -eo pid,cmd | awk -v p="-port $port" '/qemu-system/ && index($0, p) {print $1}' | xargs -r kill
+      sleep 5
+    done
   fi
   local i
   for i in $(seq 1 240); do
