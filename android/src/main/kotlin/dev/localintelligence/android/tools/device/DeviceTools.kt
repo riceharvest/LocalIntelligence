@@ -324,17 +324,13 @@ object BatteryFacts {
                 " About ${formatDuration(snapshot.timeToFullSeconds)} until full."
 
             chargeState == ChargeState.ON_BATTERY && snapshot.levelPercent in 0..100 ->
-                " Android does not report a time-to-empty estimate."
+                " This phone does not report how long the battery will last."
 
             else -> ""
         }
 
-        val temp = if (snapshot.temperatureCelsius > 0f) {
-            " Battery temperature ${snapshot.temperatureCelsius.toInt()}°C."
-        } else {
-            ""
-        }
-
+        // Temperature is not in the reply: nobody asked for it in a battery check, and the tool
+        // cannot tell a question about heat from one about charge. The reading stays in the snapshot.
         val health = if (snapshot.health != BatteryConstants.HEALTH_GOOD &&
             snapshot.health != BatteryConstants.HEALTH_UNKNOWN
         ) {
@@ -343,7 +339,7 @@ object BatteryFacts {
             ""
         }
 
-        return listOf(level, state, timing, temp, health)
+        return listOf(level, state, timing, health)
             .filter { it.isNotBlank() }
             .joinToString(" ")
     }

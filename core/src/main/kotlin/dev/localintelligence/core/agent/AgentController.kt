@@ -935,12 +935,14 @@ class AgentController(
                             heldReply = HeldReply(action.text, generation.text)
                             sessions.observe(answerCorrection(unsupported))
                         } else {
-                            val text = if (savedObservation && INTERNAL_HANDLE_RE.containsMatchIn(action.text)) {
-                                log("reply still named an internal id after one retry; removed those sentences")
-                                scrubHandles(action.text)
-                            } else {
-                                action.text
-                            }
+                            val text = shownReply(
+                                if (savedObservation && INTERNAL_HANDLE_RE.containsMatchIn(action.text)) {
+                                    log("reply still named an internal id after one retry; removed those sentences")
+                                    scrubHandles(action.text)
+                                } else {
+                                    action.text
+                                },
+                            )
                             sessions.appendAssistant(text, rendered = generation.text)
                             // The one place a turn is offered to durable memory.
                             // See [rememberTurn] for why it is here and nowhere
@@ -975,9 +977,10 @@ class AgentController(
     private suspend fun deliverHeld(held: HeldReply): AgentResult {
         heldReply = null
         log("answer check: the retry was not a reply, keeping the first answer")
-        sessions.appendAssistant(held.text, rendered = held.rendered)
+        val text = shownReply(held.text)
+        sessions.appendAssistant(text, rendered = held.rendered)
         rememberTurn()
-        return AgentResult.Success(held.text, trace.toList())
+        return AgentResult.Success(text, trace.toList())
     }
 
     /**
@@ -2139,6 +2142,47 @@ class AgentController(
         if (answer.isEmpty() || answer.any { it == '<' || it == '{' }) return parsed
         if (BARE_ACTION_INTENT_RE.containsMatchIn(answer)) return parsed
         return ActionParseResult.Parsed(AgentAction.Respond(answer))
+    }
+
+    /** The reply as the user reads it: Simple mode takes the tool names out, Technical gets it as written. */
+    private fun shownReply(text: String): String = if (config.hideToolNames) withoutToolNames(text) else text
+
+    /**
+     * [text] with the names of this run's tools taken out. The names come from the registry, in both
+     * forms a model writes them: `timer.set` and `timer_set`. So nothing here is an English word list.
+     *
+     * Two steps. A phrase that introduces a tool and its one argument is cut out of its sentence
+     * ("using the `timer_set` tool with `seconds=120`"), which leaves a sentence that still reads. Then
+     * any sentence that still names a tool is dropped, the way [scrubHandles] drops a sentence with an
+     * id. Never empty: when nothing is left, [AgentConfig.toolNameFallback].
+     *
+     * WHY deterministic: a prompt rule ("never name tools") is followed most of the time, and a
+     * Simple user who reads `timer_set` learns nothing and is confused. This runs on every final reply.
+     * Known cost: a dropped sentence can be the only one that said a step failed, so the rest may read
+     * more certain than it is. The prompt's "say it worked only if its result says so" is the first guard.
+     */
+    private fun withoutToolNames(text: String): String {
+        val names = tools.all().map { it.definition.name }
+            .flatMap { listOf(it, it.replace('.', '_')) }
+            .distinct()
+            .sortedByDescending { it.length }
+        if (names.isEmpty()) return text
+        val alternation = names.joinToString("|") { Regex.escape(it) }
+        val named = Regex("`?(?:$alternation)`?", RegexOption.IGNORE_CASE)
+        if (!named.containsMatchIn(text)) return text
+        // One `key=value` argument, as the model writes it: "with `seconds=120`".
+        val args = "(?:\\s+with\\s+[`(]?\\w+\\s*=\\s*[^\\s`),;.!?]+[`)]?)?"
+        val phrase = Regex(
+            "\\s*\\b(?:using|via|through|with|by calling|calling)\\s+(?:the\\s+)?`?(?:$alternation)`?" +
+                "(?:\\s+tool)?$args",
+            RegexOption.IGNORE_CASE,
+        )
+        val kept = text.replace(phrase, "")
+            .split(Regex("(?<=[.!?])\\s+"))
+            .filterNot { named.containsMatchIn(it) }
+            .joinToString(" ")
+            .trim()
+        return kept.ifEmpty { config.toolNameFallback }
     }
 
     /**
