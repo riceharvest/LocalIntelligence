@@ -367,7 +367,8 @@ class PhoneVolumeTool(private val appContext: Context) : AgentTool {
 
     override val definition = ToolDefinition(
         name = "phone.volume",
-        description = "Set the volume of one sound stream or the ringer mode, and return the new level.",
+        description = "Change how loud the phone is: volume up or down, mute, silent or vibrate for the ringer, " +
+            "and return the new level. Not for playing, pausing or skipping music; that is phone.media.",
         category = "phone",
         schema = VOLUME_SCHEMA,
         risk = ToolRisk.REVERSIBLE,
@@ -485,7 +486,8 @@ class PhoneMediaTool(
 
     override val definition = ToolDefinition(
         name = "phone.media",
-        description = "Play, pause, skip or go back in the media app that is playing, and return what was sent.",
+        description = "Control playback in the music or podcast app that is playing: play, pause, next track or " +
+            "previous track. Does not change the volume; that is phone.volume.",
         category = "phone",
         schema = MEDIA_SCHEMA,
         risk = ToolRisk.REVERSIBLE,

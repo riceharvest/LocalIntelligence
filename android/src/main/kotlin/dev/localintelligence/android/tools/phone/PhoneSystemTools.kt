@@ -107,8 +107,8 @@ private val DND_SCHEMA: ToolArgs = buildJsonObject {
     putJsonObject("properties") {
         putJsonObject("mode") {
             put("type", "string")
-            putJsonArray("enum") { DndMode.ARG_NAMES.forEach { add(it) } }
-            put("description", "off, priority (priority callers only), alarms, or none (total silence).")
+            putJsonArray("enum") { DndMode.ARG_NAMES.forEach { add(it) }; add("on") }
+            put("description", "off, on (same as priority), priority (priority callers only), alarms, or none (total silence).")
         }
     }
     putJsonArray("required") { add("mode") }
