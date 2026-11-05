@@ -48,8 +48,24 @@ case "$CMD" in
   state|newchat|models|transcript)
     broadcast "$CMD" ""
     ;;
-  send|usemodel|mode|approve)
+  send|usemodel|mode)
     broadcast "$CMD" "$ARG"
+    ;;
+  approve)
+    # Answers the pending approval and waits for the run's next DONE line, as ask does.
+    SECS="${3:-600}"
+    adb "${SERIAL[@]}" logcat -c
+    SENT=$(broadcast approve "$ARG" || true)
+    if [[ "$SENT" != *'"ok":true'* ]]; then
+      echo "$SENT"
+      exit 1
+    fi
+    LINE=$(timeout "$SECS" adb "${SERIAL[@]}" logcat -m 1 -s LIControl:I -e '^DONE ' || true)
+    if [[ -z "$LINE" ]]; then
+      echo "{\"ok\":false,\"error\":\"no DONE line within ${SECS}s\",\"sent\":true}"
+      exit 1
+    fi
+    echo "${LINE#*: DONE }"
     ;;
   ask)
     TEXT="$ARG"

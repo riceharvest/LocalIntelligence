@@ -6,6 +6,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -13,6 +14,7 @@ import android.content.SharedPreferences
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import android.provider.AlarmClock
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -597,6 +599,9 @@ object AlarmDescriptions {
     }
 }
 
+private const val ONE_DAY_MILLIS = 24L * 60 * 60 * 1000
+private const val SMALL_HOURS_END = 5
+
 // =====================================================================================
 // The platform seam
 // =====================================================================================
@@ -615,6 +620,9 @@ interface AlarmPlatform {
 
     /** False when this app's notifications are off, so an alarm can only show a Toast. */
     fun notificationsEnabled(): Boolean
+
+    /** Hands an alarm to the clock app, which sets it for the next time this hour and minute come round. False if none took it. */
+    fun setInClockApp(hour: Int, minute: Int, label: String?): Boolean
 }
 
 // =====================================================================================
@@ -820,6 +828,25 @@ class AlarmCreateTool(
 
         return guarded("alarm.create") {
             if (!platform.canScheduleExactAlarms()) {
+                // Android keeps "Alarms & reminders" off by default on current phones. The clock app needs no such
+                // access, as with timer.set, but can only set the next occurrence, so a later day still gets the denial.
+                val at = platform.nowMillis()
+                val trigger = AlarmTimes.plan(at, ZoneId.systemDefault(), hour, minute, dayOffset).triggerAtMillis
+                val label = (ArgCoerce.string(args, "label") as? ArgResult.Present)?.value?.trim()?.takeIf { it.isNotEmpty() }
+                // "Tomorrow at 7" said at half past midnight means the coming morning, which is the clock's next occurrence.
+                val smallHours = dayOffset == 1 && Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).hour < SMALL_HOURS_END
+                val reachable = trigger > at && (trigger - at <= ONE_DAY_MILLIS || smallHours)
+                if (reachable && platform.setInClockApp(hour, minute, label)) {
+                    return@guarded ToolResult(
+                        success = true,
+                        observation = "Set an alarm for %02d:%02d in the clock app. It rings the next time the clock shows that, and can be changed or cancelled there."
+                            .format(Locale.ROOT, hour, minute),
+                        data = buildJsonObject {
+                            put("hour", hour)
+                            put("minute", minute)
+                        },
+                    )
+                }
                 return@guarded ToolResult(
                     success = false,
                     observation = "Android is blocking exact alarms for this app, so a reliable " +
@@ -1119,6 +1146,23 @@ class AndroidAlarmPlatform(private val context: Context) : AlarmPlatform {
 
     private fun manager(): AlarmManager? =
         appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+
+    override fun setInClockApp(hour: Int, minute: Int, label: String?): Boolean {
+        val intent = Intent(AlarmClock.ACTION_SET_ALARM)
+            .putExtra(AlarmClock.EXTRA_HOUR, hour)
+            .putExtra(AlarmClock.EXTRA_MINUTES, minute)
+            .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (label != null) intent.putExtra(AlarmClock.EXTRA_MESSAGE, label)
+        return try {
+            appContext.startActivity(intent)
+            true
+        } catch (e: ActivityNotFoundException) {
+            false
+        } catch (e: SecurityException) {
+            false
+        }
+    }
 
     override fun canScheduleExactAlarms(): Boolean {
         val alarmManager = manager() ?: return false

@@ -189,6 +189,12 @@ class Session(
     /** True when [key] has a source in the user's words or in a tool result. */
     fun isSourced(key: String): Boolean = key in userTokens || key in toolTokens
 
+    /** A call's arguments are a source: "120 seconds" is what the tool was given, though its result says "2 minutes". */
+    fun groundArguments(arguments: String) = locked {
+        toolTokens += AnswerCheck.tokensIn(arguments)
+        while (toolTokens.size > MAX_TOOL_TOKENS) toolTokens.remove(toolTokens.first())
+    }
+
     /** What the user wrote (with this turn's memories) and what tools returned; never the model's own words. */
     private fun ground(message: ChatMessage) {
         val text = when (message) {

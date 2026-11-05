@@ -1518,7 +1518,6 @@
 <string name="model_not_enough_memory">Nicht genug Speicher für dieses Modell. Probier ein kleineres.</string>
 <string name="model_load_damaged">Dieses Modell konnte nicht geladen werden. Es ist vielleicht beschädigt oder in einem Format, das diese App nicht lesen kann.</string>
 <string name="model_none_add">Füg ein Modell hinzu, um zu chatten. Alles bleibt auf deinem Handy.</string>
-<string name="model_getting_ready">Das Modell wird vorbereitet…</string>
 <string name="crash_preview_more">\n\n... noch %1$d Zeichen. Die Freigabe enthält den ganzen Bericht.</string>
 <string name="run_replace_needs_service">Eine Nachricht zu ersetzen braucht den Assistenten-Dienst.</string>
 <string name="run_waiting_approval">Wartet auf deine Zustimmung.</string>

@@ -1518,7 +1518,6 @@
 <string name="model_not_enough_memory">এই মডেলের জন্য যথেষ্ট মেমোরি নেই। ছোট একটি চেষ্টা করুন।</string>
 <string name="model_load_damaged">সেই মডেল লোড করা যায়নি। এটি নষ্ট হতে পারে, অথবা এমন ফরম্যাটে আছে যা এই অ্যাপ পড়তে পারে না।</string>
 <string name="model_none_add">চ্যাট শুরু করতে একটি মডেল যোগ করুন। সবকিছু আপনার ফোনেই থাকে।</string>
-<string name="model_getting_ready">মডেল প্রস্তুত করা হচ্ছে…</string>
 <string name="crash_preview_more">\n\n... আরও %1$d অক্ষর। শেয়ারে পুরো রিপোর্ট থাকে।</string>
 <string name="run_replace_needs_service">মেসেজ বদলাতে সহকারী সার্ভিস লাগে।</string>
 <string name="run_waiting_approval">আপনার অনুমোদনের অপেক্ষা।</string>

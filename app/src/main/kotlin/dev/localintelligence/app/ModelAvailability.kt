@@ -195,7 +195,7 @@ internal fun ModelAvailability.blockingReason(context: Context): String? = when 
 
     is ModelAvailability.Failed -> reason
 
-    ModelAvailability.Loading -> context.getString(R.string.model_getting_ready)
+    ModelAvailability.Loading -> context.getString(R.string.getting_ready)
 
     // Not a block: the selected model is loaded again by the next send, so the composer stays
     // enabled. The readiness check in AgentViewModel runs after that load and sees Ready.

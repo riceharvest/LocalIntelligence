@@ -1517,7 +1517,6 @@
 <string name="model_not_enough_memory">記憶體不足，無法使用這個模型。請試試較小的模型。</string>
 <string name="model_load_damaged">無法載入那個模型。它可能已損壞，或是本應用程式無法讀取的格式。</string>
 <string name="model_none_add">新增模型即可開始聊天。所有內容都會留在你的手機上。</string>
-<string name="model_getting_ready">正在準備模型…</string>
 <string name="crash_preview_more">\n\n… 另外還有 %1$d 個字元。分享的內容會包含完整報告。</string>
 <string name="run_replace_needs_service">取代訊息需要助理服務。</string>
 <string name="run_waiting_approval">等待你的核准。</string>

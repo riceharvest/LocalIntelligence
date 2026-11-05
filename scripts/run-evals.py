@@ -65,7 +65,7 @@ APPROVE_ON_DEVICE = {
     "timer.set", "alarm.create", "alarm.list", "message.draft", "email.draft", "phone.volume",
     "phone.dnd", "phone.flashlight", "maps.navigate", "device.battery", "device.info",
     "calendar.search", "contacts.search", "location.get", "web.search", "web.fetch",
-    "weather.get", "tools.find", "observations.read", "history.search",
+    "weather.get", "tools.find", "observations.read", "history.search", "phone.media",
 }
 
 
@@ -127,7 +127,9 @@ def check_one(check: dict, calls: list, answer: str, fixture_on_device: bool):
             return "fail", f"no {check['name']} in {names}"
         results = []
         for c in matches:
-            if "args" in check:
+            if c.get("success") is False:  # the right call that did not work is not a pass
+                results.append(False)
+            elif "args" in check:
                 results.append(args_match(c.get("args"), check["args"]))
             elif "args_text" in check:
                 results.append(args_text_match(c.get("args"), check["args_text"]))
@@ -372,13 +374,25 @@ def aggregate_turns(turns: list[dict]) -> dict:
 
 # ---------- device runner ----------
 
+def bring_to_front(serial, package) -> None:
+    """Android refuses to start the run's foreground service from the background, and a ringing Clock takes the front."""
+    component = f"{package}/dev.localintelligence.app.MainActivity"
+    subprocess.run(["adb", "-s", serial, "shell", "am", "start", "-n", component], capture_output=True, timeout=30)
+    time.sleep(1.5)
+
+
 def run_device_task(serial, task, package, timeout_s, stats) -> dict:
     turns = []
+    bring_to_front(serial, package)
+    # A task that timed out can leave its run parked on an approval, which would refuse every later task.
+    if devicectl(serial, "state").get("pendingApproval"):
+        devicectl(serial, "approve", "deny")
     if not task.get("new_session_per_turn"):
         devicectl(serial, "newchat")
     for turn in task["turns"]:
         if task.get("new_session_per_turn"):
             devicectl(serial, "newchat")
+        bring_to_front(serial, package)
         rec = devicectl(serial, "ask", turn, str(timeout_s), timeout=timeout_s + 120)
         if rec.get("outcome") is None:
             return {"error": rec.get("error", "no DONE line"), "turns": turns}
@@ -386,10 +400,10 @@ def run_device_task(serial, task, package, timeout_s, stats) -> dict:
         approvals = 0
         while rec["outcome"] == "awaiting_approval" and approvals < 3:
             approvals += 1
-            pending = rec["calls"][-1]["name"] if rec["calls"] else None
+            pending = (devicectl(serial, "state").get("pendingApproval") or {}).get("tool")
             verb = "allow" if pending in APPROVE_ON_DEVICE else "deny"
             stats["approvals"].append({"task": task["id"], "tool": pending, "decision": verb})
-            nxt = devicectl(serial, "approve", verb)
+            nxt = devicectl(serial, "approve", verb, str(timeout_s), timeout=timeout_s + 120)
             if nxt.get("outcome") is None:
                 return {"error": f"approval answer had no outcome: {str(nxt)[:160]}", "turns": turns + [rec]}
             rec = record_from_done(nxt)
@@ -631,6 +645,8 @@ def _finish_run(task, repeat, seed, res, runner, peak_kb, seconds) -> dict:
     else:
         m = aggregate_turns(res["turns"])
         verdict, reasons = grade(task, m["calls"], m["answer"], runner)
+        if m.get("outcome") not in (None, "answer"):  # step limit or failure: no answer reached the person
+            verdict, reasons = "fail", reasons + [f"run ended as {m['outcome']}"]
     rec = {
         "task_id": task["id"],
         "category": task["category"],

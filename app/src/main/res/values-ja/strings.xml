@@ -1517,7 +1517,6 @@
 <string name="model_not_enough_memory">このモデルには、メモリが足りません。もっと小さいモデルをお試しください。</string>
 <string name="model_load_damaged">そのモデルを読み込めませんでした。壊れているか、このアプリで読めない形式の可能性があります。</string>
 <string name="model_none_add">チャットを始めるには、モデルを追加してください。すべて、あなたのスマホの中に残ります。</string>
-<string name="model_getting_ready">モデルを準備しています…</string>
 <string name="crash_preview_more">\n\n... 残り %1$d 文字。共有には、レポート全体が含まれます。</string>
 <string name="run_replace_needs_service">メッセージを置き換えるには、アシスタントのサービスが必要です。</string>
 <string name="run_waiting_approval">あなたの承認を待っています。</string>

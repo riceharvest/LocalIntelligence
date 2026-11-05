@@ -1520,7 +1520,6 @@
 <string name="model_not_enough_memory">Для этой модели не хватает памяти. Попробуйте модель поменьше.</string>
 <string name="model_load_damaged">Эту модель не удалось загрузить. Возможно, она повреждена или в формате, который приложение не читает.</string>
 <string name="model_none_add">Добавьте модель, чтобы начать общение. Всё остаётся на вашем телефоне.</string>
-<string name="model_getting_ready">Готовим модель…</string>
 <string name="crash_preview_more">\n\n... ещё символов: %1$d. Отправка включает весь отчёт целиком.</string>
 <string name="run_replace_needs_service">Для замены сообщения нужна служба помощника.</string>
 <string name="run_waiting_approval">Ждём вашего одобрения.</string>

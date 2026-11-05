@@ -1518,7 +1518,6 @@
 <string name="model_not_enough_memory">Không đủ bộ nhớ cho mô hình này. Hãy thử một mô hình nhỏ hơn.</string>
 <string name="model_load_damaged">Không tải được mô hình đó. Có thể nó bị hỏng hoặc ở định dạng ứng dụng này không đọc được.</string>
 <string name="model_none_add">Thêm một mô hình để bắt đầu trò chuyện. Mọi thứ đều ở lại trên điện thoại của bạn.</string>
-<string name="model_getting_ready">Đang chuẩn bị mô hình…</string>
 <string name="crash_preview_more">\n\n... còn %1$d ký tự nữa. Phần chia sẻ gồm toàn bộ báo cáo.</string>
 <string name="run_replace_needs_service">Thay thế một tin nhắn cần dịch vụ trợ lý.</string>
 <string name="run_waiting_approval">Đang chờ bạn đồng ý.</string>

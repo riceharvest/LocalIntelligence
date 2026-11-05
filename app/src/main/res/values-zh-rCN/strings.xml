@@ -1517,7 +1517,6 @@
 <string name="model_not_enough_memory">内存不足，无法运行此模型。请试试更小的模型。</string>
 <string name="model_load_damaged">无法加载此模型。它可能已损坏，或是本应用无法读取的格式。</string>
 <string name="model_none_add">添加一个模型即可开始聊天。所有内容都只保留在你的手机上。</string>
-<string name="model_getting_ready">正在准备模型…</string>
 <string name="crash_preview_more">\n\n……还有 %1$d 个字符。分享的内容包含完整报告。</string>
 <string name="run_replace_needs_service">替换消息需要助手服务。</string>
 <string name="run_waiting_approval">正在等待你的批准。</string>
