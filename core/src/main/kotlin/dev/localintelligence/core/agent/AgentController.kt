@@ -2151,9 +2151,10 @@ class AgentController(
      * [text] with the names of this run's tools taken out. The names come from the registry, in both
      * forms a model writes them: `timer.set` and `timer_set`. So nothing here is an English word list.
      *
-     * A phrase that introduces a tool or its arguments goes first ("using the `timer_set` tool with
-     * `seconds=120`", "`alarm_create(hour=7)`"), so the sentence it was in can survive. A sentence that
-     * still names a tool is then dropped. Never empty: when nothing is left, [TOOL_FALLBACK].
+     * Three passes, each only on a match: a call written as syntax (`alarm_create(hour=7)`), a phrase
+     * that introduces a tool and its arguments ("using the `timer_set` tool with `seconds=120`"), and
+     * any bare name left (with its arguments). A sentence is never dropped: it keeps the words around the
+     * name, so "it failed" never turns into "Done." Never empty: when nothing is left, [TOOL_FALLBACK].
      *
      * WHY deterministic: a prompt rule ("never name tools") is followed most of the time, and a
      * Simple user who reads `timer_set` learns nothing and is confused. This runs on every final reply.
@@ -2164,19 +2165,21 @@ class AgentController(
             .distinct()
             .sortedByDescending { it.length }
         if (names.isEmpty()) return text
-        val ref = "`?(?:" + names.joinToString("|") { Regex.escape(it) } + ")`?"
-        val named = Regex(ref, RegexOption.IGNORE_CASE)
+        val alternation = names.joinToString("|") { Regex.escape(it) }
+        val named = Regex("`?(?:$alternation)`?", RegexOption.IGNORE_CASE)
         if (!named.containsMatchIn(text)) return text
-        val call = Regex("$ref\\s*\\([^)\\n]*\\)", RegexOption.IGNORE_CASE)
+        // One `key=value` argument, as the model writes it: "with `seconds=120`".
+        val args = "(?:\\s+with\\s+[`(]?\\w+\\s*=\\s*[^\\s`),;.!?]+[`)]?)?"
+        val call = Regex("`?(?:$alternation)\\s*\\([^)\\n]*\\)`?", RegexOption.IGNORE_CASE)
         val phrase = Regex(
-            "\\s*\\b(?:using|via|through|with|by calling|calling)\\s+(?:the\\s+)?$ref(?:\\s+tool)?" +
-                "(?:\\s+with\\s+[^.;!?\\n]*=[^.;!?\\n]*)?",
+            "\\s*\\b(?:using|via|through|with|by calling|calling)\\s+(?:the\\s+)?`?(?:$alternation)`?" +
+                "(?:\\s+tool)?$args",
             RegexOption.IGNORE_CASE,
         )
-        val kept = text.replace(call, "").replace(phrase, "")
-            .split(Regex("(?<=[.!?])\\s+"))
-            .filterNot { named.containsMatchIn(it) }
-            .joinToString(" ")
+        val bare = Regex("`?(?:$alternation)`?(?:\\s+tool)?$args", RegexOption.IGNORE_CASE)
+        val kept = text.replace(call, "").replace(phrase, "").replace(bare, "")
+            .replace(Regex("[ \\t]{2,}"), " ")
+            .replace(Regex("\\s+([.,;:!?])"), "$1")
             .trim()
         return kept.ifEmpty { TOOL_FALLBACK }
     }
