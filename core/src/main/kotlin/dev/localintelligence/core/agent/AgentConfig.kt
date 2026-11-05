@@ -44,4 +44,24 @@ data class AgentConfig(
     val hideToolNames: Boolean = false,
     /** What a Simple reply says when removing tool names leaves nothing. :app passes its localized text. */
     val toolNameFallback: String = "I could not finish that. Please ask again.",
+    /**
+     * Whether a call to a tool the person's message did not ask for is run (or confirmed) as the risk policy
+     * decides, or turned away so the model answers in words. See [RequestedToolsOnly].
+     */
+    val requestedToolsOnly: RequestedToolsOnly = RequestedToolsOnly.OFF,
 )
+
+/**
+ * When a call to a tool the message did not ask for (judged by [dev.localintelligence.core.tool.ToolRequest]) is
+ * refused outright, with a note to the model to answer in words.
+ */
+enum class RequestedToolsOnly {
+    /** Never: the risk policy decides, and a guarded tool is confirmed first. Technical mode, and the default. */
+    OFF,
+
+    /** Once something in the run was refused or failed. Simple mode: a refusal must not send the run wandering. */
+    AFTER_REFUSAL,
+
+    /** Always. The smallest starter, which reaches for a random tool on a plain question. */
+    ALWAYS,
+}

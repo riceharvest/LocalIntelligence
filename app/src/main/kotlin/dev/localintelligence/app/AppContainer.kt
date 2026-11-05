@@ -110,6 +110,7 @@ import dev.localintelligence.core.context.SystemPrompts
 import dev.localintelligence.core.metrics.RunRecorder
 import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.ModelBackend
+import dev.localintelligence.core.agent.RequestedToolsOnly
 import dev.localintelligence.core.model.ProjectorLinks
 import dev.localintelligence.core.model.ModelSpec
 import dev.localintelligence.core.model.gguf.GgufHeader
@@ -2197,8 +2198,9 @@ class AppContainer(private val context: Context) {
         val runTools: ToolRegistry = RedactingToolRegistry(
             SimpleToolRegistry(pluginTools + listOfNotNull(finder), catalogue = emptyList()),
         )
+        val floorTier = settings.mode == SettingsMode.SIMPLE && selectedModel?.uri?.lastPathSegment
+            ?.let(SimpleSetup.smallestStarter()::isFile) == true
         return AgentController(
-        onToken = onToken,
         onToolStart = onToolStart,
         onToolDone = onToolDone,
         onGenerationRejected = onGenerationRejected,
@@ -2219,7 +2221,8 @@ class AppContainer(private val context: Context) {
                 launchWrite(pending)
             }
         },
-        model = model,
+        // A debug build may play scripted replies in place of the model (see DebugPort.wrapBackend).
+        model = DebugPorts.current?.wrapBackend(model) ?: model,
         parser = dev.localintelligence.core.agent.ActionParserImpl,
         tools = runTools,
         toolSelector = LexicalToolSelector(),
@@ -2233,7 +2236,9 @@ class AppContainer(private val context: Context) {
         contextBuilder = java.time.ZonedDateTime.now().let { now ->
             val name = settings[CoreSettings.ASSISTANT_NAME]
             DefaultContextBuilder(
-                systemPrompt = { tools, lines -> SystemPrompts.forTools(tools, name, lines) },
+                systemPrompt = { tools, lines ->
+                    SystemPrompts.forTools(tools, name, if (floorTier) lines + FLOOR_TIER_LINE else lines)
+                },
                 // A safety net at the model's window: the agent loop compacts
                 // well before this, by its own count in the model's tokens.
                 workingLimit = model.capabilities.contextLength.takeIf { it > 0 } ?: config.workingTokenLimit,
@@ -2247,6 +2252,13 @@ class AppContainer(private val context: Context) {
         config = config.copy(
             hideToolNames = settings.mode == SettingsMode.SIMPLE,
             toolNameFallback = context.getString(R.string.reply_tool_fallback),
+            // Simple mode: after a refusal the run stays with what the message asked for. The smallest starter
+            // (a 230M model on a 2-3 GB phone) only ever calls a tool the message asks for; see FLOOR_TIER_LINE.
+            requestedToolsOnly = when {
+                settings.mode != SettingsMode.SIMPLE -> RequestedToolsOnly.OFF
+                floorTier -> RequestedToolsOnly.ALWAYS
+                else -> RequestedToolsOnly.AFTER_REFUSAL
+            },
         ),
         riskPolicy = riskPolicy(snapshot, background),
         // What the screen shows leaves the phone with the request when a remote model answers.
@@ -2580,3 +2592,13 @@ object SessionStoreFactory {
         null
     }
 }
+
+
+/**
+ * One more line in the smallest starter's system prompt. Measured on the emulator (2 GB phone, 230M model, three
+ * tries each): greeting 1/3, a sleep tip 0/3, 17 times 23 0/3 answered, because with a tool list in front of it
+ * the model refused ("I don't have a tool for that") instead of chatting. Saying outright that it may answer
+ * itself fixes the questions that need no tool.
+ */
+internal const val FLOOR_TIER_LINE: String =
+    "You can chat and answer questions yourself, from what you know. Use a tool only to look at or change something on this phone, or the web."

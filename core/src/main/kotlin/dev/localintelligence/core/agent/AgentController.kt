@@ -500,6 +500,9 @@ class AgentController(
         heldReply = null
         searchResultUrls.clear()
         runBlocked.clear()
+        refusedInRun = false
+        unaskedAttempts = 0
+        calledInRun.clear()
         lookupCounts.clear()
         lastSuccess = null
         emptyRetried = false
@@ -535,6 +538,9 @@ class AgentController(
         heldReply = null
         searchResultUrls.clear()
         runBlocked.clear()
+        refusedInRun = false
+        unaskedAttempts = 0
+        calledInRun.clear()
         lookupCounts.clear()
         lastSuccess = null
         emptyRetried = false
@@ -748,6 +754,7 @@ class AgentController(
             // The session IS still resolved, so a double-tap on "decline" is a
             // no-op rather than a second model-visible message.
             call.session?.resolve(false)
+            refusedInRun = true
             sessions.observe(
                 "The user declined ${call.name}. Do not call it again. " +
                     "Do something else, or answer without it.",
@@ -1038,6 +1045,21 @@ class AgentController(
      */
     private val runBlocked = LinkedHashSet<String>()
 
+    /**
+     * True once something in this run was refused or failed: a tool that returned a failure, a call the policy
+     * or a plugin refused, or a confirmation the person declined. With [AgentConfig.requestedToolsOnly] set to
+     * AFTER_REFUSAL, from then on the run may only call tools the message asks for (see [handleCall]).
+     * Measured on the emulator (cases 14 and 15): after a refusal the small model drifted to unrelated tools
+     * (volume, a calendar entry) in about half of the runs.
+     */
+    private var refusedInRun = false
+
+    /** How many calls this run made to a tool the message did not ask for, for the one-time nudge. */
+    private var unaskedAttempts = 0
+
+    /** Tools this run has already called (past the guard). After a refusal a new tool that changes something is not started. */
+    private val calledInRun = HashSet<String>()
+
     /** Successful calls per read-only tool in this run. */
     private val lookupCounts = HashMap<String, Int>()
 
@@ -1197,6 +1219,33 @@ class AgentController(
             (action.arguments["url"] as? JsonPrimitive)?.contentOrNull?.let(::sameResultKey) in searchResultUrls
         val requested = ToolRequest.asksFor(policyRequest ?: task, tool.definition) ||
             tool.definition.name == TodoList.TOOL_NAME || openingResult
+        // The message did not ask for this tool. Where the setting says so, it is not asked about and not run: the
+        // model is told to answer in words. (A card for a tool nobody mentioned is a question the person cannot
+        // answer.) The tool lookup and the task list are the runtime's own and always pass.
+        // After a refusal the run may also not START a tool that changes something (a calendar entry after a refused
+        // calendar search), even when the message names its family: the person asked to look, not to write.
+        val turnedAway = tool.definition.name != "tools.find" && when (config.requestedToolsOnly) {
+            RequestedToolsOnly.ALWAYS -> !requested
+            RequestedToolsOnly.AFTER_REFUSAL -> refusedInRun && (
+                !requested || (tool.definition.risk != ToolRisk.READ_ONLY && tool.definition.name !in calledInRun)
+                )
+            RequestedToolsOnly.OFF -> false
+        }
+        if (turnedAway) {
+            unaskedAttempts += 1
+            log("guard: ${action.name} not asked for by the message, not run")
+            metrics?.recordToolCall(action.name, action.arguments, executed = false)
+            sessions.observe(
+                if (unaskedAttempts == 1) {
+                    "${action.name} did not run: it is not what the message asked for. " +
+                        "Reply to the user now in plain words, from what you know."
+                } else {
+                    "${action.name} did not run: the message did not ask for it. Reply to the user now in plain words."
+                },
+            )
+            return null
+        }
+        calledInRun += tool.definition.name
         // Screen tools resolve the index against the live screen. The result is the app and the
         // control the policy judges, and it is kept with the parked call so an approval records the
         // grant for the app the person was shown.
@@ -1349,6 +1398,7 @@ class AgentController(
      * different next moves, and a model told the wrong one retries.
      */
     private fun refuse(name: String, decision: Decision): AgentResult? {
+        refusedInRun = true
         trace += StepTrace(
             step, StepTrace.Kind.TOOL_CALL,
             "refused $name: ${decision.rule} — ${decision.justification}",
@@ -1427,6 +1477,7 @@ class AgentController(
     ): AgentResult? {
         val observation = truncate(call.name, hooks.afterTool(call.name, call.args, result.observation, result.success))
         loopDetector.recordResult(call.name, observation, result.success, result.error)
+        if (!result.success) refusedInRun = true
         lastSuccess = if (result.success) Completed(call.name, call.args, observation) else null
         if (loopDetector.isUnavailable(call.name)) runBlocked += call.name
         // Measured: an empty calendar got five searches of nearly the same days, 108 s, for an answer the first
@@ -2037,6 +2088,19 @@ class AgentController(
 
     /** The session's tool list, as it stands for this step. */
     private fun selectTools(): List<AgentTool> {
+        if (config.requestedToolsOnly != RequestedToolsOnly.ALWAYS) return listedTools()
+        // The smallest starter is shown only the tools this message asks for, and none for a greeting, a tip or a
+        // sum. Measured on a 2 GB emulator (230M model, three tries each): with the whole list in front of it, it
+        // answered "hi" 1 of 3 times and "Give me a sleep tip" 0 of 3 ("I don't have a tool for that"), and it
+        // reached for a random tool on a sum. With no tool to refuse with, it answers.
+        val message = policyRequest ?: task
+        val pool = if (sessions.toolScope != null) tools.all().filter { inScope(it.definition.name) } else tools.all()
+        return pool
+            .filter { it.definition.name != ToolFinder.NAME && ToolRequest.asksFor(message, it.definition) }
+            .take(config.maxVisibleTools)
+    }
+
+    private fun listedTools(): List<AgentTool> {
         // A skill scope lists the scope's tools and the core tools from the registry. The session's list
         // is not changed for it, so the next unscoped run still gets the list it had.
         if (sessions.toolScope != null) return tools.all().filter { inScope(it.definition.name) }
@@ -2286,7 +2350,19 @@ class AgentController(
     }
 
     /** The reply as the user reads it: Simple mode takes the tool names out, Technical gets it as written. */
-    private fun shownReply(text: String): String = if (config.hideToolNames) withoutToolNames(text) else text
+    private fun shownReply(text: String): String = if (config.hideToolNames) withoutToolWord(withoutToolNames(text)) else text
+
+    /**
+     * Simple mode never shows the word "tool": a person who has never heard of one reads "my web search tool
+     * failed" as something broken. Found by the offline search case on the emulator, where the model wrote
+     * exactly that. "Feature" says the same thing in the person's words.
+     */
+    private fun withoutToolWord(text: String): String =
+        TOOL_WORD_RE.replace(text) { m ->
+            val plural = m.value.endsWith("s", ignoreCase = true)
+            val word = if (plural) "features" else "feature"
+            if (m.value.first().isUpperCase()) word.replaceFirstChar { it.uppercase() } else word
+        }
 
     /**
      * [text] with the names of this run's tools taken out. The names come from the registry, in both
@@ -2903,6 +2979,9 @@ class AgentController(
             "\\b(let me|i['’]ll|i will|i am going|i['’]m going|one moment)\\b|^(checking|looking)",
             RegexOption.IGNORE_CASE,
         )
+
+        /** The word "tool" or "tools" on its own, for [withoutToolWord]. */
+        private val TOOL_WORD_RE = Regex("\\btools?\\b", RegexOption.IGNORE_CASE)
 
         /** The one-time note to the model when a reply names an internal id. */
         const val HANDLE_CORRECTION = "Your reply named an internal id, which the user must never see. " +
