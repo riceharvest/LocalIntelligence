@@ -28,8 +28,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
@@ -189,6 +191,11 @@ fun ChatScreen(
     loadPersonas: (suspend () -> List<Persona>)? = null,
     /** Starts the chat with the persona picked on the empty chat (null for none). */
     onChoosePersona: (Long?) -> Unit = {},
+    /**
+     * Simple mode's New chat, in the chat itself (Settings has the same one). Null hides it. Shown only
+     * once there are messages, and never while a run is in flight.
+     */
+    onNewChat: (() -> Unit)? = null,
 ) {
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
@@ -498,6 +505,11 @@ fun ChatScreen(
         // window is already resized for the keyboard the same inset gets counted
         // twice.
         modifier = modifier,
+        topBar = {
+            if (!technical && onNewChat != null && messages.isNotEmpty()) {
+                NewChatBar(enabled = !busy, onNewChat = onNewChat)
+            }
+        },
         bottomBar = {
           Column {
             if (interrupted) {
@@ -534,9 +546,14 @@ fun ChatScreen(
                 onRemoveAttachment = viewModel::removeAttachment,
                 onOpenSettings = onOpenSettings,
                 showBlockedReason = messages.isNotEmpty(),
-                blockedAction = when (modelState) {
-                    ModelAvailability.None -> stringResource(R.string.download_a_model) to onOpenModels
-                    is ModelAvailability.Failed -> stringResource(R.string.choose_another_model) to onOpenModels
+                blockedAction = when {
+                    // Simple has no Models screen: its one action starts the one-tap setup, or tries it again.
+                    !technical && modelState is ModelAvailability.None ->
+                        stringResource(R.string.get_started_plain) to onStartStarter
+                    !technical && modelState is ModelAvailability.Failed ->
+                        stringResource(R.string.try_again) to onStartStarter
+                    modelState is ModelAvailability.None -> stringResource(R.string.download_a_model) to onOpenModels
+                    modelState is ModelAvailability.Failed -> stringResource(R.string.choose_another_model) to onOpenModels
                     else -> null
                 },
             )
@@ -554,7 +571,8 @@ fun ChatScreen(
             if (messages.isEmpty() && streaming.isEmpty() && running == null && progress == null) {
                 item("empty") {
                     EmptyState(
-                        modifier = Modifier.fillParentMaxHeight(0.9f),
+                        // A minimum, not a fixed height: at 200% text the content is taller and the list scrolls.
+                        modifier = Modifier.heightIn(min = (configuration.screenHeightDp * 0.8f).dp),
                         blockedReason = blocked,
                         // Structural, not string-matched, and both cases get a
                         // route: "nothing imported" is fixed by going to the
@@ -1097,6 +1115,7 @@ private fun EmptyState(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
@@ -1122,6 +1141,12 @@ private fun EmptyState(
             textAlign = TextAlign.Center,
         )
         if (starter != null && blockedReason == null) {
+            Text(
+                text = stringResource(R.string.starter_capability),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
             ExampleChips(onExample)
         }
         EmptyPersonaRow(personas, onChoosePersona)
@@ -1168,6 +1193,44 @@ private fun EmptyState(
 }
 
 /**
+ * New chat, one tap from the chat itself. It asks first, in plain words, the same way Settings does, and it
+ * is disabled while a run is in flight, because starting a new conversation is only safe between runs.
+ */
+@Composable
+private fun NewChatBar(enabled: Boolean, onNewChat: () -> Unit) {
+    var asking by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.End,
+    ) {
+        TextButton(
+            onClick = { asking = true },
+            enabled = enabled,
+            modifier = Modifier.heightIn(min = 48.dp),
+        ) {
+            Text(stringResource(R.string.new_chat))
+        }
+    }
+    if (asking) {
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text(stringResource(R.string.start_a_new_chat)) },
+            text = { Text(stringResource(R.string.plain_new_chat_text)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    asking = false
+                    onNewChat()
+                }) { Text(stringResource(R.string.new_chat)) }
+            },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+}
+
+/**
  * The persona choice on the empty chat. The New chat row is hidden on an empty chat, so without this an
  * empty chat could never get a persona. A plain text button, shown only when personas exist.
  */
@@ -1202,7 +1265,6 @@ private fun EmptyPersonaRow(personas: List<Persona>, onChoose: (Long?) -> Unit) 
     }
 }
 
-/** The three first things a new user can ask, tapped to send. */
 /**
  * The first-run panel of Simple mode: one button for the download, then progress, then the wait for
  * the first answer. No model name, quant or reason is shown; the user only needs to know what happens.
@@ -1352,13 +1414,16 @@ private fun StarterPanel(
     }
 }
 
-/** The three example questions, each a 48dp button that sends its text. */
+/** The example questions, each a 48dp button that sends its text at once. */
 @Composable
 private fun ExampleChips(onExample: (String) -> Unit) {
     val starterExamples = listOf(
         stringResource(R.string.starter_battery),
         stringResource(R.string.starter_timer),
         stringResource(R.string.starter_wake),
+        stringResource(R.string.starter_weather),
+        stringResource(R.string.starter_sum),
+        stringResource(R.string.starter_web),
     )
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,

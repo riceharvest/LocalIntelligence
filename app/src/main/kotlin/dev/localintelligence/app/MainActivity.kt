@@ -340,6 +340,13 @@ class MainActivity : FragmentActivity() {
                                         if (chat.messages.value.isEmpty()) container.startNewConversation(personaId)
                                     }
                                 },
+                                // New chat in the chat itself, the same steps as the Settings one.
+                                onNewChat = {
+                                    scope.launch {
+                                        container.startNewConversation(null)
+                                        chat.clear()
+                                    }
+                                },
                             )
                             }
                         }
