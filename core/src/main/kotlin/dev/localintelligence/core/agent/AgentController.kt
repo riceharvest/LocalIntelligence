@@ -492,6 +492,7 @@ class AgentController(
         heldReply = null
         searchResultUrls.clear()
         runBlocked.clear()
+        lookupCounts.clear()
         lastSuccess = null
         emptyRetried = false
         pending = null
@@ -525,6 +526,7 @@ class AgentController(
         heldReply = null
         searchResultUrls.clear()
         runBlocked.clear()
+        lookupCounts.clear()
         lastSuccess = null
         emptyRetried = false
         pending = null
@@ -1016,6 +1018,9 @@ class AgentController(
      */
     private val runBlocked = LinkedHashSet<String>()
 
+    /** Successful calls per read-only tool in this run. */
+    private val lookupCounts = HashMap<String, Int>()
+
     /** The last tool call of this run, if it succeeded and nothing else ran since. See [handleCall]. */
     private var lastSuccess: Completed? = null
 
@@ -1059,14 +1064,22 @@ class AgentController(
         // A tool that failed twice in this run is refused before anything else. The model is told why, the
         // same way a loop refusal is, and the step is spent on the answer, not on a tool that will not run.
         if (action.name in runBlocked) {
-            trace += StepTrace(
-                step, StepTrace.Kind.TOOL_CALL, "refused ${action.name}: failed twice in this run",
-                success = false,
-                toolName = action.name,
-            )
+            // A lookup that hit its limit worked, so it gets no failed row and no word about failing.
+            val failed = loopDetector.isUnavailable(action.name)
+            if (failed) {
+                trace += StepTrace(
+                    step, StepTrace.Kind.TOOL_CALL, "refused ${action.name}: failed twice in this run",
+                    success = false,
+                    toolName = action.name,
+                )
+            }
             sessions.observe(
-                "${action.name} failed twice in this run, so it will not run again. " +
-                    "Do something else, or answer without it.",
+                if (failed) {
+                    "${action.name} failed twice in this run, so it will not run again. " +
+                        "Do something else, or answer without it."
+                } else {
+                    "${action.name} already ran enough in this run. Answer the user now from those results."
+                },
             )
             return null
         }
@@ -1392,6 +1405,13 @@ class AgentController(
         loopDetector.recordResult(call.name, observation, result.success, result.error)
         lastSuccess = if (result.success) Completed(call.name, call.args, observation) else null
         if (loopDetector.isUnavailable(call.name)) runBlocked += call.name
+        // Measured: an empty calendar got five searches of nearly the same days, 108 s, for an answer the first
+        // one already gave. A lookup changes nothing, so after this many the model answers from what it has.
+        if (result.success && call.tool.definition.risk == ToolRisk.READ_ONLY &&
+            lookupCounts.merge(call.name, 1, Int::plus)!! >= MAX_LOOKUPS_PER_TOOL
+        ) {
+            runBlocked += call.name
+        }
         if (call.name == "web.search" && result.success) {
             RESULT_URL.findAll(observation).forEach { searchResultUrls += it.value.trimEnd('.', ',', ';') }
         }
@@ -2888,6 +2908,8 @@ class AgentController(
          * The last generation of a run that cannot continue. No tools are callable, so the grammar is the
          * reply alone (see [request]), and the note says what is wanted: the answer, and what did not work.
          */
+        const val MAX_LOOKUPS_PER_TOOL = 3
+
         const val WRAP_UP_NOTE = "You cannot run more tools. Answer the user now from the tool results above. " +
             "Say plainly what worked and what did not. Do not say you will try again."
 

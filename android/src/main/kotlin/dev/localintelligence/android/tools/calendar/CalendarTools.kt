@@ -451,7 +451,7 @@ internal object CalendarText {
     ): String {
         if (events.isEmpty()) {
             val filter = query?.let { " matching \"$it\"" }.orEmpty()
-            return "No events$filter between ${stamp(fromMillis, zone)} and ${stamp(toMillis, zone)}."
+            return "No events$filter between ${stamp(fromMillis, zone)} and ${stamp(toMillis, zone)}. That is the answer; do not search again."
         }
         val header = buildString {
             append(if (hasMore) "Showing ${events.size} events, more exist." else "${events.size} events")
