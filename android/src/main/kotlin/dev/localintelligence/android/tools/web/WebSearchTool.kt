@@ -1,5 +1,6 @@
 package dev.localintelligence.android.tools.web
 
+import android.util.Log
 import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.core.model.ObservationOrigin
 import dev.localintelligence.core.model.ToolArgs
@@ -487,6 +488,9 @@ internal object SearchCooldown {
     }
 }
 
+/** Puts services on cooldown as if they had blocked us, so each step of the chain can be tested. Debug control only. */
+fun blockSearchServicesForTest(ids: List<String>) = ids.forEach(SearchCooldown::markBlocked)
+
 // ----------------------------------------------------------------------------
 // Observation construction
 // ----------------------------------------------------------------------------
@@ -542,6 +546,15 @@ internal sealed interface ServiceAttempt {
     /** The service answered and had nothing for this query. Not a failure, so it is said. */
     data object Empty : ServiceAttempt
 
+    /** One short line for the log. Holds no query text. */
+    fun describe(): String = when (this) {
+        is Found -> "${hits.size} results"
+        Empty -> "no results"
+        is Blocked -> "blocked ($reason)"
+        is Failed -> "failed ($reason)"
+        Cancelled -> "cancelled"
+    }
+
     /** A bot check or a refusal. The service goes on cooldown. */
     class Blocked(val reason: String) : ServiceAttempt
 
@@ -585,7 +598,10 @@ internal class WebSearcher(
                 if (leftMs <= 0L) break
                 if (SearchCooldown.isCoolingDown(service.id)) continue
 
-                when (val attempt = attempt(service, query, maxResults, context, minOf(leftMs, SEARCH_SERVICE_MS))) {
+                val attempt = attempt(service, query, maxResults, context, minOf(leftMs, SEARCH_SERVICE_MS))
+                // Which service did what, so the chain can be checked. Never the query: it is private.
+                Log.i("WebSearch", "${service.label}: ${attempt.describe()}")
+                when (attempt) {
                     is ServiceAttempt.Found -> return found(query, attempt.hits, service.label)
                     ServiceAttempt.Empty -> answered += service.label
                     is ServiceAttempt.Blocked -> SearchCooldown.markBlocked(service.id)

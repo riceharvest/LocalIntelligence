@@ -4,7 +4,8 @@
 #   devicectl.sh [-s serial] <cmd> [arg]
 #
 # Commands: state | send <text> | ask <text> [timeout-seconds] | newchat | models |
-#           usemodel <file name> | mode <simple|technical> | approve <allow|deny> | transcript
+#           usemodel <file name> | mode <simple|technical> | approve <allow|deny> | transcript |
+#           searchblock <duckduckgo,bing,brave,wikipedia> (a 5-minute cooldown, to test the search chain)
 #
 # Debug builds only. The receiver is in app/src/debug and is absent from release builds, so
 # against a release install every command answers with an error. Override the package with
@@ -48,7 +49,7 @@ case "$CMD" in
   state|newchat|models|transcript)
     broadcast "$CMD" ""
     ;;
-  send|usemodel|mode)
+  send|usemodel|mode|searchblock)
     broadcast "$CMD" "$ARG"
     ;;
   approve)

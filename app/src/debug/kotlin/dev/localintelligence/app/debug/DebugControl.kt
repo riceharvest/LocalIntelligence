@@ -134,6 +134,11 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
             "mode" -> setMode(arg)
             "approve" -> approve(arg)
             "transcript" -> transcript()
+            "searchblock" -> {
+                val ids = arg.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                dev.localintelligence.android.tools.web.blockSearchServicesForTest(ids)
+                JSONObject().put("ok", true).put("blocked", ids.joinToString(","))
+            }
             else -> error("unknown command '$cmd'")
         }
     } catch (t: Throwable) {

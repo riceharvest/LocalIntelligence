@@ -780,6 +780,8 @@ class AgentController(
     private suspend fun runSteps(): AgentResult {
         while (step < config.maxSteps) {
             if (cancelled) return AgentResult.Cancelled
+            // A person is waiting. After this many lookups the last answer comes from what was found (see [loop]).
+            if (lookupCounts.values.sum() >= MAX_LOOKUPS_PER_RUN) return AgentResult.StepLimitReached
             step += 1
             metrics?.beginStep(step)
 
@@ -2916,6 +2918,9 @@ class AgentController(
          * reply alone (see [request]), and the note says what is wanted: the answer, and what did not work.
          */
         const val MAX_LOOKUPS_PER_TOOL = 3
+
+        /** Measured: a price question took over 5 minutes of searching, opening and paging through one page. */
+        const val MAX_LOOKUPS_PER_RUN = 5
 
         /** Measured: search, open, search, open, open, read, read, read took 269 s and ran out of steps. */
         const val MAX_WEB_CALLS_PER_TOOL = 2
