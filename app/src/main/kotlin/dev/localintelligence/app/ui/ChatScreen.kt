@@ -206,6 +206,8 @@ fun ChatScreen(
      * once there are messages, and never while a run is in flight.
      */
     onNewChat: (() -> Unit)? = null,
+    /** Sends the typed text to a desktop agent (full build, My desktop). Null hides the "Ask my desktop" button. */
+    onAskDesktop: ((String) -> Unit)? = null,
 ) {
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
@@ -539,6 +541,15 @@ fun ChatScreen(
                     onContinue = viewModel::continueInterrupted,
                     onDismiss = viewModel::dismissInterrupted,
                 )
+            }
+            if (onAskDesktop != null && input.isNotBlank() && !busy) {
+                TextButton(
+                    onClick = {
+                        onAskDesktop(input)
+                        viewModel.onInputChange("")
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                ) { Text(stringResource(R.string.desktop_ask_title)) }
             }
             ChatComposer(
                 input = input,

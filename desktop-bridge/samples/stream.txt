@@ -1,0 +1,7 @@
+event: text
+data: {"text": "what is 2+2?\nwhat is 2+2?\n", "state_seq": 200537741, "status": "unknown"}
+
+: keep-alive
+
+: keep-alive
+

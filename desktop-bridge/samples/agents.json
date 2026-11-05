@@ -1,0 +1,11 @@
+{
+    "agents": [
+        {
+            "target": "%0",
+            "name": "cat (desklink-test:0.0)",
+            "status": "unknown",
+            "state_seq": 0,
+            "cwd": "/home/dario/LI-wt-desklinktest/desktop-bridge"
+        }
+    ]
+}

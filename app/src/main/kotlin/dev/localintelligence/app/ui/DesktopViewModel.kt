@@ -121,6 +121,19 @@ class DesktopViewModel(
         update { it.copy(selected = null, liveText = null, cachedText = null, error = null) }
     }
 
+    /**
+     * Sends [question] to [agent] and opens its view, where the reply streams in as live text. The same
+     * path as a typed message: queued when the desktop is unreachable, refused when the agent is blocked.
+     */
+    fun ask(agent: DesktopAgent, question: String) {
+        if (!DesktopRules.validMessage(question)) {
+            update { it.copy(error = DesktopError.MESSAGE_INVALID) }
+            return
+        }
+        open(agent)
+        send(question)
+    }
+
     /** Sends a message to the selected agent, or queues it when the desktop does not answer. */
     fun send(text: String) {
         val target = _state.value.selected?.target ?: return

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -62,7 +63,8 @@ fun DesktopScreen(
     settings: SettingsStore,
     dao: DesktopDao,
     onBack: () -> Unit,
-    onOpenSettings: () -> Unit,
+    /** A question typed in the chat, to prefill the Ask box with. Null when the screen was opened from Settings. */
+    initialQuestion: String? = null,
 ) {
     val scope = rememberCoroutineScope()
     val vm = remember(settings, dao) { DesktopViewModel(settings, dao, scope) }
@@ -97,7 +99,7 @@ fun DesktopScreen(
         },
     ) { padding ->
         if (selected == null) {
-            AgentList(state, padding, vm, onOpenSettings)
+            AgentList(state, padding, vm, initialQuestion.orEmpty())
         } else {
             AgentView(state, selected, padding, vm)
         }
@@ -109,9 +111,11 @@ private fun AgentList(
     state: DesktopUiState,
     padding: androidx.compose.foundation.layout.PaddingValues,
     vm: DesktopViewModel,
-    onOpenSettings: () -> Unit,
+    initialQuestion: String,
 ) {
     var address by remember(state.serveUrl) { mutableStateOf(state.serveUrl) }
+    var question by remember(initialQuestion) { mutableStateOf(initialQuestion) }
+    var chosenTarget by remember { mutableStateOf<String?>(null) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -164,11 +168,44 @@ private fun AgentList(
         }
 
         Spacer(Modifier.height(8.dp))
+        // The chosen agent: the one the person tapped, else the first. It is looked up again on every
+        // draw, so an agent that has gone since the last refresh is never the target.
+        val chosen = agents.orEmpty().firstOrNull { it.target == chosenTarget } ?: agents?.firstOrNull()
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(stringResource(R.string.desktop_ask_title), style = MaterialTheme.typography.titleSmall)
                 Text(stringResource(R.string.desktop_ask_help), style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = onOpenSettings) { Text(stringResource(R.string.desktop_open_settings)) }
+                if (agents.isNullOrEmpty()) {
+                    Text(stringResource(R.string.desktop_ask_no_agents), style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text(stringResource(R.string.desktop_ask_to), style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        agents.forEach { agent ->
+                            FilterChip(
+                                selected = agent.target == chosen?.target,
+                                onClick = { chosenTarget = agent.target },
+                                label = { Text(agent.name, maxLines = 1) },
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = question,
+                    onValueChange = { question = it },
+                    label = { Text(stringResource(R.string.desktop_ask_hint)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 6,
+                )
+                FilledTonalButton(
+                    onClick = {
+                        chosen?.let { vm.ask(it, question) }
+                        question = ""
+                    },
+                    enabled = chosen != null && question.isNotBlank(),
+                ) { Text(stringResource(R.string.desktop_ask_send)) }
             }
         }
     }

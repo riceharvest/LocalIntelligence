@@ -1102,8 +1102,11 @@
     <string name="desktop_key_up">Up</string>
     <string name="desktop_key_down">Down</string>
     <string name="desktop_ask_title">Ask my desktop</string>
-    <string name="desktop_ask_help">Uses the custom server address in Settings, the same as any remote model. Set your desktop model address there and turn the custom server on.</string>
-    <string name="desktop_open_settings">Open Settings</string>
+    <string name="desktop_ask_help">Type a question and choose the agent. It is sent to that agent, and its reply appears in the agent view.</string>
+    <string name="desktop_ask_hint">Your question</string>
+    <string name="desktop_ask_to">Send it to this agent:</string>
+    <string name="desktop_ask_send">Ask</string>
+    <string name="desktop_ask_no_agents">Refresh the list first, so there is an agent to choose.</string>
     <string name="desktop_queued_title">Queued, not yet sent</string>
     <!-- Memory block: a line in the chat after the agent writes the block, and its Undo. -->
     <string name="memory_block_remembered">Remembered: %1$s</string>

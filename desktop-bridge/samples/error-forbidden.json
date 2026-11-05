@@ -1,0 +1,4 @@
+{
+    "error": "forbidden",
+    "message": "not the configured Tailscale user"
+}
