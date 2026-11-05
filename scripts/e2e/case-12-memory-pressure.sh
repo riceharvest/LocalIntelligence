@@ -4,7 +4,7 @@
 # crash; the reply either finishes or says plainly why not, and the chat still works afterwards.
 source "$(dirname "$0")/lib.sh"
 case_begin 12 "Memory pressure during a reply"
-trap 'adb shell "for p in $(pidof tail); do kill $p; done" >/dev/null 2>&1; script_set ""; [[ "${E2E_ONLY_C:-}" == 1 ]] || emu_back 2>/dev/null' EXIT
+trap 'adb shell "pkill tail" >/dev/null 2>&1; script_set ""; [[ "${E2E_ONLY_C:-}" == 1 ]] || emu_back 2>/dev/null' EXIT
 
 # E2E_ONLY_C=1: run only part (c), on the emulator already chosen with E2E_SERIAL (a 2 GB one).
 if [[ "${E2E_ONLY_C:-}" != 1 ]]; then
@@ -82,7 +82,7 @@ for n in 1 2 3 4 5 6; do
   if [[ -z "$(app_pid)" ]]; then killed=1; break; fi
 done
 reason="$(adb shell dumpsys activity exit-info "$PKG" | tr -d '\r' | grep -m3 -iE 'reason|description' | tr '\n' ';')"
-adb shell "for p in \$(pidof tail); do kill \$p; done" >/dev/null 2>&1 || true
+adb shell "pkill tail" >/dev/null 2>&1 || true
 if (( killed )); then
   echo "  (c) the system killed the app: $reason"
 else
