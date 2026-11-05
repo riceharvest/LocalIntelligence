@@ -202,7 +202,7 @@ class ScreenControlService : AccessibilityService(), ScreenOverlay {
             if (overlayView != null) return@post
             val wm = getSystemService(WINDOW_SERVICE) as WindowManager
             val label = TextView(this).apply {
-                text = "Stop LocalIntelligence"
+                text = this@ScreenControlService.getString(dev.localintelligence.app.R.string.screen_stop_overlay)
                 textSize = 15f
                 setPadding(48, 28, 48, 28)
                 setBackgroundColor(0xFF1B1B1F.toInt())

@@ -1865,4 +1865,7 @@
     <string name="telegram_stale">That message is over an hour old, so it was not run. Send it again.</string>
     <string name="telegram_waiting_for_approval">Waiting for the owner to approve this chat in LocalIntelligence.</string>
     <string name="notif_channel_telegram">Telegram</string>
+    <string name="chatgpt_sign_in_title">Signing in to ChatGPT</string>
+    <string name="notif_channel_chatgpt_sign_in">ChatGPT sign-in</string>
+    <string name="screen_stop_overlay">Stop LocalIntelligence</string>
 </resources>

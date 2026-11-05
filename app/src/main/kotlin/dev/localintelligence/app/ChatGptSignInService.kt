@@ -51,7 +51,7 @@ class ChatGptSignInService : Service() {
 
     private fun startForegroundNow() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Signing in to ChatGPT")
+            .setContentTitle(getString(R.string.chatgpt_sign_in_title))
             .setContentText(getString(R.string.finish_sign_in_in_your_browser))
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
@@ -85,7 +85,7 @@ class ChatGptSignInService : Service() {
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(CHANNEL_ID, getString(R.string.notif_channel_chatgpt_sign_in), NotificationManager.IMPORTANCE_LOW)
             .apply { setShowBadge(false) }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
@@ -95,7 +95,6 @@ class ChatGptSignInService : Service() {
         const val ACTION_STOP = "dev.localintelligence.app.CHATGPT_SIGNIN_STOP"
 
         private const val CHANNEL_ID = "chatgpt_signin"
-        private const val CHANNEL_NAME = "ChatGPT sign-in"
         private const val NOTIFICATION_ID = 44
 
         /** Starts the service in the foreground, from the screen the user tapped Continue with ChatGPT on. */
