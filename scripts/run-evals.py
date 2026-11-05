@@ -518,6 +518,18 @@ def bring_to_front(serial, package) -> None:
     time.sleep(1.5)
 
 
+def read_mode(serial, package, tries=5):
+    """The phone's app mode, or None. The debug receiver answers only while the app runs, so each try
+    starts the app first and waits before the next read. The first read after a cold start is often too early."""
+    for _ in range(tries):
+        bring_to_front(serial, package)
+        mode = devicectl(serial, "state").get("mode")
+        if mode in ("simple", "technical"):
+            return mode
+        time.sleep(3)
+    return None
+
+
 def wait_until_idle(serial, limit_s=400) -> None:
     """A run that outlasted its timeout is still going, and the app refuses a new one until it ends."""
     end = time.time() + limit_s
@@ -760,9 +772,11 @@ def main() -> int:
     runs_by_key = dict(prior)
 
     if runner == "device-app":
-        prev_mode = None
-        state = devicectl(args.serial, "state")
-        prev_mode = state.get("mode")
+        prev_mode = read_mode(args.serial, args.package)
+        if prev_mode is None:
+            # Nothing has been switched yet, so the phone is left as it was.
+            print("could not read the phone's mode after 5 tries: is the debug build installed and running? No run started.", file=sys.stderr)
+            return 2
         # Technical by default: Simple auto-accepts the call and message tiers, so use --mode simple only on a test phone.
         devicectl(args.serial, "mode", args.mode)
         try:
@@ -787,10 +801,7 @@ def main() -> int:
                     write_atomic(out_path, _with_summary(doc, tasks, repeats))
                     print(f"{task['id']} r{rep}: {rec['verdict']} {rec['reasons'][:2]}", file=sys.stderr)
         finally:
-            if prev_mode in ("simple", "technical"):
-                devicectl(args.serial, "mode", prev_mode)
-            else:
-                print("warning: could not read the phone's mode; it is left in Technical", file=sys.stderr)
+            devicectl(args.serial, "mode", prev_mode)
     else:
         for seed in repeats:
             missing = [t["id"] for t in tasks if (t["id"], seed) not in runs_by_key]
