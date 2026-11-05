@@ -171,6 +171,16 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
                 arg.split("|||").filter { it.isNotBlank() }.forEach { script.add(it.trim()) }
                 JSONObject().put("ok", true).put("entries", script.size)
             }
+            "pinwidget" -> {
+                // Asks the launcher to put the home-screen widget on the home screen: the launcher then shows its
+                // own "Add to home screen" question, which the emulator test answers by tapping.
+                val manager = android.appwidget.AppWidgetManager.getInstance(app)
+                val supported = manager.isRequestPinAppWidgetSupported
+                val asked = supported && manager.requestPinAppWidget(
+                    android.content.ComponentName(app, dev.localintelligence.app.ChatWidgetProvider::class.java), null, null,
+                )
+                JSONObject().put("ok", asked).put("supported", supported)
+            }
             "searchroute" -> {
                 dev.localintelligence.android.tools.web.setSearchRoutesForTest(
                     arg.split(',').map { it.trim() }.filter { '=' in it }.associate { it.substringBefore('=') to it.substringAfter('=') },

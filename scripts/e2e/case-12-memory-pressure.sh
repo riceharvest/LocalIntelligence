@@ -67,8 +67,8 @@ fi
 STORY="alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu finale"
 wait_state_field modelState ready 180 || fail "(c) no model"
 dctl newchat >/dev/null; sleep 2
-script_set "@slow:250:<respond>$STORY</respond>"
-dctl send "Tell me the alphabet words" | grep -q '"started":true' || fail "(c) could not start the reply"
+script_set "$(tool_call device.battery '{}')|||@slow:250:<respond>$STORY</respond>"
+dctl send "How much battery do I have? Then say the alphabet words" | grep -q '"started":true' || fail "(c) could not start the reply"
 sleep 6   # the scripted reply does not feed the streamed-characters counter
 adb shell input keyevent KEYCODE_HOME
 sleep 2
@@ -97,7 +97,7 @@ KILL_KIND=$([[ $killed == 1 ]] && echo "real low-memory kill" || echo "am kill (
 launch
 wait_text "stopped before it finished|Continue|Ask anything" 90 || fail "(c) nothing readable after the kill: $(screen_text | tr '\n' '|' | head -c 400)"
 echo "  (c) on return: $(screen_text | tr '\n' '|' | head -c 500)"
-screen_text | grep -q "Tell me the alphabet words" || fail "(c) the person's message is gone after the kill: $(screen_text | tr '\n' '|' | head -c 400)"
+screen_text | grep -q "How much battery do I have" || fail "(c) the person's message is gone after the kill: $(screen_text | tr '\n' '|' | head -c 400)"
 screen_text | grep -Eqi "stopped before it finished|Continue" || fail "(c) no plain sentence about the interrupted answer"
 assert_no_banned_words
 screen_text | grep -Eqi "exception|error|crash|has stopped|null" && fail "(c) a raw error is visible: $(screen_text | grep -Ei 'exception|error|crash|null' | head -2)"

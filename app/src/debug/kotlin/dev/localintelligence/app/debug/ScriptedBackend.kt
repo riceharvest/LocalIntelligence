@@ -47,6 +47,7 @@ class ScriptedBackend(
     private suspend fun run(request: GenerationRequest, onToken: ((String) -> Unit)?): GenerationResult {
         cancelled.set(false)
         val entry = next()
+        android.util.Log.i("LIControl", "scripted generation: entry=${entry?.take(12)} streaming=${onToken != null}")
         if (entry == null || entry == "@real") return realGenerate(request, onToken)
         val text = when {
             entry == "@empty" -> ""
