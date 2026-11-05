@@ -198,7 +198,7 @@ object SimpleSetup {
         file = "LFM3-1.7B-QAD-Q4_0.gguf",
         name = "LFM3 1.7B",
         sizeBytes = 1_049_615_680,
-        reason = "Fast on this phone, and good at using its apps and tools.",
+        reason = "Fast on this phone, and good at getting things done in its apps.",
     )
 
     // QAD Q4_0, like LFM3's: the fastest format on phone CPUs.

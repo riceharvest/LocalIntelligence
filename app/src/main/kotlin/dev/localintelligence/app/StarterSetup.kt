@@ -205,6 +205,8 @@ class StarterSetup(
         awaitingMobileConsent = false
         if (!consent && onMeteredNetwork()) {
             awaitingMobileConsent = true
+            // A network that comes back now must not start the download without the tap.
+            stopWatchingNetwork()
             _state.value = SetupState.Failed(context.getString(R.string.setup_mobile_data, formatBytes(active.sizeBytes)), null)
             return
         }
@@ -395,9 +397,19 @@ class StarterSetup(
             // known and does not match, it is removed, so the next tap downloads it again instead of failing forever.
             if (discardIfDamaged(file)) {
                 _state.value = SetupState.Failed(context.getString(R.string.setup_damaged_again), SimpleWording.Kind.DOWNLOAD_FAILED)
-            } else {
-                _state.value = SetupState.Failed(context.getString(R.string.setup_starter_would_not_start), SimpleWording.Kind.LOAD_FAILED)
+                return
             }
+            // The file is sound but this phone cannot start it (the load ladder has run out): set up the
+            // smallest starter instead, once, and remember that. The bigger file stays where it is.
+            val fallback = smallest?.takeIf { it.file != active.file }
+            if (fallback != null) {
+                Log.w(TAG, "the phone cannot start ${active.name}; setting up ${fallback.name}")
+                active = fallback
+                local = localFor(fallback)
+                remember(fallback)
+                return run()
+            }
+            _state.value = SetupState.Failed(context.getString(R.string.setup_starter_would_not_start), SimpleWording.Kind.LOAD_FAILED)
             return
         }
         awaitPrefix()

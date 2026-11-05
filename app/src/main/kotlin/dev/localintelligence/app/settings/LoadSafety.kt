@@ -78,8 +78,15 @@ class LoadSafety(
         settings.set(REMEMBERED, "${keyOf(key)}|$next")
     }
 
-    /** A model the person picked: forget the rung and the crash, and start at the first rung. */
+    /**
+     * A model the person picks: a different model starts at the first rung again. The same model keeps
+     * what was learned about it, so picking the model that just crashed does not crash it again from
+     * the top; the next rung is tried instead, and once every rung has crashed the chat says so.
+     */
     fun reset(key: String) {
+        val k = keyOf(key)
+        val sameModel = crashedRung(key) != null || rememberedRung(key) > 0 || settings.stored(REMEMBERED).startsWith("$k|")
+        if (sameModel) return
         runCatching { marker.delete() }
         settings.set(REMEMBERED, "")
     }
@@ -118,8 +125,12 @@ class LoadSafety(
         /** Window divisor per rung: full, half, quarter, quarter. */
         private val DIVISORS = intArrayOf(1, 2, 4, 4)
 
-        /** The smallest window a retry asks for, the same floor the context setting uses. */
-        const val FLOOR_CONTEXT = 2048
+        /**
+         * The smallest window a retry asks for. Not the 2048 of the context setting: the cached system
+         * prompt and tool list are about 1,500 tokens, so a 2048 window has no room for a reply. Every
+         * row of the Simple table is at least 4096; a phone that chose less keeps what it chose.
+         */
+        const val FLOOR_CONTEXT = 4096
 
         /** Short, stable key for a model URI. A hash is enough: a collision only means one retry starts lower. */
         fun keyOf(uri: String): String = Integer.toHexString(uri.hashCode())
