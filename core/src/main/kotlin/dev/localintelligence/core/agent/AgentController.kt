@@ -780,6 +780,8 @@ class AgentController(
     private suspend fun runSteps(): AgentResult {
         while (step < config.maxSteps) {
             if (cancelled) return AgentResult.Cancelled
+            // A person is waiting. After this many lookups the last answer comes from what was found (see [loop]).
+            if (lookupCounts.values.sum() >= MAX_LOOKUPS_PER_RUN) return AgentResult.StepLimitReached
             step += 1
             metrics?.beginStep(step)
 
@@ -1030,7 +1032,11 @@ class AgentController(
     /** A successful call, kept so the same call right after it is answered from its result, not run twice. */
     private class Completed(val name: String, val args: ToolArgs, val observation: String)
 
-    /** Addresses this run's own web.search returned. */
+    /** A model copies an address loosely, so scheme, "www." and a last slash do not count. The path and query do. */
+    private fun sameResultKey(url: String): String =
+        url.trim().lowercase().substringBefore('#').removePrefix("https://").removePrefix("http://").removePrefix("www.").trimEnd('/')
+
+    /** Addresses this run's own web.search returned, as [sameResultKey]. */
     private val searchResultUrls = HashSet<String>()
 
     private suspend fun deliverHeld(held: HeldReply): AgentResult {
@@ -1170,7 +1176,7 @@ class AgentController(
         // Opening a result of this run's own search is part of that search. Any other address still asks, as a URL
         // can carry data to any host.
         val openingResult = tool.definition.name == "web.fetch" &&
-            (action.arguments["url"] as? JsonPrimitive)?.contentOrNull?.trim() in searchResultUrls
+            (action.arguments["url"] as? JsonPrimitive)?.contentOrNull?.let(::sameResultKey) in searchResultUrls
         val requested = ToolRequest.asksFor(policyRequest ?: task, tool.definition) ||
             tool.definition.name == TodoList.TOOL_NAME || openingResult
         // Screen tools resolve the index against the live screen. The result is the app and the
@@ -1407,13 +1413,16 @@ class AgentController(
         if (loopDetector.isUnavailable(call.name)) runBlocked += call.name
         // Measured: an empty calendar got five searches of nearly the same days, 108 s, for an answer the first
         // one already gave. A lookup changes nothing, so after this many the model answers from what it has.
-        if (result.success && call.tool.definition.risk == ToolRisk.READ_ONLY &&
-            lookupCounts.merge(call.name, 1, Int::plus)!! >= MAX_LOOKUPS_PER_TOOL
-        ) {
+        val lookupLimit = when {
+            call.name == "web.search" || call.name == "web.fetch" -> MAX_WEB_CALLS_PER_TOOL
+            call.tool.definition.risk == ToolRisk.READ_ONLY -> MAX_LOOKUPS_PER_TOOL
+            else -> null
+        }
+        if (result.success && lookupLimit != null && lookupCounts.merge(call.name, 1, Int::plus)!! >= lookupLimit) {
             runBlocked += call.name
         }
         if (call.name == "web.search" && result.success) {
-            RESULT_URL.findAll(observation).forEach { searchResultUrls += it.value.trimEnd('.', ',', ';') }
+            RESULT_URL.findAll(observation).forEach { searchResultUrls += sameResultKey(it.value.trimEnd('.', ',', ';')) }
         }
         sessions.appendToolObservation(call.tool, withArgumentsOnFirstUse(call.tool, observation), result.success)
         // Charge the call to the task's blast radius. This happens on the
@@ -2909,6 +2918,12 @@ class AgentController(
          * reply alone (see [request]), and the note says what is wanted: the answer, and what did not work.
          */
         const val MAX_LOOKUPS_PER_TOOL = 3
+
+        /** Measured: a price question took over 5 minutes of searching, opening and paging through one page. */
+        const val MAX_LOOKUPS_PER_RUN = 5
+
+        /** Measured: search, open, search, open, open, read, read, read took 269 s and ran out of steps. */
+        const val MAX_WEB_CALLS_PER_TOOL = 2
 
         const val WRAP_UP_NOTE = "You cannot run more tools. Answer the user now from the tool results above. " +
             "Say plainly what worked and what did not. Do not say you will try again."
