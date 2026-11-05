@@ -118,7 +118,7 @@ fun UpdateCheckRow() {
                 title = { Text(stringResource(R.string.version_is_available, outcome.tag)) },
                 text = {
                     Column(modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                        Text(outcome.notes.ifBlank { "This release has no notes." }.take(MAX_NOTES_CHARS))
+                        Text(outcome.notes.ifBlank { stringResource(R.string.update_no_notes) }.take(MAX_NOTES_CHARS))
                     }
                 },
                 confirmButton = {

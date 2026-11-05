@@ -165,6 +165,25 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    /** The chat of the open screen, so a volume key can stop a reply hands-free mode is reading. */
+    @Volatile
+    private var handsFreeChat: ChatViewModel? = null
+
+    /**
+     * A volume key stops the reply hands-free mode is reading and lets the person speak. At any other
+     * time the keys do what they always do.
+     */
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) {
+            val chat = handsFreeChat
+            if (chat != null && chat.handsFree.value.phase == HandsFreePhase.Speaking) {
+                chat.interruptSpeech()
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onPause() {
         // Only this activity's host is cleared, so a newer activity's host is never removed by an older one.
         if (ToolAccess.host === accessPrompts) ToolAccess.host = null
@@ -214,6 +233,7 @@ class MainActivity : FragmentActivity() {
                             },
                             dictation = LiveDictation(applicationContext),
                             handsFreeSilence = { container.settings[CoreSettings.HANDS_FREE_SILENCE] },
+                            handsFreeBargeIn = { container.settings[CoreSettings.HANDS_FREE_BARGE_IN] },
                             // Picked pictures are read again from their URIs after process death.
                             readPicture = { encodePickedPicture(applicationContext.contentResolver, Uri.parse(it)) },
                             // The developer's report form. A build without one reports "not set up".
@@ -249,10 +269,15 @@ class MainActivity : FragmentActivity() {
                 // container's scope, so a rotation cannot cancel a native load
                 // halfway, and seeding does nothing on later compositions.
                 LaunchedEffect(Unit) {
-                    chat.seedRestored(container.launchRestore.await())
+                    chat.seedRestored(container.launchRestore.await(), container.memoryBlockStore.changeIds())
                 }
 
                 val handsFreeState by chat.handsFree.collectAsStateWithLifecycle()
+                // The volume keys stop a reply that hands-free mode is reading (see onKeyDown).
+                DisposableEffect(chat) {
+                    handsFreeChat = chat
+                    onDispose { if (handsFreeChat === chat) handsFreeChat = null }
+                }
                 LaunchedEffect(handsFreeState.phase) {
                     WakeWordService.onHandsFreeActive(
                         active = handsFreeState.phase != HandsFreePhase.Off,
@@ -347,6 +372,9 @@ class MainActivity : FragmentActivity() {
                                 viewModel = chat,
                                 onOpenModels = { nav.navigate(ROUTE_MODELS) },
                                 onOpenSettings = { nav.navigate(ROUTE_SETTINGS) },
+                                onAskDesktop = if (BuildConfig.FULL_BUILD) {
+                                    { question -> nav.navigate("$ROUTE_DESKTOP?ask=${Uri.encode(question)}") }
+                                } else null,
                                 modifier = Modifier.fillMaxSize(),
                                 // Read here, where the screen is built, and passed down
                                 // as a plain Boolean: the screen never touches prefs.
@@ -535,6 +563,9 @@ class MainActivity : FragmentActivity() {
                                     container.modelsDir,
                                 ).copy(uri, name, progress)
                             },
+                            projectorFor = { model -> container.projectorLinks()[model.uri.toString()] },
+                            copyProjector = { uri, name, progress -> container.copyProjector(uri, name, progress) },
+                            onSetProjector = { model, path -> container.setProjectorLink(model, path) },
                             onScanLocal = {
                                 // Adopt GGUF files already in app storage. A model
                                 // can be there because it was downloaded, pushed
@@ -547,7 +578,7 @@ class MainActivity : FragmentActivity() {
                                             file.isFile && (
                                                 file.name.endsWith(".gguf", ignoreCase = true) ||
                                                     file.name.endsWith(".litertlm", ignoreCase = true)
-                                                )
+                                                ) && !dev.localintelligence.core.model.ProjectorLinks.isProjectorName(file.name)
                                         }
                                 } ?: emptyList()
                                 var firstFailure: Throwable? = null
@@ -836,14 +867,17 @@ class MainActivity : FragmentActivity() {
                         )
                     }
 
-                    composable(ROUTE_DESKTOP) {
+                    composable(
+                        route = "$ROUTE_DESKTOP?ask={ask}",
+                        arguments = listOf(navArgument("ask") { nullable = true; defaultValue = null }),
+                    ) { entry ->
                         // Full build only: the Settings row that opens this route is hidden in the Play build.
                         if (BuildConfig.FULL_BUILD) {
                             DesktopScreen(
                                 settings = container.settings,
                                 dao = container.desktopDao(),
                                 onBack = { nav.popBackStack() },
-                                onOpenSettings = { nav.popBackStack() },
+                                initialQuestion = entry.arguments?.getString("ask"),
                             )
                         }
                     }

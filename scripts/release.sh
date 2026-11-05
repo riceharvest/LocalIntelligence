@@ -42,11 +42,19 @@ export ANDROID_HOME=${ANDROID_HOME:-$HOME/Android/Sdk}
 # memory peak; the R8 step after it reuses those native outputs. A single combined run was OOM-killed.
 # One Gradle build at a time on this machine: every build takes the same lock (override with LI_GRADLE_LOCK).
 GRADLE_WRAP=(flock "${LI_GRADLE_LOCK:-/tmp/li-gradle.lock}" systemd-run --user --scope -q -p MemoryMax=6G -p CPUQuota=400% nice -n 10)
-"${GRADLE_WRAP[@]}" ./gradlew :android:externalNativeBuildRelease --max-workers=2 --no-daemon -q
+# A cold run can still hit the 6 GB limit (exit 137 or 143). Gradle keeps what it finished, so running it again goes further.
+gradle_step() {
+  for attempt in 1 2 3 4; do
+    "${GRADLE_WRAP[@]}" ./gradlew "$@" --max-workers=2 --no-daemon -q && return 0
+    echo "Gradle stopped (attempt $attempt of 4): $*" >&2
+  done
+  return 1
+}
+gradle_step :android:externalNativeBuildRelease
 # One R8 run per Gradle invocation: two R8 runs side by side were OOM-killed in the 6 GB scope.
 # Only the Play AAB is built for Play (Play installs from the bundle; no Play APK is needed).
-"${GRADLE_WRAP[@]}" ./gradlew :app:bundlePlayRelease --max-workers=2 --no-daemon -q
-"${GRADLE_WRAP[@]}" ./gradlew :app:assembleFullRelease --max-workers=2 --no-daemon -q
+gradle_step :app:bundlePlayRelease
+gradle_step :app:assembleFullRelease
 
 AAB=app/build/outputs/bundle/playRelease/app-play-release.aab
 APK=app/build/outputs/apk/full/release/app-full-release.apk

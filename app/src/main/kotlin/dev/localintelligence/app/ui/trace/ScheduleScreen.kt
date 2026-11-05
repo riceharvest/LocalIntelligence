@@ -71,6 +71,7 @@ import dev.localintelligence.app.data.TaskBlocker
 import dev.localintelligence.app.data.TaskCadence
 import dev.localintelligence.app.execution.ExternalTaskToken
 import dev.localintelligence.app.execution.RunTaskReceiver
+import dev.localintelligence.app.execution.ScheduledRunReporter
 import dev.localintelligence.app.execution.ScheduledRunReporter.ANSWER_PREFIX
 import dev.localintelligence.app.execution.ScheduledRunReporter.FAILED_PREFIX
 import dev.localintelligence.app.execution.ScheduledRunReporter.REFUSED_PREFIX
@@ -413,7 +414,7 @@ private fun TaskRow(
                     )
                 }
                 Text(
-                    text = displayResult(result),
+                    text = displayResult(LocalContext.current, result),
                     style = MaterialTheme.typography.bodySmall,
                     color = resultColor(result),
                     // Bounded here as well as at write time. The stored value
@@ -642,10 +643,14 @@ private fun resultColor(result: String): Color = when {
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
-/** The stored result without its machine prefix ("Answered: ", "Failed: ", ...). */
-private fun displayResult(result: String): String {
+/**
+ * The stored result as the user reads it: no machine prefix for answers and failures,
+ * and the translated word for the other prefixes.
+ */
+private fun displayResult(context: android.content.Context, result: String): String {
     val prefixes = listOf(FAILED_PREFIX, REFUSED_PREFIX, ANSWER_PREFIX)
-    val hit = prefixes.firstOrNull { result.startsWith(it) } ?: return result
+    val hit = prefixes.firstOrNull { result.startsWith(it) }
+        ?: return ScheduledRunReporter.visibleText(context, result)
     return result.removePrefix(hit).trimStart()
 }
 

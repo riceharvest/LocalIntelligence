@@ -234,12 +234,36 @@ internal object ScheduledRunReporter {
     }
 
     /** The stored result as a notification body: no machine prefix for answers and failures. */
-    fun notificationBody(result: String): String {
+    fun notificationBody(context: Context, result: String): String {
         for (p in listOf(ANSWER_PREFIX, FAILED_PREFIX, REFUSED_PREFIX)) {
             if (result.startsWith(p)) return result.removePrefix(p).trimStart()
         }
-        return result
+        return visibleText(context, result)
     }
+
+    /**
+     * The stored result as the user reads it.
+     *
+     * The stored form keeps its English prefix: the screen and [notificationBody]
+     * recognise the row by `startsWith`, and a row written in one language must
+     * still be recognised after the phone changes language. Only the words the
+     * user sees are swapped here, so a stored "Did not run: " shows as the
+     * translated prefix and the rest of the sentence is left as written.
+     */
+    fun visibleText(context: Context, stored: String): String {
+        if (stored == PENDING) return context.getString(R.string.sched_pending)
+        val (prefix, word) = PREFIX_WORDS.firstOrNull { stored.startsWith(it.first) } ?: return stored
+        return context.getString(word) + " " + stored.removePrefix(prefix).trimStart()
+    }
+
+    /** Each stored prefix with its visible word, the one place the pairs are listed. */
+    private val PREFIX_WORDS: List<Pair<String, Int>> = listOf(
+        ANSWER_PREFIX to R.string.sched_prefix_answered,
+        REFUSED_PREFIX to R.string.sched_prefix_refused,
+        FAILED_PREFIX to R.string.sched_prefix_failed,
+        NOT_RUN to R.string.sched_prefix_not_run,
+        SCHEDULE_WARNING_PREFIX to R.string.sched_prefix_next_not_scheduled,
+    )
 
     private fun isRefusal(entry: StepTrace): Boolean =
         entry.kind == StepTrace.Kind.TOOL_CALL &&

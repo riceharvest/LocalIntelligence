@@ -12,7 +12,10 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -206,6 +209,8 @@ fun ChatScreen(
      * once there are messages, and never while a run is in flight.
      */
     onNewChat: (() -> Unit)? = null,
+    /** Sends the typed text to a desktop agent (full build, My desktop). Null hides the "Ask my desktop" button. */
+    onAskDesktop: ((String) -> Unit)? = null,
 ) {
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
@@ -518,7 +523,16 @@ fun ChatScreen(
         // background instead of the composer's surface, and on a build where the
         // window is already resized for the keyboard the same inset gets counted
         // twice.
-        modifier = modifier,
+        //
+        // A tap anywhere stops a reply that hands-free mode is reading. The Initial pass only watches the
+        // first touch and consumes nothing, so the tap still reaches whatever it landed on.
+        modifier = modifier.pointerInput(handsFree.phase == HandsFreePhase.Speaking) {
+            if (handsFree.phase != HandsFreePhase.Speaking) return@pointerInput
+            awaitPointerEventScope {
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                viewModel.interruptSpeech()
+            }
+        },
         topBar = {
             // Simple's one way to Settings, and New chat once there is a chat. Technical keeps the gear in its composer row.
             if (!technical) {
@@ -539,6 +553,15 @@ fun ChatScreen(
                     onContinue = viewModel::continueInterrupted,
                     onDismiss = viewModel::dismissInterrupted,
                 )
+            }
+            if (onAskDesktop != null && input.isNotBlank() && !busy) {
+                TextButton(
+                    onClick = {
+                        onAskDesktop(input)
+                        viewModel.onInputChange("")
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                ) { Text(stringResource(R.string.desktop_ask_title)) }
             }
             ChatComposer(
                 input = input,
@@ -1209,7 +1232,7 @@ private fun EmptyState(
                 Text(stringResource(R.string.download_4, suggestion.name, formatBytes(suggestion.sizeBytes)))
             }
             Text(
-                text = suggestion.reason,
+                text = stringResource(suggestion.reasonRes),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

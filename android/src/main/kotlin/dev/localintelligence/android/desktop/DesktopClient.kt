@@ -79,7 +79,7 @@ class DesktopClient(serveUrl: String, private val timeoutMs: Int = 10_000) {
 
     /**
      * Streams the agent's text over server-sent events until the caller cancels or the connection ends.
-     * The bridge sends a keep-alive comment every 1.5 s, so a 30 s read timeout only fires when the
+     * The bridge writes an event or a keep-alive comment at least every 5 s, so a 30 s read timeout only fires when the
      * desktop has gone. [keepGoing] is checked on every line; [onText] runs on the calling thread. An `event: error` from the bridge ends the stream.
      */
     fun stream(target: String, keepGoing: () -> Boolean, onText: (Text) -> Unit) {

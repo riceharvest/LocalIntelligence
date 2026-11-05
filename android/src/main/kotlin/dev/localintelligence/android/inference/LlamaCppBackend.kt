@@ -166,7 +166,8 @@ class LlamaCppBackend(
         // A text-only model asks for one logits row per batch, which saves the
         // output head's reserve; a model with a projector may speak, and the
         // audio head reads every row, so it keeps the default.
-        val outputsMax = if (findProjector(uri) == null) 1 else 0
+        val projectorFile = projectorFor(model, uri)
+        val outputsMax = if (projectorFile == null) 1 else 0
 
         fun loadNative(compute: LlamaCompute): String? {
             computeSource.loadStarting(compute)
@@ -227,7 +228,7 @@ class LlamaCppBackend(
         // A projector next to the model gives it eyes and/or ears. Optional: a
         // model without one is text-only, and a projector that fails to load
         // leaves the text model working.
-        val projectorCaps = findProjector(uri)?.let { projector ->
+        val projectorCaps = projectorFile?.let { projector ->
             if (LlamaBridge.loadProjector(bridgeHandle, projector.absolutePath) == null) {
                 LlamaBridge.projectorCaps(bridgeHandle)
             } else {
@@ -523,6 +524,13 @@ class LlamaCppBackend(
     }
 
     /**
+     * The projector to load for [model]: the file the person linked in the Models screen when it is
+     * still there, else the one found beside the model file by name (see [findProjector]).
+     */
+    private fun projectorFor(model: ModelSpec, uri: android.net.Uri): java.io.File? =
+        model.projectorPath?.let(::File)?.takeIf { it.isFile } ?: findProjector(uri)
+
+    /**
      * The projector (`mmproj`) beside a model file, or null. Two ways to pair:
      *
      *  - Downloaded in the app: files are stored as `owner__repo__file.gguf`, so
@@ -530,7 +538,7 @@ class LlamaCppBackend(
      *    prefix, whatever the repository named it (`mmproj-X.gguf`,
      *    `X-mmproj.gguf` as Gemma 4 does).
      *  - Copied in by hand: by name stem, `LFM3-Omni-2B-Q4_K_M.gguf` pairs with
-     *    `mmproj-LFM3-Omni-2B-Q8_0.gguf`.
+     *    `mmproj-LFM3-Omni-2B-Q8_0.gguf` or `LFM3-Omni-2B-mmproj-Q8_0.gguf`.
      *
      * Only plain files are searched; a model opened through the document picker
      * has no directory to look in.
@@ -547,8 +555,13 @@ class LlamaCppBackend(
         }
         val stem = stemOf(modelFile.name)
         return projectors.firstOrNull {
-            it.name.startsWith("mmproj", ignoreCase = true) &&
-                stemOf(it.name.removePrefix("mmproj-").removePrefix("mmproj_")).equals(stem, ignoreCase = true)
+            // `mmproj-<stem>.gguf`, or `<stem>-mmproj.gguf` as Gemma 4 names it.
+            val projectorStem = if (it.name.startsWith("mmproj", ignoreCase = true)) {
+                stemOf(it.name.removePrefix("mmproj-").removePrefix("mmproj_"))
+            } else {
+                stemOf(it.name.replace(Regex("[-_.]mmproj", RegexOption.IGNORE_CASE), ""))
+            }
+            projectorStem.equals(stem, ignoreCase = true)
         }
     }
 

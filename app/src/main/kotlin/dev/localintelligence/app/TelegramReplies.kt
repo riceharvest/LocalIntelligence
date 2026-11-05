@@ -4,6 +4,7 @@ import android.content.Context
 import dev.localintelligence.android.gateway.telegram.TelegramApi
 import dev.localintelligence.android.gateway.telegram.TelegramSettings
 import dev.localintelligence.android.gateway.telegram.splitForTelegram
+import dev.localintelligence.app.R
 import dev.localintelligence.app.execution.ScheduledRunReporter
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.core.agent.StepTrace
@@ -56,12 +57,12 @@ internal object TelegramReplies {
         val body = when (outcome) {
             is RunOutcome.Answer -> outcome.text.trim()
             else -> ScheduledRunReporter.notificationBody(
+                context,
                 ScheduledRunReporter.describe(context, outcome, trace, readiness),
             )
         }
         return if (approvalDeclined) {
-            body + "\n\nSome actions needed your approval on the phone, so they were skipped. " +
-                "Approve them there and send the request again."
+            body + "\n\n" + context.getString(R.string.telegram_approval_skipped)
         } else {
             body
         }

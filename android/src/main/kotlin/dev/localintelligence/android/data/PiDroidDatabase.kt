@@ -37,8 +37,10 @@ import dev.localintelligence.android.phoneindex.PhoneIndexEntity
         DesktopTextEntity::class,
         DesktopOutboxEntity::class,
         PhoneIndexEntity::class,
+        // Version 8: memory_changes, the memory block's Undo ledger.
+        MemoryChangeEntity::class,
     ],
-    version = 7,
+    version = 8,
     // Exported to android/schemas and committed: each migration's SQL is copied from
     // there, so a migrated table matches what Room validates on open.
     exportSchema = true,
@@ -55,6 +57,7 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
     abstract fun personaDao(): PersonaDao
     abstract fun desktopDao(): DesktopDao
     abstract fun phoneIndexDao(): PhoneIndexDao
+    abstract fun memoryChangeDao(): MemoryChangeDao
 
     companion object {
         const val NAME: String = "localintelligence.db"
@@ -74,7 +77,7 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
          */
         fun build(context: Context, name: String = NAME): LocalIntelligenceDatabase =
             Room.databaseBuilder(context.applicationContext, LocalIntelligenceDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .build()
 
         /**
@@ -162,6 +165,18 @@ abstract class LocalIntelligenceDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `sessions` ADD COLUMN `run_in_flight` INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE `sessions` ADD COLUMN `todo_json` TEXT")
+            }
+        }
+
+        /**
+         * 7 to 8: adds `memory_changes`, the memory block's Undo ledger (see [MemoryChangeEntity]). Copied from
+         * the Room entity; Room checks the table against it on open.
+         */
+        val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `memory_changes` (`id` INTEGER NOT NULL, `text_before` TEXT NOT NULL, `text_after` TEXT NOT NULL, `note` TEXT NOT NULL, `undone` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
             }
         }
     }

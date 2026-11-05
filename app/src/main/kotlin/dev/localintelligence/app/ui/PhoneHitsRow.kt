@@ -54,13 +54,22 @@ private fun sourceTitleRes(source: PhoneIndexSource): Int = when (source) {
     PhoneIndexSource.PHOTOS -> R.string.phone_search_photos
 }
 
-/** Opens the item's app. A phone with no app for it does nothing. */
+/**
+ * Opens the item. When no app takes it, the source's own app opens instead; a phone with no app at all
+ * for that source does nothing.
+ */
 private fun openItem(context: Context, link: PhoneSearchLink) {
-    try {
-        context.startActivity(link.intent)
-    } catch (e: ActivityNotFoundException) {
-        // No app takes this item on this phone. Nothing else to offer.
-    } catch (e: SecurityException) {
-        // The app refused the link (a permission was revoked since the search). Nothing else to offer.
-    }
+    if (start(context, link.intent)) return
+    link.fallback?.let { start(context, it) }
+}
+
+/** True when the activity started. */
+private fun start(context: Context, intent: android.content.Intent): Boolean = try {
+    context.startActivity(intent)
+    true
+} catch (e: ActivityNotFoundException) {
+    false
+} catch (e: SecurityException) {
+    // The app refused the link (a permission was revoked since the search).
+    false
 }

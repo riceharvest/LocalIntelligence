@@ -188,7 +188,7 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
             store.upsert(
                 advanced.copy(
                     lastResult = ScheduledRunReporter.SCHEDULE_WARNING_PREFIX +
-                        "exact-alarm access is off, so this task has no next run.",
+                        context.getString(R.string.sched_warn_exact_alarm_off),
                 ),
             )
         } catch (e: IllegalStateException) {
@@ -197,7 +197,7 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
             store.upsert(
                 advanced.copy(
                     lastResult = ScheduledRunReporter.SCHEDULE_WARNING_PREFIX +
-                        "this device has no alarm service.",
+                        context.getString(R.string.sched_warn_no_alarm_service),
                 ),
             )
         }

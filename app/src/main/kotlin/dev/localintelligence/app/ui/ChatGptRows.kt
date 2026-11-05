@@ -1,5 +1,6 @@
 package dev.localintelligence.app.ui
 
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +59,7 @@ fun ChatGptModelCard(container: AppContainer) {
 @Composable
 private fun ChatGptCard(container: AppContainer, detailed: Boolean) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val settingsVersion by container.settings.changes.collectAsState()
     val availability by container.modelAvailability.state.collectAsState()
@@ -96,8 +98,7 @@ private fun ChatGptCard(container: AppContainer, detailed: Boolean) {
         if (container.chatGptActive) container.useLocalModel()
         val revoked = container.chatGptSignIn.signOut()
         if (!revoked) {
-            message = "Signed out here. OpenAI did not confirm the sign-out. You can also disconnect " +
-                "the app in ChatGPT settings."
+            message = context.getString(R.string.chatgpt_signed_out_unconfirmed)
         }
     }
 

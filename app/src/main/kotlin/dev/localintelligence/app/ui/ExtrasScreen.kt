@@ -103,7 +103,7 @@ fun ExtrasScreen(
                     else stringResource(R.string.extras_is_off),
                 )
                 Text(
-                    price?.let { "$it a month, charged by Google Play." }
+                    price?.let { stringResource(R.string.extras_price_per_month, it) }
                         ?: stringResource(R.string.the_price_is_loading_from_google_play),
                 )
 
