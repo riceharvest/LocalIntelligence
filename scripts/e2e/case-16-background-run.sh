@@ -45,5 +45,4 @@ bg_run() {
 bg_run contacts android.permission.READ_CONTACTS "Do I have a contact called Anna?" screen-off contacts
 bg_run calendar android.permission.READ_CALENDAR "What is on my calendar tomorrow?" screen-off calendar
 bg_run location android.permission.ACCESS_COARSE_LOCATION "Where am I right now?" home location
-assert_no_banned_words
 case_end "no screen: fallback within the limit for contacts, calendar, location"

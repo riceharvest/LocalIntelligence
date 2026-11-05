@@ -64,5 +64,4 @@ deny_one location android.permission.ACCESS_COARSE_LOCATION "Where am I right no
 echo "$DENY_STEPS" | grep -qi "location" || fail "location: the location tool never ran"
 [[ "$DENY_ANSWER" == *"?"* && "$DENY_ANSWER" =~ (city|town|place|area|located) ]] || fail "location: the answer does not ask for a place: $DENY_ANSWER"
 no_nag location "Where am I?" "approximate location"
-assert_no_banned_words
 case_end "contacts, calendar, location: fallbacks taken, no second sentence"

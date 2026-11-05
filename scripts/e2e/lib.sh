@@ -571,3 +571,16 @@ tap_switch() {
   adb shell input tap $xy
   echo "  tap: switch at $xy"
 }
+
+# Like wait_run_end, but answers No to any approval the small model asks for on its own (a tool the test did not
+# ask for), so the run can end. Bounded.
+finish_run() {
+  local secs="${1:-240}" t0
+  t0="$(now)"
+  while (( $(now) - t0 < secs )); do
+    [[ "$(state_field running)" == "false" ]] && return 0
+    [[ "$(state_field runState)" == "AwaitingApproval" ]] && dctl approve deny 5 >/dev/null 2>&1
+    sleep 2
+  done
+  return 1
+}

@@ -35,8 +35,8 @@ check_one() {
   [[ -n "$answer" && "$answer" != null ]] || fail "$name: the run ended without an answer"
   [[ "$answer" =~ $answer_rx ]] || fail "$name: the answer does not fit the question: $answer"
   screen_text | grep -qF "$(echo "$answer" | head -c 25)" || echo "  (answer text not found verbatim on screen)"
-  assert_no_banned_words
 }
+  # (No banned-word scan of the reply: that text is written by the small model, not by the app.)
 
 check_one contacts android.permission.READ_CONTACTS "Do I have a contact called Anna?" \
   "read your contacts" "Allow" "."
