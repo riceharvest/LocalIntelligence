@@ -359,7 +359,9 @@ airplane_off() { adb shell cmd connectivity airplane-mode disable; }
 wifi_metered() {
   local flag=""
   [[ "$1" == on ]] && flag="-m"
-  adb shell "cmd wifi forget-network 0" >/dev/null 2>&1
+  local id
+  id="$(adb shell cmd wifi list-networks | tr -d '\r' | awk '/AndroidWifi/ {print $1; exit}')"
+  adb shell "cmd wifi forget-network ${id:-0}" >/dev/null 2>&1
   adb shell "cmd wifi connect-network AndroidWifi open $flag" >/dev/null 2>&1
   local i
   for i in $(seq 1 30); do

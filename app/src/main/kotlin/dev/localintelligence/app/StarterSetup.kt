@@ -201,13 +201,14 @@ class StarterSetup(
      * Starts the setup, or retries it after a failure. A no-op unless the state is `Idle` or `Failed`,
      * so a second tap while it runs does nothing. Called from the main thread.
      */
-    fun start() {
+    fun start(automatic: Boolean = false) {
         val cur = _state.value
         if (cur !is SetupState.Idle && cur !is SetupState.Failed) return
         // Mobile data is the person's to spend: the first tap says how big the download is, the second
         // (Try again on that sentence) is the consent.
-        val consent = awaitingMobileConsent
-        awaitingMobileConsent = false
+        // A network coming back is not the person's consent to spend mobile data: only their own tap is.
+        val consent = awaitingMobileConsent && !automatic
+        if (!automatic) awaitingMobileConsent = false
         // With no network at all the system calls the (absent) connection metered, so this must come first:
         // an offline phone is told it is offline and starts by itself on reconnect, not asked about mobile data.
         if (!downloader.partialFileFor(local).isComplete(active.sizeBytes) && !online()) {
@@ -216,12 +217,14 @@ class StarterSetup(
         }
         if (!consent && onMeteredNetwork()) {
             awaitingMobileConsent = true
-            // A network that comes back now must not start the download without the tap.
-            stopWatchingNetwork()
-            _state.value = SetupState.Failed(context.getString(R.string.setup_mobile_data, formatBytes(active.sizeBytes)), null)
+            // Wi-Fi may arrive a moment after mobile data (airplane mode turning off, a router restarting): the watch
+            // stays, and an unmetered network starts the download by itself. Mobile data still waits for the tap.
+            _state.value = SetupState.Failed(context.getString(R.string.setup_mobile_data, formatBytes(active.sizeBytes)), SimpleWording.Kind.NO_NETWORK)
+            watchNetwork()
             return
         }
         stopWatchingNetwork()
+        awaitingMobileConsent = false
         if (!claim()) return
         // The notification and its result line are shown in Simple mode, so they carry no model name.
         running = transfers.launch(context.getString(R.string.assistant_download_name)) { attempt() }
@@ -464,12 +467,17 @@ class StarterSetup(
      */
     private fun waitForNetwork() {
         _state.value = SetupState.Failed(context.getString(R.string.setup_waiting_network), SimpleWording.Kind.NO_NETWORK)
+        watchNetwork()
+    }
+
+    /** Starts the setup again, without a tap, whenever the system reports a network. See [start]. */
+    private fun watchNetwork() {
         if (onlineWatch != null) return
         val cm = context.getSystemService(ConnectivityManager::class.java) ?: return
         val watch = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 scope.launch(Dispatchers.Main) {
-                    if (_state.value is SetupState.Failed) start()
+                    if (_state.value is SetupState.Failed) start(automatic = true)
                 }
             }
         }
