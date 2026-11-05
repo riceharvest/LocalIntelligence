@@ -44,6 +44,8 @@ def main():
     cmd, dump = sys.argv[1], sys.argv[2]
     args = sys.argv[3:]
     pkg = None
+    exact = "--exact" in args
+    args = [a for a in args if a != "--exact"]
     density = 420
     rest = []
     i = 0
@@ -72,7 +74,7 @@ def main():
                 tl = t.lower()
                 if tl == want:
                     score = 2
-                elif want in tl:
+                elif want in tl and not exact:
                     score = 1
                 else:
                     continue
@@ -84,7 +86,7 @@ def main():
     elif cmd == "switch":
         # The first on/off switch on screen (a settings page's toggle): "x y".
         for n, (x1, y1, x2, y2) in nodes(dump, pkg):
-            if "Switch" in (n.get("class") or "") or "Toggle" in (n.get("class") or ""):
+            if "Switch" in (n.get("class") or "") or "Toggle" in (n.get("class") or "") or n.get("checkable") == "true":
                 print((x1 + x2) // 2, (y1 + y2) // 2)
                 return
         sys.exit(1)

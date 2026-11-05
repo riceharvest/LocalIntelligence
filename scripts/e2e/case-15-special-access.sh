@@ -35,7 +35,7 @@ access_off() {
   case "$1" in
     dnd) adb shell cmd notification disallow_dnd "$PKG" >/dev/null 2>&1 ;;
     listener) adb shell cmd notification disallow_listener "$COMPONENT" >/dev/null 2>&1 ;;
-    alarm) adb shell cmd appops set "$PKG" SCHEDULE_EXACT_ALARM deny >/dev/null 2>&1 ;;
+    alarm) adb shell cmd appops set --uid "$PKG" SCHEDULE_EXACT_ALARM deny >/dev/null 2>&1; adb shell cmd appops set "$PKG" SCHEDULE_EXACT_ALARM deny >/dev/null 2>&1 ;;
   esac
   sleep 3   # the system applies these asynchronously
 }
@@ -49,7 +49,7 @@ ask_until_sentence() {
     if wait_text "$sentence" 60; then return 0; fi
     echo "  try $n: no access sentence (steps: $(tool_steps | tr '\n' ';' | head -c 200))"
     [[ "$(state_field runState)" == "AwaitingApproval" ]] && dctl approve deny 5 >/dev/null 2>&1
-    wait_run_end 60 >/dev/null
+    finish_run 150 >/dev/null
   done
   return 1
 }
@@ -75,7 +75,7 @@ one_access() {
   tap_switch
   sleep 2
   # The confirmation Android adds for the sensitive ones.
-  tap_text_soft "Allow" || tap_text_soft "OK" || true
+  tap_exact_soft "Allow" || tap_exact_soft "OK" || true
   sleep 2
   [[ "$key" == dnd ]] || access_on "$key" || fail "$key: the switch did not turn the access on ($(screen_text_all | tr '\n' '|' | head -c 300))"
   back_to_app || fail "$key: could not get back to the app"
@@ -84,7 +84,10 @@ one_access() {
   echo "  answer: $answer"
   echo "  steps: $(tool_steps | tr '\n' ';' | head -c 400)"
   [[ -n "$answer" && "$answer" != null ]] || fail "$key: no answer after the round trip"
-  tool_steps | grep -qi "| True |" || fail "$key: no tool step succeeded after the access was given: $(tool_steps)"
+  # Proof the run went past the gate: some tool step ran, and none of them says the access is still off. (A step
+  # may still fail for another reason, e.g. no music is playing for the media tool.)
+  [[ -n "$(tool_steps)" ]] || fail "$key: no tool ran after the access was given"
+  tool_steps | grep -Eqi "access is (still )?off|is off for this app|not on for this app|must be switched on" && fail "$key: a tool still reports the access as off after the round trip: $(tool_steps)"
 
   echo "--- $key: not now"
   access_off "$key"; access_on "$key" && fail "$key: still on (2)"
@@ -108,7 +111,7 @@ one_access() {
 }
   # (No banned-word scan of the reply: that text is written by the small model, not by the app.)
 
-one_access dnd "Turn on Do Not Disturb" "Do Not Disturb access page" "Do Not Disturb"
-one_access listener "Pause the music" "notification access page" "[Nn]otification"
-one_access alarm "Set an alarm for 7:30 three days from now" "alarms and reminders" "[Aa]larms"
+[[ -z "${E2E_KEYS:-}" || " $E2E_KEYS " == *" dnd "* ]] && one_access dnd "Turn on Do Not Disturb" "Do Not Disturb access page" "Do Not Disturb"
+[[ -z "${E2E_KEYS:-}" || " $E2E_KEYS " == *" listener "* ]] && one_access listener "Pause the music" "notification access page" "[Nn]otification"
+[[ -z "${E2E_KEYS:-}" || " $E2E_KEYS " == *" alarm "* ]] && one_access alarm "Set an alarm for 7:30 three days from now" "alarms and reminders" "[Aa]larms"
 case_end "DND, notification listener, exact alarm: page round trip continues the run; Not now ends plainly"

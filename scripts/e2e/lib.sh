@@ -584,3 +584,13 @@ finish_run() {
   done
   return 1
 }
+
+# tap_exact_soft TEXT: like tap_text_soft, but only a node whose whole text is TEXT (a button, never a longer line).
+tap_exact_soft() {
+  local xy
+  ui_dump || return 1
+  xy="$(ui find "$OUT/ui.xml" "$1" --exact)" || return 1
+  # shellcheck disable=SC2086
+  adb shell input tap $xy
+  echo "  tap: $1 at $xy"
+}
