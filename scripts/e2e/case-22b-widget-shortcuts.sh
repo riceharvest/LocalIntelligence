@@ -20,6 +20,7 @@ widget_home() {
   home
   local i
   for i in $(seq 2 "$WIDGET_PAGE"); do adb shell input swipe 900 1000 150 1000 200; sleep 2; done
+  wait_text "Open the chat and type a message" 25 || fail "the widget is not on the home screen page $WIDGET_PAGE"
 }
 kbd_up() { local i d; for i in 1 2 3 4 5 6 7 8; do d="$(adb shell dumpsys input_method | tr -d '\r')"; [[ "$d" == *"mInputShown=true"* ]] && return 0; sleep 1; done; return 1; }
 focused_field() { ui_dump; python3 -I - "$OUT/ui.xml" <<'PY'
@@ -63,7 +64,7 @@ home
 # The launcher puts it on the first page with room; look there, then on the pages to the right.
 found=0
 for page in 1 2 3; do
-  wait_text "Open the chat and type a message" 8 && { found=1; WIDGET_PAGE=$page; break; }
+  wait_text "Open the chat and type a message" $(( page == 1 ? 30 : 8 )) && { found=1; WIDGET_PAGE=$page; break; }
   adb shell input swipe 900 1000 150 1000 200; sleep 2
 done
 (( found )) || fail "the widget is not on the home screen"
