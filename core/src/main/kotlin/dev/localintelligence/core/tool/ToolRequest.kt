@@ -1,7 +1,8 @@
 package dev.localintelligence.core.tool
 
 /**
- * Whether a message asks for a tool: it mentions the tool's name or one of its tags.
+ * Whether a message asks for a tool: it mentions the tool's name, one of its tags, or one of
+ * its [RequestWords] in any supported language.
  *
  * WHY NOT THE SELECTOR'S SCORE: that score also counts words shared with the tool's
  * description, and common words ("for", "the", "what") give almost every tool a score
@@ -14,6 +15,9 @@ package dev.localintelligence.core.tool
 object ToolRequest {
     fun asksFor(message: String, definition: ToolDefinition): Boolean {
         if (message.contains(definition.name, ignoreCase = true)) return true
+        // The request words cover the languages the tags do not: a person who asks in Chinese or
+        // Arabic names the tool in their own words, not in an English tag.
+        if (RequestWords.matches(message, definition.name)) return true
         val words = lexicalTokens(message).filterNot { it in FILLER }.toSet()
         if (words.isEmpty()) return false
         val own = lexicalTokens(definition.name) + definition.tags.flatMap { lexicalTokens(it) }
