@@ -648,6 +648,9 @@ def summarise(runs: list[dict], tasks: list[dict], repeats: list) -> dict:
         "fail": sum(1 for r in runs if r["verdict"] == "fail"),
         "unverified": sum(1 for r in runs if r["verdict"] == "unverified"),
         "wrong_language": sum(1 for r in runs if r["verdict"] == "wrong_language"),
+        # Approvals the runner answered, and replies that came back with no text: both are counted, never hidden.
+        "approvals": sum(r.get("approvals") or 0 for r in runs),
+        "empty_answers": sum(1 for r in runs if not (r.get("answer") or "").strip()),
         "pass_rate": round(passed / n, 4) if n else None,
         "by_category": by_cat,
         "median": {
@@ -728,10 +731,12 @@ def main() -> int:
     out_path = args.out_dir / out_name
 
     prior = {}
+    prior_approvals = []
     if out_path.exists() and not args.fresh:
-        doc = json.loads(out_path.read_text(encoding="utf-8"))
-        for r in doc.get("runs", []):
+        old_doc = json.loads(out_path.read_text(encoding="utf-8"))
+        for r in old_doc.get("runs", []):
             prior[(r["task_id"], run_key(r))] = r
+        prior_approvals = old_doc.get("approvals", [])
         print(f"resuming: {len(prior)} runs already in {out_path}", file=sys.stderr)
 
     doc = {
@@ -750,7 +755,8 @@ def main() -> int:
         "repeats": repeats,
         "runs": [],
     }
-    stats = {"approvals": []}
+    # Approvals are kept across a resume, so the count and the file agree after a restart.
+    stats = {"approvals": list(prior_approvals)}
     runs_by_key = dict(prior)
 
     if runner == "device-app":
@@ -766,6 +772,7 @@ def main() -> int:
                     if key in runs_by_key:
                         continue
                     t0 = time.monotonic()
+                    before = len(stats["approvals"])
                     undo = apply_setup(args.serial, args.package, task.get("setup", {}))
                     try:
                         res = run_device_task(args.serial, task, args.package, args.timeout, stats)
@@ -773,8 +780,10 @@ def main() -> int:
                         undo_setup(args.serial, undo)
                     peak = device_pid(args.serial, args.package)
                     rec = _finish_run(task, rep, None, res, runner, peak, time.monotonic() - t0)
+                    rec["approvals"] = len(stats["approvals"]) - before
                     runs_by_key[key] = rec
                     doc["runs"] = list(runs_by_key.values())
+                    doc["approvals"] = stats["approvals"]
                     write_atomic(out_path, _with_summary(doc, tasks, repeats))
                     print(f"{task['id']} r{rep}: {rec['verdict']} {rec['reasons'][:2]}", file=sys.stderr)
         finally:
@@ -808,9 +817,22 @@ def main() -> int:
 
     doc["run_finished"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     doc["approvals"] = stats["approvals"]
-    write_atomic(out_path, _with_summary(doc, tasks, repeats))
+    doc = _with_summary(doc, tasks, repeats)
+    write_atomic(out_path, doc)
+    print_report(doc["summary"])
     print(str(out_path))
     return 0
+
+
+def print_report(summary: dict) -> None:
+    """One line for the run. Prefill is always printed beside decode, never decode alone."""
+    m = summary["median"]
+    print(
+        f"median total {m['total_ms']} ms, first token {m['first_token_ms']} ms, "
+        f"prefill {m['prefill_tok_s']} tok/s, decode {m['decode_tok_s']} tok/s; "
+        f"approvals {summary['approvals']}, empty answers {summary['empty_answers']}",
+        file=sys.stderr,
+    )
 
 
 def run_key(rec: dict):
