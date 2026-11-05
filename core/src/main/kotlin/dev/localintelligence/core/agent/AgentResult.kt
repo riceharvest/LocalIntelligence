@@ -171,3 +171,33 @@ sealed interface ValidationOutcome {
     data class Ok(val tool: AgentTool) : ValidationOutcome
     data class Rejected(val observation: String) : ValidationOutcome
 }
+
+/**
+ * Why a [AgentResult.Stop] happened, as a machine key. The app maps each key to a Simple sentence
+ * with a next step (`SimpleWording.Kind`), so the names here are the enum names there. Technical
+ * mode still shows the English reason, which is unchanged.
+ *
+ * WHY STRINGS AND NOT AN ENUM IN :core: the app's kinds carry string resources, and :core has no
+ * Android types. A key the app does not know maps to the generic sentence, never to a crash.
+ */
+object StopKind {
+    const val LOOP_DETECTED = "LOOP_DETECTED"
+    const val NO_PROGRESS = "NO_PROGRESS"
+    const val NO_VALID_ACTION = "NO_VALID_ACTION"
+    const val REPEATED = "REPEATED"
+    const val EMPTY_REPLY = "EMPTY_REPLY"
+    const val MODEL_FAILED = "MODEL_FAILED"
+    const val TOO_LONG = "TOO_LONG"
+    const val INTERNAL = "INTERNAL"
+    const val NOTHING_PENDING = "NOTHING_PENDING"
+    const val CANT_SEE = "CANT_SEE"
+    const val CANT_HEAR = "CANT_HEAR"
+    const val INTERRUPTED = "INTERRUPTED"
+
+    /**
+     * The stops that get one last answer-only generation when a tool already succeeded in the run:
+     * the model was still working, and its work so far is worth a sentence. Every other stop ends
+     * as it is, because asking the same failing model again would only repeat it.
+     */
+    val ANSWER_FIRST: Set<String> = setOf(LOOP_DETECTED, NO_PROGRESS, NO_VALID_ACTION, REPEATED)
+}
