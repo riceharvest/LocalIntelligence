@@ -1875,4 +1875,5 @@
     <string name="export_tool_used_failed">used %1$s (failed)</string>
     <string name="export_approved_tool">Approved %1$s</string>
     <string name="export_declined_tool">Declined %1$s</string>
+    <string name="crash_report_subject">LocalIntelligence crash report</string>
 </resources>
