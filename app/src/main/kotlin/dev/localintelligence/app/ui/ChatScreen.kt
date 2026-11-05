@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.os.Build
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -17,19 +18,26 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
@@ -63,6 +71,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
@@ -192,6 +201,11 @@ fun ChatScreen(
     loadPersonas: (suspend () -> List<Persona>)? = null,
     /** Starts the chat with the persona picked on the empty chat (null for none). */
     onChoosePersona: (Long?) -> Unit = {},
+    /**
+     * Simple mode's New chat, in the chat itself (Settings has the same one). Null hides it. Shown only
+     * once there are messages, and never while a run is in flight.
+     */
+    onNewChat: (() -> Unit)? = null,
 ) {
     // `collectAsStateWithLifecycle`, not `collectAsState`: a backgrounded app
     // should not keep recomposing a chat transcript nobody is looking at.
@@ -272,6 +286,11 @@ fun ChatScreen(
     }
     // Simple mode says why in plain words; Technical keeps the state's own line.
     val blocked = if (technical) modelState.blockingReason(LocalContext.current) else SimpleWording.blocked(LocalContext.current, modelState)
+    // Simple mode only: while the one-tap setup downloads or the first load runs, Send is offered and queues the message.
+    val canQueue = !technical && (
+        starter is SetupState.Downloading || starter is SetupState.Preparing ||
+            modelState is ModelAvailability.Loading
+    )
     // Retry and Edit both act on the last turn, so they are offered only there. A turn with
     // pictures or a voice clip cannot be sent again: the media bytes are not kept.
     val lastUserIndex = messages.indexOfLast { it is ChatMessage.User }
@@ -501,8 +520,17 @@ fun ChatScreen(
         // twice.
         modifier = modifier,
         topBar = {
-            // Simple's one way to Settings. Technical keeps the gear in its composer row.
-            if (!technical) SimpleChatTopRow(onOpenSettings = onOpenSettings)
+            // Simple's one way to Settings, and New chat once there is a chat. Technical keeps the gear in its composer row.
+            if (!technical) {
+                SimpleChatTopRow(
+                    onOpenSettings = onOpenSettings,
+                    // The top bar draws under the status bar on an edge-to-edge window (targetSdk 36), so it takes the inset itself.
+                    modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
+                    actions = {
+                        if (onNewChat != null && messages.isNotEmpty()) NewChatAction(busy = busy, onNewChat = onNewChat)
+                    },
+                )
+            }
         },
         bottomBar = {
           Column {
@@ -519,7 +547,11 @@ fun ChatScreen(
                 // dead end, so the reason travels with the state.
                 blockedReason = blocked,
                 onInputChange = viewModel::onInputChange,
-                onSend = viewModel::send,
+                // Simple's first run: a message typed while the assistant is not ready is kept and sent when it is.
+                onSend = {
+                    if (canQueue && blocked != null) viewModel.queueSend() else viewModel.send()
+                },
+                canQueue = canQueue,
                 onStop = viewModel::stop,
                 compact = compactComposer,
                 attachments = attached,
@@ -537,9 +569,14 @@ fun ChatScreen(
                 onOpenSettings = onOpenSettings,
                 showSettingsEntry = technical,
                 showBlockedReason = messages.isNotEmpty(),
-                blockedAction = when (modelState) {
-                    ModelAvailability.None -> stringResource(if (technical) R.string.download_a_model else R.string.simple_set_up_chat) to onOpenModels
-                    is ModelAvailability.Failed -> stringResource(if (technical) R.string.choose_another_model else R.string.simple_try_another_option) to onOpenModels
+                blockedAction = when {
+                    // Simple has no Models screen: its one action starts the one-tap setup, or tries it again.
+                    !technical && modelState is ModelAvailability.None ->
+                        stringResource(R.string.get_started_plain) to onStartStarter
+                    !technical && modelState is ModelAvailability.Failed ->
+                        stringResource(R.string.try_again) to onStartStarter
+                    modelState is ModelAvailability.None -> stringResource(R.string.download_a_model) to onOpenModels
+                    modelState is ModelAvailability.Failed -> stringResource(R.string.choose_another_model) to onOpenModels
                     else -> null
                 },
             )
@@ -557,6 +594,8 @@ fun ChatScreen(
             if (messages.isEmpty() && streaming.isEmpty() && running == null && progress == null) {
                 item("empty") {
                     EmptyState(
+                        // A bounded height, so the content can scroll inside it at 200% text. A minimum height
+                        // would leave the list's max unbounded, and a scrolling column cannot be measured that way.
                         modifier = Modifier.fillParentMaxHeight(0.9f),
                         blockedReason = blocked,
                         // Structural, not string-matched, and both cases get a
@@ -1120,6 +1159,7 @@ private fun EmptyState(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
@@ -1147,6 +1187,12 @@ private fun EmptyState(
             textAlign = TextAlign.Center,
         )
         if (starter != null && blockedReason == null) {
+            Text(
+                text = stringResource(R.string.starter_capability),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
             ExampleChips(onExample)
         }
         EmptyPersonaRow(personas, onChoosePersona)
@@ -1199,6 +1245,38 @@ private fun EmptyState(
 }
 
 /**
+ * New chat, one tap from the chat itself. It asks first, in plain words, the same way Settings does, and it
+ * is disabled while a run is in flight, because starting a new conversation is only safe between runs.
+ */
+@Composable
+private fun NewChatAction(busy: Boolean, onNewChat: () -> Unit) {
+    var asking by remember { mutableStateOf(false) }
+    // Read at the moment of the tap, not when the dialog opened: a run can start while the dialog is up.
+    val latestBusy by rememberUpdatedState(busy)
+    TextButton(
+        onClick = { asking = true },
+        enabled = !busy,
+        modifier = Modifier.heightIn(min = 48.dp),
+    ) {
+        Text(stringResource(R.string.new_chat))
+    }
+    if (asking) {
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text(stringResource(R.string.start_a_new_chat)) },
+            text = { Text(stringResource(R.string.plain_new_chat_text)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    asking = false
+                    if (!latestBusy) onNewChat()
+                }) { Text(stringResource(R.string.new_chat)) }
+            },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+}
+
+/**
  * The persona choice on the empty chat. The New chat row is hidden on an empty chat, so without this an
  * empty chat could never get a persona. A plain text button, shown only when personas exist.
  */
@@ -1233,7 +1311,6 @@ private fun EmptyPersonaRow(personas: List<Persona>, onChoose: (Long?) -> Unit) 
     }
 }
 
-/** The three first things a new user can ask, tapped to send. */
 /**
  * The first-run panel of Simple mode: one button for the download, then progress, then the wait for
  * the first answer. No model name, quant or reason is shown; the user only needs to know what happens.
@@ -1272,6 +1349,14 @@ private fun StarterPanel(
                     textAlign = TextAlign.Center,
                 )
             }
+            if (!starter.onDisk) {
+                Text(
+                    text = stringResource(R.string.starter_privacy),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
             // Read when the panel appears, not on every recomposition: the network does not change under it.
             val metered = remember { isOnMeteredNetwork(context) }
             if (metered) {
@@ -1293,7 +1378,8 @@ private fun StarterPanel(
             val percent = (fraction * 100).toInt()
             // TalkBack hears the progress once per ten percent, not on every tick of the bar.
             val milestone = percent / 10
-            val announced = remember(milestone) { "Setting up, ${milestone * 10} percent" }
+            val announced = stringResource(R.string.setting_up, milestone * 10)
+            val secondsLeft = rememberSecondsLeft(starter.bytes, starter.totalBytes)
             Text(
                 text = stringResource(R.string.setting_up, percent),
                 style = MaterialTheme.typography.titleMedium,
@@ -1314,6 +1400,20 @@ private fun StarterPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
+            // Blank until the pace is measured (the first few seconds); never a figure we did not measure.
+            secondsLeft?.let { seconds ->
+                val minutes = (seconds + 59) / 60
+                Text(
+                    text = if (seconds < 60) {
+                        stringResource(R.string.starter_eta_under_minute)
+                    } else {
+                        LocalContext.current.resources.getQuantityString(R.plurals.starter_eta_minutes, minutes.toInt(), minutes.toInt())
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
             Text(
                 text = stringResource(R.string.you_can_leave_the_app_it_keeps_going),
                 style = MaterialTheme.typography.bodyMedium,
@@ -1333,6 +1433,12 @@ private fun StarterPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            )
+            Text(
+                text = stringResource(R.string.almost_ready_this_only_happens_once),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
             )
         }
 
@@ -1354,13 +1460,16 @@ private fun StarterPanel(
     }
 }
 
-/** The three example questions, each a 48dp button that sends its text. */
+/** The example questions, each a 48dp button that sends its text at once. */
 @Composable
 private fun ExampleChips(onExample: (String) -> Unit) {
     val starterExamples = listOf(
         stringResource(R.string.starter_battery),
         stringResource(R.string.starter_timer),
         stringResource(R.string.starter_wake),
+        stringResource(R.string.starter_weather),
+        stringResource(R.string.starter_sum),
+        stringResource(R.string.starter_web),
     )
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1376,6 +1485,43 @@ private fun ExampleChips(onExample: (String) -> Unit) {
         }
     }
 }
+
+/** The pace of one setup download, measured from the bytes that arrived. Written only by [rememberSecondsLeft]. */
+private class DownloadPace(startBytes: Long) {
+    val startedAt = SystemClock.elapsedRealtime()
+    var lastBytes = startBytes
+    var lastAt = startedAt
+    var bytesPerSecond = 0.0
+}
+
+/**
+ * Seconds left in the setup download, or null while the pace is not measured yet. The pace is the
+ * bytes that arrived over the time they took, smoothed, and the estimate waits for five seconds so
+ * the first burst does not set it. A resumed download starts from the bytes already on the phone.
+ */
+@Composable
+private fun rememberSecondsLeft(bytes: Long, totalBytes: Long): Long? {
+    // Keyed on the total: the projector and the model are two downloads, and the second must not inherit the first's pace.
+    val pace = remember(totalBytes) { DownloadPace(bytes) }
+    var secondsLeft by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(bytes, totalBytes) {
+        val now = SystemClock.elapsedRealtime()
+        if (bytes > pace.lastBytes && now > pace.lastAt) {
+            val instant = (bytes - pace.lastBytes) * 1000.0 / (now - pace.lastAt)
+            pace.bytesPerSecond = if (pace.bytesPerSecond == 0.0) instant else 0.3 * instant + 0.7 * pace.bytesPerSecond
+            pace.lastBytes = bytes
+            pace.lastAt = now
+        }
+        secondsLeft = if (now - pace.startedAt >= PACE_WAIT_MS && pace.bytesPerSecond > 0.0 && totalBytes > bytes) {
+            ((totalBytes - bytes) / pace.bytesPerSecond).toLong()
+        } else {
+            null
+        }
+    }
+    return secondsLeft
+}
+
+private const val PACE_WAIT_MS = 5_000L
 
 /** Whole percent of [part] in [whole], kept under 100 so a setup that is nearly done never reads "100%". */
 private fun percentOf(part: Long, whole: Long): Int =

@@ -2654,9 +2654,10 @@ class AgentController(
         }
         if (cancelled) return AgentResult.Cancelled
         if (answer == null) return outcome
-        sessions.appendAssistant(answer)
+        val shown = shownReply(answer)
+        sessions.appendAssistant(shown)
         rememberTurn()
-        return AgentResult.Success(answer, trace.toList())
+        return AgentResult.Success(shown, trace.toList())
     }
 
     /** The text of one reply made with no tools callable, or null when it is empty, looping or failed. */

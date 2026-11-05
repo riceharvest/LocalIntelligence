@@ -25,8 +25,7 @@ import dev.localintelligence.app.R
  * At the top it is a separate place to go, which is what it is. It has no background of its
  * own, so it sits on the window colour and the transcript scrolls beneath it.
  *
- * The [actions] slot is for more entries at the same end of the row, placed before Settings.
- * Nothing else lives here: the new-chat control belongs to the empty chat.
+ * The [actions] slot holds New chat, placed before Settings.
  */
 @Composable
 fun SimpleChatTopRow(

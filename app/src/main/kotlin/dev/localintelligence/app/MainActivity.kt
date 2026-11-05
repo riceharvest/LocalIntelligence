@@ -124,7 +124,21 @@ import kotlinx.coroutines.withContext
  * without a first send. Any other load waits for a run or an explicit user action
  * ([dev.localintelligence.app.ui.ModelManagerScreen]).
  */
+private const val DOWNLOAD_NOTIFICATION_REQUEST = 4101
+
 class MainActivity : FragmentActivity() {
+
+    /**
+     * Asked when the person taps Get started, so the download's progress can show after they leave the app. A refusal
+     * changes nothing: the download still runs and the chat still shows its progress. Android stops asking by itself.
+     */
+    private fun askForDownloadNotification() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return
+        val permission = android.Manifest.permission.POST_NOTIFICATIONS
+        if (checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        requestPermissions(arrayOf(permission), DOWNLOAD_NOTIFICATION_REQUEST)
+    }
+
 
     private var deliveredIntent by mutableStateOf<Intent?>(null)
 
@@ -356,7 +370,10 @@ class MainActivity : FragmentActivity() {
                                     nav.navigate("$ROUTE_HUB?repo=${Uri.encode(pick.repo)}&file=${Uri.encode(pick.file)}")
                                 },
                                 starter = if (technical) null else starterState,
-                                onStartStarter = { container.starterSetup.start() },
+                                onStartStarter = {
+                                    askForDownloadNotification()
+                                    container.starterSetup.start()
+                                },
                                 onCancelStarter = { container.starterSetup.cancel() },
                                 // The empty chat's persona choice. It starts the conversation the same way New chat does.
                                 loadPersonas = { container.personas() },
@@ -365,6 +382,13 @@ class MainActivity : FragmentActivity() {
                                     scope.launch {
                                         container.launchRestore.await()
                                         if (chat.messages.value.isEmpty()) container.startNewConversation(personaId)
+                                    }
+                                },
+                                // New chat in the chat itself, the same steps as the Settings one.
+                                onNewChat = {
+                                    scope.launch {
+                                        container.startNewConversation(null)
+                                        chat.clear()
                                     }
                                 },
                             )

@@ -186,6 +186,11 @@ class StarterSetup(
                     ModelAvailability.None -> _state.update { cur ->
                         if (cur is SetupState.Ready) idleFromDisk() else cur
                     }
+                    // A model that was ready and then failed to load: Try again must be able to start the
+                    // setup again, and it can only start from Idle or Failed.
+                    is ModelAvailability.Failed -> _state.update { cur ->
+                        if (cur is SetupState.Ready) idleFromDisk() else cur
+                    }
                     else -> Unit
                 }
             }
@@ -212,7 +217,8 @@ class StarterSetup(
         }
         stopWatchingNetwork()
         if (!claim()) return
-        running = transfers.launch(active.name) { attempt() }
+        // The notification and its result line are shown in Simple mode, so they carry no model name.
+        running = transfers.launch(context.getString(R.string.assistant_download_name)) { attempt() }
     }
 
     /** Cancels the running setup, as the Cancel button does. Only while downloading. */
