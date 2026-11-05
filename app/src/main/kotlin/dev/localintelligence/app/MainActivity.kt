@@ -106,6 +106,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val DOWNLOAD_NOTIFICATION_REQUEST = 4101
+
 /**
  * The nav host and the composition root. Two responsibilities, both unavoidable
  * at this level:
@@ -124,8 +126,6 @@ import kotlinx.coroutines.withContext
  * without a first send. Any other load waits for a run or an explicit user action
  * ([dev.localintelligence.app.ui.ModelManagerScreen]).
  */
-private const val DOWNLOAD_NOTIFICATION_REQUEST = 4101
-
 class MainActivity : FragmentActivity() {
 
     /**

@@ -1691,7 +1691,7 @@
     <string name="readiness_exact_alarms_blocked">Android is not letting this app schedule exact alarms, so a task cannot be set for a specific time. Turn on \"Alarms and reminders\" for this app in system settings.</string>
     <string name="setup_checksum_damaged">The download was damaged, so it was removed. Try again.</string>
     <string name="setup_free_storage">Free up %1$s of storage, then try again.</string>
-    <string name="setup_starter_cannot_run">This phone can\'t run the assistant. Free up some memory, then try again.</string>
+    <string name="setup_starter_cannot_run">This phone can\'t run the assistant.</string>
     <string name="setup_embedding_cannot_download">This phone can\'t set up document search.</string>
     <string name="setup_site_down">The download site is having trouble right now. Try again in a few minutes.</string>
     <string name="setup_site_busy">The download site asked us to wait. Try again in a few minutes.</string>
@@ -1703,13 +1703,6 @@
     <string name="setup_not_found">Couldn\'t find the assistant to download. Try again later.</string>
     <string name="setup_starter_would_not_start">The download finished, but the assistant would not start on this phone.</string>
     <string name="setup_embedding_not_loaded">Document search downloaded, but it could not start on this phone.</string>
-    <string name="setup_starter_cannot_run">This phone can\'t run the assistant.</string>
-    <string name="setup_embedding_cannot_download">This phone cannot download this model.</string>
-    <string name="setup_network_failed">Couldn\'t download. Check your internet connection and try again.</string>
-    <string name="setup_could_not_save">The download could not be saved. Free up some storage and try again.</string>
-    <string name="setup_not_found">Couldn\'t find the download. Try again later.</string>
-    <string name="setup_starter_would_not_start">The download finished, but it would not start on this phone.</string>
-    <string name="setup_embedding_not_loaded">The search model downloaded but could not be loaded.</string>
     <string name="sched_approval_skipped">An action that needed your approval was skipped.</string>
     <string name="sched_cancelled_user">Cancelled: stopped before it finished.</string>
     <string name="sched_cancelled_interrupted">Cancelled: the run was interrupted before it finished.</string>
