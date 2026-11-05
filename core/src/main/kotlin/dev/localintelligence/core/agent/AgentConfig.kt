@@ -36,4 +36,10 @@ data class AgentConfig(
      * controller built without settings keeps the old behaviour.
      */
     val toolLookup: Boolean = false,
+    /**
+     * Take the names of this run's tools out of every reply the user reads (see
+     * AgentController.withoutToolNames). Simple mode only: its user never heard of a tool.
+     * Technical keeps the reply as the model wrote it.
+     */
+    val hideToolNames: Boolean = false,
 )

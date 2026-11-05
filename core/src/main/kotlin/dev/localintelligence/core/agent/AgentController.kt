@@ -935,12 +935,14 @@ class AgentController(
                             heldReply = HeldReply(action.text, generation.text)
                             sessions.observe(answerCorrection(unsupported))
                         } else {
-                            val text = if (savedObservation && INTERNAL_HANDLE_RE.containsMatchIn(action.text)) {
-                                log("reply still named an internal id after one retry; removed those sentences")
-                                scrubHandles(action.text)
-                            } else {
-                                action.text
-                            }
+                            val text = shownReply(
+                                if (savedObservation && INTERNAL_HANDLE_RE.containsMatchIn(action.text)) {
+                                    log("reply still named an internal id after one retry; removed those sentences")
+                                    scrubHandles(action.text)
+                                } else {
+                                    action.text
+                                },
+                            )
                             sessions.appendAssistant(text, rendered = generation.text)
                             // The one place a turn is offered to durable memory.
                             // See [rememberTurn] for why it is here and nowhere
@@ -975,9 +977,10 @@ class AgentController(
     private suspend fun deliverHeld(held: HeldReply): AgentResult {
         heldReply = null
         log("answer check: the retry was not a reply, keeping the first answer")
-        sessions.appendAssistant(held.text, rendered = held.rendered)
+        val text = shownReply(held.text)
+        sessions.appendAssistant(text, rendered = held.rendered)
         rememberTurn()
-        return AgentResult.Success(held.text, trace.toList())
+        return AgentResult.Success(text, trace.toList())
     }
 
     /**
@@ -2141,6 +2144,43 @@ class AgentController(
         return ActionParseResult.Parsed(AgentAction.Respond(answer))
     }
 
+    /** The reply as the user reads it: Simple mode takes the tool names out, Technical gets it as written. */
+    private fun shownReply(text: String): String = if (config.hideToolNames) withoutToolNames(text) else text
+
+    /**
+     * [text] with the names of this run's tools taken out. The names come from the registry, in both
+     * forms a model writes them: `timer.set` and `timer_set`. So nothing here is an English word list.
+     *
+     * A phrase that introduces a tool or its arguments goes first ("using the `timer_set` tool with
+     * `seconds=120`", "`alarm_create(hour=7)`"), so the sentence it was in can survive. A sentence that
+     * still names a tool is then dropped. Never empty: when nothing is left, [TOOL_FALLBACK].
+     *
+     * WHY deterministic: a prompt rule ("never name tools") is followed most of the time, and a
+     * Simple user who reads `timer_set` learns nothing and is confused. This runs on every final reply.
+     */
+    private fun withoutToolNames(text: String): String {
+        val names = tools.all().map { it.definition.name }
+            .flatMap { listOf(it, it.replace('.', '_')) }
+            .distinct()
+            .sortedByDescending { it.length }
+        if (names.isEmpty()) return text
+        val ref = "`?(?:" + names.joinToString("|") { Regex.escape(it) } + ")`?"
+        val named = Regex(ref, RegexOption.IGNORE_CASE)
+        if (!named.containsMatchIn(text)) return text
+        val call = Regex("$ref\\s*\\([^)\\n]*\\)", RegexOption.IGNORE_CASE)
+        val phrase = Regex(
+            "\\s*\\b(?:using|via|through|with|by calling|calling)\\s+(?:the\\s+)?$ref(?:\\s+tool)?" +
+                "(?:\\s+with\\s+[^.;!?\\n]*=[^.;!?\\n]*)?",
+            RegexOption.IGNORE_CASE,
+        )
+        val kept = text.replace(call, "").replace(phrase, "")
+            .split(Regex("(?<=[.!?])\\s+"))
+            .filterNot { named.containsMatchIn(it) }
+            .joinToString(" ")
+            .trim()
+        return kept.ifEmpty { TOOL_FALLBACK }
+    }
+
     /**
      * [text] with every sentence that names an internal handle removed. Nothing left
      * gives [HANDLE_FALLBACK], so the user is told the truth instead of an empty answer.
@@ -2686,6 +2726,9 @@ class AgentController(
 
         /** What the user is told when, after the one retry, nothing of the reply is left to show. */
         const val HANDLE_FALLBACK = "I couldn't read far enough into that page."
+
+        /** Simple mode: a reply that was only about tools, with nothing left to show. Says what to do. */
+        const val TOOL_FALLBACK = "I could not say what happened. Please ask again."
         const val LINE_CHARS = 200
         const val TRUNCATOR_MIN_SAFE_BUDGET = 64
 
