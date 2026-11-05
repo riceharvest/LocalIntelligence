@@ -108,6 +108,7 @@ import dev.localintelligence.core.context.SystemPrompts
 import dev.localintelligence.core.metrics.RunRecorder
 import dev.localintelligence.core.model.ChatMessage
 import dev.localintelligence.core.model.ModelBackend
+import dev.localintelligence.core.model.ProjectorLinks
 import dev.localintelligence.core.model.ModelSpec
 import dev.localintelligence.core.model.gguf.GgufHeader
 import dev.localintelligence.core.model.gguf.KvCacheType
@@ -278,7 +279,9 @@ class AppContainer(private val context: Context) {
      * The memory block. One instance: its undo ledger lives in it, and the chat rows read it.
      * Passed to the tool family, so the agent and the chat share the same ledger.
      */
-    val memoryBlockStore: SettingsMemoryBlockStore by lazy { SettingsMemoryBlockStore(settings) }
+    val memoryBlockStore: SettingsMemoryBlockStore by lazy {
+        SettingsMemoryBlockStore(settings, dev.localintelligence.android.data.lazyMemoryChangeDao(context), appScope)
+    }
 
     /** The app lock, one for the process. Created at app start so it sees every activity from the first one. */
     val appLock: dev.localintelligence.app.security.AppLock by lazy {
@@ -1709,6 +1712,24 @@ class AppContainer(private val context: Context) {
         }
     }
 
+    /** The vision files linked to models by hand: model id to file path (see [ProjectorLinks]). */
+    fun projectorLinks(): Map<String, String> = ProjectorLinks.parse(settings.stored(CoreSettings.MODEL_PROJECTORS))
+
+    /** Links [model] to the vision file [path], or removes the link when [path] is null. */
+    fun setProjectorLink(model: ImportedModel, path: String?) {
+        val updated = ProjectorLinks.with(settings.stored(CoreSettings.MODEL_PROJECTORS), model.uri.toString(), path)
+        settings.set(CoreSettings.MODEL_PROJECTORS, updated)
+    }
+
+    /** The name a picked vision file is saved under: it always names itself a projector, so no scan lists it as a model. */
+    private fun projectorFileName(name: String): String =
+        if (ProjectorLinks.isProjectorName(name)) name else "mmproj-$name"
+
+    /** Copies a picked vision file into the models directory and returns the copy. */
+    suspend fun copyProjector(uri: android.net.Uri, name: String, progress: (Long, Long) -> Unit): File =
+        dev.localintelligence.android.inference.LiteRtLmImportCopier(context.contentResolver, modelsDir)
+            .copy(uri, projectorFileName(name), progress, suffix = ".gguf")
+
     /**
      * Loads [model] into [backend], trying each rung of the Simple load ladder in turn (see
      * [LoadSafety]). Returns null on success, else the failure of the last rung tried. Technical
@@ -1754,6 +1775,7 @@ class AppContainer(private val context: Context) {
                         kvCacheType = choice.kvCacheType,
                         threads = attempt.threads,
                         cpuOnly = attempt.cpuOnly,
+                        projectorPath = projectorLinks()[key],
                     ),
                 )
                 if (simple) loadSafety.attemptReturned(key, rung, ok = true)
@@ -1966,6 +1988,8 @@ class AppContainer(private val context: Context) {
      */
     suspend fun restoreOnLaunch(): List<ChatMessage> = readinessLock.withLock {
         restoreConversationOnce()
+        // The Undo ledger comes back with the conversation, so the "Remembered" rows can offer Undo.
+        memoryBlockStore.restore()
         // A scheduled run the last process died during has no result coming (#167).
         ScheduledRunReporter.settleInterrupted(context)
         if (ExtrasBilling.enabled) appScope.launch(Dispatchers.IO) { extras.checkAtStart() }
@@ -2463,7 +2487,7 @@ class AppContainer(private val context: Context) {
                 file.isFile && (
                     file.name.endsWith(".gguf", ignoreCase = true) ||
                         file.name.endsWith(".litertlm", ignoreCase = true)
-                    ) && !isDocumentModelName(file.name)
+                    ) && !isDocumentModelName(file.name) && !ProjectorLinks.isProjectorName(file.name)
             }
         } ?: return null
         var firstFailure: Throwable? = null
@@ -2513,6 +2537,7 @@ class AppContainer(private val context: Context) {
             }
         }
         withContext(Dispatchers.Main) { models.removeAll { it.uri == model.uri } }
+        setProjectorLink(model, null)
         if (isOwnModelFile(model)) {
             withContext(Dispatchers.IO) { runCatching { File(model.uri.path!!).delete() } }
         }

@@ -23,9 +23,15 @@ import dev.localintelligence.core.settings.SettingsReader
 
 /**
  * One tappable row: the source (its name is a string resource, built by the chat), the item's own
- * text for that source, and the intent that opens the item.
+ * text for that source, the intent that opens the item, and the source's app as a second try.
  */
-data class PhoneSearchLink(val source: PhoneIndexSource, val detail: String, val intent: Intent)
+data class PhoneSearchLink(
+    val source: PhoneIndexSource,
+    val detail: String,
+    val intent: Intent,
+    /** Opens the source's own app when [intent] finds no app that takes the item (a removed record, a file type nothing reads). */
+    val fallback: Intent? = null,
+)
 
 /**
  * The rows the last successful `phone.search` in this process found, so the chat can show them under
@@ -57,7 +63,22 @@ internal fun phoneSearchLink(app: Context, settings: SettingsReader, hit: PhoneH
         PhoneIndexSource.CONTACTS, PhoneIndexSource.PHOTOS -> hit.passage
         else -> hit.title
     }
-    return PhoneSearchLink(hit.source, detail, intent)
+    return PhoneSearchLink(hit.source, detail, intent, appFor(hit.source))
+}
+
+/** The source's own app, opened when its item cannot be: the default app for that kind of thing. */
+private fun appFor(source: PhoneIndexSource): Intent? {
+    val category = when (source) {
+        PhoneIndexSource.CALENDAR -> Intent.CATEGORY_APP_CALENDAR
+        PhoneIndexSource.CONTACTS -> Intent.CATEGORY_APP_CONTACTS
+        PhoneIndexSource.MESSAGES -> Intent.CATEGORY_APP_MESSAGING
+        PhoneIndexSource.PHOTOS -> Intent.CATEGORY_APP_GALLERY
+        // API 29's constant is a plain string, so it compiles here; an older phone finds no app and does nothing.
+        PhoneIndexSource.FILES -> "android.intent.category.APP_FILES"
+        // The notification row already opens the app that posted it.
+        PhoneIndexSource.NOTIFICATIONS -> return null
+    }
+    return Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, category)
 }
 
 private fun intentFor(app: Context, settings: SettingsReader, hit: PhoneHit): Intent? = when (hit.source) {
@@ -82,7 +103,9 @@ private fun intentFor(app: Context, settings: SettingsReader, hit: PhoneHit): In
     PhoneIndexSource.FILES -> {
         val folder = settings[CoreSettings.PHONE_INDEX_FILES_FOLDER].takeIf { it.isNotBlank() } ?: return null
         val uri = DocumentsContract.buildDocumentUriUsingTree(Uri.parse(folder), hit.key)
-        Intent(Intent.ACTION_VIEW).setData(uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        // A typed intent: a viewer is picked by the file's type, and an untyped document URI matches none.
+        val type = app.contentResolver.getType(uri) ?: "*/*"
+        Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 
     // The key is the MediaStore URI the photo was indexed from (see the photo index).

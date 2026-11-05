@@ -36,7 +36,7 @@ class LiteRtLmImportCopier(
 
     /**
      * Copies [uri] into the models directory as [displayName] (sanitised, and given
-     * the `.litertlm` suffix if it lacks one) and returns the copy.
+     * [suffix] if it lacks one: `.litertlm`, or `.gguf` for a vision file) and returns the copy.
      *
      * [onProgress] receives `(copiedBytes, totalBytes)`; `totalBytes` is -1 when the
      * provider does not report a size. It is called from the copy thread.
@@ -48,9 +48,10 @@ class LiteRtLmImportCopier(
         uri: Uri,
         displayName: String,
         onProgress: (copied: Long, total: Long) -> Unit,
+        suffix: String = SUFFIX,
     ): File = withContext(Dispatchers.IO) {
         modelsDir.mkdirs()
-        val name = safeName(displayName)
+        val name = safeName(displayName, suffix)
         val dest = File(modelsDir, name)
         val partial = File(modelsDir, "$name.part")
         val total = sizeOf(uri)
@@ -146,13 +147,13 @@ class LiteRtLmImportCopier(
          * no control characters, and the LiteRT-LM suffix. The name is what the
          * model list shows, so a readable name is kept rather than replaced.
          */
-        internal fun safeName(displayName: String): String {
+        internal fun safeName(displayName: String, suffix: String = SUFFIX): String {
             val cleaned = displayName.trim()
                 .replace(Regex("[^A-Za-z0-9._ -]+"), "_")
                 .trim('.', ' ', '_')
                 .take(120)
                 .ifEmpty { "model" }
-            return if (cleaned.endsWith(SUFFIX, ignoreCase = true)) cleaned else cleaned + SUFFIX
+            return if (cleaned.endsWith(suffix, ignoreCase = true)) cleaned else cleaned + suffix
         }
 
         private fun formatGb(bytes: Long): String = "%.1f GB".format(bytes / 1_000_000_000.0)

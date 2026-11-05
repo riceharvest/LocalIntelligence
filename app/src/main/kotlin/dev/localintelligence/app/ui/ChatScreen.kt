@@ -12,7 +12,10 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -518,7 +521,16 @@ fun ChatScreen(
         // background instead of the composer's surface, and on a build where the
         // window is already resized for the keyboard the same inset gets counted
         // twice.
-        modifier = modifier,
+        //
+        // A tap anywhere stops a reply that hands-free mode is reading. The Initial pass only watches the
+        // first touch and consumes nothing, so the tap still reaches whatever it landed on.
+        modifier = modifier.pointerInput(handsFree.phase == HandsFreePhase.Speaking) {
+            if (handsFree.phase != HandsFreePhase.Speaking) return@pointerInput
+            awaitPointerEventScope {
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                viewModel.interruptSpeech()
+            }
+        },
         topBar = {
             // Simple's one way to Settings, and New chat once there is a chat. Technical keeps the gear in its composer row.
             if (!technical) {

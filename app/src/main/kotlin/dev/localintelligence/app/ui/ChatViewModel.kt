@@ -29,6 +29,7 @@ import dev.localintelligence.app.isActive
 import dev.localintelligence.app.isTerminal
 import android.speech.SpeechRecognizer
 import dev.localintelligence.app.media.AudioFileDecoder
+import dev.localintelligence.app.media.BargeInDetector
 import dev.localintelligence.app.media.LiveDictation
 import dev.localintelligence.app.media.wavOf
 import dev.localintelligence.app.media.PendingAttachment
@@ -131,6 +132,8 @@ class ChatViewModel(
     private val dictation: LiveDictation? = null,
     /** Hands-free pause before a turn is sent, in seconds. Read at each listen. */
     private val handsFreeSilence: () -> Float = { CoreSettings.HANDS_FREE_SILENCE.default },
+    /** Hands-free: talking while a reply is read stops it (see [BargeInDetector]). Read at each reply. */
+    private val handsFreeBargeIn: () -> Boolean = { false },
     /**
      * Survives process death, which the system does often on a 3.6 GB phone while a model is
      * resident. The typed draft and the queued pictures' URIs are kept here; voice clips are not.
@@ -218,6 +221,12 @@ class ChatViewModel(
 
     /** The one thing hands-free mode is waiting on: a relisten, or the end of speech. Cancelled on stop. */
     private var handsFreeJob: Job? = null
+
+    /** Hears the person talk over a reply being read (hands-free only). */
+    private val bargeIn = BargeInDetector(scope)
+
+    /** Speech heard by [bargeIn] before it triggered, for an audio model's clip to start with. */
+    private var bargeInPreRoll: ByteArray? = null
 
     /** Listens in a row that heard nothing. Two stop the mode. */
     private var emptyListens = 0
@@ -489,7 +498,29 @@ class ChatViewModel(
         _handsFree.value = HandsFreeState(HandsFreePhase.Off, notice)
         voice.stop()
         dictation?.stop()
+        bargeIn.stop()
         if (was != HandsFreePhase.Off) speaker?.stop()
+    }
+
+    /**
+     * Stops the reply being read and listens to the person now. Called when they talk over it, tap the
+     * screen or press a volume key. Does nothing unless hands-free mode is reading a reply.
+     */
+    fun interruptSpeech() {
+        scope.launch { interrupt(preRoll = null) }
+    }
+
+    private suspend fun interrupt(preRoll: ByteArray?) {
+        if (_handsFree.value.phase != HandsFreePhase.Speaking) return
+        // The wait below must not also relisten when the speech stops.
+        handsFreeJob?.cancel()
+        handsFreeJob = null
+        speaker?.stop()
+        // The microphone is opened by the next listener, so the detector lets go of it first.
+        bargeIn.stopAndWait()
+        if (_handsFree.value.phase != HandsFreePhase.Speaking) return
+        bargeInPreRoll = preRoll
+        startListening()
     }
 
     private fun startListening() {
@@ -499,7 +530,9 @@ class ChatViewModel(
 
     /** Audio-capable model: record until the user pauses. The clip is sent as it is, like a voice note. */
     private fun listenForClip() {
-        val started = voice.startUntilPause(handsFreeSilence()) { wav, seconds ->
+        val preRoll = bargeInPreRoll
+        bargeInPreRoll = null
+        val started = voice.startUntilPause(handsFreeSilence(), preRoll) { wav, seconds ->
             scope.launch { handsFreeClip(wav, seconds) }
         }
         if (!started) stopHandsFree(context.getString(R.string.chat_mic_unavailable))
@@ -604,8 +637,13 @@ class ChatViewModel(
         }
         _handsFree.value = HandsFreeState(HandsFreePhase.Speaking)
         tts.speak(text)
+        if (handsFreeBargeIn()) {
+            // Failing to open the microphone only means no talk-over; tap and volume keys still work.
+            bargeIn.start { heard -> scope.launch { interrupt(heard) } }
+        }
         handsFreeJob = scope.launch {
             tts.speakingText.first { it == null }
+            bargeIn.stopAndWait()
             relistenSoon()
         }
     }
@@ -1357,6 +1395,7 @@ class ChatViewModel(
     /** The screen is gone, so the microphone must not keep recording for its remaining seconds. */
     override fun onCleared() {
         stopHandsFree()
+        bargeIn.stop()
         dictation?.release()
         voice.stop()
         super.onCleared()
@@ -1425,17 +1464,33 @@ class ChatViewModel(
      * Only User and Assistant turns have a row. Idempotent: the screen that calls this
      * is recomposed on rotation, while this object survives it.
      */
-    fun seedRestored(turns: List<CoreChatMessage>) {
+    fun seedRestored(turns: List<CoreChatMessage>, memoryChangeIds: List<Long> = emptyList()) {
         synchronized(transcriptLock) {
             if (transcriptSeeded) return
             transcriptSeeded = true
             // Never over rows already drawn: those belong to a run, and the indices
             // recorded for them address this list.
             if (_messages.value.isNotEmpty()) return
+            // The memory writes in the restored turns, matched from the newest end to the saved Undo
+            // ledger: the restored chat is the latest one, so its last write is the ledger's last change.
+            val writes = turns.filter { it is CoreChatMessage.ToolObservation && it.toolName == MEMORY_WRITE_TOOL && it.success }
+            val firstMatched = writes.size - memoryChangeIds.size
             _messages.value = turns.mapNotNull { turn ->
                 when (turn) {
                     is CoreChatMessage.User -> turn.text.takeIf { it.isNotBlank() }?.let { ChatMessage.User(it) }
                     is CoreChatMessage.Assistant -> turn.text.takeIf { it.isNotBlank() }?.let { ChatMessage.Assistant(it) }
+                    is CoreChatMessage.ToolObservation -> {
+                        val at = writes.indexOfFirst { it === turn }
+                        val matched = at - firstMatched
+                        val id = if (at >= 0 && matched >= 0) memoryChangeIds.getOrNull(matched) else null
+                        // Only a memory write that has its ledger entry comes back: it is the row that offers Undo.
+                        id?.let {
+                            ChatMessage.ToolStep(
+                                toolName = turn.toolName, args = "", observation = turn.observation,
+                                detail = turn.observation, durationMs = 0, success = true, changeId = it,
+                            )
+                        }
+                    }
                     else -> null
                 }
             }.takeLast(MAX_TRANSCRIPT_ROWS)
@@ -1461,6 +1516,7 @@ class ChatViewModel(
         private val readRepliesAloud: () -> Boolean = { false },
         private val dictation: LiveDictation? = null,
         private val handsFreeSilence: () -> Float = { CoreSettings.HANDS_FREE_SILENCE.default },
+        private val handsFreeBargeIn: () -> Boolean = { false },
         private val readPicture: (String) -> PendingAttachment? = { null },
         private val reportSender: ReplyReportSender? = null,
         private val transcriptionModel: () -> ModelBackend? = { null },
@@ -1491,6 +1547,7 @@ class ChatViewModel(
                 readRepliesAloud = readRepliesAloud,
                 dictation = dictation,
                 handsFreeSilence = handsFreeSilence,
+                handsFreeBargeIn = handsFreeBargeIn,
                 savedState = savedState,
                 readPicture = readPicture,
                 reportSender = reportSender,
@@ -1596,6 +1653,9 @@ private val SILENT_LISTEN_ERRORS = setOf(SpeechRecognizer.ERROR_NO_MATCH, Speech
 
 /** Pause between a finished answer, or an empty listen, and the next microphone open. */
 private const val RELISTEN_DELAY_MS = 300L
+
+/** The tool that writes the memory block (see MemoryUpdateTool). */
+private const val MEMORY_WRITE_TOOL = "memory.update_block"
 
 /** Where hands-free mode is. Listening, Thinking and Speaking are the three states the screen shows. */
 enum class HandsFreePhase { Off, Listening, Thinking, Speaking }
