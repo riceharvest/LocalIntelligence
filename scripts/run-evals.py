@@ -69,6 +69,34 @@ APPROVE_ON_DEVICE = {
 }
 
 
+CATALOGUE = ROOT / "core" / "src" / "main" / "kotlin" / "dev" / "localintelligence" / "core" / "tool" / "catalogue" / "V0ToolCatalogue.kt"
+# tools.find is the tool finder (core/tool/ToolFinder.kt), not a catalogue row. It only lists tools.
+EXTRA_LOOKUPS = {"tools.find"}
+
+
+def catalogue_tiers() -> dict[str, str]:
+    """Tool name -> risk tier, read from the catalogue rows. The catalogue is the one list of tools.
+
+    Each row's `name = "..."` is paired with the first `risk = ToolRisk.X` after it.
+    """
+    src = CATALOGUE.read_text(encoding="utf-8")
+    names = list(re.finditer(r'name = "([a-z_.]+)"', src))
+    risks = [(m.start(), m.group(1)) for m in re.finditer(r"risk = ToolRisk\.([A-Z_]+)", src)]
+    tiers = {}
+    for i, m in enumerate(names):
+        end = names[i + 1].start() if i + 1 < len(names) else len(src)
+        found = [tier for pos, tier in risks if m.start() <= pos < end]
+        if found:
+            tiers[m.group(1)] = found[0]
+    return tiers
+
+
+TIERS = catalogue_tiers()
+# A read-only call cannot change the phone, so an `only` check lets it through and reports it.
+LOOKUPS = {name for name, tier in TIERS.items() if tier == "READ_ONLY"} | EXTRA_LOOKUPS
+KNOWN_TOOLS = set(TIERS) | EXTRA_LOOKUPS
+
+
 # ---------- normalisation and checks ----------
 
 def normalise(text) -> str:
@@ -126,8 +154,11 @@ def check_one(check: dict, calls: list, answer: str, fixture_on_device: bool):
         hit = [n for n in names if n in check["names"]]
         return ("fail", f"called forbidden {hit}") if hit else ("pass", "")
     if kind == "only":
-        stray = [n for n in names if n not in check["names"]]
-        return ("fail", f"stray calls {stray}") if stray else ("pass", "")
+        stray = [n for n in names if n not in check["names"] and n not in LOOKUPS]
+        if stray:
+            return "fail", f"stray calls {stray}"
+        looked = [n for n in names if n not in check["names"] and n in LOOKUPS]
+        return ("pass", f"harmless lookup: {looked}") if looked else ("pass", "")
     if kind == "any_call":
         return ("pass", "") if any(n in check["names"] for n in names) else ("fail", f"none of {check['names']} in {names}")
     if kind == "call":
