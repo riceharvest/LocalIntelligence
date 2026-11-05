@@ -10,34 +10,20 @@ Each task has `turns`, `needs`, a `fixture` flag and `checks`. The check types a
 `only`, `forbid`, `no_calls`, `answer` and `answer_min_chars`. The runner computes every verdict itself: `pass`, `fail` or `unverified`.
 A check the runner cannot decide from what it observed is `unverified`, never a pass.
 
-There are two runners, and the result file says which one made it (`runner`):
-
-- `device-app`: the real app on a phone, driven by `scripts/devicectl.sh` (debug build only). This is
-  the measurement that counts for the phone. Only device rows are bundled into the app
-  (`docs/scores/build_scores.py --bundle`).
-- `desktop-app-loop`: the app's own agent loop on a desktop llama-server, through a harness you supply
-  with `--desktop-cmd`. The runner does not drive a model itself. A Python loop is not the app's loop,
-  so it would measure something else.
+The runner drives the real app on a phone through `scripts/devicectl.sh` (debug build only). There is no
+desktop runner: the app's loop is built in `app/AppContainer.kt` with the on-device model backend, the
+Android tool set and `android.util.Log`, so a desktop run would measure a different loop.
 
 Usage, as the runner's header gives it:
 
 ```bash
-scripts/run-evals.py --target device --serial SERIAL --model-repo LiquidAI/LFM3-1.7B-GGUF \
-    --model-file LFM3-1.7B-QAD-Q4_0.gguf --repeats 3
-scripts/run-evals.py --target desktop --model-id LFM3-1.7B-QAD-Q4_0 --desktop-cmd \
-    "python3 /path/to/harness.py --tasks {tasks} --seed {seed} --only {task_ids}" --seeds 1,2,3 \
-    --server-pid 1234
-scripts/run-evals.py ... --dry-run    # validate the tasks and print the plan, run nothing
+scripts/run-evals.py --target device --serial SERIAL --model-id LFM3-1.7B-QAD-Q4_0 \
+    --model-repo LiquidAI/LFM3-1.7B-GGUF --model-file LFM3-1.7B-QAD-Q4_0.gguf --mode simple --repeats 3
+scripts/run-evals.py --target device --model-id LFM3-1.7B-QAD-Q4_0 --dry-run   # validate and print the plan
 ```
 
-Results are keyed by (task id, repeat or seed). A rerun with the same output file skips every run
+Results are keyed by (task id, repeat). A rerun with the same output file skips every run
 already recorded. `--fresh` discards the file first. `--only` takes comma-separated task ids.
-
-The desktop harness prints one JSON object per line, one per run, with `task_id`, `seed`, `calls`,
-`answer`, the step and token counts, the timings and `error`. A null means "not measured".
-
-Device answer checks on fixture tasks are `unverified`, because the phone's tools return real data, not
-the fixtures the desktop harness uses.
 
 The older "no suite" text was about a fake-backed harness that was deleted. It does not describe the
 current `evals/` and `scripts/run-evals.py`.

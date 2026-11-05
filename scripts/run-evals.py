@@ -1,39 +1,26 @@
 #!/usr/bin/env python3
-"""Runs the task list in evals/tasks.jsonl and writes one result file per model, device and app build.
+"""Runs the task list in evals/tasks.jsonl on a phone and writes one result file per model, device and app build.
 
-Two runners, and the result file says which one made it (`runner`):
+The runner drives the real app on a phone through scripts/devicectl.sh (debug build only). That is the
+measurement that counts for the phone. Device rows are the only ones bundled into the app
+(docs/scores/build_scores.py --bundle).
 
-  device-app          the real app on a phone, driven by scripts/devicectl.sh (debug build only).
-                      This is the measurement that counts for the phone. Device rows are the only
-                      ones bundled into the app (docs/scores/build_scores.py --bundle).
+There is no desktop runner. The app's agent loop is built in app/AppContainer.kt with the on-device model
+backend, the Android tool set (AndroidTools) and android.util.Log, so a desktop run would measure a different
+loop with different tools. docs/evals.md says what is measured and what is not.
 
-  desktop-app-loop    the app's own agent loop on a desktop llama-server, through a harness the
-                      user supplies with --desktop-cmd. This runner does NOT drive a model itself:
-                      a Python loop is not the app's loop, so it would measure something else.
-
-The harness command (desktop) is run once per seed with two placeholders:
-  {tasks}    the tasks file path
-  {seed}     the seed number
-  {task_ids} comma-separated task ids still missing for this seed (resume)
-and must print one JSON object per line, one per run:
-  {"task_id", "seed", "calls": [{"name", "args"}], "answer": str, "steps", "input_tokens",
-   "output_tokens", "prefill_ms", "decode_ms", "first_token_ms", "total_ms", "invalid_tool_calls",
-   "error": null | str}
-Nulls mean "not measured". The verdicts are computed here, never by the harness.
-
-Verdicts: pass | fail | unverified. A check that cannot be decided from what the runner could
-observe is `unverified`, never a pass. Device answer checks on fixture tasks are unverified, because
-the phone's tools return real data, not the fixtures the desktop harness uses.
+Verdicts: pass | fail | unverified | wrong_language. A check that cannot be decided from what the runner
+could observe is `unverified`, never a pass. A reply in the wrong language is `wrong_language`, counted
+apart from `fail`, and only when every other check passed. The verdicts are computed here, never by the
+phone.
 
 Usage examples:
-  scripts/run-evals.py --target device --serial SERIAL --model-repo LiquidAI/LFM3-1.7B-GGUF \
-      --model-file LFM3-1.7B-QAD-Q4_0.gguf --repeats 3
-  scripts/run-evals.py --target desktop --model-id LFM3-1.7B-QAD-Q4_0 --desktop-cmd \
-      "python3 /path/to/harness.py --tasks {tasks} --seed {seed} --only {task_ids}" --seeds 1,2,3 \
-      --server-pid 1234
+  scripts/run-evals.py --target device --serial SERIAL --model-id LFM3-1.7B-QAD-Q4_0 \
+      --model-repo LiquidAI/LFM3-1.7B-GGUF --model-file LFM3-1.7B-QAD-Q4_0.gguf --mode simple --repeats 3
+  scripts/run-evals.py --target device --serial SERIAL --model-id LFM3-1.7B-QAD-Q4_0 --dry-run
 
-Resume: results are keyed by (task id, repeat or seed). A rerun with the same output file skips
-every run already recorded. --fresh discards the file first.
+Resume: results are keyed by (task id, repeat). A rerun with the same output file skips every run already
+recorded. --fresh discards the file first.
 """
 
 from __future__ import annotations
@@ -377,18 +364,6 @@ def read_device(serial) -> dict:
     }
 
 
-def vm_hwm_kb(pid) -> int | None:
-    """Peak resident set of a process, from /proc/<pid>/status. None when unreadable."""
-    if pid is None:
-        return None
-    try:
-        text = open(f"/proc/{pid}/status").read()
-    except OSError:
-        return None
-    m = re.search(r"VmHWM:\s+(\d+) kB", text)
-    return int(m.group(1)) if m else None
-
-
 def device_pid(serial, package) -> int | None:
     out = adb(serial, "shell", "pidof", "-s", package).strip()
     if not out.isdigit():
@@ -428,27 +403,6 @@ def record_from_done(d: dict) -> dict:
         "error": None,
         # Refused before execution: the call has no time and success is false.
         "invalid_tool_calls": sum(1 for t in d.get("tools") or [] if t.get("success") is False and t.get("ms") is None),
-    }
-
-
-def record_from_harness(d: dict) -> dict:
-    calls = [{"name": c.get("name"), "args": c.get("args"), "success": None, "refused": False}
-             for c in d.get("calls") or []]
-    return {
-        "outcome": "answer" if not d.get("error") else "error",
-        "answer": d.get("answer") or "",
-        "calls": calls,
-        "steps": d.get("steps"),
-        "input_tokens": d.get("input_tokens"),
-        "output_tokens": d.get("output_tokens"),
-        "prefill_ms": d.get("prefill_ms"),
-        # The harness contract has no reused-token count, so its prefill rate is not measured.
-        "prefill_tok_s": None,
-        "decode_tok_s": _rate(d.get("output_tokens"), d.get("decode_ms")),
-        "first_token_ms": d.get("first_token_ms"),
-        "total_ms": d.get("total_ms"),
-        "error": d.get("error"),
-        "invalid_tool_calls": d.get("invalid_tool_calls"),
     }
 
 
@@ -600,21 +554,6 @@ def run_device_task(serial, task, package, timeout_s, stats) -> dict:
     return {"error": None, "turns": turns}
 
 
-# ---------- desktop runner ----------
-
-def run_desktop_batch(cmd_template, tasks_path, seed, task_ids, timeout_s) -> dict[str, dict]:
-    cmd = cmd_template.format(tasks=str(tasks_path), seed=seed, task_ids=",".join(task_ids))
-    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout_s)
-    out = {}
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        d = json.loads(line)
-        out[d["task_id"]] = d
-    return out
-
-
 # ---------- files ----------
 
 def git_commit() -> tuple[str, bool]:
@@ -681,21 +620,17 @@ def summarise(runs: list[dict], tasks: list[dict], repeats: list) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--target", choices=["device", "desktop"], required=True)
+    ap.add_argument("--target", choices=["device"], default="device", help="the phone is the only runner")
     ap.add_argument("--tasks", type=Path, default=TASKS_DEFAULT)
     ap.add_argument("--out-dir", type=Path, default=RESULTS_DEFAULT)
     ap.add_argument("--model-id", required=True, help="a label for the model, e.g. LFM3-1.7B-QAD-Q4_0")
     ap.add_argument("--model-repo", default=None, help="Hugging Face repo, as SimpleSetup names it (for bundling)")
     ap.add_argument("--model-file", default=None, help="file name, as SimpleSetup names it (for bundling)")
     ap.add_argument("--quant", default=None)
-    ap.add_argument("--serial", default=None, help="adb serial (device)")
-    ap.add_argument("--package", default=PACKAGE_DEFAULT, help="app package (device)")
-    ap.add_argument("--repeats", type=int, default=1, help="device: how many times each task runs")
-    ap.add_argument("--timeout", type=int, default=600, help="seconds allowed per device turn")
-    ap.add_argument("--seeds", default="1", help="desktop: comma-separated seeds")
-    ap.add_argument("--desktop-cmd", default=None, help="desktop: harness command template (see the top of this file)")
-    ap.add_argument("--desktop-label", default="desktop", help="desktop: host label recorded in the result")
-    ap.add_argument("--server-pid", type=int, default=None, help="desktop: llama-server pid, for peak memory")
+    ap.add_argument("--serial", default=None, help="adb serial")
+    ap.add_argument("--package", default=PACKAGE_DEFAULT, help="app package")
+    ap.add_argument("--repeats", type=int, default=1, help="how many times each task runs")
+    ap.add_argument("--timeout", type=int, default=600, help="seconds allowed per turn")
     ap.add_argument("--only", default=None, help="comma-separated task ids to run")
     ap.add_argument("--mode", choices=["technical", "simple"], default="technical", help="app mode for the run; simple is for test phones")
     ap.add_argument("--fresh", action="store_true", help="discard an existing result file first")
@@ -711,35 +646,20 @@ def main() -> int:
         wanted = set(args.only.split(","))
         tasks = [t for t in tasks if t["id"] in wanted]
     tasks_sha = hashlib.sha256(args.tasks.read_bytes()).hexdigest()
-
-    if args.target == "desktop":
-        if not args.desktop_cmd:
-            print("--desktop-cmd is required for the desktop runner", file=sys.stderr)
-            return 2
-        repeats = [int(s) for s in args.seeds.split(",")]
-        runner = "desktop-app-loop"
-    else:
-        if not args.serial and not os.environ.get("ANDROID_SERIAL"):
-            print("note: no --serial; adb uses the only attached device", file=sys.stderr)
-        repeats = list(range(1, args.repeats + 1))
-        runner = "device-app"
+    repeats = list(range(1, args.repeats + 1))
+    runner = "device-app"
 
     if args.dry_run:
-        print(f"{len(tasks)} tasks x {len(repeats)} {'seeds' if runner != 'device-app' else 'repeats'} = {len(tasks) * len(repeats)} runs ({runner})")
+        print(f"{len(tasks)} tasks x {len(repeats)} repeats = {len(tasks) * len(repeats)} runs ({runner})")
         return 0
 
+    if not args.serial and not os.environ.get("ANDROID_SERIAL"):
+        print("note: no --serial; adb uses the only attached device", file=sys.stderr)
     sha, dirty = git_commit()
-    device = None
-    if runner == "device-app":
-        device = read_device(args.serial)
-        app_version = adb(args.serial, "shell", "dumpsys", "package", args.package)
-        vm = re.search(r"versionName=(\S+)", app_version)
-        host_key = device["model"] or "device"
-        out_name = f"device__{slug(args.model_id)}__{slug(host_key)}__{sha}.json"
-    else:
-        host_key = args.desktop_label
-        vm = None
-        out_name = f"desktop__{slug(args.model_id)}__{slug(host_key)}__{sha}.json"
+    device = read_device(args.serial)
+    app_version = adb(args.serial, "shell", "dumpsys", "package", args.package)
+    vm = re.search(r"versionName=(\S+)", app_version)
+    out_name = f"device__{slug(args.model_id)}__{slug(device['model'] or 'device')}__{sha}.json"
     out_path = args.out_dir / out_name
 
     prior = {}
@@ -761,9 +681,8 @@ def main() -> int:
         "task_count": len(tasks),
         "model": {"id": args.model_id, "repo": args.model_repo, "file": args.model_file, "quant": args.quant},
         "device": device,
-        "host": None if device else {"label": args.desktop_label, "server_pid": args.server_pid},
-        "app": {"package": args.package if device else None, "commit": sha, "dirty": dirty,
-                "version_name": vm.group(1) if vm else None},
+        "app": {"package": args.package, "commit": sha, "dirty": dirty,
+                "version_name": vm.group(1) if vm else None, "mode": args.mode},
         "repeats": repeats,
         "runs": [],
     }
@@ -771,60 +690,36 @@ def main() -> int:
     stats = {"approvals": list(prior_approvals)}
     runs_by_key = dict(prior)
 
-    if runner == "device-app":
-        prev_mode = read_mode(args.serial, args.package)
-        if prev_mode is None:
-            # Nothing has been switched yet, so the phone is left as it was.
-            print("could not read the phone's mode after 5 tries: is the debug build installed and running? No run started.", file=sys.stderr)
-            return 2
-        # Technical by default: Simple auto-accepts the call and message tiers, so use --mode simple only on a test phone.
-        devicectl(args.serial, "mode", args.mode)
-        try:
-            for rep in repeats:
-                for task in tasks:
-                    key = (task["id"], rep)
-                    if key in runs_by_key:
-                        continue
-                    t0 = time.monotonic()
-                    before = len(stats["approvals"])
-                    undo = apply_setup(args.serial, args.package, task.get("setup", {}))
-                    try:
-                        res = run_device_task(args.serial, task, args.package, args.timeout, stats)
-                    finally:
-                        undo_setup(args.serial, undo)
-                    peak = device_pid(args.serial, args.package)
-                    rec = _finish_run(task, rep, None, res, runner, peak, time.monotonic() - t0)
-                    rec["approvals"] = len(stats["approvals"]) - before
-                    runs_by_key[key] = rec
-                    doc["runs"] = list(runs_by_key.values())
-                    doc["approvals"] = stats["approvals"]
-                    write_atomic(out_path, _with_summary(doc, tasks, repeats))
-                    print(f"{task['id']} r{rep}: {rec['verdict']} {rec['reasons'][:2]}", file=sys.stderr)
-        finally:
-            devicectl(args.serial, "mode", prev_mode)
-    else:
-        for seed in repeats:
-            missing = [t["id"] for t in tasks if (t["id"], seed) not in runs_by_key]
-            if not missing:
-                continue
-            t0 = time.monotonic()
-            batch = run_desktop_batch(args.desktop_cmd, args.tasks, seed, missing, timeout_s=3600)
-            per_run = (time.monotonic() - t0) / max(1, len(missing))
-            peak = vm_hwm_kb(args.server_pid)
+    prev_mode = read_mode(args.serial, args.package)
+    if prev_mode is None:
+        # Nothing has been switched yet, so the phone is left as it was.
+        print("could not read the phone's mode after 5 tries: is the debug build installed and running? No run started.", file=sys.stderr)
+        return 2
+    # Technical by default: Simple auto-accepts the call and message tiers, so use --mode simple only on a test phone.
+    devicectl(args.serial, "mode", args.mode)
+    try:
+        for rep in repeats:
             for task in tasks:
-                if task["id"] not in missing:
+                key = (task["id"], rep)
+                if key in runs_by_key:
                     continue
-                d = batch.get(task["id"])
-                if d is None:
-                    res = {"error": "harness printed no line for this task", "turns": []}
-                    rec = _finish_run(task, None, seed, res, runner, peak, per_run)
-                else:
-                    rec = _finish_run(task, None, seed, {"error": d.get("error"), "turns": [record_from_harness(d)]},
-                                      runner, peak, per_run)
-                runs_by_key[(task["id"], seed)] = rec
+                t0 = time.monotonic()
+                before = len(stats["approvals"])
+                undo = apply_setup(args.serial, args.package, task.get("setup", {}))
+                try:
+                    res = run_device_task(args.serial, task, args.package, args.timeout, stats)
+                finally:
+                    undo_setup(args.serial, undo)
+                peak = device_pid(args.serial, args.package)
+                rec = _finish_run(task, rep, res, runner, peak, time.monotonic() - t0)
+                rec["approvals"] = len(stats["approvals"]) - before
+                runs_by_key[key] = rec
                 doc["runs"] = list(runs_by_key.values())
+                doc["approvals"] = stats["approvals"]
                 write_atomic(out_path, _with_summary(doc, tasks, repeats))
-                print(f"{task['id']} s{seed}: {rec['verdict']} {rec['reasons'][:2]}", file=sys.stderr)
+                print(f"{task['id']} r{rep}: {rec['verdict']} {rec['reasons'][:2]}", file=sys.stderr)
+    finally:
+        devicectl(args.serial, "mode", prev_mode)
 
     doc["run_finished"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     doc["approvals"] = stats["approvals"]
@@ -847,11 +742,11 @@ def print_report(summary: dict) -> None:
 
 
 def run_key(rec: dict):
-    """A run's place in the set: its repeat (device) or its seed (desktop)."""
-    return rec["repeat"] if rec.get("repeat") is not None else rec.get("seed")
+    """A run's place in the set: its repeat."""
+    return rec["repeat"]
 
 
-def _finish_run(task, repeat, seed, res, runner, peak_kb, seconds) -> dict:
+def _finish_run(task, repeat, res, runner, peak_kb, seconds) -> dict:
     if res.get("error") and not res.get("turns"):
         verdict, reasons, m = "unverified", [res["error"]], None
     elif res.get("error"):
@@ -868,7 +763,6 @@ def _finish_run(task, repeat, seed, res, runner, peak_kb, seconds) -> dict:
         "lang": task["lang"],
         "fixture": bool(task.get("fixture")),
         "repeat": repeat,
-        "seed": seed,
         "verdict": verdict,
         "reasons": reasons,
         "outcome": m["outcome"] if m else None,
