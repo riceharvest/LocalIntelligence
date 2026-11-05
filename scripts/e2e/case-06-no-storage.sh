@@ -12,9 +12,10 @@ fill=$(( free - want_free ))
 echo "  free before: $free, filling $fill"
 adb shell "fallocate -l $fill /data/local/tmp/ballast || head -c $fill /dev/zero > /data/local/tmp/ballast"
 echo "  free after: $(data_free_bytes)"
-hub_log_clear
 launch
 wait_text "Get started" 40 || fail "no first-run panel"
+sleep 3
+hub_log_clear   # the previous case's aborted transfer logs itself late
 tap_text "Get started"
 if wait_text "^Allow$" 8; then tap_text "Allow"; fi
 wait_text "free up|storage" 30 || fail "no 'free up' sentence for a full phone"
