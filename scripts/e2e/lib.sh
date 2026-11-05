@@ -130,6 +130,14 @@ check() {
   echo "  ok: $what"
 }
 
+# True when the phone's default network is the Wi-Fi (not the emulated mobile data).
+wifi_is_default() {
+  local dump n
+  dump="$(adb shell dumpsys connectivity 2>/dev/null)"
+  n="$(echo "$dump" | sed -n 's/.*Active default network: \([0-9]*\).*/\1/p' | head -1)"
+  [[ -n "$n" ]] && echo "$dump" | grep "NetworkAgentInfo{network{$n}" | grep -q "WIFI CONNECTED"
+}
+
 # ---------------------------------------------------------------------------------------------
 # Emulator lifecycle
 # ---------------------------------------------------------------------------------------------
@@ -137,7 +145,7 @@ check() {
 # The guest gets the host CPU's instruction set (-qemu -cpu host). Without it the emulator's default CPU
 # has no AVX2, the app loads its slowest CPU backend, and a first answer takes 11 minutes instead of one.
 # emu_start AVD [PORT]: boots the AVD headless under the project's resource limits and waits
-# (at most 240 s) until it is ready, then turns animations off (the spinner starves the guest).
+# (at most 480 s: a brand-new AVD's first boot is slow) until it is ready, then turns animations off (the spinner starves the guest).
 emu_start() {
   local avd="$1" port="${2:-5554}"
   SERIAL="emulator-$port"
@@ -146,21 +154,33 @@ emu_start() {
   if "$REAL_ADB" devices | awk 'NR>1 && $2=="device" {print $1}' | grep -qx "$SERIAL"; then
     echo "emulator $SERIAL is already running"
   else
-    (systemd-run --user --scope -q -p MemoryMax=6G -p CPUQuota=400% nice -n 10 \
+    (systemd-run --user --scope -q -p MemoryMax="${E2E_EMU_MEM:-6G}" -p CPUQuota=400% nice -n 10 \
       "$SDK/emulator/emulator" -avd "$avd" -port "$port" -no-window -no-audio -no-boot-anim \
       -gpu swangle_indirect -no-metrics -no-snapshot-save ${E2E_EMU_ARGS:--qemu -cpu host} \
       > "$OUT/emulator-$avd.log" 2>&1 &)
   fi
   local i
-  for i in $(seq 1 120); do
+  for i in $(seq 1 240); do
     if "$REAL_ADB" -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | grep -q 1; then break; fi
     sleep 2
   done
   "$REAL_ADB" -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | grep -q 1 || {
-    echo "emulator did not boot in 240 s" >&2
+    echo "emulator did not boot in 480 s" >&2
     return 1
   }
   e2e_guard
+  # A freshly booted emulator is on "mobile data" until its Wi-Fi joins: the app rightly asks first on mobile
+  # data, so wait for the Wi-Fi (joining it by hand when it does not come by itself).
+  for i in $(seq 1 45); do
+    wifi_is_default && break
+    # The guest's own connectivity check (a web request to Google) can fail on a fresh AVD, and Android then
+    # prefers the emulated mobile data. The check is not what the tests are about: turn it off.
+    if (( i == 10 )); then
+      adb shell "settings put global captive_portal_mode 0; svc wifi disable; sleep 2; svc wifi enable; sleep 3; cmd wifi connect-network AndroidWifi open" >/dev/null 2>&1
+    fi
+    sleep 2
+  done
+  adb shell rm -f /data/local/tmp/ballast   # left behind when the storage case was killed
   adb shell settings put global window_animation_scale 0
   adb shell settings put global transition_animation_scale 0
   adb shell settings put global animator_duration_scale 0
@@ -171,7 +191,14 @@ emu_start() {
 
 emu_stop() {
   [[ "$SERIAL" == emulator-[0-9]* ]] || return 0
+  local port="${SERIAL#emulator-}" i
   "$REAL_ADB" -s "$SERIAL" emu kill >/dev/null 2>&1 || true
+  # The next emulator on this port starts without a console (and so without adb) if the old one still
+  # holds the port, so wait until it is gone.
+  for i in $(seq 1 60); do
+    ss -ltn 2>/dev/null | grep -qE "127.0.0.1:($port|$((port + 1))) " || break
+    sleep 1
+  done
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -443,15 +470,17 @@ json_field() { sed -n "s/.*\"$1\":\"\\{0,1\\}\\([^\",}]*\\).*/\\1/p" | head -1; 
 # The hub-side name of the starter file the app holds on disk (empty when none).
 starter_on_disk() { app_files | awk '{print $NF}' | grep -E '\.gguf$' | tr '\n' ' '; }
 
-# Boots another AVD on its own port beside the main one and points SERIAL at it. Pair with emu_back.
+# Swaps the running emulator for another AVD on the same port (two emulators at once share one virtual Wi-Fi
+# access point, and the second one often cannot join it). Pair with emu_back, which boots the main AVD again.
 emu_other() {
   MAIN_SERIAL="$SERIAL"
-  emu_start "$1" "${2:-5556}"
+  MAIN_PORT="${SERIAL#emulator-}"
+  emu_stop
+  emu_start "$1" "$MAIN_PORT"
 }
 emu_back() {
   emu_stop
-  SERIAL="$MAIN_SERIAL"
-  export SERIAL
+  emu_start "${E2E_MAIN_AVD:-li-e2e}" "${MAIN_PORT:-5554}"
 }
 
 # Writes (or removes, with an empty value) a debug control file in the app's files directory.

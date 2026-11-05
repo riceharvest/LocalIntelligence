@@ -25,6 +25,7 @@ export E2E_NO_GUARD=1
 source "$HERE/lib.sh"
 unset E2E_NO_GUARD
 
+export E2E_MAIN_AVD="$AVD"
 rm -f "$OUT"/case-*.result
 emu_start "$AVD" "${E2E_PORT:-5554}" || { echo "no emulator"; exit 1; }
 hub_start || { echo "no fake hub"; emu_stop; exit 1; }
