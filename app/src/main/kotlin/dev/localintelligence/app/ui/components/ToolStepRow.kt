@@ -649,10 +649,12 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
 @Composable
 private fun StatusShape(state: ToolRowState) {
     val stateWord = stringResource(state.wordRes)
+    // Simple: a step that failed is a sentence in the row, not an alarm. Red is kept for Technical.
+    val quiet = !LocalTechnicalDetail.current
     val tint = when (state) {
         ToolRowState.Running -> MaterialTheme.colorScheme.primary
-        ToolRowState.Done -> MaterialTheme.colorScheme.primary
-        ToolRowState.Failed -> MaterialTheme.colorScheme.error
+        ToolRowState.Done -> if (quiet) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
+        ToolRowState.Failed -> if (quiet) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
         ToolRowState.Awaiting -> MaterialTheme.colorScheme.tertiary
         ToolRowState.Refused -> MaterialTheme.colorScheme.onSurfaceVariant
     }

@@ -583,7 +583,8 @@ fun ChatScreen(
                         is ChatMessage.Assistant -> Column {
                             AssistantBubble(
                                 text = message.text,
-                                thought = message.thought,
+                                // Simple: the reasoning is not shown. Technical keeps its folded line.
+                                thought = if (technical) message.thought else null,
                                 speed = if (technical) message.speed else null,
                                 photos = message.photos,
                                 phoneLinks = message.phoneLinks,
