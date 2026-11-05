@@ -18,12 +18,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -65,6 +70,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
@@ -507,7 +513,7 @@ fun ChatScreen(
         modifier = modifier,
         topBar = {
             if (!technical && onNewChat != null && messages.isNotEmpty()) {
-                NewChatBar(enabled = !busy, onNewChat = onNewChat)
+                NewChatBar(busy = busy, onNewChat = onNewChat)
             }
         },
         bottomBar = {
@@ -571,8 +577,9 @@ fun ChatScreen(
             if (messages.isEmpty() && streaming.isEmpty() && running == null && progress == null) {
                 item("empty") {
                     EmptyState(
-                        // A minimum, not a fixed height: at 200% text the content is taller and the list scrolls.
-                        modifier = Modifier.heightIn(min = (configuration.screenHeightDp * 0.8f).dp),
+                        // A bounded height, so the content can scroll inside it at 200% text. A minimum height
+                        // would leave the list's max unbounded, and a scrolling column cannot be measured that way.
+                        modifier = Modifier.fillParentMaxHeight(0.9f),
                         blockedReason = blocked,
                         // Structural, not string-matched, and both cases get a
                         // route: "nothing imported" is fixed by going to the
@@ -1197,18 +1204,22 @@ private fun EmptyState(
  * is disabled while a run is in flight, because starting a new conversation is only safe between runs.
  */
 @Composable
-private fun NewChatBar(enabled: Boolean, onNewChat: () -> Unit) {
+private fun NewChatBar(busy: Boolean, onNewChat: () -> Unit) {
     var asking by remember { mutableStateOf(false) }
+    // Read at the moment of the tap, not when the dialog opened: a run can start while the dialog is up.
+    val latestBusy by rememberUpdatedState(busy)
     Row(
+        // The top bar draws under the status bar on an edge-to-edge window (targetSdk 36), so it takes the inset itself.
         modifier = Modifier
             .fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.End,
     ) {
         TextButton(
             onClick = { asking = true },
-            enabled = enabled,
+            enabled = !busy,
             modifier = Modifier.heightIn(min = 48.dp),
         ) {
             Text(stringResource(R.string.new_chat))
@@ -1222,7 +1233,7 @@ private fun NewChatBar(enabled: Boolean, onNewChat: () -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     asking = false
-                    onNewChat()
+                    if (!latestBusy) onNewChat()
                 }) { Text(stringResource(R.string.new_chat)) }
             },
             dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
@@ -1455,7 +1466,8 @@ private class DownloadPace(startBytes: Long) {
  */
 @Composable
 private fun rememberSecondsLeft(bytes: Long, totalBytes: Long): Long? {
-    val pace = remember { DownloadPace(bytes) }
+    // Keyed on the total: the projector and the model are two downloads, and the second must not inherit the first's pace.
+    val pace = remember(totalBytes) { DownloadPace(bytes) }
     var secondsLeft by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(bytes, totalBytes) {
         val now = SystemClock.elapsedRealtime()
