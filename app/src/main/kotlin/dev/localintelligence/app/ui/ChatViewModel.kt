@@ -219,6 +219,21 @@ class ChatViewModel(
     /** Hands-free mode: where it is now, and why it last stopped when the user did not stop it. */
     val handsFree: StateFlow<HandsFreeState> = _handsFree.asStateFlow()
 
+    private val _composerFocusRequested = MutableStateFlow(false)
+
+    /** True from a widget tap until the composer has taken the cursor. One-shot, so re-entering the chat does not pop the keyboard. */
+    val composerFocusRequested: StateFlow<Boolean> = _composerFocusRequested.asStateFlow()
+
+    /** Asks the chat composer to take focus the next time it is shown. */
+    fun requestComposerFocus() {
+        _composerFocusRequested.value = true
+    }
+
+    /** Called by the composer once it has taken focus. */
+    fun composerFocusHandled() {
+        _composerFocusRequested.value = false
+    }
+
     /** The one thing hands-free mode is waiting on: a relisten, or the end of speech. Cancelled on stop. */
     private var handsFreeJob: Job? = null
 

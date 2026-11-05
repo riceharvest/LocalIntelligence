@@ -26,6 +26,18 @@
     <string name="schedule_shortcut_short">Schedule</string>
     <string name="schedule_shortcut_long">Scheduled tasks</string>
 
+    <!-- Dynamic launcher shortcuts, published from LauncherEntries on every launch. -->
+    <string name="shortcut_new_chat_short">New chat</string>
+    <string name="shortcut_new_chat_long">Start a new chat</string>
+    <string name="shortcut_voice_short">Voice</string>
+    <string name="shortcut_voice_long">Talk to LocalIntelligence</string>
+
+    <!-- Home-screen search-bar widget. Read by TalkBack, so no model words here. -->
+    <string name="widget_label">Ask LocalIntelligence</string>
+    <string name="widget_description">A search bar that opens the chat ready to type, with a mic for voice.</string>
+    <string name="widget_search_description">Open the chat and type a message</string>
+    <string name="widget_mic_description">Talk to LocalIntelligence</string>
+
     <!-- Permission screen -->
     <string name="permissions_title">Permissions</string>
     <string name="back">Back</string>

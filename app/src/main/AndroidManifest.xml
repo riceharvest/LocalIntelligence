@@ -440,6 +440,20 @@
             </intent-filter>
         </activity>
 
+        <!-- Home-screen search-bar widget. Its only work is building two click targets (see
+             ChatWidgetProvider); updatePeriodMillis is 0 in res/xml/chat_widget_info.xml. -->
+        <receiver
+            android:name=".ChatWidgetProvider"
+            android:exported="false"
+            android:label="@string/widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/chat_widget_info" />
+        </receiver>
+
         <!-- Quick Settings tile. Opens the chat from the shade. The
              BIND_QUICK_SETTINGS_TILE permission means only the system can bind
              it; no other app can start the service. -->

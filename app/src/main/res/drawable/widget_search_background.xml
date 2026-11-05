@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The bar the widget's text sits in. Fully rounded, so it reads as a search field at any height. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/widget_search_background" />
+    <corners android:radius="20dp" />
+</shape>

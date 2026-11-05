@@ -44,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -153,6 +154,9 @@ fun ChatComposer(
     onOpenSettings: () -> Unit = {},
     /** Whether the gear sits in the action row. Simple shows Settings in the chat's top row instead. */
     showSettingsEntry: Boolean = true,
+    /** Set by a widget or launcher entry that opens the chat to type. The composer takes focus, then reports it handled. */
+    focusRequested: Boolean = false,
+    onFocusRequestHandled: () -> Unit = {},
     /**
      * Whether [blockedReason] is written above the field. The caller turns it off
      * while the empty chat already shows the same sentence in the middle.
@@ -179,6 +183,12 @@ fun ChatComposer(
     val sendThenFocus: () -> Unit = {
         onSend()
         fieldFocus.requestFocus()
+    }
+    LaunchedEffect(focusRequested) {
+        if (focusRequested) {
+            fieldFocus.requestFocus()
+            onFocusRequestHandled()
+        }
     }
 
     Surface(tonalElevation = 3.dp, modifier = modifier.fillMaxWidth()) {
