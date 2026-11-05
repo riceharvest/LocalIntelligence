@@ -579,6 +579,9 @@ fun ChatScreen(
                             } else {
                                 null
                             },
+                            // Simple keeps the pencil's row in place while a run is going, so it
+                            // does not appear under the bubble when the run ends. Disabled until then.
+                            reserveEdit = !technical && message === messages.getOrNull(lastUserIndex),
                         )
                         is ChatMessage.Assistant -> Column {
                             AssistantBubble(
@@ -691,7 +694,12 @@ private suspend fun LazyListState.scrollToEnd() {
 
 /** The user's message: a compact bubble on the right that fits its text, up to 80% of the width. */
 @Composable
-private fun UserBubble(text: String, attached: List<ShownAttachment>, onEdit: (() -> Unit)? = null) {
+private fun UserBubble(
+    text: String,
+    attached: List<ShownAttachment>,
+    onEdit: (() -> Unit)? = null,
+    reserveEdit: Boolean = false,
+) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(Modifier.fillMaxWidth(0.8f), contentAlignment = Alignment.CenterEnd) {
             Surface(
@@ -716,9 +724,9 @@ private fun UserBubble(text: String, attached: List<ShownAttachment>, onEdit: ((
             }
         }
     }
-    if (onEdit != null) {
+    if (onEdit != null || reserveEdit) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            IconButton(onClick = onEdit) {
+            IconButton(onClick = onEdit ?: {}, enabled = onEdit != null) {
                 Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.edit_message), modifier = Modifier.size(18.dp))
             }
         }
