@@ -38,4 +38,9 @@ text="$(screen_text)"
 echo "$text" | sed 's/^/    | /' | head -20
 echo "$text" | grep -Eqi "wouldn't start|would not start|couldn't start|could not start|not start|try again" || fail "no plain sentence about the assistant not starting"
 assert_no_banned_words
+# The cause goes away; Try again loads the model and the chat answers.
+debug_file debug-fail-load-rungs ""
+tap_text "Try again"
+wait_state_field modelState ready 120 || fail "Try again did not load the model (state: $(dctl state | head -c 300))"
+ask_battery "after Try again"
 case_end "rung 2 kept across launches; all-fail shows a sentence"
