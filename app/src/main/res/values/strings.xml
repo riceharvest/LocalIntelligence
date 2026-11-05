@@ -1386,7 +1386,6 @@
     <string name="hub_download_done">%1$s is downloaded. Open the app to use it.</string>
     <string name="hub_download_stopped">%1$s stopped. Open the app to resume it.</string>
     <string name="hub_size_with_photos">%1$s for the model and %2$s for photos.</string>
-    <string name="hub_size_with_photos">"%1$s + %2$s for photos"</string>
     <string name="hub_no_memory_figure">No memory figure is shown: this screen reads GGUF headers, and a .litertlm has none.</string>
     <string name="hub_npu_tensor_g5">Runs on the Tensor G5 NPU (Pixel 10) only</string>
     <string name="hub_npu_generation">Runs on the Tensor G%1$d NPU only</string>
