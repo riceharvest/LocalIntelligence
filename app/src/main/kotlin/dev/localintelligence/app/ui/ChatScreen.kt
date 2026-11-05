@@ -282,6 +282,7 @@ fun ChatScreen(
     // local instead of resting on a coincidence in another file.
     val transcribing by viewModel.transcribing.collectAsStateWithLifecycle()
     val busy = runState.isActive || transcribing
+    val composerFocusRequested by viewModel.composerFocusRequested.collectAsStateWithLifecycle()
     // The view's keep-screen-on flag is the window flag FLAG_KEEP_SCREEN_ON, set for this
     // composition's run only. It is cleared when the run ends or the screen leaves composition.
     val view = LocalView.current
@@ -566,6 +567,8 @@ fun ChatScreen(
             ChatComposer(
                 input = input,
                 busy = busy,
+                focusRequested = composerFocusRequested,
+                onFocusRequestHandled = viewModel::composerFocusHandled,
                 // A disabled send button with no reason is the definition of a
                 // dead end, so the reason travels with the state.
                 blockedReason = blocked,

@@ -208,6 +208,8 @@ class MainActivity : FragmentActivity() {
         if (savedInstanceState == null) {
             deliveredIntent = intent
         }
+        // The launcher's New chat and Voice entries. Cheap, and it runs on every launch so the labels follow the language.
+        LauncherEntries.publishShortcuts(this)
         val container = (application as LocalIntelligenceApp).container
 
         setContent {
@@ -301,6 +303,28 @@ class MainActivity : FragmentActivity() {
                             nav.popBackStack(ROUTE_CHAT, inclusive = false)
                         }
                         chat.startHandsFree(prompt)
+                        deliveredIntent = null
+                        return@LaunchedEffect
+                    }
+                    if (incoming.getBooleanExtra(EXTRA_FOCUS_COMPOSER, false)) {
+                        container.launchRestore.await()
+                        if (nav.currentDestination?.route != ROUTE_CHAT) {
+                            nav.popBackStack(ROUTE_CHAT, inclusive = false)
+                        }
+                        chat.requestComposerFocus()
+                        deliveredIntent = null
+                        return@LaunchedEffect
+                    }
+                    if (incoming.getBooleanExtra(EXTRA_NEW_CHAT, false)) {
+                        container.launchRestore.await()
+                        if (nav.currentDestination?.route != ROUTE_CHAT) {
+                            nav.popBackStack(ROUTE_CHAT, inclusive = false)
+                        }
+                        // The same rule as the in-chat New chat: never during a run or a transcription, and an empty chat has nothing to clear.
+                        if (!chat.isBusy && chat.messages.value.isNotEmpty()) {
+                            container.startNewConversation(null)
+                            chat.clear()
+                        }
                         deliveredIntent = null
                         return@LaunchedEffect
                     }
@@ -975,6 +999,12 @@ class MainActivity : FragmentActivity() {
 
         const val EXTRA_START_HANDS_FREE = "dev.localintelligence.app.extra.START_HANDS_FREE"
         const val EXTRA_HANDS_FREE_PROMPT = "dev.localintelligence.app.extra.HANDS_FREE_PROMPT"
+
+        /** Opens the chat with the composer ready for typing (the home-screen widget's search bar). */
+        const val EXTRA_FOCUS_COMPOSER = "dev.localintelligence.app.extra.FOCUS_COMPOSER"
+
+        /** Starts a new conversation (the launcher's New chat shortcut). */
+        const val EXTRA_NEW_CHAT = "dev.localintelligence.app.extra.NEW_CHAT"
     }
 }
 

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The search-bar widget. One row tall (40dp) and two columns wide (110dp) at the
+  smallest size, so it can be resized down to 2x1 and no further.
+
+  updatePeriodMillis is 0 on purpose: the widget never polls. It is redrawn only
+  when the launcher asks (on placement, resize or boot) and it shows nothing
+  live, so there is nothing that needs a timer.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_description"
+    android:initialLayout="@layout/widget_chat_search"
+    android:previewLayout="@layout/widget_chat_search"
+    android:minWidth="110dp"
+    android:minHeight="40dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="40dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="1"
+    android:resizeMode="horizontal"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

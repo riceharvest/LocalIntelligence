@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#FFFFFF</color>
+
+    <!-- Search-bar widget. RemoteViews cannot read the Compose theme, so these
+         mirror the light scheme in ui/Theme.kt; values-night holds the dark ones. -->
+    <color name="widget_search_background">#EDF2EF</color>
+    <color name="widget_search_text">#5E6B65</color>
+    <color name="widget_mic_background">#B2F1D4</color>
+    <color name="widget_mic_icon">#002115</color>
 </resources>

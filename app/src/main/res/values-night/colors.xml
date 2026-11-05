@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark variants of the search-bar widget colours in values/colors.xml. -->
+<resources>
+    <color name="widget_search_background">#2A3530</color>
+    <color name="widget_search_text">#BFCBC4</color>
+    <color name="widget_mic_background">#15503A</color>
+    <color name="widget_mic_icon">#B2F1D4</color>
+</resources>

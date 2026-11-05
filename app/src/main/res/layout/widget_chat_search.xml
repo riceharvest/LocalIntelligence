@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  RemoteViews supports only a few view classes, so this is LinearLayout, TextView
+  and ImageView. There is no EditText: the bar looks like a field and opens the
+  chat, where the real field is. The whole bar and the mic are separate click targets.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="4dp"
+    android:paddingEnd="4dp">
+
+    <LinearLayout
+        android:id="@+id/widget_search_bar"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:background="@drawable/widget_search_background"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="8dp">
+
+        <TextView
+            android:id="@+id/widget_search_hint"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="@string/ask_anything"
+            android:textColor="@color/widget_search_text"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/widget_mic"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_marginStart="4dp"
+        android:background="@drawable/widget_mic_background"
+        android:padding="7dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_widget_mic" />
+</LinearLayout>
