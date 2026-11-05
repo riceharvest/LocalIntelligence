@@ -687,7 +687,7 @@ class ExecutionService : Service() {
      */
     private fun notifyScheduledResult(task: ScheduledTask) {
         val result = task.lastResult ?: return
-        val body = ScheduledRunReporter.notificationBody(result)
+        val body = ScheduledRunReporter.notificationBody(this, result)
         val manager = getSystemService(NotificationManager::class.java)
         // Off when the user has disabled notifications or never granted
         // POST_NOTIFICATIONS. The result is still in the task row.

@@ -154,17 +154,17 @@ class TelegramService : Service() {
             return
         }
         if (update.isStart) {
-            TelegramReplies.send(settings, update.chatId, WELCOME)
+            TelegramReplies.send(settings, update.chatId, getString(R.string.telegram_welcome))
             return
         }
         val text = update.text
         val nowSeconds = System.currentTimeMillis() / 1000
         when {
             // Text only for now. A photo or voice note gets this reply and nothing runs.
-            text == null -> TelegramReplies.send(settings, update.chatId, ONLY_TEXT)
+            text == null -> TelegramReplies.send(settings, update.chatId, getString(R.string.telegram_only_text))
             // A message from before the poller reconnected: do not act on a stale request silently.
             nowSeconds - update.date > STALE_SECONDS ->
-                TelegramReplies.send(settings, update.chatId, STALE)
+                TelegramReplies.send(settings, update.chatId, getString(R.string.telegram_stale))
             text.isBlank() -> Unit
             else -> ExecutionService.start(applicationContext, text, replyChatId = update.chatId)
         }
@@ -183,7 +183,7 @@ class TelegramService : Service() {
             TelegramSettings.PENDING,
             TelegramChats.encodeOne(TelegramChat(update.chatId, update.chatName)),
         )
-        TelegramReplies.send(settings, update.chatId, WAITING_FOR_APPROVAL)
+        TelegramReplies.send(settings, update.chatId, getString(R.string.telegram_waiting_for_approval))
     }
 
     private fun offset(): Long = settings.stored(TelegramSettings.OFFSET).toLongOrNull() ?: 0L
@@ -241,7 +241,7 @@ class TelegramService : Service() {
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(CHANNEL_ID, getString(R.string.notif_channel_telegram), NotificationManager.IMPORTANCE_LOW)
             .apply { setShowBadge(false) }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
@@ -249,18 +249,12 @@ class TelegramService : Service() {
     companion object {
         private const val NOTIFICATION_ID = 46
         private const val CHANNEL_ID = "telegram"
-        private const val CHANNEL_NAME = "Telegram"
 
         /** A message older than this is not run. */
         private const val STALE_SECONDS = 60 * 60L
 
         private const val MAX_BACKOFF_MS = 5 * 60_000L
 
-        private const val WELCOME = "Connected. Send a message and this phone's agent will answer it."
-        private const val ONLY_TEXT = "Only text is supported for now. Send your request as text."
-        private const val STALE = "That message is over an hour old, so it was not run. Send it again."
-        private const val WAITING_FOR_APPROVAL =
-            "Waiting for the owner to approve this chat in LocalIntelligence."
 
         /** 5 s, 10 s, 20 s ... capped at five minutes. */
         private fun nextBackoff(previous: Long): Long =

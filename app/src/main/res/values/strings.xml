@@ -1851,4 +1851,18 @@
     <string name="access_usage">To show your screen time, allow LocalIntelligence on the Usage access page.</string>
     <string name="access_notifications">To read notifications and control music, allow LocalIntelligence on the notification access page.</string>
     <string name="access_exact_alarm">To set an alarm at an exact time, allow alarms and reminders for LocalIntelligence.</string>
+    <string name="sched_pending">Started, waiting for the result.</string>
+    <string name="sched_prefix_answered">Answered:</string>
+    <string name="sched_prefix_refused">Refused:</string>
+    <string name="sched_prefix_failed">Failed:</string>
+    <string name="sched_prefix_not_run">Did not run:</string>
+    <string name="sched_prefix_next_not_scheduled">Next run not scheduled:</string>
+    <string name="sched_warn_exact_alarm_off">Exact-alarm access is off, so this task has no next run.</string>
+    <string name="sched_warn_no_alarm_service">This device has no alarm service.</string>
+    <string name="telegram_approval_skipped">Some actions needed your approval on the phone, so they were skipped. Approve them there and send the request again.</string>
+    <string name="telegram_welcome">Connected. Send a message and this phone\'s agent will answer it.</string>
+    <string name="telegram_only_text">Only text is supported for now. Send your request as text.</string>
+    <string name="telegram_stale">That message is over an hour old, so it was not run. Send it again.</string>
+    <string name="telegram_waiting_for_approval">Waiting for the owner to approve this chat in LocalIntelligence.</string>
+    <string name="notif_channel_telegram">Telegram</string>
 </resources>
