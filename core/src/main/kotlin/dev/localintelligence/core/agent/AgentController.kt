@@ -1072,12 +1072,9 @@ class AgentController(
         // effect, and the first result already answers it. The same or near-same arguments count: strings are
         // compared trimmed, lower-cased and with runs of spaces collapsed.
         if (earlier != null && earlier.name == action.name && sameCall(earlier.args, action.arguments)) {
+            // No trace row: a row for this call would read as a failed step straight after the one that worked.
             lastSuccess = earlier
-            trace += StepTrace(
-                step, StepTrace.Kind.TOOL_CALL, "not run again: ${action.name} already ran with these arguments",
-                success = false,
-                toolName = action.name,
-            )
+            log("not run again: ${action.name} already ran with these arguments")
             sessions.observe(
                 "${action.name} already ran with these arguments and succeeded: ${earlier.observation.take(RESULT_CHARS)} " +
                     "It was not run again. Answer the user now from that result.",
