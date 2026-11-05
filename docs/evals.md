@@ -1,167 +1,138 @@
 # Evals
 
-## The eval suite and its runner
+The eval suite is the task list in `evals/tasks.jsonl` (81 tasks, one JSON object per line) and its runner,
+`scripts/run-evals.py`. The runner drives the real app on a phone, through `scripts/devicectl.sh` (debug build
+only). It writes one result file per model, device and app build, under `docs/scores/results/`, and
+`docs/scores/build_scores.py` turns those files into `docs/scores/index.md`.
 
-The suite is the task list in `evals/tasks.jsonl` (one JSON task per line, 72 tasks). Its runner is
-`scripts/run-evals.py`. It writes one result file per model, device and app build, under
-`docs/scores/results/`.
+There is no desktop runner. The app's loop is built in `app/AppContainer.kt` with the on-device model backend,
+the Android tool set (`AndroidTools`) and `android.util.Log`, so a desktop run would measure a different loop.
 
-Each task has `turns`, `needs`, a `fixture` flag and `checks`. The check types are `call`, `any_call`,
-`only`, `forbid`, `no_calls`, `answer` and `answer_min_chars`. The runner computes every verdict itself: `pass`, `fail` or `unverified`.
-A check the runner cannot decide from what it observed is `unverified`, never a pass.
+## What a task is
 
-The runner drives the real app on a phone through `scripts/devicectl.sh` (debug build only). There is no
-desktop runner: the app's loop is built in `app/AppContainer.kt` with the on-device model backend, the
-Android tool set and `android.util.Log`, so a desktop run would measure a different loop.
+Each line has:
 
-Usage, as the runner's header gives it:
+- `id`, `category`, `lang`, and `source`;
+- `turns`: the messages sent in order. `new_session_per_turn` starts a new chat for each turn;
+- `needs`: the tools the task is about;
+- `fixture`: true when an answer depends on the fixture values the desktop harness used (a battery of 37,
+  a price of 599). On a phone the answer is judged by the device spec, not those values;
+- `setup` (optional): a fault to make before the task and undo after it (see below);
+- `checks`: what must hold.
+
+The check types:
+
+| Type | Passes when |
+|---|---|
+| `call` | the named tool was called, with the arguments given (`args`, exact; `args_text`, a substring of each value; `args_not`, not this value). A call that failed does not count, unless `allow_failed` is set |
+| `any_call` | one of the named tools was called |
+| `only` | every call is one of the named tools or a read-only lookup (see below) |
+| `forbid` | none of the named tools was called |
+| `no_calls` | nothing was called |
+| `conditional_call` | the named call is required when the battery level in the answer is under `threshold`, and forbidden otherwise; unverified when no level is in the answer |
+| `under_fault` | the named tool failed and was tried at most `max_calls` times. Without an observed failure it is unverified |
+| `answer` | the answer contains one of `any` (or all of `all`). With a `device` spec, a phone checks the spec instead |
+| `answer_clean` | the answer is not empty and names no tool and no tool-call JSON |
+| `answer_min_chars` | the answer has at least `n` characters |
+| `reply_language` | the reply is in the language asked (below) |
+
+A `device` spec on an `answer` check holds what a phone can see: `clean` (as `answer_clean`), `number` (the reply
+has a digit), `any` (one phrase is in the reply) and `time_pattern` (a clock time). Every part present must hold.
+
+## Verdicts
+
+The runner computes every verdict; the phone never does. Each run is one of:
+
+- `pass`: every check passed.
+- `fail`: a check failed, or the run ended at the step limit or as an error.
+- `unverified`: a check could not be decided from what the run observed. It counts as not passed.
+- `wrong_language`: the reply is in the wrong language, and every other check passed. It is counted apart from `fail`.
+
+A read-only call (a tool the catalogue marks `READ_ONLY`, read from `core/.../tool/catalogue/V0ToolCatalogue.kt`,
+plus `tools.find`) cannot change the phone. An `only` check lets it through and reports it as a reason
+(`harmless lookup: [...]`), so a lookup before the right call does not fail the task.
+
+The reply-language check: for Russian and Japanese the reply's letters must be in the script (Cyrillic; kana for
+Japanese). For Dutch, German and Spanish, at least two of the language's common function words must appear.
+
+## Faults
+
+The three `failure` tasks make a fault, and the check is that the agent does not retry the tool more than
+`max_calls` times and replies honestly:
+
+| Task | Fault | Undone after the task |
+|---|---|---|
+| `fault-calendar-denied` | `READ_CALENDAR` revoked (`pm revoke`) | `pm grant` |
+| `fault-alarm-exact-denied` | `SCHEDULE_EXACT_ALARM` app-op denied | app-op `allow` |
+| `fault-search-unavailable` | every web search service refused for 5 minutes (`devicectl searchblock`) | nothing; the block expires |
+
+A fault task is `unverified` when the fault was not exercised (no failed call was observed), so a run without
+the fault cannot pass by accident. These checks are not yet run on a phone; see "Not yet run" below.
+
+## Usage
+
+### Setup, once per emulator
+
+`scripts/eval-setup.sh` does the setup on an emulator only. It refuses any other device: it checks
+`ro.kernel.qemu`, `ro.boot.qemu` and `ro.hardware` (`ranchu` or `goldfish`), because a phone keeps its own
+permissions and address book. It:
+
+1. grants `READ_CONTACTS`, `READ_CALENDAR`, `ACCESS_COARSE_LOCATION` and `POST_NOTIFICATIONS` to the app;
+2. allows `SCHEDULE_EXACT_ALARM` (`cmd appops set`), without which the alarm tools are refused;
+3. allows do-not-disturb access (`cmd notification allow_dnd`), without which `phone.dnd` is refused;
+4. adds one test contact, `Sam`, with the phone number `+31600000000`, unless it is already there.
+
+The `contact-not-found` task asks for Quentin de Vries, a name this script never adds, so the task expects no such contact.
+`LI_PKG` overrides the package (default `dev.localintelligence.app`). The app must be installed first
+(debug build, see `docs/build.md`).
 
 ```bash
-scripts/run-evals.py --target device --serial SERIAL --model-id LFM3-1.7B-QAD-Q4_0 \
+scripts/eval-setup.sh -s emulator-5554
+```
+
+### Run the suite
+
+The app is put in Simple mode for the run and restored afterwards. Simple mode auto-accepts the call and message
+tiers, so run it only on a test phone or emulator. Technical mode is the default.
+
+```bash
+scripts/run-evals.py --target device --serial emulator-5554 --model-id LFM3-1.7B-QAD-Q4_0 \
     --model-repo LiquidAI/LFM3-1.7B-GGUF --model-file LFM3-1.7B-QAD-Q4_0.gguf --mode simple --repeats 3
+scripts/run-evals.py --target device --model-id LFM3-1.7B-QAD-Q4_0 --only timer,ms-battery-then-timer
 scripts/run-evals.py --target device --model-id LFM3-1.7B-QAD-Q4_0 --dry-run   # validate and print the plan
 ```
 
-Results are keyed by (task id, repeat). A rerun with the same output file skips every run
-already recorded. `--fresh` discards the file first. `--only` takes comma-separated task ids.
+The run is keyed by (task id, repeat). A rerun with the same output file skips every run already recorded; `--fresh`
+discards the file first. Each task's setup is applied before it and undone after it, even when the task fails. A
+run that cannot read the phone's mode after five tries (the app must be running) starts nothing and changes nothing.
 
-The older "no suite" text was about a fake-backed harness that was deleted. It does not describe the
-current `evals/` and `scripts/run-evals.py`.
+Approvals: during a run the runner allows the tools in `APPROVE_ON_DEVICE` and denies every other tool that asks,
+so a run can never place a call or send a message. Each approval is recorded.
 
----
+## What is reported
 
-## What replaced it
+Each result file has, per run: the verdict and its reasons, the calls, the answer, the approvals, steps, token
+counts, `prefill_ms`, `prefill_tok_s`, `decode_tok_s`, `first_token_ms` and `total_ms`. The summary has the pass,
+fail, unverified and wrong-language counts, the same counts by category, the approvals, the empty answers
+(no text in the reply), and the median of each timing.
 
-Verification is a **human running a real model on a real device**. The runner above
-automates the task list, but the verdict that counts for the phone is a run on real hardware,
-and the project has decided not to pretend that an emulator or a fake is one.
-
-The instrumentation that makes a manual run measurable *does* exist, in
-`core/metrics/`: `RunMetrics`, `RunAggregate`, `RunComparison`, `MetricsJson`.
-Those record per-run step counts, tool calls, token counts and timings, so two
-runs can be compared by hand.
-
----
-
-## What has actually been run
-
-Stated plainly, because everything else in this file used to imply more than was
-true.
-
-**MEASURED** — on a **Pixel-class x86_64 AVD** (Android 36, profile `pixel_7`).
-This is **not real Pixel hardware**; it is an emulator.
-
-- A real **668,788,096-byte** TinyLlama 1.1B Q4_K_M loaded in roughly **600–720 ms**
-  and generated real text.
-- Decode ran at **~0.67 tok/s** on emulated CPU.
-
-**Neither figure is a performance number for this app.** They describe an
-emulated CPU with no hardware acceleration. The decode rate reads as a hang.
-Never quote either as a device figure, and never derive a "slow model"
-conclusion from them. `docs/measurements.md` is the authoritative list of what
-has and has not been measured.
-
-**UNMEASURED — everything else:**
-
-| Metric | Status | How to measure it |
-|---|---|---|
-| Task success rate | **unmeasured** | run the task list below on real arm64 hardware, count completions |
-| Tokens per completed task | **unmeasured** | read the counters in `core/metrics/RunMetrics` after a run |
-| Time to first token | **unmeasured** | timestamp the first streamed token against request start |
-| Decode tok/s on a device | **unmeasured** | `RunMetrics` timings, on real hardware, per backend |
-| Prefill time | **unmeasured** | same, recorded separately from decode |
-| Peak RAM, model resident | **unmeasured** | `adb shell dumpsys meminfo <pkg>` — procedure in [`memory-model.md`](memory-model.md) §6.1 |
-| Battery cost | **unmeasured** | `adb shell dumpsys batterystats <pkg>` before and after a fixed task |
-| llama.cpp vs LiteRT-LM comparison | **unmeasured** | run the same task list on both backends, same model size |
-
-None of these may be estimated. A number nobody measured is worse than no
-number, because it will be quoted.
-
----
-
-## The question a real eval would answer
-
-> **How small can the model get before the agent loop stops being reliable?**
-
-That is still the right question. It is unanswered, and this repository contains
-no evidence either way.
-
-The task list the old harness was going to run, kept here as the specification
-for a manual or future harness. It is a *specification*, not a result:
-
-| Category | Count | What it would prove |
-|---|---:|---|
-| single-tool | 10 | the model can emit one valid call |
-| two-tool | 10 | it can chain and use a previous observation |
-| 3-5 step | 10 | it can hold a plan across a window |
-| memory | 5 | explicit remember, then recall in a later turn |
-| ambiguity | 5 | it asks or picks rather than inventing |
-| failure/recovery | 5 | permission denied does not become 14 retries |
-| impossible | 5 | it says it cannot, rather than hallucinating success |
-| **total** | **50** | |
-
-Two worked examples, with expected outcomes and nothing measured:
+Prefill is always reported beside decode, never decode alone. The run ends with one line:
 
 ```
-User:      "What is my next appointment with Alice?"
-Tools:     calendar.search, contacts.search, alarm.create
-Expected:  calendar.search  (first call)
-Mock:      [{title: "Lunch with Alice", time: "2026-10-02T13:00"}]
-Assert:    final answer mentions Oct 2 and 13:00
-
-User:      "What's on my calendar tomorrow?"
-Setup:     calendar permission DENIED
-Expected:  ONE calendar.search attempt, then a plain explanation that the
-           permission is required.
-Failure:   retrying calendar.search 14 times.
+median total <ms> ms, first token <ms> ms, prefill <tok/s> tok/s, decode <tok/s> tok/s; approvals <n>, empty answers <n>
 ```
 
-A harness that cannot be denied permission is a harness that has never met an
-Android user.
+## Not yet run
 
----
+No run on a phone or an emulator is recorded in `docs/scores/results/`, so no score is published. The fault tasks,
+the contact-not-found task, the no-tool language tasks and the alarm and do-not-disturb checks have not run
+end to end on a device. Until a run is recorded, no figure from this suite is a claim about the app.
 
-## What should be asserted
-
-Never exact wording. A model that says "43%" and a model that says "your battery
-is at 43 percent" are both correct.
-
-```
-correct tool?             the decisive signal
-correct arguments?        schema-valid and semantically right
-correct action sequence?  order and count
-task completed?           did the user get what they asked for
-unnecessary calls?        steps spent doing nothing
-loops?                    repeated identical calls
-```
-
-Plus the efficiency metrics, because a 90%-correct agent that takes 14 steps and
-9000 tokens is worse on a phone than an 85%-correct one that takes 4 steps and
-3500:
-
-```
-success  steps  tool_calls  invalid_tool_calls  duplicate_calls
-input_tokens  output_tokens  prefill_ms  decode_tok_s  total_ms  peak_ram
-```
-
----
-
-## The rule, and its current state
-
-> If a feature does not move a number here, it does not ship.
-
-**No run on real hardware is recorded yet.** `docs/scores/results/` is empty, so every
-metric above is unmeasured. The runner exists; until someone runs the task list on a
-device, the project cannot answer whether a given change helped.
-
-That is the honest state. It is also an argument for finishing the measurement
-work, not for inventing numbers or for restoring a fake-backed harness that
-would report 50/50 again.
-
----
+`docs/measurements.md` is the authoritative list of what has and has not been measured.
 
 ## Related
 
-- [`build.md`](build.md) — the no-test-suite fact, and no-CI policy
-- [`memory-model.md`](memory-model.md) — what *is* measured, and the RAM procedure
-- [`roadmap.md`](roadmap.md) — what remains to be built and measured
+- [`build.md`](build.md): building the debug app, and the no-test-suite and no-CI policy
+- [`measurements.md`](measurements.md): what has been measured, and where
+- [`memory-model.md`](memory-model.md): the RAM procedure
+- [`scores/index.md`](scores/index.md): the generated score tables
