@@ -155,11 +155,16 @@ fun ChatComposer(
     showBlockedReason: Boolean = true,
     /** A way out of [blockedReason], such as "Download a model". Null when waiting is the answer. */
     blockedAction: Pair<String, () -> Unit>? = null,
+    /**
+     * Whether Send is offered while [blockedReason] is set, because the caller queues the message until the
+     * assistant is ready (Simple mode's first run). The caller decides what Send does then.
+     */
+    canQueue: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     // A message can be only attachments, but never while a clip is still recording.
     val canSend = (input.isNotBlank() || attachments.isNotEmpty()) &&
-        blockedReason == null &&
+        (blockedReason == null || canQueue) &&
         !busy &&
         liveStatus == null
 

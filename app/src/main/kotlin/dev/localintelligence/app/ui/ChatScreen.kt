@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.os.Build
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -268,6 +269,11 @@ fun ChatScreen(
     }
     // Simple mode says why in plain words; Technical keeps the state's own line.
     val blocked = if (technical) modelState.blockingReason(LocalContext.current) else SimpleWording.blocked(LocalContext.current, modelState)
+    // Simple mode only: while the one-tap setup downloads or the first load runs, Send is offered and queues the message.
+    val canQueue = !technical && (
+        starter is SetupState.Downloading || starter is SetupState.Preparing ||
+            modelState is ModelAvailability.Loading
+    )
     // Retry and Edit both act on the last turn, so they are offered only there. A turn with
     // pictures or a voice clip cannot be sent again: the media bytes are not kept.
     val lastUserIndex = messages.indexOfLast { it is ChatMessage.User }
@@ -507,7 +513,11 @@ fun ChatScreen(
                 // dead end, so the reason travels with the state.
                 blockedReason = blocked,
                 onInputChange = viewModel::onInputChange,
-                onSend = viewModel::send,
+                // Simple's first run: a message typed while the assistant is not ready is kept and sent when it is.
+                onSend = {
+                    if (canQueue && blocked != null) viewModel.queueSend() else viewModel.send()
+                },
+                canQueue = canQueue,
                 onStop = viewModel::stop,
                 compact = compactComposer,
                 attachments = attached,
@@ -1231,6 +1241,14 @@ private fun StarterPanel(
                     textAlign = TextAlign.Center,
                 )
             }
+            if (!starter.onDisk) {
+                Text(
+                    text = stringResource(R.string.starter_privacy),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
             // Read when the panel appears, not on every recomposition: the network does not change under it.
             val metered = remember { isOnMeteredNetwork(context) }
             if (metered) {
@@ -1252,7 +1270,8 @@ private fun StarterPanel(
             val percent = (fraction * 100).toInt()
             // TalkBack hears the progress once per ten percent, not on every tick of the bar.
             val milestone = percent / 10
-            val announced = remember(milestone) { "Setting up, ${milestone * 10} percent" }
+            val announced = stringResource(R.string.setting_up, milestone * 10)
+            val secondsLeft = rememberSecondsLeft(starter.bytes, starter.totalBytes)
             Text(
                 text = stringResource(R.string.setting_up, percent),
                 style = MaterialTheme.typography.titleMedium,
@@ -1273,6 +1292,20 @@ private fun StarterPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
+            // Blank until the pace is measured (the first few seconds); never a figure we did not measure.
+            secondsLeft?.let { seconds ->
+                val minutes = (seconds + 59) / 60
+                Text(
+                    text = if (seconds < 60) {
+                        stringResource(R.string.starter_eta_under_minute)
+                    } else {
+                        LocalContext.current.resources.getQuantityString(R.plurals.starter_eta_minutes, minutes.toInt(), minutes.toInt())
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
             Text(
                 text = stringResource(R.string.you_can_leave_the_app_it_keeps_going),
                 style = MaterialTheme.typography.bodyMedium,
@@ -1292,6 +1325,12 @@ private fun StarterPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            )
+            Text(
+                text = stringResource(R.string.almost_ready_this_only_happens_once),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
             )
         }
 
@@ -1335,6 +1374,42 @@ private fun ExampleChips(onExample: (String) -> Unit) {
         }
     }
 }
+
+/** The pace of one setup download, measured from the bytes that arrived. Written only by [rememberSecondsLeft]. */
+private class DownloadPace(startBytes: Long) {
+    val startedAt = SystemClock.elapsedRealtime()
+    var lastBytes = startBytes
+    var lastAt = startedAt
+    var bytesPerSecond = 0.0
+}
+
+/**
+ * Seconds left in the setup download, or null while the pace is not measured yet. The pace is the
+ * bytes that arrived over the time they took, smoothed, and the estimate waits for five seconds so
+ * the first burst does not set it. A resumed download starts from the bytes already on the phone.
+ */
+@Composable
+private fun rememberSecondsLeft(bytes: Long, totalBytes: Long): Long? {
+    val pace = remember { DownloadPace(bytes) }
+    var secondsLeft by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(bytes, totalBytes) {
+        val now = SystemClock.elapsedRealtime()
+        if (bytes > pace.lastBytes && now > pace.lastAt) {
+            val instant = (bytes - pace.lastBytes) * 1000.0 / (now - pace.lastAt)
+            pace.bytesPerSecond = if (pace.bytesPerSecond == 0.0) instant else 0.3 * instant + 0.7 * pace.bytesPerSecond
+            pace.lastBytes = bytes
+            pace.lastAt = now
+        }
+        secondsLeft = if (now - pace.startedAt >= PACE_WAIT_MS && pace.bytesPerSecond > 0.0 && totalBytes > bytes) {
+            ((totalBytes - bytes) / pace.bytesPerSecond).toLong()
+        } else {
+            null
+        }
+    }
+    return secondsLeft
+}
+
+private const val PACE_WAIT_MS = 5_000L
 
 /** Whole percent of [part] in [whole], kept under 100 so a setup that is nearly done never reads "100%". */
 private fun percentOf(part: Long, whole: Long): Int =
