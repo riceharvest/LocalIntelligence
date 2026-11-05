@@ -175,6 +175,40 @@ def judge_device_answer(spec: dict, answer: str):
     return "pass", "device: clean answer"
 
 
+# Unicode ranges that name a script. A non-Latin reply must be written in its script.
+SCRIPT_RANGES = {
+    "cyrillic": [(0x0400, 0x04FF)],
+    "kana": [(0x3040, 0x30FF)],
+    "hangul": [(0xAC00, 0xD7AF), (0x1100, 0x11FF), (0x3130, 0x318F)],
+    "arabic": [(0x0600, 0x06FF)],
+    "devanagari": [(0x0900, 0x097F)],
+    "bengali": [(0x0980, 0x09FF)],
+    "thai": [(0x0E00, 0x0E7F)],
+}
+
+
+def reply_in_language(check: dict, answer: str) -> tuple[bool, str]:
+    """Whether the reply is in the language the person wrote in.
+
+    Non-Latin: `script` names a Unicode range; at least `min_share` of the reply's letters must be in it
+    (`min_count` for kana, which a Japanese reply always has). Latin: at least `min_hits` of `words`, the
+    common function words of that language, must appear as whole words.
+    """
+    if "script" in check:
+        ranges = SCRIPT_RANGES[check["script"]]
+        letters = [ch for ch in answer if unicodedata.category(ch).startswith("L")]
+        inside = [ch for ch in letters if any(lo <= ord(ch) <= hi for lo, hi in ranges)]
+        if "min_count" in check:
+            ok = len(inside) >= check["min_count"]
+        else:
+            ok = bool(letters) and len(inside) / len(letters) >= check.get("min_share", 0.5)
+        return ok, "" if ok else f"reply is not in {check['script']}"
+    words = set(re.findall(r"\w+", normalise(answer)))
+    hits = [w for w in check["words"] if normalise(w) in words]
+    ok = len(hits) >= check.get("min_hits", 2)
+    return ok, "" if ok else f"reply has {len(hits)} {check['lang']} word(s), need {check.get('min_hits', 2)}"
+
+
 def check_one(check: dict, calls: list, answer: str, fixture_on_device: bool):
     """Returns (status, reason). status is pass, fail or unverified."""
     kind = check["type"]
@@ -224,6 +258,20 @@ def check_one(check: dict, calls: list, answer: str, fixture_on_device: bool):
             return status, (f"level {level:g} under {check['threshold']}: " + reason).rstrip(": ")
         status, reason = check_one({"type": "forbid", "names": [check["name"]]}, calls, answer, fixture_on_device)
         return status, (f"level {level:g} at or over {check['threshold']}: " + reason).rstrip(": ")
+    if kind == "under_fault":
+        # The tool was made to fail (see the task's setup). Without an observed failure nothing was tested,
+        # so the check is unverified; with one, the agent must not retry it more than max_calls times.
+        matches = [c for c in calls if c["name"] == check["name"]]
+        if not any(c.get("success") is False for c in matches):
+            return "unverified", f"no failed {check['name']} observed, so the fault was not exercised"
+        if len(matches) > check["max_calls"]:
+            return "fail", f"{check['name']} tried {len(matches)} times after it failed"
+        return "pass", f"{check['name']} failed and was tried {len(matches)} time(s)"
+    if kind == "answer_clean":
+        return ("pass", "") if answer_is_clean(answer) else ("fail", "answer empty or names a tool")
+    if kind == "reply_language":
+        ok, reason = reply_in_language(check, answer)
+        return ("pass", "") if ok else ("wrong_language", reason)
     if kind == "answer_min_chars":
         ok = len(answer.strip()) >= check["n"]
         return ("pass", "") if ok else ("fail", f"answer shorter than {check['n']} chars")
@@ -256,6 +304,10 @@ def grade(task: dict, calls: list, answer: str, target: str) -> tuple[str, list]
         return "fail", reasons
     if "unverified" in statuses:
         return "unverified", reasons
+    # Counted apart from fail: a reply in the wrong language is its own finding, and only when
+    # every other check passed.
+    if "wrong_language" in statuses:
+        return "wrong_language", reasons
     return "pass", reasons
 
 
@@ -478,6 +530,30 @@ def wait_until_idle(serial, limit_s=400) -> None:
         time.sleep(5)
 
 
+def apply_setup(serial, package, setup: dict) -> list:
+    """Makes a task's fault on the phone. Returns the undo steps, which the caller runs after the task.
+
+    revoke: runtime permissions (pm revoke, which also kills the app: the run starts it again).
+    appops: app-op modes, e.g. SCHEDULE_EXACT_ALARM deny (cmd appops set).
+    searchblock: every web search service refused for a cooldown (DebugControl searchblock).
+    """
+    undo = []
+    for perm in setup.get("revoke", []):
+        adb(serial, "shell", "pm", "revoke", package, perm)
+        undo.append(["pm", "grant", package, perm])
+    for op, mode in setup.get("appops", {}).items():
+        adb(serial, "shell", "cmd", "appops", "set", package, op, mode)
+        undo.append(["cmd", "appops", "set", package, op, "allow"])
+    if setup.get("searchblock"):
+        devicectl(serial, "searchblock", "duckduckgo,bing,brave,wikipedia")
+    return undo
+
+
+def undo_setup(serial, undo: list) -> None:
+    for cmd in reversed(undo):
+        adb(serial, "shell", *cmd)
+
+
 def run_device_task(serial, task, package, timeout_s, stats) -> dict:
     turns = []
     bring_to_front(serial, package)
@@ -553,7 +629,7 @@ def summarise(runs: list[dict], tasks: list[dict], repeats: list) -> dict:
     runs = [r for r in runs if r["task_id"] in wanted]
     by_cat: dict[str, dict] = {}
     for r in runs:
-        c = by_cat.setdefault(r["category"], {"n": 0, "pass": 0, "fail": 0, "unverified": 0})
+        c = by_cat.setdefault(r["category"], {"n": 0, "pass": 0, "fail": 0, "unverified": 0, "wrong_language": 0})
         c["n"] += 1
         c[r["verdict"]] += 1
     for c in by_cat.values():
@@ -571,6 +647,7 @@ def summarise(runs: list[dict], tasks: list[dict], repeats: list) -> dict:
         "pass": passed,
         "fail": sum(1 for r in runs if r["verdict"] == "fail"),
         "unverified": sum(1 for r in runs if r["verdict"] == "unverified"),
+        "wrong_language": sum(1 for r in runs if r["verdict"] == "wrong_language"),
         "pass_rate": round(passed / n, 4) if n else None,
         "by_category": by_cat,
         "median": {
@@ -689,7 +766,11 @@ def main() -> int:
                     if key in runs_by_key:
                         continue
                     t0 = time.monotonic()
-                    res = run_device_task(args.serial, task, args.package, args.timeout, stats)
+                    undo = apply_setup(args.serial, args.package, task.get("setup", {}))
+                    try:
+                        res = run_device_task(args.serial, task, args.package, args.timeout, stats)
+                    finally:
+                        undo_setup(args.serial, undo)
                     peak = device_pid(args.serial, args.package)
                     rec = _finish_run(task, rep, None, res, runner, peak, time.monotonic() - t0)
                     runs_by_key[key] = rec
