@@ -71,7 +71,9 @@ def bad_quotes(text):
 
 
 def check_text(key, text, english, formatted, errors, warnings):
-    if placeholders(text) != placeholders(english):
+    # Plural forms for an exact count may spell the number out: Arabic's "two minutes" is one word.
+    spelled_out = key.endswith(("[zero]", "[one]", "[two]")) and not placeholders(text)
+    if placeholders(text) != placeholders(english) and not spelled_out:
         errors.append(f"{key}: placeholders {sorted(placeholders(text))} differ from English {sorted(placeholders(english))}")
     if not formatted and bad_percent(text):
         errors.append(f"{key}: bare '%' (write '%%' or use formatted=\"false\")")

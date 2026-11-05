@@ -225,7 +225,8 @@ fun ChatComposer(
                 Text(
                     text = notice,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    // Simple: most notices are reassurance ("I'll send it when ready"), and red reads as something broke.
+                    color = if (LocalTechnicalDetail.current) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)

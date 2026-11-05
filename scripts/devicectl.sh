@@ -35,7 +35,7 @@ squote() {
 # Sends one command and prints the JSON answer. The answer comes back as data="..." in am's output.
 broadcast() {
   local cmd="$1" arg="$2" out data
-  out=$(adb "${SERIAL[@]}" shell "am broadcast -n $PKG/.debug.DebugControl -a $ACTION --es cmd $(squote "$cmd") --es arg $(squote "$arg")")
+  out=$(adb "${SERIAL[@]}" shell "am broadcast -n $PKG/dev.localintelligence.app.debug.DebugControl -a $ACTION --es cmd $(squote "$cmd") --es arg $(squote "$arg")")
   data=$(printf '%s\n' "$out" | sed -n 's/.*data="\(.*\)".*/\1/p' | tail -n 1)
   if [[ -z "$data" ]]; then
     echo '{"ok":false,"error":"no answer from the app: is the debug build installed and running?"}'
