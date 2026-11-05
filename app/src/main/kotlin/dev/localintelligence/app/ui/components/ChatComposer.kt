@@ -44,8 +44,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -163,6 +166,14 @@ fun ChatComposer(
         !busy &&
         liveStatus == null
 
+    // The field is the one place the person types, so a send hands the cursor back to it.
+    // Without this the send button keeps focus, and the keyboard drops after every message.
+    val fieldFocus = remember { FocusRequester() }
+    val sendThenFocus: () -> Unit = {
+        onSend()
+        fieldFocus.requestFocus()
+    }
+
     Surface(tonalElevation = 3.dp, modifier = modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.windowInsetsPadding(
@@ -270,13 +281,13 @@ fun ChatComposer(
                         input = input,
                         onInputChange = onInputChange,
                         canSend = canSend,
-                        onSend = onSend,
-                        modifier = Modifier.weight(1f),
+                        onSend = sendThenFocus,
+                        modifier = Modifier.weight(1f).focusRequester(fieldFocus),
                     )
                     SendOrStopButton(
                         busy = busy,
                         canSend = canSend,
-                        onSend = onSend,
+                        onSend = sendThenFocus,
                         onStop = onStop,
                     )
                 }
@@ -285,10 +296,11 @@ fun ChatComposer(
                     input = input,
                     onInputChange = onInputChange,
                     canSend = canSend,
-                    onSend = onSend,
+                    onSend = sendThenFocus,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .focusRequester(fieldFocus),
                 )
 
                 Row(
@@ -307,7 +319,7 @@ fun ChatComposer(
                     SendOrStopButton(
                         busy = busy,
                         canSend = canSend,
-                        onSend = onSend,
+                        onSend = sendThenFocus,
                         onStop = onStop,
                         // Takes the rest of the row, so the target spans from
                         // just past the media buttons to the right padding.
