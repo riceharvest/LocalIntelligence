@@ -34,6 +34,13 @@ interface DebugPort {
 
     /** A run stopped to wait for an approval. It is not over: the same recorder goes on after the answer. */
     fun runPaused(result: AgentResult, trace: List<StepTrace>, controllerMetrics: RunMetrics?)
+
+    /**
+     * Where the model hub lives, for the emulator tests: a host-side stand-in for huggingface.co, so
+     * a download can be slowed, cut, refused or corrupted on demand. Null is the real hub, which is
+     * what every build without a debug port uses.
+     */
+    fun hubBaseUrl(): String? = null
 }
 
 /** Holds the debug port. Written once, by the debug build's content provider, before the first screen opens. */

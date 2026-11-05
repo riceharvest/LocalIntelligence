@@ -2315,7 +2315,11 @@ class AppContainer(private val context: Context) {
     }
 
     val hubClient: HuggingFaceClient by lazy {
-        HuggingFaceClient(UrlConnectionTransport(), tokenSource = hubTokenSource)
+        HuggingFaceClient(
+            UrlConnectionTransport(),
+            baseUrl = DebugPorts.current?.hubBaseUrl() ?: HuggingFaceClient.DEFAULT_BASE_URL,
+            tokenSource = hubTokenSource,
+        )
     }
 
     /**

@@ -107,6 +107,14 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
         this.chat = chat
     }
 
+    /**
+     * The address in `files/debug-hub-base-url`, if the test put one there (`run-as` can write it, and it
+     * survives a process kill, which the emulator tests rely on). Read when the hub client is first made.
+     */
+    override fun hubBaseUrl(): String? = runCatching {
+        java.io.File(app.filesDir, "debug-hub-base-url").readText().trim().trimEnd('/').takeIf { it.isNotEmpty() }
+    }.getOrNull()
+
     override fun newRunRecorder(): RunRecorder? {
         val created = RunRecorder(modelId = container.residentBackend().id)
         recorder = created
