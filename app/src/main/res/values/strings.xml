@@ -1918,4 +1918,8 @@
     <string name="extras_play_unreachable">Google Play could not be reached. Try again later.</string>
     <string name="extras_play_refused">Google Play did not start the Extras subscription. Try again later.</string>
     <string name="extras_on_until">Extras is on until %1.</string>
+    <string name="audio_no_track">This file has no audio track.</string>
+    <string name="audio_no_format">This file\'s audio has no format the phone can read.</string>
+    <string name="audio_cannot_decode">This phone cannot decode %1$s audio.</string>
+    <string name="audio_unsupported_sample_format">This phone decodes this audio to an unsupported sample format.</string>
 </resources>
