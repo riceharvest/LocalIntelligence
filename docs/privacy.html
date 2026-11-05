@@ -18,7 +18,7 @@
 </head>
 <body>
 <h1>LocalIntelligence privacy policy</h1>
-<p class="meta">Effective 2026-11-04. Applies to the LocalIntelligence app on Google Play
+<p class="meta">Effective 2026-11-05. Applies to the LocalIntelligence app on Google Play
 (<code>dev.localintelligence.app</code>) and the full build installed from GitHub
 (<code>dev.localintelligence.app.full</code>).</p>
 
@@ -30,9 +30,10 @@ or write to the contact email on the Google Play listing.</p>
 
 <h2>The short version</h2>
 <p>The assistant runs a language model on your phone. The developer receives nothing unless you send
-a report about a reply. The app has no account, no analytics, no crash reporting and no ads. Data
-leaves your phone only through features you turn on, and then it goes to the service you chose. The
-one exception is a report you choose to send, described below.</p>
+a report about a reply. The app has no account, no analytics, no crash reporting and no ads. When a
+question needs the internet, the assistant searches the web, opens web pages and looks up weather by
+itself, so those services receive what is listed below. Other data leaves your phone only through
+features you turn on.</p>
 
 <h2>What stays on your phone</h2>
 <ul>
@@ -55,18 +56,21 @@ one exception is a report you choose to send, described below.</p>
       speech service, which may send the audio to that service's provider.</li>
   <li>Notifications (if you allow notification access), screen-time totals, the clipboard, and files
       you pick.</li>
-  <li>Search my phone, only for the sources you switch on in Settings: notifications from the time you
+  <li>Search my phone, for the sources that are switched on in Settings: notifications from the time you
       switch them on, texts (only while LocalIntelligence is your default assistant), calendar events,
       contact names (never numbers or addresses), text files in a folder you choose, and the captions from
-      Photo search. The matches are stored in the app's own database on your phone. You can delete each
+      Photo search. In Simple mode, calendar and contact names are on by default once you have given the
+      app that permission. The matches are stored in the app's own database on your phone. You can delete each
       source there at any time.</li>
   <li>Full build only: the screen of other apps while you let the assistant control them, and all
       files on the phone if you grant "All files access".</li>
 </ul>
 
 <h2>When data leaves your phone</h2>
-<p>Each of these is off until you use or turn it on. The service named receives what is listed and
-handles it under its own privacy policy.</p>
+<p>Web search, opening web pages, and weather, places and Wikipedia work without being turned on. The
+assistant uses them when a question needs them, and it may do so without asking first. The rest are
+off until you use or turn them on. Each service named receives what is listed and handles it under
+its own privacy policy.</p>
 <ul>
   <li><strong>Search my phone</strong>: the index itself sends nothing anywhere. If a cloud chat model
       is the one answering, the matches the assistant finds are sent to that model in that chat, the same
@@ -79,7 +83,8 @@ handles it under its own privacy policy.</p>
   <li><strong>Weather, places and Wikipedia</strong> (Open-Meteo, OpenStreetMap Nominatim, Wikipedia):
       the place name or search words the assistant looks up. Weather with no place named sends your
       phone's location to Open-Meteo instead.</li>
-  <li><strong>Opening a web page</strong> you approve: the request to that site.</li>
+  <li><strong>Opening a web page</strong>: the request to that site, which also sees your IP address, as any
+      website does.</li>
   <li><strong>Update check</strong> (full build only): when you tap "Check for updates" and confirm, a request
       to GitHub for the latest release's version and notes. GitHub receives it as any web request from
       your phone. Nothing from your chats is sent.</li>
@@ -87,10 +92,10 @@ handles it under its own privacy policy.</p>
       Mistral, Google Gemini, or your own server): the whole conversation, including tool results,
       screen text in the full build, and attached images or audio.</li>
   <li><strong>Image and video generation</strong> through OpenRouter: the prompt.</li>
-  <li><strong>Web search</strong> (the default, no key): the search words, sent to one service at a time.
+  <li><strong>Web search</strong> (on by default, no key): the search words, sent to one service at a time.
       The services are DuckDuckGo, then Bing, then Brave Search, then Wikipedia in your phone's language.
       The next one is asked only when the one before it did not answer with results. Each one gets the
-      search words and nothing else: no account and no cookies.</li>
+      search words and no account or cookies, and it sees your IP address, as any website does.</li>
   <li><strong>Search with your own key</strong> (Brave, Tavily, Exa, or your SearXNG): the search words.</li>
   <li><strong>My desktop</strong> (full build only, off until you enter an address): your messages and the
       keys you tap go to the https address you set, which is your own computer over your Tailscale
@@ -112,8 +117,10 @@ your phone directly to those providers, not through the Extras server.</p>
 <ul>
   <li>Keys go over HTTPS only. Plain HTTP is allowed only to a server on your own home network that
       you entered yourself.</li>
-  <li>Sending messages, placing calls, deleting files and opening websites ask for your approval
-      unless you turn that off per category. Texts and calls always ask.</li>
+  <li>In Technical mode, sending messages, placing calls, deleting files and opening websites ask for
+      your approval unless you turn that off per category. Simple mode, the default, does not ask for
+      most of these. In both modes, texts and calls always ask, and so does anything your message did not
+      ask for, apart from web search and opening its results.</li>
   <li>Text from outside (web pages, servers, other apps' screens) is treated as data, never as
       instructions to the assistant.</li>
 </ul>
