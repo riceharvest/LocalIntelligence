@@ -42,4 +42,6 @@ data class AgentConfig(
      * Technical keeps the reply as the model wrote it.
      */
     val hideToolNames: Boolean = false,
+    /** What a Simple reply says when removing tool names leaves nothing. :app passes its localized text. */
+    val toolNameFallback: String = "I could not finish that. Please ask again.",
 )

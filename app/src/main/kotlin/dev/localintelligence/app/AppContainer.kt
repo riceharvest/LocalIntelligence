@@ -2111,7 +2111,10 @@ class AppContainer(private val context: Context) {
         // The shared conversation, not a fresh one. See [session] for why this
         // used to silently discard everything the model had already been told.
         sessions = session,
-        config = config.copy(hideToolNames = settings.mode == SettingsMode.SIMPLE),
+        config = config.copy(
+            hideToolNames = settings.mode == SettingsMode.SIMPLE,
+            toolNameFallback = context.getString(R.string.reply_tool_fallback),
+        ),
         riskPolicy = riskPolicy(snapshot, background),
         // What the screen shows leaves the phone with the request when a remote model answers.
         screenTextLeavesPhone = model === remoteChatBackend || model === chatGptBackend,

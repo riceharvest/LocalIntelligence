@@ -2151,13 +2151,15 @@ class AgentController(
      * [text] with the names of this run's tools taken out. The names come from the registry, in both
      * forms a model writes them: `timer.set` and `timer_set`. So nothing here is an English word list.
      *
-     * Three passes, each only on a match: a call written as syntax (`alarm_create(hour=7)`), a phrase
-     * that introduces a tool and its arguments ("using the `timer_set` tool with `seconds=120`"), and
-     * any bare name left (with its arguments). A sentence is never dropped: it keeps the words around the
-     * name, so "it failed" never turns into "Done." Never empty: when nothing is left, [TOOL_FALLBACK].
+     * Two steps. A phrase that introduces a tool and its one argument is cut out of its sentence
+     * ("using the `timer_set` tool with `seconds=120`"), which leaves a sentence that still reads. Then
+     * any sentence that still names a tool is dropped, the way [scrubHandles] drops a sentence with an
+     * id. Never empty: when nothing is left, [AgentConfig.toolNameFallback].
      *
      * WHY deterministic: a prompt rule ("never name tools") is followed most of the time, and a
      * Simple user who reads `timer_set` learns nothing and is confused. This runs on every final reply.
+     * Known cost: a dropped sentence can be the only one that said a step failed, so the rest may read
+     * more certain than it is. The prompt's "say it worked only if its result says so" is the first guard.
      */
     private fun withoutToolNames(text: String): String {
         val names = tools.all().map { it.definition.name }
@@ -2170,18 +2172,17 @@ class AgentController(
         if (!named.containsMatchIn(text)) return text
         // One `key=value` argument, as the model writes it: "with `seconds=120`".
         val args = "(?:\\s+with\\s+[`(]?\\w+\\s*=\\s*[^\\s`),;.!?]+[`)]?)?"
-        val call = Regex("`?(?:$alternation)\\s*\\([^)\\n]*\\)`?", RegexOption.IGNORE_CASE)
         val phrase = Regex(
             "\\s*\\b(?:using|via|through|with|by calling|calling)\\s+(?:the\\s+)?`?(?:$alternation)`?" +
                 "(?:\\s+tool)?$args",
             RegexOption.IGNORE_CASE,
         )
-        val bare = Regex("`?(?:$alternation)`?(?:\\s+tool)?$args", RegexOption.IGNORE_CASE)
-        val kept = text.replace(call, "").replace(phrase, "").replace(bare, "")
-            .replace(Regex("[ \\t]{2,}"), " ")
-            .replace(Regex("\\s+([.,;:!?])"), "$1")
+        val kept = text.replace(phrase, "")
+            .split(Regex("(?<=[.!?])\\s+"))
+            .filterNot { named.containsMatchIn(it) }
+            .joinToString(" ")
             .trim()
-        return kept.ifEmpty { TOOL_FALLBACK }
+        return kept.ifEmpty { config.toolNameFallback }
     }
 
     /**
@@ -2729,9 +2730,6 @@ class AgentController(
 
         /** What the user is told when, after the one retry, nothing of the reply is left to show. */
         const val HANDLE_FALLBACK = "I couldn't read far enough into that page."
-
-        /** Simple mode: a reply that was only about tools, with nothing left to show. Says what to do. */
-        const val TOOL_FALLBACK = "I could not say what happened. Please ask again."
         const val LINE_CHARS = 200
         const val TRUNCATOR_MIN_SAFE_BUDGET = 64
 
