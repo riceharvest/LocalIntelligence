@@ -269,7 +269,7 @@ class MainActivity : FragmentActivity() {
                 // container's scope, so a rotation cannot cancel a native load
                 // halfway, and seeding does nothing on later compositions.
                 LaunchedEffect(Unit) {
-                    chat.seedRestored(container.launchRestore.await())
+                    chat.seedRestored(container.launchRestore.await(), container.memoryBlockStore.changeIds())
                 }
 
                 val handsFreeState by chat.handsFree.collectAsStateWithLifecycle()

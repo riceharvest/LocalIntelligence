@@ -1464,17 +1464,33 @@ class ChatViewModel(
      * Only User and Assistant turns have a row. Idempotent: the screen that calls this
      * is recomposed on rotation, while this object survives it.
      */
-    fun seedRestored(turns: List<CoreChatMessage>) {
+    fun seedRestored(turns: List<CoreChatMessage>, memoryChangeIds: List<Long> = emptyList()) {
         synchronized(transcriptLock) {
             if (transcriptSeeded) return
             transcriptSeeded = true
             // Never over rows already drawn: those belong to a run, and the indices
             // recorded for them address this list.
             if (_messages.value.isNotEmpty()) return
+            // The memory writes in the restored turns, matched from the newest end to the saved Undo
+            // ledger: the restored chat is the latest one, so its last write is the ledger's last change.
+            val writes = turns.filter { it is CoreChatMessage.ToolObservation && it.toolName == MEMORY_WRITE_TOOL && it.success }
+            val firstMatched = writes.size - memoryChangeIds.size
             _messages.value = turns.mapNotNull { turn ->
                 when (turn) {
                     is CoreChatMessage.User -> turn.text.takeIf { it.isNotBlank() }?.let { ChatMessage.User(it) }
                     is CoreChatMessage.Assistant -> turn.text.takeIf { it.isNotBlank() }?.let { ChatMessage.Assistant(it) }
+                    is CoreChatMessage.ToolObservation -> {
+                        val at = writes.indexOfFirst { it === turn }
+                        val matched = at - firstMatched
+                        val id = if (at >= 0 && matched >= 0) memoryChangeIds.getOrNull(matched) else null
+                        // Only a memory write that has its ledger entry comes back: it is the row that offers Undo.
+                        id?.let {
+                            ChatMessage.ToolStep(
+                                toolName = turn.toolName, args = "", observation = turn.observation,
+                                detail = turn.observation, durationMs = 0, success = true, changeId = it,
+                            )
+                        }
+                    }
                     else -> null
                 }
             }.takeLast(MAX_TRANSCRIPT_ROWS)
@@ -1635,6 +1651,9 @@ private val SILENT_LISTEN_ERRORS = setOf(SpeechRecognizer.ERROR_NO_MATCH, Speech
 
 /** Pause between a finished answer, or an empty listen, and the next microphone open. */
 private const val RELISTEN_DELAY_MS = 300L
+
+/** The tool that writes the memory block (see MemoryUpdateTool). */
+private const val MEMORY_WRITE_TOOL = "memory.update_block"
 
 /** Where hands-free mode is. Listening, Thinking and Speaking are the three states the screen shows. */
 enum class HandsFreePhase { Off, Listening, Thinking, Speaking }

@@ -279,7 +279,9 @@ class AppContainer(private val context: Context) {
      * The memory block. One instance: its undo ledger lives in it, and the chat rows read it.
      * Passed to the tool family, so the agent and the chat share the same ledger.
      */
-    val memoryBlockStore: SettingsMemoryBlockStore by lazy { SettingsMemoryBlockStore(settings) }
+    val memoryBlockStore: SettingsMemoryBlockStore by lazy {
+        SettingsMemoryBlockStore(settings, dev.localintelligence.android.data.lazyMemoryChangeDao(context), appScope)
+    }
 
     /** The app lock, one for the process. Created at app start so it sees every activity from the first one. */
     val appLock: dev.localintelligence.app.security.AppLock by lazy {
@@ -1986,6 +1988,8 @@ class AppContainer(private val context: Context) {
      */
     suspend fun restoreOnLaunch(): List<ChatMessage> = readinessLock.withLock {
         restoreConversationOnce()
+        // The Undo ledger comes back with the conversation, so the "Remembered" rows can offer Undo.
+        memoryBlockStore.restore()
         // A scheduled run the last process died during has no result coming (#167).
         ScheduledRunReporter.settleInterrupted(context)
         if (ExtrasBilling.enabled) appScope.launch(Dispatchers.IO) { extras.checkAtStart() }
