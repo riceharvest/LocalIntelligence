@@ -72,7 +72,9 @@ private fun appFor(source: PhoneIndexSource): Intent? {
         PhoneIndexSource.CALENDAR -> Intent.CATEGORY_APP_CALENDAR
         PhoneIndexSource.CONTACTS -> Intent.CATEGORY_APP_CONTACTS
         PhoneIndexSource.MESSAGES -> Intent.CATEGORY_APP_MESSAGING
-        PhoneIndexSource.FILES, PhoneIndexSource.PHOTOS -> Intent.CATEGORY_APP_GALLERY
+        PhoneIndexSource.PHOTOS -> Intent.CATEGORY_APP_GALLERY
+        // API 29's constant is a plain string, so it compiles here; an older phone finds no app and does nothing.
+        PhoneIndexSource.FILES -> "android.intent.category.APP_FILES"
         // The notification row already opens the app that posted it.
         PhoneIndexSource.NOTIFICATIONS -> return null
     }

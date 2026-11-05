@@ -335,7 +335,7 @@ fun ModelManagerScreen(
                 importError = context.getString(R.string.vision_file_not_gguf, name)
             } else {
                 try {
-                    val copied = copyProjector(uri, name) { done, total ->
+                    val copied = copy(uri, name) { done, total ->
                         scope.launch { copying = name to (done to total) }
                     }
                     link(target, copied.absolutePath)

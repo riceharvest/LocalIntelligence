@@ -538,7 +538,7 @@ class LlamaCppBackend(
      *    prefix, whatever the repository named it (`mmproj-X.gguf`,
      *    `X-mmproj.gguf` as Gemma 4 does).
      *  - Copied in by hand: by name stem, `LFM3-Omni-2B-Q4_K_M.gguf` pairs with
-     *    `mmproj-LFM3-Omni-2B-Q8_0.gguf`.
+     *    `mmproj-LFM3-Omni-2B-Q8_0.gguf` or `LFM3-Omni-2B-mmproj-Q8_0.gguf`.
      *
      * Only plain files are searched; a model opened through the document picker
      * has no directory to look in.
@@ -555,8 +555,13 @@ class LlamaCppBackend(
         }
         val stem = stemOf(modelFile.name)
         return projectors.firstOrNull {
-            it.name.startsWith("mmproj", ignoreCase = true) &&
-                stemOf(it.name.removePrefix("mmproj-").removePrefix("mmproj_")).equals(stem, ignoreCase = true)
+            // `mmproj-<stem>.gguf`, or `<stem>-mmproj.gguf` as Gemma 4 names it.
+            val projectorStem = if (it.name.startsWith("mmproj", ignoreCase = true)) {
+                stemOf(it.name.removePrefix("mmproj-").removePrefix("mmproj_"))
+            } else {
+                stemOf(it.name.replace(Regex("[-_.]mmproj", RegexOption.IGNORE_CASE), ""))
+            }
+            projectorStem.equals(stem, ignoreCase = true)
         }
     }
 
