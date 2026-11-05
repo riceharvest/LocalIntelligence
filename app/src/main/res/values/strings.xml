@@ -763,6 +763,19 @@
     <string name="starter_battery">How much battery do I have?</string>
     <string name="starter_timer">Set a timer for 10 minutes</string>
     <string name="starter_wake">Wake me up at 7 tomorrow</string>
+    <string name="starter_weather">What\'s the weather in Amsterdam?</string>
+    <string name="starter_sum">What is 17 times 23?</string>
+    <string name="starter_web">Open wikipedia.org</string>
+    <string name="starter_capability">It can set timers and alarms, do sums and answer questions. It runs on this phone, so it works without internet. Weather and web pages need a connection.</string>
+    <string name="starter_privacy">Your chats stay on this phone. Web searches use the internet.</string>
+    <string name="starter_queued">I\'ll send your message as soon as the assistant is ready.</string>
+    <string name="starter_example_wait">Send or clear your message first, then tap an example.</string>
+    <string name="starter_eta_under_minute">Less than a minute left</string>
+    <plurals name="starter_eta_minutes">
+        <item quantity="one">About %1$d minute left</item>
+        <item quantity="other">About %1$d minutes left</item>
+    </plurals>
+    <string name="assistant_download_name">Your assistant</string>
     <string name="fit_too_big">Too big</string>
     <string name="fit_fits">Fits</string>
     <string name="fit_tight">Tight</string>
@@ -1149,7 +1162,7 @@
     <string name="plain_storage_full">Your phone is out of storage. Free up some space, then try again.</string>
     <string name="plain_low_memory">This phone is low on memory. Close a few apps and try again.</string>
     <string name="plain_load_failed">The assistant couldn\'t start on this phone. Try again, or restart the app.</string>
-    <string name="plain_cant_run">This phone can\'t run the assistant.</string>
+    <string name="plain_cant_run">This phone can\'t run the assistant. Close other apps, then try again.</string>
     <string name="plain_download_failed">The download didn\'t finish. Check your connection, then try again.</string>
     <string name="plain_not_ready">Getting ready. Send your message again in a moment.</string>
     <string name="plain_too_long">That message is too long. Try a shorter one.</string>
