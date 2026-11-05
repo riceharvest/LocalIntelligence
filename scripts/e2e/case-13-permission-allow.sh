@@ -14,7 +14,7 @@ adb emu geo fix 4.6358 52.3874 >/dev/null 2>&1 || true
 check_one() {
   local name="$1" perm="$2" question="$3" sentence="$4" allow="$5" answer_rx="$6"
   echo "--- $name"
-  adb shell pm revoke "$PKG" "$perm" >/dev/null 2>&1
+  adb shell pm clear-permission-flags "$PKG" "$perm" user-set user-fixed >/dev/null 2>&1; adb shell pm revoke "$PKG" "$perm" >/dev/null 2>&1
   perm_granted "$perm" && fail "$name: $perm is still granted after pm revoke"
   # A new process each time, so 'asked once per process' does not hide the next sentence.
   restart_app || fail "$name: the app did not restart"

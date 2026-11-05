@@ -10,7 +10,7 @@ install_and_ready
 bg_run() {
   local name="$1" perm="$2" question="$3" how="$4" limit=100
   echo "--- $name ($how)"
-  adb shell pm revoke "$PKG" "$perm" >/dev/null 2>&1
+  adb shell pm clear-permission-flags "$PKG" "$perm" user-set user-fixed >/dev/null 2>&1; adb shell pm revoke "$PKG" "$perm" >/dev/null 2>&1
   restart_app || fail "$name: the app did not restart"
   wait_state_field modelState ready 120 || fail "$name: no model"
   dctl newchat >/dev/null; sleep 2

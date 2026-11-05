@@ -11,7 +11,7 @@ adb emu geo fix 4.6358 52.3874 >/dev/null 2>&1 || true
 deny_one() {
   local name="$1" perm="$2" question="$3" sentence="$4" deny="$5"
   echo "--- $name"
-  adb shell pm revoke "$PKG" "$perm" >/dev/null 2>&1
+  adb shell pm clear-permission-flags "$PKG" "$perm" user-set user-fixed >/dev/null 2>&1; adb shell pm revoke "$PKG" "$perm" >/dev/null 2>&1
   restart_app || fail "$name: the app did not restart"
   wait_state_field modelState ready 120 || fail "$name: no model"
   send_q "$question"
@@ -32,11 +32,14 @@ deny_one() {
 # After the denial, the same question again: the sentence must not come back.
 no_nag() {
   local name="$1" question="$2" sentence="$3"
+  launch; sleep 2   # the person comes back to the app (the calendar app may be in front)
   send_q "$question"
   local t0; t0="$(now)"
   while (( $(now) - t0 < 150 )); do
     if on_screen "$sentence"; then fail "$name: asked again after a denial"; fi
     [[ "$(state_field running)" == "false" ]] && break
+    # The small model sometimes wanders to an unrelated tool that needs an OK; the test says no.
+    [[ "$(state_field runState)" == "AwaitingApproval" ]] && dctl approve deny 5 >/dev/null 2>&1
     sleep 2
   done
   [[ "$(state_field running)" == "false" ]] || fail "$name: the second question never finished"
@@ -59,7 +62,7 @@ no_nag calendar "What is on my calendar on Friday?" "permission to read it"
 # Location: the assistant asks for a city, and says why.
 deny_one location android.permission.ACCESS_COARSE_LOCATION "Where am I right now?" "approximate location" "Don’t allow"
 echo "$DENY_STEPS" | grep -qi "location" || fail "location: the location tool never ran"
-[[ "$DENY_ANSWER" =~ (city|place|where|which|town) ]] || fail "location: the answer does not ask for a place: $DENY_ANSWER"
+[[ "$DENY_ANSWER" == *"?"* && "$DENY_ANSWER" =~ (city|town|place|area|located) ]] || fail "location: the answer does not ask for a place: $DENY_ANSWER"
 no_nag location "Where am I?" "approximate location"
 assert_no_banned_words
 case_end "contacts, calendar, location: fallbacks taken, no second sentence"

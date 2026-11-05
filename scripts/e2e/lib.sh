@@ -561,3 +561,13 @@ last_answer() { dctl state | sed -n 's/.*"lastAnswer":"\(.*\)"}$/\1/p'; }
 
 # The text of every tool step in the transcript, for judging what a tool told the model.
 tool_steps() { dctl transcript | python3 -I -c 'import json,sys; [print(r.get("tool"),"|",r.get("success"),"|",r.get("text")) for r in json.load(sys.stdin)["rows"] if r["role"]=="tool"]'; }
+
+# Taps the first switch on the current settings page (a system page the app opened).
+tap_switch() {
+  local xy
+  ui_dump || fail "could not read the settings page"
+  xy="$(ui switch "$OUT/ui.xml")" || fail "no switch on this page: $(screen_text_all | tr '\n' '|' | head -c 300)"
+  # shellcheck disable=SC2086
+  adb shell input tap $xy
+  echo "  tap: switch at $xy"
+}

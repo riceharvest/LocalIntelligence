@@ -81,6 +81,13 @@ def main():
         if best is None:
             sys.exit(1)
         print(best[1], best[2])
+    elif cmd == "switch":
+        # The first on/off switch on screen (a settings page's toggle): "x y".
+        for n, (x1, y1, x2, y2) in nodes(dump, pkg):
+            if "Switch" in (n.get("class") or "") or "Toggle" in (n.get("class") or ""):
+                print((x1 + x2) // 2, (y1 + y2) // 2)
+                return
+        sys.exit(1)
     elif cmd == "has":
         rx = re.compile(rest[0], re.I)
         for n, _ in nodes(dump, pkg):
