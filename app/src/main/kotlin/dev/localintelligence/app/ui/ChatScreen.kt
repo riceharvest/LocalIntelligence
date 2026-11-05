@@ -278,6 +278,10 @@ fun ChatScreen(
     val canRetry = !busy && lastUserReplayable && lastAnswerIndex > lastUserIndex &&
         (runState as? RunState.Finished)?.outcome is RunOutcome.Answer
     val canEdit = !busy && lastUserReplayable
+    // Simple mode offers Retry after a run that ended without an answer too. It resends the last message
+    // (retryLast), so the person is never left at a dead end. Technical mode keeps its own notice as it was.
+    val endedWithoutAnswer = (runState as? RunState.Finished)?.outcome.let { it is RunOutcome.Failed || it === RunOutcome.StepLimitReached }
+    val canRetryFailure = !technical && !busy && lastUserReplayable && endedWithoutAnswer
 
     // Read only while the chat is empty: the persona choice is offered there and nowhere else.
     val chatEmpty = messages.isEmpty()
@@ -613,7 +617,10 @@ fun ChatScreen(
                                 )
                             }
                         }
-                        is ChatMessage.Notice -> NoticeLine(message.textRes?.let { stringResource(it) } ?: message.text)
+                        is ChatMessage.Notice -> NoticeLine(
+                            message.textRes?.let { stringResource(it) } ?: message.text,
+                            onRetry = if (canRetryFailure && message === messages.last()) { { viewModel.retryLast() } } else null,
+                        )
                         is ChatMessage.Transcript -> TranscriptCard(message) { viewModel.saveTranscript(it) }
                         is ChatMessage.Approval -> ApprovalRow(message)
                         is ChatMessage.ToolStep -> ToolStepRow(
@@ -1013,14 +1020,18 @@ private fun TranscriptCard(message: ChatMessage.Transcript, onSave: (String) -> 
 }
 
 @Composable
-private fun NoticeLine(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-    )
+private fun NoticeLine(text: String, onRetry: (() -> Unit)? = null) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        if (onRetry != null) {
+            TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
+        }
+    }
 }
 
 /**

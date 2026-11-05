@@ -868,7 +868,22 @@ class ChatViewModel(
         }
         // A repetition stop is not a failure to explain: say what happened, in the app's own words.
         val repeated = outcome is RunOutcome.Failed && outcome.reason == REPETITION_STOP_REASON
-        appendRows(listOf(if (repeated) ChatMessage.Notice(REPEATED_STOP_TEXT, R.string.chat_repetition_stopped) else ChatMessage.Notice(notice)))
+        // Simple mode says what worked before it stopped ("Done so far: Set timer."), so the person is not
+        // left thinking nothing happened. Technical mode has no such sentence and keeps its line as it was.
+        val simple = plainFailure(null) != null
+        val done = if (simple && (outcome is RunOutcome.Failed || outcome is RunOutcome.StepLimitReached)) {
+            SimpleWording.doneSummary(context, steps)
+        } else {
+            null
+        }
+        val row = when {
+            done != null -> ChatMessage.Notice(
+                done + " " + if (repeated) context.getString(R.string.chat_repetition_stopped) else notice,
+            )
+            repeated -> ChatMessage.Notice(REPEATED_STOP_TEXT, R.string.chat_repetition_stopped)
+            else -> ChatMessage.Notice(notice)
+        }
+        appendRows(listOf(row))
     }
 
     /**
@@ -1688,7 +1703,7 @@ internal fun RunOutcome.transcriptLine(context: Context, plainFailure: (SimpleWo
     } else {
         context.getString(R.string.plain_something_went_wrong)
     }
-    RunOutcome.StepLimitReached -> context.getString(R.string.chat_couldnt_finish)
+    RunOutcome.StepLimitReached -> plainFailure(SimpleWording.Kind.STEP_LIMIT) ?: context.getString(R.string.chat_couldnt_finish)
     RunOutcome.Cancelled -> context.getString(R.string.chat_stopped)
     is RunOutcome.Answer -> notice(context)
 }

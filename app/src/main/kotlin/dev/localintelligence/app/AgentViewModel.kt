@@ -5,6 +5,7 @@ import dev.localintelligence.app.screen.ScreenRun
 import dev.localintelligence.app.media.PendingAttachments
 import dev.localintelligence.core.agent.AgentController
 import dev.localintelligence.core.agent.AgentResult
+import dev.localintelligence.core.agent.StopKind
 import dev.localintelligence.core.agent.StepTrace
 import dev.localintelligence.core.model.MediaInput
 import dev.localintelligence.core.tool.ToolRisk
@@ -356,6 +357,7 @@ class AgentViewModel(
             AgentResult.Stop(
                 reason = CANCELLED_REASON,
                 trace = sinks.trace.value,
+                kind = StopKind.INTERRUPTED,
             ),
         )
         sinks.streamingText.value = ""
@@ -392,7 +394,7 @@ class AgentViewModel(
                 sinks.trace.value = result.trace
                 // A core reason is English and nothing has localized it, so its kind is matched here,
                 // before any display. A reason the app built from localized text carries its kind.
-                val kind = result.kind?.let { SimpleWording.Kind.valueOf(it) }
+                val kind = SimpleWording.named(result.kind)
                     ?: if (result.localized) null else SimpleWording.kindOf(result.reason)
                 sinks.state.value = RunState.Finished(RunOutcome.Failed(result.reason, kind))
             }

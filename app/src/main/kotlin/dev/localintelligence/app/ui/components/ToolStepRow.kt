@@ -813,6 +813,13 @@ private fun firstLine(text: String): String =
 /** "Checking battery" while it runs, "Checked battery" after, "check battery" in "Couldn't check battery". */
 private class ToolVerb(@StringRes val present: Int, @StringRes val past: Int, @StringRes val base: Int)
 
+/**
+ * The past-tense phrase for a finished tool in Simple wording ("Set timer"), or null for a tool that has
+ * no phrase of its own. Used to say what worked when a run stops before its answer.
+ */
+internal fun donePhrase(context: android.content.Context, toolName: String): String? =
+    toolVerbs[toolName]?.let { context.getString(it.past) }
+
 /** A verb phrase in the phone's language, ready to show. */
 private class ResolvedVerb(val present: String, val past: String, val base: String)
 

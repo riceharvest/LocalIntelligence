@@ -1798,4 +1798,16 @@
     <!-- PhoneHitsRow.kt and TelegramPanel.kt -->
     <string name="phone_hit_label">%1$s: %2$s</string>
     <string name="telegram_chat_label">%1$s (%2$s)</string>
+
+    <!-- How a run ended without an answer, in Simple words. Each has a next step; Retry resends. -->
+    <string name="plain_stop_loop">I got stuck repeating a step, so I stopped. Try asking again, or ask for one thing at a time.</string>
+    <string name="plain_stop_no_progress">I kept getting the same result, so I stopped. Try asking again in fewer words.</string>
+    <string name="plain_stop_no_action">I couldn\'t work out the next step, so I stopped. Try asking again in fewer words.</string>
+    <string name="plain_stop_empty">I didn\'t get an answer to show you. Try asking again.</string>
+    <string name="plain_stop_assistant_failed">The assistant stopped part way through. Try again.</string>
+    <string name="plain_stop_nothing_pending">There is nothing to continue. Send your request again.</string>
+    <string name="plain_stop_cant_see">I can\'t look at pictures yet. Try describing it in words.</string>
+    <string name="plain_stop_interrupted">The task was interrupted before it finished. Try again.</string>
+    <string name="plain_stop_steps">I couldn\'t finish that in the steps I had. Try asking for one thing at a time.</string>
+    <string name="plain_done_so_far">Done so far: %1$s.</string>
 </resources>
