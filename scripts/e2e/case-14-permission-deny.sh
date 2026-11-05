@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Case 14: the same revoked permissions, but the person taps Don't allow. The fallback happens (the calendar
+# Case 14: the same revoked permissions, but the person taps Don’t allow. The fallback happens (the calendar
 # app opens, or the assistant asks for a city and says so), the answer is plain, and the next question in the
 # same session does not nag with the sentence again.
 source "$(dirname "$0")/lib.sh"
@@ -20,7 +20,7 @@ deny_one() {
   wait_text "$deny" 30 || fail "$name: no system dialog with '$deny'"
   tap_text "$deny"
   sleep 2
-  wait_run_end 240 || fail "$name: the run never ended after Don't allow"
+  wait_run_end 240 || fail "$name: the run never ended after Don’t allow"
   perm_granted "$perm" && fail "$name: granted although denied"
   DENY_ANSWER="$(last_answer)"
   echo "  answer: $DENY_ANSWER"
@@ -44,20 +44,20 @@ no_nag() {
 }
 
 # Contacts: the fallback is to ask the person for the number or name.
-deny_one contacts android.permission.READ_CONTACTS "Do I have a contact called Anna?" "read your contacts" "Don't allow"
+deny_one contacts android.permission.READ_CONTACTS "Do I have a contact called Anna?" "read your contacts" "Don’t allow"
 echo "$DENY_STEPS" | grep -qi "contacts" || fail "contacts: the contacts tool never ran"
 no_nag contacts "Do I have a contact called Bob?" "read your contacts"
 
 # Calendar: the calendar app opens on the day (Simple mode's fallback), and the run says so.
-deny_one calendar android.permission.READ_CALENDAR "What is on my calendar tomorrow?" "calendar" "Don't allow"
+deny_one calendar android.permission.READ_CALENDAR "What is on my calendar tomorrow?" "permission to read it" "Don’t allow"
 echo "$DENY_STEPS" | grep -qi "calendar" || fail "calendar: the calendar tool never ran"
 echo "$DENY_STEPS" | grep -Eqi "calendar app is open|add it themselves" || fail "calendar: no fallback wording: $DENY_STEPS"
 fg="$(adb shell dumpsys activity activities | tr -d '\r' | grep -E "mResumedActivity|topResumedActivity" | head -2)"
 echo "  foreground after the denial: $fg"
-no_nag calendar "What is on my calendar on Friday?" "your calendar"
+no_nag calendar "What is on my calendar on Friday?" "permission to read it"
 
 # Location: the assistant asks for a city, and says why.
-deny_one location android.permission.ACCESS_COARSE_LOCATION "Where am I right now?" "approximate location" "Don't allow"
+deny_one location android.permission.ACCESS_COARSE_LOCATION "Where am I right now?" "approximate location" "Don’t allow"
 echo "$DENY_STEPS" | grep -qi "location" || fail "location: the location tool never ran"
 [[ "$DENY_ANSWER" =~ (city|place|where|which|town) ]] || fail "location: the answer does not ask for a place: $DENY_ANSWER"
 no_nag location "Where am I?" "approximate location"

@@ -41,7 +41,7 @@ check_one() {
 check_one contacts android.permission.READ_CONTACTS "Do I have a contact called Anna?" \
   "read your contacts" "Allow" "."
 check_one calendar android.permission.READ_CALENDAR "What is on my calendar tomorrow?" \
-  "calendar" "Allow" "."
+  "permission to read it" "Allow" "."
 check_one location android.permission.ACCESS_COARSE_LOCATION "Where am I right now?" \
   "approximate location" "While using the app" "."
 case_end "contacts, calendar, location: sentence, Allow, run continued and answered"

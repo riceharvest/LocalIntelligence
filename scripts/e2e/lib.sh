@@ -507,6 +507,12 @@ restart_app() {
 
 # Fresh install, first run to a ready model, ready for the case to start. Sets READY_SECS.
 install_and_ready() {
+  # E2E_REUSE=1 (while developing a case): keep the install and its model when the assistant is already ready.
+  if [[ "${E2E_REUSE:-}" == 1 ]] && adb shell pm path "$PKG" | grep -q package: && restart_app 2>/dev/null \
+     && wait_state_field modelState ready 90; then
+    echo "  (reusing the installed app)"
+    return 0
+  fi
   hubctl "reset=1"; hub_log_clear
   fresh_install
   adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 || true
@@ -527,7 +533,11 @@ ask_battery() {
 # ---------------------------------------------------------------------------------------------
 
 # True when the app holds the runtime permission now.
-perm_granted() { adb shell "dumpsys package $PKG" | tr -d '\r' | grep -q "$1: granted=true"; }
+perm_granted() {
+  local dump
+  dump="$(adb shell "dumpsys package $PKG" | tr -d '\r')"   # captured first: grep -q would SIGPIPE the pipe under pipefail
+  [[ "$dump" == *"$1: granted=true"* ]]
+}
 
 # Starts a question without waiting for the end of the run (the access sentence needs a tap first).
 send_q() {
