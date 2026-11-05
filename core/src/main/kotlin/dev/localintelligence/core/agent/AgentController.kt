@@ -127,6 +127,10 @@ val NATIVE_CORE_TOOLS: List<String> = listOf(
     "location.get",
     "weather.get",
     "todo.update",
+    // Measured: without these the model tried phone.media and tools.find first, and "volume, DND and a timer" failed.
+    "phone.volume",
+    "phone.dnd",
+    "phone.flashlight",
 )
 
 /**
@@ -366,6 +370,9 @@ class AgentController(
     /** Once per run: the answer check has already told the model about a value with no source. */
     private var answerRetried: Boolean = false
 
+    /** The one retry for a reply in the wrong language, per run. */
+    private var languageRetried: Boolean = false
+
     /** True while a resumed run is going: its non-read-only steps wait for the user. See [resume]. */
     private var resuming: Boolean = false
     private var pending: PendingCall? = null
@@ -489,6 +496,7 @@ class AgentController(
         savedObservation = false
         handleRetried = false
         answerRetried = false
+        languageRetried = false
         heldReply = null
         searchResultUrls.clear()
         runBlocked.clear()
@@ -523,6 +531,7 @@ class AgentController(
         savedObservation = false
         handleRetried = false
         answerRetried = false
+        languageRetried = false
         heldReply = null
         searchResultUrls.clear()
         runBlocked.clear()
@@ -880,12 +889,16 @@ class AgentController(
             }
             val emptyReply = parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond &&
                 (parsed.action as AgentAction.Respond).text.isBlank()
+            val wrongLanguage = !stopped && !idRetry && !emptyReply && unsupported == null && !languageRetried &&
+                parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond &&
+                ReplyLanguage.mismatch(task, (parsed.action as AgentAction.Respond).text)
             val rejection: String? = when {
                 stopped -> null
                 parsed is ActionParseResult.Malformed -> parsed.reason
                 idRetry -> "the reply names an internal id"
                 emptyReply -> "the reply was empty"
                 unsupported != null -> "the reply gives a value no tool result shows"
+                wrongLanguage -> "the reply is not in the language of the message"
                 else -> null
             }
             trace += StepTrace(
@@ -972,6 +985,11 @@ class AgentController(
                             answerRetried = true
                             heldReply = HeldReply(action.text, generation.text)
                             sessions.observe(answerCorrection(unsupported))
+                        } else if (wrongLanguage) {
+                            // Same shape: once per run, and the first reply is kept if the retry is no reply.
+                            languageRetried = true
+                            heldReply = HeldReply(action.text, generation.text)
+                            sessions.observe(LANGUAGE_CORRECTION)
                         } else {
                             val text = shownReply(
                                 if (savedObservation && INTERNAL_HANDLE_RE.containsMatchIn(action.text)) {
@@ -1415,6 +1433,8 @@ class AgentController(
         // one already gave. A lookup changes nothing, so after this many the model answers from what it has.
         val lookupLimit = when {
             call.name == "web.search" || call.name == "web.fetch" -> MAX_WEB_CALLS_PER_TOOL
+            // Paging through one saved page is the slowest thing a run can do: each page is re-read in full.
+            call.name == ObservationStore.READ_TOOL -> MAX_PAGE_READS
             call.tool.definition.risk == ToolRisk.READ_ONLY -> MAX_LOOKUPS_PER_TOOL
             else -> null
         }
@@ -2920,7 +2940,13 @@ class AgentController(
         const val MAX_LOOKUPS_PER_TOOL = 3
 
         /** Measured: a price question took over 5 minutes of searching, opening and paging through one page. */
-        const val MAX_LOOKUPS_PER_RUN = 5
+        const val MAX_LOOKUPS_PER_RUN = 4
+
+        const val MAX_PAGE_READS = 1
+
+        const val LANGUAGE_CORRECTION =
+            "Write that same reply again in the language of the user's last message. Do not call a tool. " +
+                "Do not mention this note."
 
         /** Measured: search, open, search, open, open, read, read, read took 269 s and ran out of steps. */
         const val MAX_WEB_CALLS_PER_TOOL = 2
