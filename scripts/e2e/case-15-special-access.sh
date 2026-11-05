@@ -54,9 +54,9 @@ ask_until_sentence() {
   return 1
 }
 
-# one_access KEY QUESTION SENTENCE_RX PAGE_RX
+# one_access KEY QUESTION SENTENCE_RX PAGE_RX INTENDED_TOOLS_RX
 one_access() {
-  local key="$1" question="$2" sentence="$3" page="$4"
+  local key="$1" question="$2" sentence="$3" page="$4" intended="$5"
   echo "--- $key: allow"
   access_off "$key"; access_on "$key" && fail "$key: still on after switching it off"
   restart_app || fail "$key: no restart"
@@ -98,6 +98,8 @@ one_access() {
   finish_run 240 || fail "$key: the run never ended after Not now"
   answer="$(last_answer)"
   echo "  answer: $answer"
+  local wandered; wandered="$(wander_names "$intended")"
+  [[ -z "$wandered" ]] || fail "$key: after Not now the run wandered to tools the question did not ask for: $wandered"
   if [[ -z "$answer" || "$answer" == null ]]; then
     # The small model sometimes wanders to unrelated tools after a refusal; the run must then end with the app's
     # own plain stop sentence and a Retry, never silence.
@@ -111,7 +113,7 @@ one_access() {
 }
   # (No banned-word scan of the reply: that text is written by the small model, not by the app.)
 
-[[ -z "${E2E_KEYS:-}" || " $E2E_KEYS " == *" dnd "* ]] && one_access dnd "Turn on Do Not Disturb" "Do Not Disturb access page" "Do Not Disturb"
-[[ -z "${E2E_KEYS:-}" || " $E2E_KEYS " == *" listener "* ]] && one_access listener "Pause the music" "notification access page" "[Nn]otification"
-[[ -z "${E2E_KEYS:-}" || " $E2E_KEYS " == *" alarm "* ]] && one_access alarm "Set an alarm for 7:30 three days from now" "alarms and reminders" "[Aa]larms"
+[[ -z "${E2E_KEYS:-}" || " $E2E_KEYS " == *" dnd "* ]] && one_access dnd "Turn on Do Not Disturb" "Do Not Disturb access page" "Do Not Disturb" '^phone\.dnd'
+[[ -z "${E2E_KEYS:-}" || " $E2E_KEYS " == *" listener "* ]] && one_access listener "Pause the music" "notification access page" "[Nn]otification" '^phone\.media'
+[[ -z "${E2E_KEYS:-}" || " $E2E_KEYS " == *" alarm "* ]] && one_access alarm "Set an alarm for 7:30 three days from now" "alarms and reminders" "[Aa]larms" '^alarm\.'
 case_end "DND, notification listener, exact alarm: page round trip continues the run; Not now ends plainly"

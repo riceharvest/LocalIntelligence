@@ -37,10 +37,10 @@ trap cleanup EXIT
 
 shopt -s nullglob
 for script in "$HERE"/case-*.sh; do
-  num="$(basename "$script" | sed -n 's/^case-\([0-9]*\)-.*/\1/p')"
+  num="$(basename "$script" | sed -n 's/^case-\([0-9]*[a-z]*\)-.*/\1/p')"
   if (( ${#WANT[@]} )); then
     keep=0
-    for w in "${WANT[@]}"; do [[ "$((10#$w))" == "$((10#$num))" ]] && keep=1; done
+    for w in "${WANT[@]}"; do [[ "$w" == "$num" || "$w" == "${num#0}" ]] && keep=1; done
     (( keep )) || continue
   fi
   hubctl "reset=1"

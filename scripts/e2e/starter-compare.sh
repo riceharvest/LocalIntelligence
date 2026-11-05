@@ -25,31 +25,7 @@ first_run_to_ready 600
 TSV="$OUT/starter-compare-$AVD.tsv"; : > "$TSV"
 QUESTIONS=("hi" "Give me a sleep tip" "What is 17 times 23?" "How much battery do I have?")
 
-judge() { # question line -> prints ok|why
-  python3 -I - "$1" "$2" <<'PY'
-import json, re, sys
-q, raw = sys.argv[1], sys.argv[2]
-try:
-    j = json.loads(raw)
-except Exception:
-    print("no-json"); sys.exit()
-out = j.get("outcome")
-tools = [t.get("name") for t in j.get("tools", []) if t.get("name") and t.get("name") != "tools.find"]
-ans = (j.get("answer") or "").strip()
-refuse = re.search(r"\b(can't|cannot|can not|unable|not able|sorry|don't have|do not have|i am just)\b", ans, re.I)
-if out == "awaiting_approval": print("approval-card"); sys.exit()
-if out != "answer": print("outcome-" + str(out)); sys.exit()
-if q == "hi":
-    print("tool:" + ",".join(tools) if tools else ("refusal" if refuse else ("ok" if ans else "empty")))
-elif q == "Give me a sleep tip":
-    print("tool:" + ",".join(tools) if tools else ("refusal" if refuse else ("ok" if len(ans) >= 25 else "short")))
-elif q == "What is 17 times 23?":
-    bad = [t for t in tools if not t.startswith("calc") and not t.startswith("math")]
-    print("tool:" + ",".join(bad) if bad else ("ok" if "391" in ans.replace(",", "") else "wrong"))
-else:
-    print("ok" if "device.battery" in tools and re.search(r"\d+ ?%", ans) else ("no-battery-tool:" + ",".join(tools)))
-PY
-}
+judge() { python3 -I "$E2E_DIR/judge.py" "$1" "$2"; }
 
 for f in "$@"; do
   base="$(basename "$f")"

@@ -48,7 +48,7 @@ broadcast() {
 }
 
 case "$CMD" in
-  state|newchat|models|transcript)
+  state|newchat|models|transcript|pinwidget)
     broadcast "$CMD" ""
     ;;
   send|usemodel|mode|searchblock|script|searchroute)
