@@ -381,9 +381,22 @@ def bring_to_front(serial, package) -> None:
     time.sleep(1.5)
 
 
+def wait_until_idle(serial, limit_s=400) -> None:
+    """A run that outlasted its timeout is still going, and the app refuses a new one until it ends."""
+    end = time.time() + limit_s
+    while time.time() < end:
+        state = devicectl(serial, "state")
+        if state.get("pendingApproval"):
+            devicectl(serial, "approve", "deny", "200", timeout=300)
+        elif not state.get("running"):
+            return
+        time.sleep(5)
+
+
 def run_device_task(serial, task, package, timeout_s, stats) -> dict:
     turns = []
     bring_to_front(serial, package)
+    wait_until_idle(serial)
     # A task that timed out can leave its run parked on an approval, which would refuse every later task.
     if devicectl(serial, "state").get("pendingApproval"):
         devicectl(serial, "approve", "deny")
@@ -393,6 +406,7 @@ def run_device_task(serial, task, package, timeout_s, stats) -> dict:
         if task.get("new_session_per_turn"):
             devicectl(serial, "newchat")
         bring_to_front(serial, package)
+        wait_until_idle(serial)
         rec = devicectl(serial, "ask", turn, str(timeout_s), timeout=timeout_s + 120)
         if rec.get("outcome") is None:
             return {"error": rec.get("error", "no DONE line"), "turns": turns}
