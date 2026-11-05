@@ -506,6 +506,7 @@ def main() -> int:
     ap.add_argument("--desktop-label", default="desktop", help="desktop: host label recorded in the result")
     ap.add_argument("--server-pid", type=int, default=None, help="desktop: llama-server pid, for peak memory")
     ap.add_argument("--only", default=None, help="comma-separated task ids to run")
+    ap.add_argument("--mode", choices=["technical", "simple"], default="technical", help="app mode for the run; simple is for test phones")
     ap.add_argument("--fresh", action="store_true", help="discard an existing result file first")
     ap.add_argument("--dry-run", action="store_true", help="validate the tasks and print the plan, run nothing")
     args = ap.parse_args()
@@ -580,7 +581,8 @@ def main() -> int:
         prev_mode = None
         state = devicectl(args.serial, "state")
         prev_mode = state.get("mode")
-        devicectl(args.serial, "mode", "technical")  # Simple mode auto-accepts the call and message tiers.
+        # Technical by default: Simple auto-accepts the call and message tiers, so use --mode simple only on a test phone.
+        devicectl(args.serial, "mode", args.mode)
         try:
             for rep in repeats:
                 for task in tasks:
