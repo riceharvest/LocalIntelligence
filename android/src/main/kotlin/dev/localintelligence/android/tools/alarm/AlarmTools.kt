@@ -839,7 +839,7 @@ class AlarmCreateTool(
                 if (reachable && platform.setInClockApp(hour, minute, label)) {
                     return@guarded ToolResult(
                         success = true,
-                        observation = "Set an alarm for %02d:%02d in the clock app. It rings the next time the clock shows that, and can be changed or cancelled there."
+                        observation = "Alarm set for %02d:%02d. It rings at that time, and can be changed or cancelled in the clock app."
                             .format(Locale.ROOT, hour, minute),
                         data = buildJsonObject {
                             put("hour", hour)

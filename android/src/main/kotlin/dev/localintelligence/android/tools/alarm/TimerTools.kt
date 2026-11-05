@@ -108,8 +108,8 @@ class TimerSetTool(private val appContext: Context) : AgentTool {
             val named = if (label != null) " \"$label\"" else ""
             ToolResult(
                 success = true,
-                observation = "Set a${named} timer for ${describeDuration(seconds)} in the clock app. " +
-                    "It runs there in the background.",
+                observation = "Set a${named} timer for ${describeDuration(seconds)}. " +
+                    "It keeps running when the app is closed.",
                 data = buildJsonObject {
                     put("seconds", seconds)
                     if (label != null) put("label", label)
