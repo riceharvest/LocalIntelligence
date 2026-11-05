@@ -372,6 +372,9 @@ class MainActivity : FragmentActivity() {
                                 viewModel = chat,
                                 onOpenModels = { nav.navigate(ROUTE_MODELS) },
                                 onOpenSettings = { nav.navigate(ROUTE_SETTINGS) },
+                                onAskDesktop = if (BuildConfig.FULL_BUILD) {
+                                    { question -> nav.navigate("$ROUTE_DESKTOP?ask=${Uri.encode(question)}") }
+                                } else null,
                                 modifier = Modifier.fillMaxSize(),
                                 // Read here, where the screen is built, and passed down
                                 // as a plain Boolean: the screen never touches prefs.
@@ -864,14 +867,17 @@ class MainActivity : FragmentActivity() {
                         )
                     }
 
-                    composable(ROUTE_DESKTOP) {
+                    composable(
+                        route = "$ROUTE_DESKTOP?ask={ask}",
+                        arguments = listOf(navArgument("ask") { nullable = true; defaultValue = null }),
+                    ) { entry ->
                         // Full build only: the Settings row that opens this route is hidden in the Play build.
                         if (BuildConfig.FULL_BUILD) {
                             DesktopScreen(
                                 settings = container.settings,
                                 dao = container.desktopDao(),
                                 onBack = { nav.popBackStack() },
-                                onOpenSettings = { nav.popBackStack() },
+                                initialQuestion = entry.arguments?.getString("ask"),
                             )
                         }
                     }
