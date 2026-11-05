@@ -575,7 +575,7 @@ class ExecutionService : Service() {
             // cancellation, reported with the same reason constant
             // `AgentViewModel` uses for a scope torn down mid-run.
             interruptedIfUnfinished -> RunState.Finished(
-                RunOutcome.Failed(AgentViewModel.CANCELLED_REASON),
+                RunOutcome.Failed(AgentViewModel.CANCELLED_REASON, SimpleWording.Kind.INTERRUPTED),
             )
             // Still running. Reporting now would be inventing an outcome.
             else -> return
