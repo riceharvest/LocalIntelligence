@@ -84,6 +84,9 @@ internal const val SEARCH_USER_AGENT: String =
  */
 internal const val SEARCH_BUDGET_MS: Long = 20_000L
 
+/** One service's share of the budget, so a service that hangs does not use up the turn of one that works. */
+internal const val SEARCH_SERVICE_MS: Long = 6_000L
+
 /** How long a service that blocked us is skipped for the rest of the process. */
 internal const val SEARCH_COOLDOWN_MS: Long = 5L * 60L * 1000L
 
@@ -582,7 +585,7 @@ internal class WebSearcher(
                 if (leftMs <= 0L) break
                 if (SearchCooldown.isCoolingDown(service.id)) continue
 
-                when (val attempt = attempt(service, query, maxResults, context, leftMs)) {
+                when (val attempt = attempt(service, query, maxResults, context, minOf(leftMs, SEARCH_SERVICE_MS))) {
                     is ServiceAttempt.Found -> return found(query, attempt.hits, service.label)
                     ServiceAttempt.Empty -> answered += service.label
                     is ServiceAttempt.Blocked -> SearchCooldown.markBlocked(service.id)
