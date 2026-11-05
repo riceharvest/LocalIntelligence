@@ -44,8 +44,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -148,6 +151,8 @@ fun ChatComposer(
     onRemoveAttachment: (Int) -> Unit = {},
     /** Opens Settings. The chat has no app bar, so this is the way to every other screen. */
     onOpenSettings: () -> Unit = {},
+    /** Whether the gear sits in the action row. Simple shows Settings in the chat's top row instead. */
+    showSettingsEntry: Boolean = true,
     /**
      * Whether [blockedReason] is written above the field. The caller turns it off
      * while the empty chat already shows the same sentence in the middle.
@@ -162,6 +167,14 @@ fun ChatComposer(
         blockedReason == null &&
         !busy &&
         liveStatus == null
+
+    // The field is the one place the person types, so a send hands the cursor back to it.
+    // Without this the send button keeps focus, and the keyboard drops after every message.
+    val fieldFocus = remember { FocusRequester() }
+    val sendThenFocus: () -> Unit = {
+        onSend()
+        fieldFocus.requestFocus()
+    }
 
     Surface(tonalElevation = 3.dp, modifier = modifier.fillMaxWidth()) {
         Column(
@@ -264,19 +277,19 @@ fun ChatComposer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    SettingsEntry(onOpenSettings)
+                    if (showSettingsEntry) SettingsEntry(onOpenSettings)
                     MediaButtons(canAttach, canUseMic, micActive, handsFreeOn, canHandsFree, onAttach, onMic, onHandsFree)
                     ComposerField(
                         input = input,
                         onInputChange = onInputChange,
                         canSend = canSend,
-                        onSend = onSend,
-                        modifier = Modifier.weight(1f),
+                        onSend = sendThenFocus,
+                        modifier = Modifier.weight(1f).focusRequester(fieldFocus),
                     )
                     SendOrStopButton(
                         busy = busy,
                         canSend = canSend,
-                        onSend = onSend,
+                        onSend = sendThenFocus,
                         onStop = onStop,
                     )
                 }
@@ -285,10 +298,11 @@ fun ChatComposer(
                     input = input,
                     onInputChange = onInputChange,
                     canSend = canSend,
-                    onSend = onSend,
+                    onSend = sendThenFocus,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .focusRequester(fieldFocus),
                 )
 
                 Row(
@@ -298,7 +312,7 @@ fun ChatComposer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    SettingsEntry(onOpenSettings)
+                    if (showSettingsEntry) SettingsEntry(onOpenSettings)
                     MediaButtons(canAttach, canUseMic, micActive, handsFreeOn, canHandsFree, onAttach, onMic, onHandsFree)
 
                     // One slot, two states, same geometry. The button never moves
@@ -307,7 +321,7 @@ fun ChatComposer(
                     SendOrStopButton(
                         busy = busy,
                         canSend = canSend,
-                        onSend = onSend,
+                        onSend = sendThenFocus,
                         onStop = onStop,
                         // Takes the rest of the row, so the target spans from
                         // just past the media buttons to the right padding.

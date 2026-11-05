@@ -1141,6 +1141,11 @@
     <string name="get_started_plain">Get started</string>
     <string name="download_is_about_stays_on_phone">The download is about %1$s. It stays on your phone.</string>
     <string name="simple_steps_done">Looked into it</string>
+    <!-- The chat's own buttons in Simple: no word for the file behind the answer. -->
+    <string name="simple_set_up_chat">Set up chat</string>
+    <string name="simple_try_another_option">Try another option</string>
+    <string name="simple_other_options">Other options</string>
+    <string name="simple_copy_code">Copy code</string>
     <string name="simple_yes">Yes</string>
     <string name="simple_no">No</string>
     <string name="simple_step_not_finished">Didn\'t finish this step</string>
@@ -1685,6 +1690,13 @@
     <string name="setup_not_found">Couldn\'t find the assistant to download. Try again later.</string>
     <string name="setup_starter_would_not_start">The download finished, but the assistant would not start on this phone.</string>
     <string name="setup_embedding_not_loaded">Document search downloaded, but it could not start on this phone.</string>
+    <string name="setup_starter_cannot_run">This phone can\'t run the assistant.</string>
+    <string name="setup_embedding_cannot_download">This phone cannot download this model.</string>
+    <string name="setup_network_failed">Couldn\'t download. Check your internet connection and try again.</string>
+    <string name="setup_could_not_save">The download could not be saved. Free up some storage and try again.</string>
+    <string name="setup_not_found">Couldn\'t find the download. Try again later.</string>
+    <string name="setup_starter_would_not_start">The download finished, but it would not start on this phone.</string>
+    <string name="setup_embedding_not_loaded">The search model downloaded but could not be loaded.</string>
     <string name="sched_approval_skipped">An action that needed your approval was skipped.</string>
     <string name="sched_cancelled_user">Cancelled: stopped before it finished.</string>
     <string name="sched_cancelled_interrupted">Cancelled: the run was interrupted before it finished.</string>

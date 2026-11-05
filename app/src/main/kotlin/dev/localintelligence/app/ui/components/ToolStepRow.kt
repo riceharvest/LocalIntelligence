@@ -516,8 +516,7 @@ private fun ToolRow(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                // Two lines at large font sizes instead of an ellipsis; one line at the default size.
-                maxLines = 2,
+                // No line cap: a long translation wraps in full instead of being cut off mid-word.
                 modifier = Modifier.weight(1f),
             )
             StatusShape(state)
@@ -649,10 +648,12 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
 @Composable
 private fun StatusShape(state: ToolRowState) {
     val stateWord = stringResource(state.wordRes)
+    // Simple: a step that failed is a sentence in the row, not an alarm. Red is kept for Technical.
+    val quiet = !LocalTechnicalDetail.current
     val tint = when (state) {
         ToolRowState.Running -> MaterialTheme.colorScheme.primary
-        ToolRowState.Done -> MaterialTheme.colorScheme.primary
-        ToolRowState.Failed -> MaterialTheme.colorScheme.error
+        ToolRowState.Done -> if (quiet) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
+        ToolRowState.Failed -> if (quiet) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
         ToolRowState.Awaiting -> MaterialTheme.colorScheme.tertiary
         ToolRowState.Refused -> MaterialTheme.colorScheme.onSurfaceVariant
     }

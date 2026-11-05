@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -73,6 +74,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -101,9 +103,11 @@ import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.core.agent.ReplySpeed
 import dev.localintelligence.app.ui.components.ApprovalRow
 import dev.localintelligence.app.ui.components.ChatComposer
+import dev.localintelligence.app.ui.components.LocalTechnicalDetail
 import dev.localintelligence.app.ui.components.MarkdownText
 import dev.localintelligence.app.ui.components.PendingToolRow
 import dev.localintelligence.app.ui.components.RunningToolRow
+import dev.localintelligence.app.ui.components.SimpleChatTopRow
 import dev.localintelligence.app.ui.components.SentAttachments
 import dev.localintelligence.app.ui.components.ToolCallGroup
 import dev.localintelligence.app.ui.components.MemoryRow
@@ -496,6 +500,10 @@ fun ChatScreen(
         // window is already resized for the keyboard the same inset gets counted
         // twice.
         modifier = modifier,
+        topBar = {
+            // Simple's one way to Settings. Technical keeps the gear in its composer row.
+            if (!technical) SimpleChatTopRow(onOpenSettings = onOpenSettings)
+        },
         bottomBar = {
           Column {
             if (interrupted) {
@@ -527,10 +535,11 @@ fun ChatScreen(
                 onHandsFree = onHandsFree,
                 onRemoveAttachment = viewModel::removeAttachment,
                 onOpenSettings = onOpenSettings,
+                showSettingsEntry = technical,
                 showBlockedReason = messages.isNotEmpty(),
                 blockedAction = when (modelState) {
-                    ModelAvailability.None -> stringResource(R.string.download_a_model) to onOpenModels
-                    is ModelAvailability.Failed -> stringResource(R.string.choose_another_model) to onOpenModels
+                    ModelAvailability.None -> stringResource(if (technical) R.string.download_a_model else R.string.simple_set_up_chat) to onOpenModels
+                    is ModelAvailability.Failed -> stringResource(if (technical) R.string.choose_another_model else R.string.simple_try_another_option) to onOpenModels
                     else -> null
                 },
             )
@@ -583,11 +592,15 @@ fun ChatScreen(
                             } else {
                                 null
                             },
+                            // Simple keeps the pencil's row in place while a run is going, so it
+                            // does not appear under the bubble when the run ends. Disabled until then.
+                            reserveEdit = !technical && message === messages.getOrNull(lastUserIndex),
                         )
                         is ChatMessage.Assistant -> Column {
                             AssistantBubble(
                                 text = message.text,
-                                thought = message.thought,
+                                // Simple: the reasoning is not shown. Technical keeps its folded line.
+                                thought = if (technical) message.thought else null,
                                 speed = if (technical) message.speed else null,
                                 photos = message.photos,
                                 phoneLinks = message.phoneLinks,
@@ -697,7 +710,12 @@ private suspend fun LazyListState.scrollToEnd() {
 
 /** The user's message: a compact bubble on the right that fits its text, up to 80% of the width. */
 @Composable
-private fun UserBubble(text: String, attached: List<ShownAttachment>, onEdit: (() -> Unit)? = null) {
+private fun UserBubble(
+    text: String,
+    attached: List<ShownAttachment>,
+    onEdit: (() -> Unit)? = null,
+    reserveEdit: Boolean = false,
+) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(Modifier.fillMaxWidth(0.8f), contentAlignment = Alignment.CenterEnd) {
             Surface(
@@ -728,6 +746,10 @@ private fun UserBubble(text: String, attached: List<ShownAttachment>, onEdit: ((
                 Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.edit_message), modifier = Modifier.size(18.dp))
             }
         }
+    } else if (reserveEdit) {
+        // Same height as the pencil's row, drawn as nothing and skipped by TalkBack, so the
+        // transcript does not move when the pencil appears, and no dead control is shown.
+        Box(Modifier.fillMaxWidth().height(48.dp).semantics { invisibleToUser() })
     }
 }
 
@@ -1102,6 +1124,8 @@ private fun EmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
     ) {
+        // The empty chat is drawn from the same mode as the rest of the chat, without a parameter for it.
+        val technical = LocalTechnicalDetail.current
         if (starter != null && starterShown) {
             StarterPanel(
                 starter = starter,
@@ -1145,7 +1169,7 @@ private fun EmptyState(
                 textAlign = TextAlign.Center,
             )
             TextButton(onClick = onOpenModels, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.other_models))
+                Text(stringResource(if (technical) R.string.other_models else R.string.simple_other_options))
             }
         } else if (blockedReason != null && starter != null) {
             // Simple mode: the Models screen is not offered there, so the one action is to start again.
@@ -1162,7 +1186,13 @@ private fun EmptyState(
                 onClick = onOpenModels,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text(if (isMissingModel) stringResource(R.string.download_a_model) else stringResource(R.string.choose_another_model))
+                Text(
+                    if (isMissingModel) {
+                        stringResource(if (technical) R.string.download_a_model else R.string.simple_set_up_chat)
+                    } else {
+                        stringResource(if (technical) R.string.choose_another_model else R.string.simple_try_another_option)
+                    },
+                )
             }
         }
     }
