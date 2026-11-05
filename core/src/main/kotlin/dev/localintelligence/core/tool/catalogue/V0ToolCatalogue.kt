@@ -599,8 +599,9 @@ object V0ToolCatalogue {
         ),
         ToolDefinition(
             name = "phone.volume",
-            description = "Set the volume of one sound stream or the ringer mode. Use when the user " +
-                "says louder, quieter, mute, silent or vibrate mode.",
+            description = "Change how loud the phone is: volume up or down, mute, silent or vibrate for the " +
+                "ringer. Use when the user says louder, quieter, mute, silent or vibrate mode. Not for " +
+                "playing, pausing or skipping music; that is phone.media.",
             category = "phone",
             schema = objSchema {
                 putJsonObject("stream") {
@@ -628,8 +629,9 @@ object V0ToolCatalogue {
         ),
         ToolDefinition(
             name = "phone.media",
-            description = "Play, pause, skip or go back in the playing media app. Use when the user " +
-                "says pause, play, next song or previous song.",
+            description = "Control playback in the music or podcast app that is playing: play, pause, next " +
+                "track or previous track. Use when the user says pause, play, next song or previous song. " +
+                "Does not change the volume; that is phone.volume.",
             category = "phone",
             schema = objSchema(required = listOf("action")) {
                 putJsonObject("action") {
@@ -685,8 +687,8 @@ object V0ToolCatalogue {
             schema = objSchema(required = listOf("mode")) {
                 putJsonObject("mode") {
                     put("type", "string")
-                    putJsonArray("enum") { add("off"); add("priority"); add("alarms"); add("none") }
-                    put("description", "off, priority, alarms or none.")
+                    putJsonArray("enum") { add("off"); add("on"); add("priority"); add("alarms"); add("none") }
+                    put("description", "off, on (same as priority), priority, alarms or none.")
                 }
             },
             risk = ToolRisk.REVERSIBLE,

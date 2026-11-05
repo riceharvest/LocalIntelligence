@@ -102,14 +102,17 @@ host (`RiskPolicy`, `NETWORK_EGRESS`). Nothing limits the destination after that
 no host allowlist exists, and an approved host receives whatever the model put in
 the URL. This is the most significant open item in the document.
 
-By default `web.search` sends the query text, once, to `html.duckduckgo.com` as the `q`
-parameter of a GET. In Technical mode the user can choose Brave, Tavily, Exa or a SearXNG
-server instead (T9). The host is fixed in code, so the model cannot redirect the
-search elsewhere, and the request carries no cookies or account. The query is
-therefore visible to DuckDuckGo, which is a third party, and it is the one
-place the app discloses what the user typed rather than what a page says.
-Because the destination is fixed, the confirmation dialog cannot name it: the
-dialog reads only a `url` argument, and `web.search` has none, so it shows
+By default `web.search` sends the query text to a chain of free services, in this order:
+`html.duckduckgo.com`, `www.bing.com`, `search.brave.com`, and the Wikipedia search API on
+the language subdomain of the phone's language (for example `nl.wikipedia.org`). Each host is
+fixed in code, so the model cannot choose one, and each request carries no cookies or account.
+The next service is asked only when the one before it gave a bot check, an error, a timeout, or
+zero results; a service that gave a bot check is skipped for five minutes. The whole chain has a
+20-second budget. The query is therefore visible to each service that is asked, all third parties,
+and it is the one place the app discloses what the user typed rather than what a page says.
+In Technical mode the user can choose Brave, Tavily, Exa or a SearXNG server instead (T9); that
+choice is never chained. Because the destinations are fixed, the confirmation dialog cannot name
+them: the dialog reads only a `url` argument, and `web.search` has none, so it shows
 "an external host".
 
 ### T4. Unattended file access — partially mitigated
@@ -232,7 +235,7 @@ account. Nothing is sent before then. The shared rules are enforced in code:
 | Home Assistant (`home.*`) | Technical mode, the user's address and token | `home.secure` (lock and cover) is `DESTRUCTIVE`. Alarm panels are refused. Loopback and link-local addresses are refused in both schemes. |
 | Texts and call log (`sms.*`, `calls.recent`) | The app is the default assistant (`RoleManager.ROLE_ASSISTANT`), checked on every call | Reads are only for the default assistant, and the permission dialogs are withheld until the role is held. `sms.send` and `phone.call` ask. Texts are fenced. |
 | Search my phone (`phone.search`, table `phone_index`) | Each source is a Settings switch, off by default. Texts also need the default assistant role, checked on every read. Unattended Play runs do not get the tool at all (`PLAY_ATTENDED_ONLY_TOOLS`). The charger refresh reads texts only in the full build. | The index is in the app's own database and sends nothing. Contact names only, never numbers. Notifications are kept only from when the switch is on. Results are fenced as network text. Deleting a source removes its rows, and a refresh drops rows for items that no longer exist on the phone. A cloud chat model that answers the run receives the matches, as with any tool result. |
-| Search providers (`web.search`) | Technical mode and the user's key for Brave, Tavily or Exa, or the user's SearXNG address | A provider error is reported as an error. The search does not fall back to another provider, because the user chose where the query goes. |
+| Search providers (`web.search`) | The default free chain (DuckDuckGo, Bing, Brave Search, Wikipedia), or in Technical mode the user's key for Brave, Tavily or Exa, or the user's SearXNG address | The free chain falls back in the order above, and only on a block, error, timeout or zero results. A keyed provider that fails is reported as an error and is never replaced, because the user chose where the query goes. |
 | Remote chat presets | Technical mode and the key for each provider | The conversation goes only to the endpoint the user chose. OpenRouter-only request fields are sent only to OpenRouter. Model lists come from that provider's `GET /models`. |
 | Extras (Play subscription) | A Play purchase. Not offered until the Extras server is deployed (`EXTRAS_BACKEND_URL`) | The Extras server sees the Play purchase token and a random install id. It stores only SHA-256 hashes of tokens and install ids, and AES-GCM encrypts provider keys. Provider keys carry monthly limits. The app sends only over https. A paused, ended or refunded subscription disables the keys. |
 

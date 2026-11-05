@@ -480,7 +480,7 @@ class AgentController(
      */
     suspend fun resume(): AgentResult = measured {
         val interrupted = sessions.lastUserText()
-            ?: return@measured Stop("There is no interrupted task to continue.", trace.toList())
+            ?: return@measured Stop("There is no interrupted task to continue.", trace.toList(), kind = StopKind.NOTHING_PENDING)
         task = interrupted
         media = emptyList()
         trace.clear()
@@ -491,6 +491,9 @@ class AgentController(
         answerRetried = false
         heldReply = null
         searchResultUrls.clear()
+        runBlocked.clear()
+        lastSuccess = null
+        emptyRetried = false
         pending = null
         lastPrompt = emptyList()
         loopDetector.reset()
@@ -513,7 +516,7 @@ class AgentController(
         trace.clear()
         // An attachment the model cannot read would be silently dropped and the
         // answer would pretend it had seen it. Say so instead.
-        unreadableMedia()?.let { return@measured Stop(it, trace.toList()) }
+        unreadableMedia()?.let { return@measured Stop(it, trace.toList(), kind = if (media.any { m -> m.isImage }) StopKind.CANT_SEE else StopKind.CANT_HEAR) }
         step = 0
         malformedStreak = 0
         savedObservation = false
@@ -521,6 +524,9 @@ class AgentController(
         answerRetried = false
         heldReply = null
         searchResultUrls.clear()
+        runBlocked.clear()
+        lastSuccess = null
+        emptyRetried = false
         pending = null
         // A scoped skill narrows what this run lists and may call. Set per run, from the task, before
         // the tool list is planned: the session is shared, so a scope left from an earlier run must not stay.
@@ -658,7 +664,7 @@ class AgentController(
         pending = null
 
         if (cancelled) return@measured AgentResult.Cancelled
-        if (call == null) return@measured Stop("no confirmation is pending", trace.toList())
+        if (call == null) return@measured Stop("no confirmation is pending", trace.toList(), kind = StopKind.NOTHING_PENDING)
 
         var early: AgentResult? = null
         if (approved) {
@@ -754,7 +760,22 @@ class AgentController(
 
     // ---------------------------------------------------------------- the loop
 
-    private suspend fun loop(): AgentResult {
+    /**
+     * Runs the steps, then gives a run that ran out of steps, or stopped with work already done, one
+     * last answer-only generation (see [wrapUp]). Every caller goes through here, so the rule is the
+     * same for a fresh run, a resumed one and a confirmed one.
+     */
+    private suspend fun loop(): AgentResult = when (val outcome = runSteps()) {
+        AgentResult.StepLimitReached -> wrapUp(outcome)
+        is Stop -> if (outcome.kind in StopKind.ANSWER_FIRST && trace.any { it.kind == StepTrace.Kind.TOOL_CALL && it.success }) {
+            wrapUp(outcome)
+        } else {
+            outcome
+        }
+        else -> outcome
+    }
+
+    private suspend fun runSteps(): AgentResult {
         while (step < config.maxSteps) {
             if (cancelled) return AgentResult.Cancelled
             step += 1
@@ -775,7 +796,9 @@ class AgentController(
             // tools.find, which the prompt does not list (their descriptions are
             // in the lookup's result). With tool lookup on, every enabled tool.
             val callable = withDiscovered(visible)
-            val request = buildRequest(visible, callable)
+            // The blocked tools stay in [callable] for parsing and validation, so a call to one is
+            // refused with its reason (see [handleCall]). Only the request drops them.
+            val request = buildRequest(visible, callable.filter { it.definition.name !in runBlocked })
             // StreamingModelBackend is a separate, OPTIONAL interface, so the
             // loop asks whether this backend has it rather than assuming. A
             // backend that cannot stream still works, it just returns one blob:
@@ -851,10 +874,13 @@ class AgentController(
             } else {
                 null
             }
+            val emptyReply = parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond &&
+                (parsed.action as AgentAction.Respond).text.isBlank()
             val rejection: String? = when {
                 stopped -> null
                 parsed is ActionParseResult.Malformed -> parsed.reason
                 idRetry -> "the reply names an internal id"
+                emptyReply -> "the reply was empty"
                 unsupported != null -> "the reply gives a value no tool result shows"
                 else -> null
             }
@@ -874,7 +900,7 @@ class AgentController(
             when (generation.stopReason) {
                 StopReason.CANCELLED -> if (!loopTripped.get()) return AgentResult.Cancelled
                 StopReason.ERROR -> heldReply?.let { return deliverHeld(it) }
-                    ?: return Stop("model failed: ${generation.text.take(120)}", trace.toList())
+                    ?: return Stop("model failed: ${generation.text.take(120)}", trace.toList(), kind = StopKind.MODEL_FAILED)
                 else -> Unit
             }
             // A Stop that landed before the generation began is not reported as CANCELLED.
@@ -883,7 +909,9 @@ class AgentController(
             // The answer check may improve a reply but must never cost one. The retry is a reply or nothing:
             // a tool call here repeated the action (a second timer), and then the loop detector ended the run.
             heldReply?.let { held ->
-                val retried = parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond
+                // A blank reply is not a retry either: it must not discard the held answer.
+                val retried = parsed is ActionParseResult.Parsed && parsed.action is AgentAction.Respond &&
+                    (parsed.action as AgentAction.Respond).text.isNotBlank()
                 if (!retried) return deliverHeld(held)
                 heldReply = null
             }
@@ -903,7 +931,7 @@ class AgentController(
                     // Judged like a malformed reply, once. A second loop in the same run ends
                     // the answer with a plain message, because the model has already been told.
                     trace += StepTrace(step, StepTrace.Kind.MALFORMED, parsed.reason, success = false)
-                    if (repetitionStrikes > 0) return Stop(REPETITION_STOP_REASON, trace.toList())
+                    if (repetitionStrikes > 0) return Stop(REPETITION_STOP_REASON, trace.toList(), kind = StopKind.REPEATED)
                     repetitionStrikes += 1
                     sessions.observe(
                         "That reply repeated the same text and was not used. Answer once, in fewer words. " +
@@ -913,7 +941,7 @@ class AgentController(
                     malformedStreak += 1
                     trace += StepTrace(step, StepTrace.Kind.MALFORMED, parsed.reason, success = false)
                     if (malformedStreak >= config.maxMalformedRetries) {
-                        return Stop("no valid action in $malformedStreak attempts", trace.toList())
+                        return Stop("no valid action in $malformedStreak attempts", trace.toList(), kind = StopKind.NO_VALID_ACTION)
                     }
                     sessions.observe(
                         "That was not a valid action (${parsed.reason}). ${actionHint(callable)}",
@@ -923,7 +951,13 @@ class AgentController(
                 is ActionParseResult.Parsed -> {
                     malformedStreak = 0
                     when (val action = parsed.action) {
-                        is AgentAction.Respond -> if (idRetry) {
+                        is AgentAction.Respond -> if (emptyReply) {
+                            // Never shown: one retry, a reply or nothing, then the plain stop. The retry note
+                            // is not recorded as the model's reply, the same as the id and answer retries.
+                            if (emptyRetried) return Stop(EMPTY_REPLY_REASON, trace.toList(), kind = StopKind.EMPTY_REPLY)
+                            emptyRetried = true
+                            sessions.observe(EMPTY_CORRECTION)
+                        } else if (idRetry) {
                             // Once per run: the model is told, and its reply is not
                             // recorded, so the next reply is judged on its own.
                             handleRetried = true
@@ -935,12 +969,14 @@ class AgentController(
                             heldReply = HeldReply(action.text, generation.text)
                             sessions.observe(answerCorrection(unsupported))
                         } else {
-                            val text = if (savedObservation && INTERNAL_HANDLE_RE.containsMatchIn(action.text)) {
-                                log("reply still named an internal id after one retry; removed those sentences")
-                                scrubHandles(action.text)
-                            } else {
-                                action.text
-                            }
+                            val text = shownReply(
+                                if (savedObservation && INTERNAL_HANDLE_RE.containsMatchIn(action.text)) {
+                                    log("reply still named an internal id after one retry; removed those sentences")
+                                    scrubHandles(action.text)
+                                } else {
+                                    action.text
+                                },
+                            )
                             sessions.appendAssistant(text, rendered = generation.text)
                             // The one place a turn is offered to durable memory.
                             // See [rememberTurn] for why it is here and nowhere
@@ -969,15 +1005,36 @@ class AgentController(
 
     private var heldReply: HeldReply? = null
 
+    /**
+     * Tools that may not be called again in this run: they failed twice, or the loop refused them.
+     * Taken out of the callable list (see [loop]), so the model cannot spend its steps on them.
+     *
+     * WHY ONLY THE CALLABLE LIST: the prompt lists the tools by name, and the list is the start of
+     * the prompt. Dropping a name from the prompt would invalidate the prefix the model has already
+     * prefilled, and that prefill is the cost on a phone. The grammar and the call list are not in
+     * the prefix, so cutting them is free.
+     */
+    private val runBlocked = LinkedHashSet<String>()
+
+    /** The last tool call of this run, if it succeeded and nothing else ran since. See [handleCall]. */
+    private var lastSuccess: Completed? = null
+
+    /** The one retry for an empty reply, per run. */
+    private var emptyRetried = false
+
+    /** A successful call, kept so the same call right after it is answered from its result, not run twice. */
+    private class Completed(val name: String, val args: ToolArgs, val observation: String)
+
     /** Addresses this run's own web.search returned. */
     private val searchResultUrls = HashSet<String>()
 
     private suspend fun deliverHeld(held: HeldReply): AgentResult {
         heldReply = null
         log("answer check: the retry was not a reply, keeping the first answer")
-        sessions.appendAssistant(held.text, rendered = held.rendered)
+        val text = shownReply(held.text)
+        sessions.appendAssistant(text, rendered = held.rendered)
         rememberTurn()
-        return AgentResult.Success(held.text, trace.toList())
+        return AgentResult.Success(text, trace.toList())
     }
 
     /**
@@ -994,6 +1051,40 @@ class AgentController(
         visible: List<AgentTool>,
         reply: String,
     ): AgentResult? {
+        // The one call that may follow a success: the same tool with the same arguments, straight after it.
+        // Any other call ends that, so it is cleared here and set again only if this call succeeds.
+        val earlier = lastSuccess
+        lastSuccess = null
+
+        // A tool that failed twice in this run is refused before anything else. The model is told why, the
+        // same way a loop refusal is, and the step is spent on the answer, not on a tool that will not run.
+        if (action.name in runBlocked) {
+            trace += StepTrace(
+                step, StepTrace.Kind.TOOL_CALL, "refused ${action.name}: failed twice in this run",
+                success = false,
+                toolName = action.name,
+            )
+            sessions.observe(
+                "${action.name} failed twice in this run, so it will not run again. " +
+                    "Do something else, or answer without it.",
+            )
+            return null
+        }
+
+        // A repeat of a call that just succeeded is never run again. A second timer or alarm is a real side
+        // effect, and the first result already answers it. The same or near-same arguments count: strings are
+        // compared trimmed, lower-cased and with runs of spaces collapsed.
+        if (earlier != null && earlier.name == action.name && sameCall(earlier.args, action.arguments)) {
+            // No trace row: a row for this call would read as a failed step straight after the one that worked.
+            lastSuccess = earlier
+            log("not run again: ${action.name} already ran with these arguments")
+            sessions.observe(
+                "${action.name} already ran with these arguments and succeeded: ${earlier.observation.take(RESULT_CHARS)} " +
+                    "It was not run again. Answer the user now from that result.",
+            )
+            return null
+        }
+
         // (1) Validation first: an unknown tool or a bad argument is a correction,
         // not a loop, and the model is told what was actually wrong.
         val outcome = validator.validate(action.name, action.arguments, visible)
@@ -1116,6 +1207,7 @@ class AgentController(
             LoopDetector.Verdict.BLOCK -> Stop(
                 "loop detected: ${action.name} repeated with identical arguments",
                 trace.toList(),
+                kind = StopKind.LOOP_DETECTED,
             )
 
             // A tool that failed twice is not run again in this run, but the run
@@ -1298,6 +1390,8 @@ class AgentController(
     ): AgentResult? {
         val observation = truncate(call.name, hooks.afterTool(call.name, call.args, result.observation, result.success))
         loopDetector.recordResult(call.name, observation, result.success, result.error)
+        lastSuccess = if (result.success) Completed(call.name, call.args, observation) else null
+        if (loopDetector.isUnavailable(call.name)) runBlocked += call.name
         if (call.name == "web.search" && result.success) {
             RESULT_URL.findAll(observation).forEach { searchResultUrls += it.value.trimEnd('.', ',', ';') }
         }
@@ -1336,7 +1430,7 @@ class AgentController(
 
         if (cancelled) return AgentResult.Cancelled
         if (loopDetector.hasStalled()) {
-            return Stop("no progress: ${call.name} kept returning the same result", trace.toList())
+            return Stop("no progress: ${call.name} kept returning the same result", trace.toList(), kind = StopKind.NO_PROGRESS)
         }
         // A nudge rather than a stop, because the model may still recover: the
         // wording is the whole point and lives in the watchdog so it is one
@@ -1355,6 +1449,7 @@ class AgentController(
                 return Stop(
                     "no progress: ${call.name} kept returning the same result",
                     trace.toList(),
+                    kind = StopKind.NO_PROGRESS,
                 )
             }
             sessions.observe(nudge)
@@ -1589,7 +1684,7 @@ class AgentController(
         metrics?.endPhase(StepTrace.Kind.TOOL_CALL, success = false)
         // No `sessions.observe` here: the run is over, so there is no model left
         // to read it. The reason goes in the Stop, which is what the UI shows.
-        return Stop("context window too small for this step: $detail", trace.toList())
+        return Stop("context window too small for this step: $detail", trace.toList(), kind = StopKind.TOO_LONG)
     }
 
     /**
@@ -2141,6 +2236,47 @@ class AgentController(
         return ActionParseResult.Parsed(AgentAction.Respond(answer))
     }
 
+    /** The reply as the user reads it: Simple mode takes the tool names out, Technical gets it as written. */
+    private fun shownReply(text: String): String = if (config.hideToolNames) withoutToolNames(text) else text
+
+    /**
+     * [text] with the names of this run's tools taken out. The names come from the registry, in both
+     * forms a model writes them: `timer.set` and `timer_set`. So nothing here is an English word list.
+     *
+     * Two steps. A phrase that introduces a tool and its one argument is cut out of its sentence
+     * ("using the `timer_set` tool with `seconds=120`"), which leaves a sentence that still reads. Then
+     * any sentence that still names a tool is dropped, the way [scrubHandles] drops a sentence with an
+     * id. Never empty: when nothing is left, [AgentConfig.toolNameFallback].
+     *
+     * WHY deterministic: a prompt rule ("never name tools") is followed most of the time, and a
+     * Simple user who reads `timer_set` learns nothing and is confused. This runs on every final reply.
+     * Known cost: a dropped sentence can be the only one that said a step failed, so the rest may read
+     * more certain than it is. The prompt's "say it worked only if its result says so" is the first guard.
+     */
+    private fun withoutToolNames(text: String): String {
+        val names = tools.all().map { it.definition.name }
+            .flatMap { listOf(it, it.replace('.', '_')) }
+            .distinct()
+            .sortedByDescending { it.length }
+        if (names.isEmpty()) return text
+        val alternation = names.joinToString("|") { Regex.escape(it) }
+        val named = Regex("`?(?:$alternation)`?", RegexOption.IGNORE_CASE)
+        if (!named.containsMatchIn(text)) return text
+        // One `key=value` argument, as the model writes it: "with `seconds=120`".
+        val args = "(?:\\s+with\\s+[`(]?\\w+\\s*=\\s*[^\\s`),;.!?]+[`)]?)?"
+        val phrase = Regex(
+            "\\s*\\b(?:using|via|through|with|by calling|calling)\\s+(?:the\\s+)?`?(?:$alternation)`?" +
+                "(?:\\s+tool)?$args",
+            RegexOption.IGNORE_CASE,
+        )
+        val kept = text.replace(phrase, "")
+            .split(Regex("(?<=[.!?])\\s+"))
+            .filterNot { named.containsMatchIn(it) }
+            .joinToString(" ")
+            .trim()
+        return kept.ifEmpty { config.toolNameFallback }
+    }
+
     /**
      * [text] with every sentence that names an internal handle removed. Nothing left
      * gives [HANDLE_FALLBACK], so the user is told the truth instead of an empty answer.
@@ -2483,6 +2619,61 @@ class AgentController(
             .coerceAtLeast(workingLimit(window))
     }
 
+    /**
+     * Whether two calls to one tool are the same call for the repeat check: equal once string values are
+     * trimmed, lower-cased and have their runs of spaces collapsed. A number is compared as it is.
+     */
+    private fun sameCall(a: ToolArgs, b: ToolArgs): Boolean =
+        loopDetector.normalize(foldStrings(a)) == loopDetector.normalize(foldStrings(b))
+
+    private fun foldStrings(args: ToolArgs): ToolArgs = kotlinx.serialization.json.JsonObject(
+        args.mapValues { (_, value) ->
+            val text = (value as? JsonPrimitive)?.takeIf { it.isString }?.content
+            if (text == null) value else JsonPrimitive(text.trim().lowercase().replace(Regex("\\s+"), " "))
+        },
+    )
+
+    /**
+     * The last answer of a run that cannot continue. One generation with no tools callable: the grammar
+     * is the reply alone, so it cannot run a tool, and it is told to answer from what it has. If that reply
+     * is empty, looping or the generation fails, the run ends as it stood: a step limit is reported as one,
+     * and a stop keeps its kind, so the app writes the plain sentence from the trace.
+     *
+     * WHY A NEW GENERATION AND NOT THE LAST REPLY: the last reply was a tool call or a loop, not an answer.
+     * The loop is the model's own state, and a fresh generation with the note is the one thing that turns
+     * the work so far into words.
+     */
+    private suspend fun wrapUp(outcome: AgentResult): AgentResult {
+        if (cancelled) return AgentResult.Cancelled
+        val answer = try {
+            answerNow()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            null
+        }
+        if (cancelled) return AgentResult.Cancelled
+        if (answer == null) return outcome
+        val shown = shownReply(answer)
+        sessions.appendAssistant(shown)
+        rememberTurn()
+        return AgentResult.Success(shown, trace.toList())
+    }
+
+    /** The text of one reply made with no tools callable, or null when it is empty, looping or failed. */
+    private suspend fun answerNow(): String? {
+        val prompt = buildPrompt(emptyList()) + ChatMessage.User(WRAP_UP_NOTE, note = true)
+        val generation = model.generate(request(prompt, emptyList(), emptyList()))
+        if (generation.stopReason == StopReason.ERROR || generation.stopReason == StopReason.CANCELLED) return null
+        if (RepetitionGuard.isLooping(generation.text)) return null
+        val parsed = bareAnswer(parse(generation.text, emptyList()), generation.text, generation.stopReason == StopReason.COMPLETED)
+        val text = ((parsed as? ActionParseResult.Parsed)?.action as? AgentAction.Respond)?.text
+        // A reply that names an internal id is not taken: scrubbing it would leave the fallback sentence, not an answer.
+        val answer = text?.trim() ?: return null
+        if (answer.isEmpty() || answer.length >= ANSWER_NOW_MAX_CHARS || INTERNAL_HANDLE_RE.containsMatchIn(answer)) return null
+        return answer
+    }
+
     private fun failed(toolName: String, detail: String): ToolResult = ToolResult(
         success = false,
         observation = "$toolName failed: $detail. Do not retry it unchanged; " +
@@ -2512,7 +2703,7 @@ class AgentController(
     } catch (e: CancellationException) {
         throw e
     } catch (t: Throwable) {
-        Stop("internal error: ${t::class.java.simpleName}: ${t.message}", trace.toList())
+        Stop("internal error: ${t::class.java.simpleName}: ${t.message}", trace.toList(), kind = StopKind.INTERNAL)
     }
 
     /**
@@ -2680,6 +2871,25 @@ class AgentController(
             "Your reply gives \"$value\", and no tool result or message in this conversation shows it. " +
                 "Check it against the tool results and reply now, without calling a tool. If it is there, keep it; " +
                 "if not, correct it or leave it out. Do not mention this check to the user."
+
+        /** How much of an earlier result the repeat note quotes back to the model. */
+        const val RESULT_CHARS = 400
+
+        /** A last answer longer than this is not taken: it is a generation that ran on, not a reply. */
+        const val ANSWER_NOW_MAX_CHARS = 2000
+
+        /** Why a run ends when the model gave an empty reply twice. */
+        const val EMPTY_REPLY_REASON = "the reply was empty, twice"
+
+        /** The one-time note when a reply is empty. */
+        const val EMPTY_CORRECTION = "Your reply was empty. Answer the user now, in a sentence or two, from what you already have."
+
+        /**
+         * The last generation of a run that cannot continue. No tools are callable, so the grammar is the
+         * reply alone (see [request]), and the note says what is wanted: the answer, and what did not work.
+         */
+        const val WRAP_UP_NOTE = "You cannot run more tools. Answer the user now from the tool results above. " +
+            "Say plainly what worked and what did not. Do not say you will try again."
 
         /** Why a reply that looped is rejected. The model reads it in the correction, and the trace shows it. */
         const val REPETITION_REASON = "the reply repeated the same text over and over"

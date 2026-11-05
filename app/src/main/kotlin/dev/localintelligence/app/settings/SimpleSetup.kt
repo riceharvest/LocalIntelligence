@@ -198,7 +198,7 @@ object SimpleSetup {
         file = "LFM3-1.7B-QAD-Q4_0.gguf",
         name = "LFM3 1.7B",
         sizeBytes = 1_049_615_680,
-        reason = "Fast on this phone, and good at using its apps and tools.",
+        reason = "Fast on this phone, and good at getting things done in its apps.",
     )
 
     // QAD Q4_0, like LFM3's: the fastest format on phone CPUs.
@@ -209,6 +209,9 @@ object SimpleSetup {
         sizeBytes = 149_081_056,
         reason = "Small enough for this phone's memory. It handles simple requests.",
     )
+
+    /** The smallest starter: what a phone that cannot run the pick is moved to (a 149 MB file). */
+    fun smallestStarter(): SuggestedModel = LFM2_5_230M
 
     /**
      * The device class a measured score is filed under: the RAM band and the CPU speed class the

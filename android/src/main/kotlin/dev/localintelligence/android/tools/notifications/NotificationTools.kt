@@ -1,5 +1,7 @@
 package dev.localintelligence.android.tools.notifications
 
+import dev.localintelligence.android.tools.access.SpecialAccess
+import dev.localintelligence.android.tools.access.ToolAccess
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationManager
@@ -707,9 +709,9 @@ class NotificationListTool(
             // had not was told the same thing for a different reason they could
             // not act on. `grant` calls NotificationListenerService
             // .isGranted(), which reads the system allow list directly.
-            if (!grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER)) {
+            if (!grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER) && !notificationAccessNow(grant)) {
                 return failed(
-                    PermissionDenial.observation("notifications.list", ToolPermissions.NOTIFICATION_LISTENER),
+                    ToolAccess.observe("notifications.list", ToolPermissions.NOTIFICATION_LISTENER, "Notification access is off for this app, so nothing was changed. Tell the person in one sentence that it must be switched on for this app, then stop."),
                     ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.NOTIFICATION_LISTENER)),
                 )
             }
@@ -922,9 +924,9 @@ class NotificationReplyTool(
             }
             // Platform truth — see the note on notifications.list. Nothing is
             // sent on this path, and the message says so.
-            if (!grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER)) {
+            if (!grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER) && !notificationAccessNow(grant)) {
                 return denied(
-                    PermissionDenial.observation("notifications.reply", ToolPermissions.NOTIFICATION_LISTENER) +
+                    ToolAccess.observe("notifications.reply", ToolPermissions.NOTIFICATION_LISTENER, "Notification access is off for this app, so nothing was changed. Tell the person in one sentence that it must be switched on for this app, then stop.") +
                         " No reply was sent.",
                 )
             }
@@ -1119,11 +1121,11 @@ class NotificationDismissTool(
                 )
             }
             // Platform truth — see the note on notifications.list.
-            if (!grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER)) {
+            if (!grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER) && !notificationAccessNow(grant)) {
                 return ToolResult(
                     success = false,
-                    observation = PermissionDenial.observation(
-                        "notifications.dismiss", ToolPermissions.NOTIFICATION_LISTENER,
+                    observation = ToolAccess.observe(
+                        "notifications.dismiss", ToolPermissions.NOTIFICATION_LISTENER, "Notification access is off for this app, so nothing was changed. Tell the person in one sentence that it must be switched on for this app, then stop.",
                     ) + " Nothing was dismissed.",
                     error = ToolError.PermissionDenied(
                         PermissionDenial.summary(ToolPermissions.NOTIFICATION_LISTENER),
@@ -1316,3 +1318,13 @@ fun notificationTools(grant: PlatformGrant): List<AgentTool> = listOf(
     NotificationReplyTool(grant = grant),
     NotificationDismissTool(grant = grant),
 )
+
+/**
+ * Simple mode: opens the notification access page for this app and reports whether the person came back
+ * with it on. Technical gets false and no page, so its refusal is unchanged.
+ */
+private suspend fun notificationAccessNow(grant: PlatformGrant): Boolean =
+    ToolAccess.openSpecialAccess(
+        SpecialAccess.NOTIFICATION_LISTENER,
+        Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS),
+    ) && grant.isGranted(ToolPermissions.NOTIFICATION_LISTENER)

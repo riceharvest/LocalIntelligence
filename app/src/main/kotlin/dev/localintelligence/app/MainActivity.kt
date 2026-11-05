@@ -1,5 +1,9 @@
 package dev.localintelligence.app
 
+import dev.localintelligence.android.tools.access.ToolAccess
+import dev.localintelligence.app.access.AccessPromptHost
+import dev.localintelligence.app.access.AccessPrompts
+import androidx.activity.result.contract.ActivityResultContracts
 import dev.localintelligence.android.skills.SkillSettings
 import androidx.compose.ui.res.stringResource
 import dev.localintelligence.app.R
@@ -102,6 +106,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val DOWNLOAD_NOTIFICATION_REQUEST = 4101
+
 /**
  * The nav host and the composition root. Two responsibilities, both unavoidable
  * at this level:
@@ -122,14 +128,48 @@ import kotlinx.coroutines.withContext
  */
 class MainActivity : FragmentActivity() {
 
+    /**
+     * Asked when the person taps Get started, so the download's progress can show after they leave the app. A refusal
+     * changes nothing: the download still runs and the chat still shows its progress. Android stops asking by itself.
+     */
+    private fun askForDownloadNotification() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return
+        val permission = android.Manifest.permission.POST_NOTIFICATIONS
+        if (checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        requestPermissions(arrayOf(permission), DOWNLOAD_NOTIFICATION_REQUEST)
+    }
+
+
     private var deliveredIntent by mutableStateOf<Intent?>(null)
+
+    // Simple-mode runs ask for access through these while this activity is resumed (see AccessPrompts).
+    private val accessPrompts = AccessPrompts()
+    private val runtimeAccess = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        accessPrompts.runtimeAnswered(granted)
+    }
+    private val specialAccess = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        accessPrompts.specialReturned()
+    }
+
+    init {
+        accessPrompts.launchRuntime = { runtimeAccess.launch(it) }
+        accessPrompts.launchSettings = { specialAccess.launch(it) }
+    }
 
     override fun onResume() {
         super.onResume()
+        ToolAccess.host = accessPrompts
         val container = (application as LocalIntelligenceApp).container
         if (WakeWordService.wanted(this, container)) {
             WakeWordService.sync(this, container)
         }
+    }
+
+    override fun onPause() {
+        // Only this activity's host is cleared, so a newer activity's host is never removed by an older one.
+        if (ToolAccess.host === accessPrompts) ToolAccess.host = null
+        accessPrompts.paused()
+        super.onPause()
     }
 
     /**
@@ -153,6 +193,7 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             LocalIntelligenceTheme {
+                AccessPromptHost(accessPrompts)
                 val nav = rememberNavController()
                 // The gateway is the screen's whole handle on the agent. It holds
                 // no state of its own — it reads the process-scoped RunSinks the
@@ -329,7 +370,10 @@ class MainActivity : FragmentActivity() {
                                     nav.navigate("$ROUTE_HUB?repo=${Uri.encode(pick.repo)}&file=${Uri.encode(pick.file)}")
                                 },
                                 starter = if (technical) null else starterState,
-                                onStartStarter = { container.starterSetup.start() },
+                                onStartStarter = {
+                                    askForDownloadNotification()
+                                    container.starterSetup.start()
+                                },
                                 onCancelStarter = { container.starterSetup.cancel() },
                                 // The empty chat's persona choice. It starts the conversation the same way New chat does.
                                 loadPersonas = { container.personas() },
@@ -338,6 +382,13 @@ class MainActivity : FragmentActivity() {
                                     scope.launch {
                                         container.launchRestore.await()
                                         if (chat.messages.value.isEmpty()) container.startNewConversation(personaId)
+                                    }
+                                },
+                                // New chat in the chat itself, the same steps as the Settings one.
+                                onNewChat = {
+                                    scope.launch {
+                                        container.startNewConversation(null)
+                                        chat.clear()
                                     }
                                 },
                             )

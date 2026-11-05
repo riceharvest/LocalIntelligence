@@ -1170,14 +1170,20 @@ internal class WebFetcher(
 internal class HttpUrlConnectionOpener(
     /** web.fetch keeps its own identity. web.search passes a browser-like one, see [WebSearchTool]. */
     private val userAgent: String = "LocalIntelligence/1.0 (on-device agent)",
+    /**
+     * web.search shrinks these to what is left of its time budget, so a slow first service
+     * cannot use up the time the later ones need. web.fetch keeps the defaults.
+     */
+    private val connectTimeoutMs: Int = CONNECT_TIMEOUT_MS,
+    private val readTimeoutMs: Int = READ_TIMEOUT_MS,
 ) : ResponseOpener {
 
     override fun open(url: String, signal: CancellationSignal): OpenedResponse {
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.instanceFollowRedirects = false
-        connection.connectTimeout = CONNECT_TIMEOUT_MS
-        connection.readTimeout = READ_TIMEOUT_MS
+        connection.connectTimeout = connectTimeoutMs
+        connection.readTimeout = readTimeoutMs
         connection.useCaches = false
         // No cookies, no auth, no referer. A summarising GET has no business
         // carrying the user's session to a page the model picked.

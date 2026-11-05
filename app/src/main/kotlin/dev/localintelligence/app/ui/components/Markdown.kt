@@ -6,14 +6,26 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.LayoutDirection
+import dev.localintelligence.app.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -70,22 +82,92 @@ fun MarkdownText(
                     modifier = Modifier.padding(start = 12.dp),
                 )
                 is Block.ListItem -> Row(Modifier.padding(start = (block.indent * 16).dp)) {
-                    Text(block.marker, style = style, color = color, modifier = Modifier.width(24.dp))
+                    // A minimum, not a width: "10." at a large font size grows the column instead of clipping.
+                    Text(
+                        block.marker,
+                        style = style,
+                        color = color,
+                        softWrap = false,
+                        modifier = Modifier.widthIn(min = 24.dp).padding(end = 4.dp),
+                    )
                     Text(inline(block.text, codeBackground, linkColor), style = style, color = color)
                 }
-                is Block.Code -> Surface(
-                    color = codeBackground,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = block.text,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(12.dp),
-                        softWrap = false,
+                is Block.Table -> MarkdownTable(block, style, color, codeBackground, linkColor)
+                is Block.Code -> CodeBlock(block.text, codeBackground)
+            }
+        }
+    }
+}
+
+/**
+ * A code block: monospace, always left-to-right (code reads the same in an Arabic or Hebrew
+ * chat), scrolls sideways instead of wrapping, and has its own copy button so a snippet can
+ * be taken without selecting it.
+ */
+@Composable
+private fun CodeBlock(text: String, codeBackground: Color) {
+    val clipboard = LocalClipboardManager.current
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Surface(
+            color = codeBackground,
+            shape = MaterialTheme.shapes.small,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(verticalAlignment = Alignment.Top) {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState())
+                        .padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
+                    softWrap = false,
+                )
+                IconButton(onClick = { clipboard.setText(AnnotatedString(text)) }) {
+                    Icon(
+                        Icons.Filled.ContentCopy,
+                        contentDescription = stringResource(R.string.simple_copy_code),
+                        modifier = Modifier.size(18.dp),
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A pipe table, scrolled sideways as one piece. Each cell has a minimum width and may grow to a
+ * maximum, so a narrow phone scrolls the table rather than squeezing every column into a few dp.
+ */
+@Composable
+private fun MarkdownTable(
+    table: Block.Table,
+    style: TextStyle,
+    color: Color,
+    codeBackground: Color,
+    linkColor: Color,
+) {
+    val cellStyle = style.copy(fontSize = style.fontSize * 0.92f)
+    Surface(
+        color = codeBackground,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+    ) {
+        Column(Modifier.padding(8.dp)) {
+            table.rows.forEachIndexed { rowIndex, cells ->
+                Row {
+                    cells.forEach { cell ->
+                        Text(
+                            text = inline(cell, codeBackground, linkColor),
+                            style = if (rowIndex == 0) cellStyle.copy(fontWeight = FontWeight.SemiBold) else cellStyle,
+                            color = color,
+                            modifier = Modifier
+                                .widthIn(min = 72.dp, max = 220.dp)
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
                 }
             }
         }
@@ -98,7 +180,16 @@ private sealed interface Block {
     data class ListItem(val marker: String, val text: String, val indent: Int) : Block
     data class Quote(val text: String) : Block
     data class Code(val text: String) : Block
+    /** Header row first; the separator row (`|---|`) is dropped. */
+    data class Table(val rows: List<List<String>>) : Block
 }
+
+/** A pipe-table row: starts and ends with a pipe. */
+private val TABLE_ROW = Regex("""^\s*\|.*\|\s*$""")
+private val TABLE_SEPARATOR = Regex("""^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$""")
+
+private fun splitRow(line: String): List<String> =
+    line.trim().removePrefix("|").removeSuffix("|").split("|").map { it.trim() }
 
 private val HEADING = Regex("""^(#{1,6})\s+(.*)$""")
 private val BULLET = Regex("""^(\s*)[-*+]\s+(.*)$""")
@@ -136,6 +227,19 @@ private fun parseBlocks(text: String): List<Block> {
         val numbered = NUMBERED.find(line)
         val quote = QUOTE.find(line)
         when {
+            // A table is a header row, a separator row and body rows. The header must be followed by
+            // a separator, so a line that merely contains a pipe stays a paragraph.
+            TABLE_ROW.containsMatchIn(line) && i + 1 < lines.size && TABLE_SEPARATOR.containsMatchIn(lines[i + 1]) -> {
+                flush()
+                val rows = mutableListOf(splitRow(line))
+                i += 2
+                while (i < lines.size && TABLE_ROW.containsMatchIn(lines[i])) {
+                    rows += splitRow(lines[i])
+                    i++
+                }
+                blocks += Block.Table(rows)
+                continue
+            }
             line.isBlank() -> flush()
             heading != null -> {
                 flush()

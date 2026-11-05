@@ -868,7 +868,22 @@ class ChatViewModel(
         }
         // A repetition stop is not a failure to explain: say what happened, in the app's own words.
         val repeated = outcome is RunOutcome.Failed && outcome.reason == REPETITION_STOP_REASON
-        appendRows(listOf(if (repeated) ChatMessage.Notice(REPEATED_STOP_TEXT, R.string.chat_repetition_stopped) else ChatMessage.Notice(notice)))
+        // Simple mode says what worked before it stopped ("Done so far: Set timer."), so the person is not
+        // left thinking nothing happened. Technical mode has no such sentence and keeps its line as it was.
+        val simple = plainFailure(null) != null
+        val done = if (simple && (outcome is RunOutcome.Failed || outcome is RunOutcome.StepLimitReached)) {
+            SimpleWording.doneSummary(context, steps)
+        } else {
+            null
+        }
+        val row = when {
+            done != null -> ChatMessage.Notice(
+                done + " " + if (repeated) context.getString(R.string.chat_repetition_stopped) else notice,
+            )
+            repeated -> ChatMessage.Notice(REPEATED_STOP_TEXT, R.string.chat_repetition_stopped)
+            else -> ChatMessage.Notice(notice)
+        }
+        appendRows(listOf(row))
     }
 
     /**
@@ -1039,9 +1054,24 @@ class ChatViewModel(
     }
 
     /**
+     * Keeps the message in the box and sends it once, when the assistant becomes ready. Simple's
+     * composer calls this while the first-run setup or the first load is still going, so a person can
+     * type at once. Nothing is added to the transcript until the run really starts.
+     */
+    fun queueSend() {
+        if (_input.value.isBlank() && _attachments.value.isEmpty()) return
+        queuedSend = true
+        showNotice(context.getString(R.string.starter_queued))
+    }
+
+    /** Set by [queueSend], cleared when the message goes or the load fails. Lives only in this process. */
+    private var queuedSend = false
+
+    /**
      * Sends text the user chose to send, such as a suggestion tap. Text that cannot go now
      * (no model, or an answer still running) is put in the field rather than
-     * dropped, so the user only has to tap Send.
+     * dropped, so the user only has to tap Send. When the field already holds the
+     * user's own text, the tap is refused with a line saying why, not dropped.
      */
     fun send(text: String) {
         if (text.isBlank()) return
@@ -1050,11 +1080,30 @@ class ChatViewModel(
             if (_input.value.isBlank()) {
                 setInput(text.trim())
                 showNotice(context.getString(R.string.chat_message_ready))
+            } else {
+                showNotice(context.getString(R.string.starter_example_wait))
             }
             return
         }
         speaker?.stop()
         dispatch(text.trim())
+    }
+
+    init {
+        // The queued message goes out on the change to Ready, not on the value: a flag set by
+        // [queueSend] in this process is the only thing that can fire it, so a relaunch sends nothing.
+        scope.launch {
+            modelAvailability.state.collect { state ->
+                when (state) {
+                    is ModelAvailability.Ready -> if (queuedSend) {
+                        queuedSend = false
+                        send()
+                    }
+                    is ModelAvailability.Failed -> queuedSend = false
+                    else -> Unit
+                }
+            }
+        }
     }
 
     /**
@@ -1688,7 +1737,7 @@ internal fun RunOutcome.transcriptLine(context: Context, plainFailure: (SimpleWo
     } else {
         context.getString(R.string.plain_something_went_wrong)
     }
-    RunOutcome.StepLimitReached -> context.getString(R.string.chat_couldnt_finish)
+    RunOutcome.StepLimitReached -> plainFailure(SimpleWording.Kind.STEP_LIMIT) ?: context.getString(R.string.chat_couldnt_finish)
     RunOutcome.Cancelled -> context.getString(R.string.chat_stopped)
     is RunOutcome.Answer -> notice(context)
 }

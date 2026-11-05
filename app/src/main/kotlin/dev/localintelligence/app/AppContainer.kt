@@ -58,6 +58,8 @@ import dev.localintelligence.app.execution.ScheduledRunReporter
 import dev.localintelligence.app.settings.SettingsMemoryBlockStore
 import dev.localintelligence.app.settings.SettingsStore
 import dev.localintelligence.app.settings.ComputeChoice
+import dev.localintelligence.app.settings.LoadAttempt
+import dev.localintelligence.app.settings.LoadSafety
 import dev.localintelligence.app.settings.SimpleSetup
 import dev.localintelligence.app.speech.Speaker
 import dev.localintelligence.core.plugin.AgentPlugin
@@ -213,7 +215,17 @@ class AppContainer(private val context: Context) {
      * The decision function for [model]: resolves both the context length and KV cache type
      * (see [ContextLength.decide]). The load and the RAM gate use this same decision.
      */
-    fun contextChoiceFor(model: ImportedModel): ContextChoice = ContextLength.decide(
+    fun contextChoiceFor(model: ImportedModel): ContextChoice {
+        val base = baseContextChoiceFor(model)
+        if (settings.mode != SettingsMode.SIMPLE) return base
+        // Simple mode: a model that needed a smaller window to start keeps it, so the gate, the
+        // plan and the prompt budget all see the window that is actually loaded.
+        val rung = loadSafety.startRung(model.uri.toString())
+        return base.copy(nCtx = loadSafety.contextAt(rung, base.nCtx))
+    }
+
+    /** The window and KV cache the app would choose with no load ladder. See [contextChoiceFor]. */
+    private fun baseContextChoiceFor(model: ImportedModel): ContextChoice = ContextLength.decide(
         setting = settings[CoreSettings.CONTEXT_LENGTH],
         kvSetting = settings[CoreSettings.KV_CACHE_TYPE],
         facts = deviceFacts,
@@ -1012,6 +1024,9 @@ class AppContainer(private val context: Context) {
             return
         }
         if (!marked) return
+        // The process died mid-run: the next load of this model starts one rung lower, so a reply
+        // that crashed the phone is not repeated on every launch (see LoadSafety.stepDownAfterDeath).
+        savedModelUri?.let { loadSafety.stepDownAfterDeath(it) }
         val last = history.lastOrNull()
         val open = last is ChatMessage.ToolObservation || (last is ChatMessage.User && !last.note)
         if (open && adopted > 0) {
@@ -1100,6 +1115,11 @@ class AppContainer(private val context: Context) {
 
     /** The system prompt's saved llama.cpp state; a cache, so Android may clear it. */
     private val prefixCacheDir: File by lazy { File(context.cacheDir, "prefix") }
+
+    /** Simple mode's load ladder and its memory of the rung that worked (see [LoadSafety]). */
+    val loadSafety: LoadSafety by lazy {
+        LoadSafety(settings, File(context.filesDir, "model-load-attempt"), Runtime.getRuntime().availableProcessors())
+    }
 
     /** Where llama.cpp runs each load: the Compute setting and the speed test's winner. */
     val computeChoice: ComputeChoice by lazy {
@@ -1561,7 +1581,12 @@ class AppContainer(private val context: Context) {
      * 2 GB of native allocation and must never sit on the main thread.
      */
     suspend fun loadModel(model: ImportedModel): ModelAvailability =
-        readinessLock.withLock { loadModelLocked(model) }
+        readinessLock.withLock {
+            // A model the person picks is tried from the first rung again: an earlier crash or
+            // a smaller window was a fact about the last model, not about this one.
+            loadSafety.reset(model.uri.toString())
+            loadModelLocked(model)
+        }
 
     /**
      * Unloads the resident local model and gives its memory back. The selection and the saved
@@ -1627,7 +1652,7 @@ class AppContainer(private val context: Context) {
                 "This model needs about ${formatBytes(needed)} of memory and this phone has about " +
                     "${formatBytes(have)} free. Try a smaller model or a smaller version of it."
             } else {
-                "Too big for this phone's memory. Try a smaller model."
+                context.getString(R.string.plain_too_big_for_phone)
             }
             return switchFailed(reason, SimpleWording.Kind.LOW_MEMORY, before, previous, previousModel)
         }
@@ -1647,24 +1672,15 @@ class AppContainer(private val context: Context) {
             loadedBackend = null
             previous.unload()
         }
-        try {
-            backend.load(
-                ModelSpec(
-                    // The backend opens this as a URI; see LlamaCppBackend.load.
-                    id = model.uri.toString(),
-                    displayName = model.displayName,
-                    sizeBytes = model.fileSizeBytes,
-                    parameterCount = model.parameterCount,
-                    quantType = model.quantType,
-                    supportedBackends = model.supportedBackends,
-                    contextLength = loadContext,
-                    kvCacheType = choice.kvCacheType,
-                ),
-            )
-        } catch (e: CancellationException) {
-            throw e
-        } catch (t: Throwable) {
-            return switchFailed(describeLoadFailure(context, t), loadFailureKind(t), before, previous, previousModel)
+        val failure = loadWithLadder(backend, model, choice, baseContextChoiceFor(model).nCtx)
+        if (failure != null) {
+            // The file was deleted (or moved) since it was listed: in Simple mode that is the
+            // first-run setup again, not an error to retry (see forgetMissingModel).
+            if (failure is java.io.FileNotFoundException && settings.mode == SettingsMode.SIMPLE) {
+                forgetMissingModel(model)
+                if (previous == null) return ModelAvailability.None.also { modelAvailability.set(it) }
+            }
+            return switchFailed(describeLoadFailure(context, failure), loadFailureKind(failure), before, previous, previousModel)
         }
         // Recorded HERE, at the only place the decision is made, and read by
         // newController. Previously the decision lived and died in this
@@ -1690,6 +1706,79 @@ class AppContainer(private val context: Context) {
         throw e
         } catch (t: Throwable) {
             switchFailed(describeLoadFailure(context, t), loadFailureKind(t), before, previous, previousModel)
+        }
+    }
+
+    /**
+     * Loads [model] into [backend], trying each rung of the Simple load ladder in turn (see
+     * [LoadSafety]). Returns null on success, else the failure of the last rung tried. Technical
+     * mode makes the one load it always made.
+     *
+     * A file that is gone is not retried at a smaller size: no rung can fix it.
+     */
+    private suspend fun loadWithLadder(
+        backend: ModelBackend,
+        model: ImportedModel,
+        choice: ContextChoice,
+        baseContext: Int,
+    ): Throwable? {
+        val simple = settings.mode == SettingsMode.SIMPLE
+        val key = model.uri.toString()
+        if (simple && loadSafety.exhausted(key)) {
+            // Every rung crashed the phone. Automatic loads stop; picking the model again resets.
+            return IllegalStateException("every load step crashed")
+        }
+        val first = if (simple) loadSafety.startRung(key) else 0
+        val last = if (simple) LoadSafety.LAST else 0
+        var failure: Throwable? = null
+        for (rung in first..last) {
+            val attempt = if (simple) {
+                loadSafety.attempt(rung, baseContext)
+            } else {
+                LoadAttempt(choice.nCtx, threads = 0, cpuOnly = false)
+            }
+            // Written before the native call and deleted when it returns: a marker left behind
+            // means the load died inside llama.cpp, and the next load starts a rung lower.
+            if (simple) loadSafety.attempting(key, rung)
+            try {
+                backend.load(
+                    ModelSpec(
+                        // The backend opens this as a URI; see LlamaCppBackend.load.
+                        id = key,
+                        displayName = model.displayName,
+                        sizeBytes = model.fileSizeBytes,
+                        parameterCount = model.parameterCount,
+                        quantType = model.quantType,
+                        supportedBackends = model.supportedBackends,
+                        contextLength = attempt.contextLength,
+                        kvCacheType = choice.kvCacheType,
+                        threads = attempt.threads,
+                        cpuOnly = attempt.cpuOnly,
+                    ),
+                )
+                if (simple) loadSafety.attemptReturned(key, rung, ok = true)
+                return null
+            } catch (e: CancellationException) {
+                if (simple) loadSafety.attemptReturned(key, rung, ok = false)
+                throw e
+            } catch (t: Throwable) {
+                if (simple) loadSafety.attemptReturned(key, rung, ok = false)
+                android.util.Log.w(TAG, "load step $rung failed", t)
+                failure = t
+                if (t is java.io.FileNotFoundException) break
+            }
+        }
+        return failure
+    }
+
+    /**
+     * The model file is gone: drop it from the list and the saved choice, so the chat goes back to
+     * the first-run setup instead of failing on every send.
+     */
+    private suspend fun forgetMissingModel(model: ImportedModel) {
+        withContext(Dispatchers.Main) {
+            models.removeAll { it.uri == model.uri }
+            if (selectedModel?.uri == model.uri) selectedModel = null
         }
     }
 
@@ -1922,6 +2011,12 @@ class AppContainer(private val context: Context) {
             } catch (e: CancellationException) {
                 throw e
             } catch (t: Throwable) {
+                // A model file that was deleted, or whose access was revoked, is the first-run setup in
+                // Simple mode, not a failure to retry (see forgetMissingModel).
+                if (settings.mode == SettingsMode.SIMPLE && (t is java.io.FileNotFoundException || t is SecurityException)) {
+                    selectedModel = null
+                    return ModelAvailability.None.also { modelAvailability.set(it) }
+                }
                 return ModelAvailability.Failed(describeLoadFailure(context, t), loadFailureKind(t))
                     .also { modelAvailability.set(it) }
             }
@@ -2111,7 +2206,10 @@ class AppContainer(private val context: Context) {
         // The shared conversation, not a fresh one. See [session] for why this
         // used to silently discard everything the model had already been told.
         sessions = session,
-        config = config,
+        config = config.copy(
+            hideToolNames = settings.mode == SettingsMode.SIMPLE,
+            toolNameFallback = context.getString(R.string.reply_tool_fallback),
+        ),
         riskPolicy = riskPolicy(snapshot, background),
         // What the screen shows leaves the phone with the request when a remote model answers.
         screenTextLeavesPhone = model === remoteChatBackend || model === chatGptBackend,
@@ -2270,7 +2368,7 @@ class AppContainer(private val context: Context) {
         StarterSetup(
             context = context,
             scope = appScope,
-            suggestion = SimpleSetup.suggestedModel(deviceFacts),
+            suggestion = starterFor(settings.stored(StarterSetup.SMALLER_STARTER)),
             client = hubClient,
             downloader = hubDownloader,
             budget = hubBudget,
@@ -2282,7 +2380,18 @@ class AppContainer(private val context: Context) {
             availability = modelAvailability.state,
             adopt = { file -> adoptDownloaded(file) },
             awaitPrefix = { awaitPrefixWarm() },
+            smallest = SimpleSetup.smallestStarter(),
+            remember = { smaller -> settings.set(StarterSetup.SMALLER_STARTER, smaller.file) },
         )
+    }
+
+    /**
+     * The starter the first run offers: the smaller one once this phone was moved down to it (it could
+     * not run the first pick), else the table's pick.
+     */
+    private fun starterFor(rememberedFile: String): dev.localintelligence.app.settings.SuggestedModel {
+        val smallest = SimpleSetup.smallestStarter()
+        return if (rememberedFile.isNotEmpty() && rememberedFile == smallest.file) smallest else SimpleSetup.suggestedModel(deviceFacts)
     }
 
     /**

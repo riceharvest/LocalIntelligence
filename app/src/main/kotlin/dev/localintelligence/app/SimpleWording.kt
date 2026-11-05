@@ -2,6 +2,8 @@ package dev.localintelligence.app
 
 import android.content.Context
 import androidx.annotation.StringRes
+import dev.localintelligence.core.agent.StepTrace
+import dev.localintelligence.app.ui.components.donePhrase
 
 /**
  * Plain sentences for the failures a Simple user can meet: no internet, low memory, a model that
@@ -24,6 +26,39 @@ object SimpleWording {
         TOO_LONG(R.string.plain_too_long),
         CANT_HEAR(R.string.plain_cant_hear),
         TRANSCRIBE_FAILED(R.string.plain_transcribe_failed),
+
+        // How a run ended without an answer (see core's StopKind, which uses these names).
+        LOOP_DETECTED(R.string.plain_stop_loop),
+        NO_PROGRESS(R.string.plain_stop_no_progress),
+        NO_VALID_ACTION(R.string.plain_stop_no_action),
+        REPEATED(R.string.chat_repetition_stopped),
+        EMPTY_REPLY(R.string.plain_stop_empty),
+        MODEL_FAILED(R.string.plain_stop_assistant_failed),
+        NOTHING_PENDING(R.string.plain_stop_nothing_pending),
+        CANT_SEE(R.string.plain_stop_cant_see),
+        INTERRUPTED(R.string.plain_stop_interrupted),
+        STEP_LIMIT(R.string.plain_stop_steps),
+        INTERNAL(R.string.plain_something_went_wrong),
+    }
+
+    /**
+     * The kind named by a core stop's key (see `StopKind`), or null when the key is not one the app
+     * knows. A key the app does not know is shown as the generic sentence, never a crash.
+     */
+    fun named(key: String?): Kind? = key?.let { k -> Kind.entries.firstOrNull { it.name == k } }
+
+    /**
+     * What the run got done before it stopped, as one plain sentence ("Done so far: Set timer."), or null
+     * when no tool that has a Simple name succeeded. Only the tools that worked: a failed call is not claimed.
+     */
+    fun doneSummary(context: Context, trace: List<StepTrace>): String? {
+        val phrases = trace
+            .filter { it.kind == StepTrace.Kind.TOOL_CALL && it.success }
+            .mapNotNull { it.toolName }
+            .distinct()
+            .mapNotNull { donePhrase(context, it) }
+        if (phrases.isEmpty()) return null
+        return context.getString(R.string.plain_done_so_far, phrases.joinToString(", "))
     }
 
     /** The kind of failure [raw] describes, or null when its words name none. Order matters: the first match wins. */

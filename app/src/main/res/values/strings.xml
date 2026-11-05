@@ -763,6 +763,19 @@
     <string name="starter_battery">How much battery do I have?</string>
     <string name="starter_timer">Set a timer for 10 minutes</string>
     <string name="starter_wake">Wake me up at 7 tomorrow</string>
+    <string name="starter_weather">What\'s the weather in Amsterdam?</string>
+    <string name="starter_sum">What is 17 times 23?</string>
+    <string name="starter_web">Open wikipedia.org</string>
+    <string name="starter_capability">It can set timers and alarms, do sums and answer questions. It runs on this phone, so it works without internet. Weather and web pages need a connection.</string>
+    <string name="starter_privacy">Your chats stay on this phone. Web searches use the internet.</string>
+    <string name="starter_queued">I\'ll send your message as soon as the assistant is ready.</string>
+    <string name="starter_example_wait">Send or clear your message first, then try again.</string>
+    <string name="starter_eta_under_minute">Less than a minute left</string>
+    <plurals name="starter_eta_minutes">
+        <item quantity="one">About %1$d minute left</item>
+        <item quantity="other">About %1$d minutes left</item>
+    </plurals>
+    <string name="assistant_download_name">Your assistant</string>
     <string name="fit_too_big">Too big</string>
     <string name="fit_fits">Fits</string>
     <string name="fit_tight">Tight</string>
@@ -1141,6 +1154,11 @@
     <string name="get_started_plain">Get started</string>
     <string name="download_is_about_stays_on_phone">The download is about %1$s. It stays on your phone.</string>
     <string name="simple_steps_done">Looked into it</string>
+    <!-- The chat's own buttons in Simple: no word for the file behind the answer. -->
+    <string name="simple_set_up_chat">Set up chat</string>
+    <string name="simple_try_another_option">Try another option</string>
+    <string name="simple_other_options">Other options</string>
+    <string name="simple_copy_code">Copy code</string>
     <string name="simple_yes">Yes</string>
     <string name="simple_no">No</string>
     <string name="simple_step_not_finished">Didn\'t finish this step</string>
@@ -1148,8 +1166,9 @@
     <string name="plain_no_network">I can\'t reach the internet right now. Check your connection, then try again.</string>
     <string name="plain_storage_full">Your phone is out of storage. Free up some space, then try again.</string>
     <string name="plain_low_memory">This phone is low on memory. Close a few apps and try again.</string>
+    <string name="plain_too_big_for_phone">This phone doesn\'t have enough free memory for the assistant. Try the smaller starter instead.</string>
     <string name="plain_load_failed">The assistant couldn\'t start on this phone. Try again, or restart the app.</string>
-    <string name="plain_cant_run">This phone can\'t run the assistant.</string>
+    <string name="plain_cant_run">This phone can\'t run the assistant. Use a phone with more memory.</string>
     <string name="plain_download_failed">The download didn\'t finish. Check your connection, then try again.</string>
     <string name="plain_not_ready">Getting ready. Send your message again in a moment.</string>
     <string name="plain_too_long">That message is too long. Try a shorter one.</string>
@@ -1161,7 +1180,7 @@
     <string name="plain_memory_cleared">Cleared what I remember.</string>
     <string name="plain_plan_updated">Updated the plan</string>
     <string name="plain_helper_ran">Looked at one part of it</string>
-    <string name="plain_interrupted">The last answer stopped when the app closed. Continue?</string>
+    <string name="plain_interrupted">The last answer stopped before it finished. Continue?</string>
     <string name="plain_search_intro">Find things on this phone by words: notifications, texts, calendar, contact names, text files in a folder you choose, and photo captions. Each one is on or off.</string>
     <string name="plain_search_privacy">Your index stays on this phone and sends nothing anywhere. If a cloud assistant answers, what it finds is sent to it in the chat, like any other result.</string>
     <string name="plain_search_charging">Texts, calendar, contact names and files update about every six hours, only while the phone is charging. Notifications are saved as they arrive.</string>
@@ -1636,7 +1655,7 @@
     <string name="setting_home_assistant_token_label">Long-lived access token</string>
     <string name="setting_home_assistant_token_desc">In Home Assistant: your profile, Security, Long-lived access tokens. Stored encrypted and never shown back.</string>
     <string name="setting_web_search_provider_label">Search provider</string>
-    <string name="setting_web_search_provider_desc">Where web.search sends your query. DuckDuckGo needs no key. Brave, Tavily and Exa need your own key; SearXNG needs your instance address. If the chosen provider fails, the search fails. It never switches to another provider.</string>
+    <string name="setting_web_search_provider_desc">Where web.search sends your query. DuckDuckGo needs no key; if it does not answer, Bing, Brave Search and Wikipedia are tried in turn. Brave, Tavily and Exa need your own key; SearXNG needs your instance address. If one of those fails, the search fails. It never switches to another provider.</string>
     <string name="setting_web_search_provider_option_duckduckgo">DuckDuckGo</string>
     <string name="setting_web_search_provider_option_brave">Brave Search</string>
     <string name="setting_web_search_provider_option_tavily">Tavily</string>
@@ -1672,13 +1691,18 @@
     <string name="readiness_exact_alarms_blocked">Android is not letting this app schedule exact alarms, so a task cannot be set for a specific time. Turn on \"Alarms and reminders\" for this app in system settings.</string>
     <string name="setup_checksum_damaged">The download was damaged, so it was removed. Try again.</string>
     <string name="setup_free_storage">Free up %1$s of storage, then try again.</string>
-    <string name="setup_starter_cannot_run">This phone can\'t run this model.</string>
-    <string name="setup_embedding_cannot_download">This phone cannot download this model.</string>
+    <string name="setup_starter_cannot_run">This phone can\'t run the assistant.</string>
+    <string name="setup_embedding_cannot_download">This phone can\'t set up document search.</string>
+    <string name="setup_site_down">The download site is having trouble right now. Try again in a few minutes.</string>
+    <string name="setup_site_busy">The download site asked us to wait. Try again in a few minutes.</string>
+    <string name="setup_waiting_network">No internet right now. The download starts by itself when the phone is back online.</string>
+    <string name="setup_mobile_data">You are on mobile data. The download is about %1$s. Tap Try again to download over mobile data, or connect to Wi-Fi first.</string>
+    <string name="setup_damaged_again">The downloaded file was damaged, so it was removed. Tap Try again to download it again.</string>
     <string name="setup_network_failed">Couldn\'t download. Check your internet connection and try again.</string>
     <string name="setup_could_not_save">The download could not be saved. Free up some storage and try again.</string>
-    <string name="setup_not_found">Couldn\'t find the model to download. Try again later.</string>
-    <string name="setup_starter_would_not_start">The model downloaded but would not start on this phone.</string>
-    <string name="setup_embedding_not_loaded">The search model downloaded but could not be loaded.</string>
+    <string name="setup_not_found">Couldn\'t find the assistant to download. Try again later.</string>
+    <string name="setup_starter_would_not_start">The download finished, but the assistant would not start on this phone.</string>
+    <string name="setup_embedding_not_loaded">Document search downloaded, but it could not start on this phone.</string>
     <string name="sched_approval_skipped">An action that needed your approval was skipped.</string>
     <string name="sched_cancelled_user">Cancelled: stopped before it finished.</string>
     <string name="sched_cancelled_interrupted">Cancelled: the run was interrupted before it finished.</string>
@@ -1798,4 +1822,33 @@
     <!-- PhoneHitsRow.kt and TelegramPanel.kt -->
     <string name="phone_hit_label">%1$s: %2$s</string>
     <string name="telegram_chat_label">%1$s (%2$s)</string>
+    <string name="reply_tool_fallback">I could not finish that. Please ask again.</string>
+
+    <!-- How a run ended without an answer, in Simple words. Each has a next step; Retry resends. -->
+    <string name="plain_stop_loop">I got stuck repeating a step, so I stopped. Try asking again, or ask for one thing at a time.</string>
+    <string name="plain_stop_no_progress">I kept getting the same result, so I stopped. Try asking again in fewer words.</string>
+    <string name="plain_stop_no_action">I couldn\'t work out the next step, so I stopped. Try asking again in fewer words.</string>
+    <string name="plain_stop_empty">I didn\'t get an answer to show you. Try asking again.</string>
+    <string name="plain_stop_assistant_failed">The assistant stopped part way through. Try again.</string>
+    <string name="plain_stop_nothing_pending">There is nothing to continue. Send your request again.</string>
+    <string name="plain_stop_cant_see">I can\'t look at pictures yet. Try describing it in words.</string>
+    <string name="plain_stop_interrupted">The task was interrupted before it finished. Try again.</string>
+    <string name="plain_stop_steps">I couldn\'t finish that in the steps I had. Try asking for one thing at a time.</string>
+    <string name="plain_done_so_far">Done so far: %1$s.</string>
+    <string name="access_continue">Continue</string>
+    <string name="access_not_now">Not now</string>
+    <string name="access_open_settings">Open settings</string>
+    <string name="access_contacts">To find who you mean, I need to read your contacts.</string>
+    <string name="access_calendar_read">To look at your calendar, I need permission to read it.</string>
+    <string name="access_calendar_write">To add this to your calendar, I need permission to change it.</string>
+    <string name="access_location">To know where you are, I need your approximate location.</string>
+    <string name="access_sms_read">To read your texts, I need permission to read text messages.</string>
+    <string name="access_sms_send">To send this text, I need permission to send text messages. You still confirm before it goes.</string>
+    <string name="access_call_log">To see your recent calls, I need permission to read your call history.</string>
+    <string name="access_call">To place this call, I need permission to make calls. You still confirm first.</string>
+    <string name="access_dnd">To turn Do Not Disturb on or off, allow LocalIntelligence on the Do Not Disturb access page.</string>
+    <string name="access_write_settings">To change the screen brightness, allow LocalIntelligence to change system settings.</string>
+    <string name="access_usage">To show your screen time, allow LocalIntelligence on the Usage access page.</string>
+    <string name="access_notifications">To read notifications and control music, allow LocalIntelligence on the notification access page.</string>
+    <string name="access_exact_alarm">To set an alarm at an exact time, allow alarms and reminders for LocalIntelligence.</string>
 </resources>

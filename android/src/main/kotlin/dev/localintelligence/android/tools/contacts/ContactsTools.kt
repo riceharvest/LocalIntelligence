@@ -6,6 +6,7 @@ import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
 import android.provider.ContactsContract
+import dev.localintelligence.android.tools.access.ToolAccess
 import dev.localintelligence.android.tools.device.ArgCoerce
 import dev.localintelligence.android.tools.device.ArgResult
 import dev.localintelligence.android.tools.device.guarded
@@ -453,7 +454,10 @@ class ContactsSearchTool internal constructor(
             // and skipping it would return an empty list for a user who had
             // not. Both are lies, and the second is the one that makes the
             // model say "you have no contacts".
-            if (!grant.isGranted(ToolPermissions.CONTACTS)) return@withContext denied()
+            // Simple mode asks at this moment, once; a refusal takes the plain fallback.
+            if (!grant.isGranted(ToolPermissions.CONTACTS) && !ToolAccess.askRuntime(ToolPermissions.READ_CONTACTS)) {
+                return@withContext denied("contacts.search")
+            }
             if (context.signal.isCancelled()) return@withContext cancelled()
 
             val query = optionalString(args, "query", ContactsArgs.MAX_QUERY_CHARS)
@@ -502,7 +506,7 @@ class ContactsSearchTool internal constructor(
                     cursor.close()
                 }
             } catch (security: SecurityException) {
-                return@withContext denied()
+                return@withContext denied("contacts.search")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (t: Throwable) {
@@ -526,7 +530,13 @@ class ContactsSearchTool internal constructor(
 
             ToolResult(
                 success = true,
-                observation = ContactsText.search(deduped, query),
+                // Simple mode: nothing found is one sentence and the run goes on. Searching the web
+                // for a private person is what this stops.
+                observation = if (deduped.contacts.isEmpty() && ToolAccess.simpleMode()) {
+                    "No contact matches \"$query\". Say so in one sentence and go on. Do not search the web for this person."
+                } else {
+                    ContactsText.search(deduped, query)
+                },
                 data = buildJsonObject {
                     put("query", query)
                     put("count", deduped.contacts.size)
@@ -538,9 +548,13 @@ class ContactsSearchTool internal constructor(
             )
         }
 
-    private fun denied(): ToolResult = ToolResult(
+    private fun denied(tool: String): ToolResult = ToolResult(
         success = false,
-        observation = PermissionDenial.observation("contacts.search", ToolPermissions.CONTACTS),
+        observation = ToolAccess.observe(
+            tool,
+            ToolPermissions.CONTACTS,
+            "Contacts access is not on, so no contact was read. Ask the person for the name or number instead.",
+        ),
         error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.CONTACTS)),
     )
 
@@ -600,7 +614,9 @@ class ContactsGetTool internal constructor(
             // the note on contacts.search. Without this the notFound() branch
             // below is reached for a user who simply was not allowed to look,
             // and the model reports that the contact does not exist.
-            if (!grant.isGranted(ToolPermissions.CONTACTS)) return@withContext denied()
+            if (!grant.isGranted(ToolPermissions.CONTACTS) && !ToolAccess.askRuntime(ToolPermissions.READ_CONTACTS)) {
+                return@withContext denied("contacts.get")
+            }
             if (context.signal.isCancelled()) return@withContext cancelled()
 
             val id = when (val parsed = ContactsArgs.parseContactId(primitive(args, "id")?.content)) {
@@ -649,7 +665,7 @@ class ContactsGetTool internal constructor(
                     cursor.close()
                 }
             } catch (security: SecurityException) {
-                return@withContext denied()
+                return@withContext denied("contacts.get")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (t: Throwable) {
@@ -680,9 +696,13 @@ class ContactsGetTool internal constructor(
             )
         }
 
-    private fun denied(): ToolResult = ToolResult(
+    private fun denied(tool: String): ToolResult = ToolResult(
         success = false,
-        observation = PermissionDenial.observation("contacts.get", ToolPermissions.CONTACTS),
+        observation = ToolAccess.observe(
+            tool,
+            ToolPermissions.CONTACTS,
+            "Contacts access is not on, so no contact was read. Ask the person for the name or number instead.",
+        ),
         error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.CONTACTS)),
     )
 
