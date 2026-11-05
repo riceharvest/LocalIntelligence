@@ -114,7 +114,8 @@ class LlamaCppBackend(
      */
     override suspend fun load(model: ModelSpec) {
         stopWarmUp()
-        loadOn(model, computeSource.forNextLoad(), cpuFallback = true)
+        // cpuOnly is the Simple load ladder's last rung: the GPU is not tried at all.
+        loadOn(model, if (model.cpuOnly) LlamaCompute.CPU else computeSource.forNextLoad(), cpuFallback = true)
     }
 
     /**
@@ -173,7 +174,7 @@ class LlamaCppBackend(
                 handle = bridgeHandle,
                 path = opened.nativePath(),
                 contextLength = contextLength,
-                threads = 0,
+                threads = model.threads,
                 useMmap = opened.isMmapCapable,
                 compute = compute,
                 outputsMax = outputsMax,
@@ -209,7 +210,7 @@ class LlamaCppBackend(
             currentCapabilities = ModelCapabilities.UNKNOWN
         }
 
-        var compute = wanted
+        var compute = if (model.cpuOnly) LlamaCompute.CPU else wanted
         var loadError = loadNative(compute)
         if (loadError != null && compute.isGpu && cpuFallback) {
             android.util.Log.w(TAG, "${compute.label} could not load the model, using the CPU: $loadError")

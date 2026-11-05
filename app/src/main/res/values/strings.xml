@@ -1148,6 +1148,7 @@
     <string name="plain_no_network">I can\'t reach the internet right now. Check your connection, then try again.</string>
     <string name="plain_storage_full">Your phone is out of storage. Free up some space, then try again.</string>
     <string name="plain_low_memory">This phone is low on memory. Close a few apps and try again.</string>
+    <string name="plain_too_big_for_phone">This phone doesn\'t have enough free memory for the assistant. Try the smaller starter instead.</string>
     <string name="plain_load_failed">The assistant couldn\'t start on this phone. Try again, or restart the app.</string>
     <string name="plain_cant_run">This phone can\'t run the assistant.</string>
     <string name="plain_download_failed">The download didn\'t finish. Check your connection, then try again.</string>
