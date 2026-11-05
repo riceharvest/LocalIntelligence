@@ -11,6 +11,8 @@ hubctl "rate=10000000"
 fresh_install
 launch
 wait_text "Get started" 40 || fail "no first-run panel"
+sleep 3
+hub_log_clear   # the previous case's aborted transfer logs itself late
 tap_text "Get started"
 if wait_text "^Allow$" 8; then tap_text "Allow"; fi
 wait_text "mobile data" 20 || fail "no mobile-data question after the first tap"
