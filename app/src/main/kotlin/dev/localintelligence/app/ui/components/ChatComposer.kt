@@ -151,6 +151,8 @@ fun ChatComposer(
     onRemoveAttachment: (Int) -> Unit = {},
     /** Opens Settings. The chat has no app bar, so this is the way to every other screen. */
     onOpenSettings: () -> Unit = {},
+    /** Whether the gear sits in the action row. Simple shows Settings in the chat's top row instead. */
+    showSettingsEntry: Boolean = true,
     /**
      * Whether [blockedReason] is written above the field. The caller turns it off
      * while the empty chat already shows the same sentence in the middle.
@@ -275,7 +277,7 @@ fun ChatComposer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    SettingsEntry(onOpenSettings)
+                    if (showSettingsEntry) SettingsEntry(onOpenSettings)
                     MediaButtons(canAttach, canUseMic, micActive, handsFreeOn, canHandsFree, onAttach, onMic, onHandsFree)
                     ComposerField(
                         input = input,
@@ -310,7 +312,7 @@ fun ChatComposer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    SettingsEntry(onOpenSettings)
+                    if (showSettingsEntry) SettingsEntry(onOpenSettings)
                     MediaButtons(canAttach, canUseMic, micActive, handsFreeOn, canHandsFree, onAttach, onMic, onHandsFree)
 
                     // One slot, two states, same geometry. The button never moves
