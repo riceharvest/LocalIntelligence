@@ -208,6 +208,12 @@ class StarterSetup(
         // (Try again on that sentence) is the consent.
         val consent = awaitingMobileConsent
         awaitingMobileConsent = false
+        // With no network at all the system calls the (absent) connection metered, so this must come first:
+        // an offline phone is told it is offline and starts by itself on reconnect, not asked about mobile data.
+        if (!downloader.partialFileFor(local).isComplete(active.sizeBytes) && !online()) {
+            waitForNetwork()
+            return
+        }
         if (!consent && onMeteredNetwork()) {
             awaitingMobileConsent = true
             // A network that comes back now must not start the download without the tap.
@@ -250,6 +256,14 @@ class StarterSetup(
             run()
         } catch (e: CancellationException) {
             throw e
+        } catch (e: HubError) {
+            // The site answered (a 5xx, a 404, a rate limit): say what it said, in plain words, not "check your internet".
+            Log.w(TAG, "first-run setup refused by the hub", e)
+            if (e is HubError.NoNetwork || e is HubError.ConnectionLost) {
+                if (!online()) waitForNetwork() else _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed), SimpleWording.Kind.NO_NETWORK)
+            } else {
+                _state.value = SetupState.Failed(describe(e), kindOf(e))
+            }
         } catch (e: Exception) {
             Log.w(TAG, "first-run setup failed", e)
             if (!online()) waitForNetwork() else _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed), SimpleWording.Kind.NO_NETWORK)
@@ -489,7 +503,7 @@ class StarterSetup(
     private fun kindOf(error: HubError): SimpleWording.Kind = when (error) {
         is HubError.InsufficientStorage -> SimpleWording.Kind.STORAGE_FULL
         is HubError.ChecksumMismatch, is HubError.InvalidInput -> SimpleWording.Kind.DOWNLOAD_FAILED
-        is HubError.ServerUnavailable, is HubError.RateLimited -> SimpleWording.Kind.DOWNLOAD_FAILED
+        is HubError.ServerUnavailable, is HubError.RateLimited, is HubError.RepoNotFound, is HubError.FileNotFound -> SimpleWording.Kind.DOWNLOAD_FAILED
         else -> SimpleWording.Kind.NO_NETWORK
     }
 
@@ -505,6 +519,7 @@ class StarterSetup(
         // The download site answered, so the phone is online: say the site is the problem, not the connection.
         is HubError.ServerUnavailable -> context.getString(R.string.setup_site_down)
         is HubError.RateLimited -> context.getString(R.string.setup_site_busy)
+        is HubError.RepoNotFound, is HubError.FileNotFound -> context.getString(R.string.setup_not_found)
         else -> context.getString(R.string.setup_network_failed)
     }
 

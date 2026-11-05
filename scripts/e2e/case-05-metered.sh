@@ -3,11 +3,10 @@
 # only after Try again.
 source "$(dirname "$0")/lib.sh"
 case_begin 05 "Metered network: size question first"
-trap 'adb shell cmd netpolicy set metered-network "AndroidWifi;none" false >/dev/null 2>&1' EXIT
+trap 'wifi_metered off' EXIT
 
-adb shell cmd netpolicy set metered-network "AndroidWifi;none" true
-sleep 4
-adb shell dumpsys connectivity | grep -q "NOT_METERED" && fail "the emulator's network is still unmetered"
+wifi_metered on || fail "could not mark the emulator's Wi-Fi metered"
+adb shell cmd netpolicy list wifi-networks true | grep -q "AndroidWifi;true" || fail "the emulator's network is still unmetered"
 hubctl "rate=10000000"
 fresh_install
 launch

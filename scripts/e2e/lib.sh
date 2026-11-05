@@ -354,6 +354,30 @@ hub_log_clear() { curl -s "http://127.0.0.1:$HUB_PORT/_log?clear=1" >/dev/null; 
 airplane_on() { adb shell cmd connectivity airplane-mode enable; }
 airplane_off() { adb shell cmd connectivity airplane-mode disable; }
 
+# wifi_metered on|off: reconnects the emulator's Wi-Fi marked metered (or not). `netpolicy set
+# metered-network` does not take on the emulator; joining the network again with -m does.
+wifi_metered() {
+  local flag=""
+  [[ "$1" == on ]] && flag="-m"
+  adb shell "cmd wifi forget-network 0" >/dev/null 2>&1
+  adb shell "cmd wifi connect-network AndroidWifi open $flag" >/dev/null 2>&1
+  local i
+  for i in $(seq 1 30); do
+    if [[ "$1" == on ]]; then
+      adb shell cmd netpolicy list wifi-networks true | grep -q "AndroidWifi;true" && break
+    else
+      ! adb shell cmd netpolicy list wifi-networks true | grep -q "AndroidWifi;true" && break
+    fi
+    sleep 1
+  done
+  # Wait for the network to be usable again.
+  for i in $(seq 1 30); do
+    adb shell dumpsys connectivity | grep -q "WIFI CONNECTED" && return 0
+    sleep 1
+  done
+  return 1
+}
+
 # The percentage the first-run panel shows ("Setting up · 37%"), or empty.
 setup_percent() {
   ui_dump || return 1
