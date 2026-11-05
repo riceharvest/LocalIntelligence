@@ -107,6 +107,15 @@ def args_not_match(actual, expected: dict):
     return all(k not in actual or actual[k] != v for k, v in expected.items())
 
 
+BATTERY_LEVEL = re.compile(r"(\d{1,3}(?:[.,]\d+)?)\s*(?:%|percent|procent|pour ?cent|prozent)")
+
+
+def battery_level(answer: str) -> float | None:
+    """The first percentage in the answer, as a number. None when the answer names no level."""
+    m = BATTERY_LEVEL.search(normalise(answer))
+    return float(m.group(1).replace(",", ".")) if m else None
+
+
 def check_one(check: dict, calls: list, answer: str, fixture_on_device: bool):
     """Returns (status, reason). status is pass, fail or unverified."""
     kind = check["type"]
@@ -142,6 +151,17 @@ def check_one(check: dict, calls: list, answer: str, fixture_on_device: bool):
         if any(r is None for r in results):
             return "unverified", f"{check['name']} arguments not reported"
         return "fail", f"{check['name']} arguments wrong: {[c.get('args') for c in matches]}"
+    if kind == "conditional_call":
+        # A call that is required only when the reported level is under the threshold, and forbidden
+        # otherwise. The level comes from the answer text; when none can be read the check is unverified.
+        level = battery_level(answer)
+        if level is None:
+            return "unverified", "no battery level in the answer"
+        if level < check["threshold"]:
+            status, reason = check_one({"type": "call", "name": check["name"], "args": check["args"]}, calls, answer, fixture_on_device)
+            return status, (f"level {level:g} under {check['threshold']}: " + reason).rstrip(": ")
+        status, reason = check_one({"type": "forbid", "names": [check["name"]]}, calls, answer, fixture_on_device)
+        return status, (f"level {level:g} at or over {check['threshold']}: " + reason).rstrip(": ")
     if kind == "answer_min_chars":
         ok = len(answer.strip()) >= check["n"]
         return ("pass", "") if ok else ("fail", f"answer shorter than {check['n']} chars")
