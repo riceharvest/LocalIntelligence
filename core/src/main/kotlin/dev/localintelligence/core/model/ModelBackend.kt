@@ -30,6 +30,14 @@ data class ModelSpec(
      * type, so what is checked is what is allocated. Backends with their own cache ignore it.
      */
     val kvCacheType: KvCacheType = KvCacheType.DEFAULT,
+    /**
+     * Threads for the native load and run, or 0 for the backend's own choice. Simple mode's load
+     * ladder lowers it after a load failed, so a phone that could not start the model with every
+     * core can start it with fewer.
+     */
+    val threads: Int = 0,
+    /** Run on the CPU whatever Compute says. The last rung of the Simple load ladder. */
+    val cpuOnly: Boolean = false,
 )
 
 data class ModelCapabilities(

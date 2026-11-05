@@ -1,6 +1,8 @@
 package dev.localintelligence.app
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.util.Log
 import dev.localintelligence.app.settings.SuggestedModel
 import dev.localintelligence.app.ui.DownloadedModelRegistrar
@@ -14,13 +16,17 @@ import dev.localintelligence.core.hub.HubGgufFile
 import dev.localintelligence.core.hub.HubRepoId
 import dev.localintelligence.core.hub.HubTokenSource
 import dev.localintelligence.core.hub.HuggingFaceClient
+import dev.localintelligence.core.hub.Sha256
 import dev.localintelligence.core.hub.formatBytes
+import dev.localintelligence.core.settings.SettingDef
+import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.model.gguf.GgufHeader
 import dev.localintelligence.core.model.gguf.KvCacheType
 import dev.localintelligence.android.hub.ModelDownloader
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -124,16 +130,28 @@ class StarterSetup(
     private val adopt: suspend (File) -> DownloadedModelRegistrar.Registered?,
     /** [AppContainer.awaitPrefixWarm]: returns once the prefix build for the loaded model is done. */
     private val awaitPrefix: suspend () -> Unit,
-) {
     /**
-     * The suggestion as a Hub file with no listing data. It is used only for its local paths, which
+     * The smallest starter, offered when the phone cannot run [suggestion]. Null: no fallback.
+     * A phone that refuses the bigger starter is set up with this one instead, and [remember] keeps
+     * that choice for the next launch.
+     */
+    private val smallest: SuggestedModel? = null,
+    private val remember: (SuggestedModel) -> Unit = {},
+) {
+    /** The starter being set up. Changes once, from [suggestion] to [smallest], when the phone refuses [suggestion]. */
+    private var active: SuggestedModel = suggestion
+
+    /**
+     * The active suggestion as a Hub file with no listing data. It is used only for its local paths, which
      * come from the same naming rule the downloader uses ([ModelDownloader.partialFileFor]).
      * The suggestion is a constant, so a parse failure is a programming error, not a user error.
      */
-    private val local: HubGgufFile = HubGgufFile(
-        repo = (HubRepoId.parse(suggestion.repo) as HubRepoId.Result.Valid).repoId,
-        path = (HubFilePath.parse(suggestion.file) as HubFilePath.Result.Valid).filePath,
-        sizeBytes = suggestion.sizeBytes,
+    private var local: HubGgufFile = localFor(active)
+
+    private fun localFor(model: SuggestedModel): HubGgufFile = HubGgufFile(
+        repo = (HubRepoId.parse(model.repo) as HubRepoId.Result.Valid).repoId,
+        path = (HubFilePath.parse(model.file) as HubFilePath.Result.Valid).filePath,
+        sizeBytes = model.sizeBytes,
         sha256 = null,
         quant = null,
         shardIndex = null,
@@ -148,13 +166,22 @@ class StarterSetup(
     /** The running setup job. Only [cancel] reads it, and only while the state is `Downloading`. */
     private var running: Job? = null
 
+    /** Set once the person was told the download would use mobile data; their next tap is the consent. */
+    private var awaitingMobileConsent = false
+
+    /** The system callback that starts the setup again when the phone is back online. Set only while waiting. */
+    private var onlineWatch: ConnectivityManager.NetworkCallback? = null
+
     init {
         // The observer runs on the app scope, not the main thread, so every write is an atomic update.
         scope.launch {
             availability.collect { now ->
                 when (now) {
-                    is ModelAvailability.Ready -> _state.update { cur ->
-                        if (cur is SetupState.Idle || cur is SetupState.Failed) SetupState.Ready else cur
+                    is ModelAvailability.Ready -> {
+                        stopWatchingNetwork()
+                        _state.update { cur ->
+                            if (cur is SetupState.Idle || cur is SetupState.Failed) SetupState.Ready else cur
+                        }
                     }
                     ModelAvailability.None -> _state.update { cur ->
                         if (cur is SetupState.Ready) idleFromDisk() else cur
@@ -170,12 +197,27 @@ class StarterSetup(
      * so a second tap while it runs does nothing. Called from the main thread.
      */
     fun start() {
+        val cur = _state.value
+        if (cur !is SetupState.Idle && cur !is SetupState.Failed) return
+        // Mobile data is the person's to spend: the first tap says how big the download is, the second
+        // (Try again on that sentence) is the consent.
+        val consent = awaitingMobileConsent
+        awaitingMobileConsent = false
+        if (!consent && onMeteredNetwork()) {
+            awaitingMobileConsent = true
+            // A network that comes back now must not start the download without the tap.
+            stopWatchingNetwork()
+            _state.value = SetupState.Failed(context.getString(R.string.setup_mobile_data, formatBytes(active.sizeBytes)), null)
+            return
+        }
+        stopWatchingNetwork()
         if (!claim()) return
-        running = transfers.launch(suggestion.name) { attempt() }
+        running = transfers.launch(active.name) { attempt() }
     }
 
     /** Cancels the running setup, as the Cancel button does. Only while downloading. */
     fun cancel() {
+        stopWatchingNetwork()
         val job = running ?: return
         if (_state.value !is SetupState.Downloading) return
         running = null
@@ -188,7 +230,7 @@ class StarterSetup(
             val cur = _state.value
             if (cur !is SetupState.Idle && cur !is SetupState.Failed) return false
             val kept = (cur as? SetupState.Idle)?.keptBytes ?: 0L
-            if (_state.compareAndSet(cur, SetupState.Downloading(kept, suggestion.sizeBytes))) return true
+            if (_state.compareAndSet(cur, SetupState.Downloading(kept, active.sizeBytes))) return true
         }
     }
 
@@ -204,7 +246,7 @@ class StarterSetup(
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "first-run setup failed", e)
-            _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed), SimpleWording.Kind.NO_NETWORK)
+            if (!online()) waitForNetwork() else _state.value = SetupState.Failed(context.getString(R.string.setup_network_failed), SimpleWording.Kind.NO_NETWORK)
         } finally {
             // A cancel can end the job before the downloader reports anything. The bytes on disk are the truth.
             _state.update { if (it is SetupState.Downloading) idleFromDisk() else it }
@@ -214,8 +256,17 @@ class StarterSetup(
     private suspend fun run() {
         val partial = downloader.partialFileFor(local)
         // Step 1: the whole file is already here, verified when it was renamed into place. No network.
-        if (partial.isComplete(suggestion.sizeBytes)) {
+        if (partial.isComplete(active.sizeBytes)) {
             loadDownloaded(partial.finalFile)
+            return
+        }
+
+        // Step 1b: the room the rest of the file needs, checked before any network call, so the answer is the
+        // same offline. The plan below checks it again against the listed size.
+        val needed = active.sizeBytes - partial.localBytes()
+        val free = context.filesDir.usableSpace
+        if (needed > free) {
+            _state.value = SetupState.Failed(context.getString(R.string.setup_free_storage, formatBytes(needed - free)), SimpleWording.Kind.STORAGE_FULL)
             return
         }
 
@@ -223,7 +274,7 @@ class StarterSetup(
         val files = withContext(Dispatchers.IO) {
             client.listGgufFiles(local.repo, tokenSource.token())
         }
-        val file = files.firstOrNull { it.fileName == suggestion.file }
+        val file = files.firstOrNull { it.fileName == active.file }
         if (file == null) {
             _state.value = SetupState.Failed(context.getString(R.string.setup_not_found), SimpleWording.Kind.DOWNLOAD_FAILED)
             return
@@ -242,6 +293,16 @@ class StarterSetup(
             )
         }
         plan.reject?.let { reject ->
+            // A phone that cannot run the bigger starter is set up with the smallest one, once, and the
+            // choice is remembered. A full phone is not helped by a smaller model: that one stays a refusal.
+            val fallback = smallest?.takeIf { reject !is HubError.InsufficientStorage && it.file != active.file }
+            if (fallback != null) {
+                Log.w(TAG, "the phone cannot run ${active.name}; setting up ${fallback.name}")
+                active = fallback
+                local = localFor(fallback)
+                remember(fallback)
+                return run()
+            }
             _state.value = SetupState.Failed(refusal(reject), refusalKind(reject))
             return
         }
@@ -286,10 +347,25 @@ class StarterSetup(
     }
 
     /**
+     * Runs a download, retrying a dropped connection with growing waits. Each retry resumes from the bytes
+     * already on disk (the downloader's `.part` file). Offline is not retried here: [waitForNetwork] takes it.
+     */
+    private suspend fun download(file: HubGgufFile, plan: DownloadPlan): DownloadProgress? {
+        var retry = 0
+        while (true) {
+            val last = downloadOnce(file, plan)
+            val dropped = last is DownloadProgress.Stopped &&
+                (last.error is HubError.ConnectionLost || last.error is HubError.NoNetwork)
+            if (!dropped || retry >= RETRY_WAITS_MS.size || !online()) return last
+            delay(RETRY_WAITS_MS[retry++])
+        }
+    }
+
+    /**
      * Runs one download, mirroring every event to the transfer and the state. Returns the last event,
      * which is the terminal one (`Done` or `Stopped`) for a download that ended.
      */
-    private suspend fun download(file: HubGgufFile, plan: DownloadPlan): DownloadProgress? {
+    private suspend fun downloadOnce(file: HubGgufFile, plan: DownloadPlan): DownloadProgress? {
         var last: DownloadProgress? = null
         downloader.download(file, plan).collect { event ->
             transfers.report(event)
@@ -317,6 +393,22 @@ class StarterSetup(
             null
         }
         if (registered == null || !registered.chatReady) {
+            // A file that will not load may be damaged in a way its size does not show. When its checksum is
+            // known and does not match, it is removed, so the next tap downloads it again instead of failing forever.
+            if (discardIfDamaged(file)) {
+                _state.value = SetupState.Failed(context.getString(R.string.setup_damaged_again), SimpleWording.Kind.DOWNLOAD_FAILED)
+                return
+            }
+            // The file is sound but this phone cannot start it (the load ladder has run out): set up the
+            // smallest starter instead, once, and remember that. The bigger file stays where it is.
+            val fallback = smallest?.takeIf { it.file != active.file }
+            if (fallback != null) {
+                Log.w(TAG, "the phone cannot start ${active.name}; setting up ${fallback.name}")
+                active = fallback
+                local = localFor(fallback)
+                remember(fallback)
+                return run()
+            }
             _state.value = SetupState.Failed(context.getString(R.string.setup_starter_would_not_start), SimpleWording.Kind.LOAD_FAILED)
             return
         }
@@ -326,7 +418,64 @@ class StarterSetup(
 
     /** A download that ended with [event] and was not a success. A cancel the user asked for is not an error. */
     private fun stopped(event: DownloadProgress.Stopped) {
-        _state.value = if (event.error == HubError.Cancelled) idleFromDisk() else SetupState.Failed(describe(event.error), kindOf(event.error))
+        val offline = event.error is HubError.ConnectionLost || event.error is HubError.NoNetwork
+        _state.value = when {
+            event.error == HubError.Cancelled -> idleFromDisk()
+            offline && !online() -> return waitForNetwork()
+            else -> SetupState.Failed(describe(event.error), kindOf(event.error))
+        }
+    }
+
+    /** True when the phone has a connection that can reach the internet. */
+    private fun online(): Boolean {
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return true
+        val caps = cm.activeNetwork?.let { cm.getNetworkCapabilities(it) } ?: return false
+        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun onMeteredNetwork(): Boolean {
+        if (downloader.partialFileFor(local).isComplete(active.sizeBytes)) return false
+        return context.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered == true
+    }
+
+    /**
+     * No connection: say so in one sentence, and start again by itself when the system reports a network.
+     * A callback, not a timer: nothing polls while the phone is offline.
+     */
+    private fun waitForNetwork() {
+        _state.value = SetupState.Failed(context.getString(R.string.setup_waiting_network), SimpleWording.Kind.NO_NETWORK)
+        if (onlineWatch != null) return
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return
+        val watch = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                scope.launch(Dispatchers.Main) {
+                    if (_state.value is SetupState.Failed) start()
+                }
+            }
+        }
+        runCatching { cm.registerDefaultNetworkCallback(watch) }
+            .onSuccess { onlineWatch = watch }
+    }
+
+    private fun stopWatchingNetwork() {
+        val watch = onlineWatch ?: return
+        onlineWatch = null
+        context.getSystemService(ConnectivityManager::class.java)?.let { cm ->
+            runCatching { cm.unregisterNetworkCallback(watch) }
+        }
+    }
+
+    /**
+     * True, and the file removed, when a checksum is known and the file on disk does not match it. False
+     * when it matches, or when it cannot be checked (no listing, offline, no checksum): the file is kept then.
+     */
+    private suspend fun discardIfDamaged(file: File): Boolean = withContext(Dispatchers.IO) {
+        val expected = runCatching { client.listGgufFiles(local.repo, tokenSource.token()) }.getOrNull()
+            ?.firstOrNull { it.fileName == active.file }?.sha256
+            ?: return@withContext false
+        if (Sha256.matches(expected, Sha256.ofFile(file))) return@withContext false
+        file.delete()
+        true
     }
 
     /** The one plain sentence for a download that stopped. Never a file name, a code or a size we did not compute. */
@@ -334,6 +483,7 @@ class StarterSetup(
     private fun kindOf(error: HubError): SimpleWording.Kind = when (error) {
         is HubError.InsufficientStorage -> SimpleWording.Kind.STORAGE_FULL
         is HubError.ChecksumMismatch, is HubError.InvalidInput -> SimpleWording.Kind.DOWNLOAD_FAILED
+        is HubError.ServerUnavailable, is HubError.RateLimited -> SimpleWording.Kind.DOWNLOAD_FAILED
         else -> SimpleWording.Kind.NO_NETWORK
     }
 
@@ -346,6 +496,9 @@ class StarterSetup(
         is HubError.InsufficientStorage -> storageSentence(error)
         is HubError.ChecksumMismatch -> context.getString(R.string.setup_checksum_damaged)
         is HubError.InvalidInput -> context.getString(R.string.setup_could_not_save)
+        // The download site answered, so the phone is online: say the site is the problem, not the connection.
+        is HubError.ServerUnavailable -> context.getString(R.string.setup_site_down)
+        is HubError.RateLimited -> context.getString(R.string.setup_site_busy)
         else -> context.getString(R.string.setup_network_failed)
     }
 
@@ -361,15 +514,24 @@ class StarterSetup(
     /** `Idle` as the disk says it is. Reads two file lengths, so it is cheap enough for the main thread. */
     private fun idleFromDisk(): SetupState.Idle {
         val partial = downloader.partialFileFor(local)
-        val onDisk = partial.isComplete(suggestion.sizeBytes)
+        val onDisk = partial.isComplete(active.sizeBytes)
         return SetupState.Idle(
-            sizeBytes = suggestion.sizeBytes,
+            sizeBytes = active.sizeBytes,
             keptBytes = if (onDisk) 0L else partial.localBytes(),
             onDisk = onDisk,
         )
     }
 
-    private companion object {
+    internal companion object {
         const val TAG = "StarterSetup"
+
+        /** The waits before each retry of a dropped connection. The download resumes from the bytes it kept. */
+        val RETRY_WAITS_MS = longArrayOf(2_000L, 5_000L, 15_000L, 30_000L)
+
+        /** The file name of the smallest starter once the phone has been moved down to it. Empty: the table's pick. */
+        val SMALLER_STARTER = SettingDef.Text(
+            "setup.smaller_starter", "Smaller starter", "The starter this phone was moved to because it could not run the first pick.",
+            SettingSection.MODEL, default = "", maxLength = 200,
+        )
     }
 }

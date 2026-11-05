@@ -171,9 +171,16 @@ internal fun describeLoadFailure(context: Context, cause: Throwable?): String = 
  * The Simple failure kind for a load that threw [cause]. Set at the same place as the text from
  * [describeLoadFailure], so the Simple sentence never depends on the localized wording.
  */
-internal fun loadFailureKind(cause: Throwable?): SimpleWording.Kind = when (cause) {
-    is OutOfMemoryError -> SimpleWording.Kind.LOW_MEMORY
-    else -> SimpleWording.Kind.LOAD_FAILED
+internal fun loadFailureKind(cause: Throwable?): SimpleWording.Kind {
+    // The native loader reports a failed allocation as a message, not as OutOfMemoryError, so the
+    // words are checked too. Without this a memory failure read as "couldn't start, try again".
+    val words = cause?.message?.lowercase().orEmpty()
+    return when {
+        cause is OutOfMemoryError -> SimpleWording.Kind.LOW_MEMORY
+        "enospc" in words || "no space" in words -> SimpleWording.Kind.STORAGE_FULL
+        "alloc" in words || "memory" in words || "mmap" in words -> SimpleWording.Kind.LOW_MEMORY
+        else -> SimpleWording.Kind.LOAD_FAILED
+    }
 }
 
 /**
