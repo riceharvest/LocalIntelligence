@@ -47,7 +47,13 @@ echo "--- the widget: pinned on the launcher's home screen"
 home
 placed() { adb shell dumpsys appwidget | tr -d '\r' | grep -c "provider=ProviderId.*$PKG/dev.localintelligence.app.ChatWidgetProvider"; }
 if (( $(placed) == 0 )); then
-  dctl pinwidget | grep -q '"ok":true' || fail "the launcher does not support pinning a widget"
+  pinned=0
+  for attempt in 1 2 3; do
+    launch; sleep 4   # the debug channel answers only while the app is up
+    dctl pinwidget | grep -q '"ok":true' && { pinned=1; break; }
+    sleep 3
+  done
+  (( pinned )) || fail "the launcher did not accept a request to pin the widget in 3 tries"
   wait_text "Add to home screen" 20 || fail "no 'Add to home screen' question: $(screen_text --all | tr '\n' '|' | head -c 300)"
   tap_text "Add to home screen"; sleep 4
 else

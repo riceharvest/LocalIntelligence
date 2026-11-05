@@ -28,7 +28,7 @@ one_run() {
   else
     access_off "$key"
   fi
-  restart_app || fail "$name: no restart"
+  restart_app || { sleep 5; restart_app; } || fail "$name: no restart"
   wait_state_field modelState ready 120 || fail "$name: no model"
   send_q "$question"
   local t0 refused=0; t0="$(now)"
