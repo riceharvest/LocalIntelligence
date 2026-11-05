@@ -49,6 +49,13 @@ interface DebugPort {
      * failed rung. A build without a debug port does nothing here.
      */
     suspend fun beforeNativeLoad(rung: Int) {}
+
+    /**
+     * The model a run talks to. The emulator tests return a wrapper that plays scripted replies (a tool call
+     * the test wants, an empty reply, a loop, a slow answer) so a state that a real model reaches only by
+     * luck can be reached every time. A build without a debug port returns [real] untouched.
+     */
+    fun wrapBackend(real: dev.localintelligence.core.model.ModelBackend): dev.localintelligence.core.model.ModelBackend = real
 }
 
 /** Holds the debug port. Written once, by the debug build's content provider, before the first screen opens. */

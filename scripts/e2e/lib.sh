@@ -608,3 +608,70 @@ tap_exact_soft() {
   adb shell input tap $xy
   echo "  tap: $1 at $xy"
 }
+
+# ---------------------------------------------------------------------------------------------
+# Runs and wandering (part 3)
+# ---------------------------------------------------------------------------------------------
+
+# The tools the last run used or tried to use, one name per line: executed steps AND approval cards (a call
+# that was parked for an OK, or refused, is still a call the model made).
+run_tool_names() {
+  dctl transcript | python3 -I -c '
+import json, sys
+for r in json.load(sys.stdin)["rows"]:
+    if r["role"] in ("tool", "approval") and r.get("tool"):
+        print(r["tool"])'
+}
+
+# wander_names INTENDED_REGEX: the tools in the last run that the message did not ask for. Tool lookup
+# (tools.find) is the model asking which tools exist, not an action, so it does not count.
+wander_names() {
+  run_tool_names | grep -Ev '^tools\.find$' | grep -Ev "$1" | sort -u | tr '\n' ' '
+}
+
+# ---------------------------------------------------------------------------------------------
+# Scripted runs and the fake search services (part 3, debug build only)
+# ---------------------------------------------------------------------------------------------
+
+SEARCH_PORT="${E2E_SEARCH_PORT:-18770}"
+SEARCH_PID_FILE="$OUT/searchhub.pid"
+
+shub_start() {
+  shub_stop
+  python3 -I "$E2E_DIR/searchhub.py" --port "$SEARCH_PORT" > "$OUT/searchhub.log" 2>&1 &
+  echo $! > "$SEARCH_PID_FILE"
+  local i
+  for i in $(seq 1 30); do
+    curl -s "http://127.0.0.1:$SEARCH_PORT/_ctl" >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  echo "the fake search services did not start" >&2
+  return 1
+}
+shub_stop() { [[ -f "$SEARCH_PID_FILE" ]] && kill "$(cat "$SEARCH_PID_FILE")" 2>/dev/null; rm -f "$SEARCH_PID_FILE"; return 0; }
+shubctl() { curl -s "http://127.0.0.1:$SEARCH_PORT/_ctl?$1" >/dev/null; }
+shub_log() { curl -s "http://127.0.0.1:$SEARCH_PORT/_log"; }
+shub_log_clear() { curl -s "http://127.0.0.1:$SEARCH_PORT/_log?clear=1" >/dev/null; }
+
+# Points every search service at the fake services (and clears the app's blocked-service memory).
+search_routes_on() {
+  local b="http://10.0.2.2:$SEARCH_PORT"
+  dctl searchroute "duckduckgo=$b/ddg,bing=$b/bing,brave=$b/brave,wikipedia=$b/wiki" | grep -q '"ok":true' || fail "could not set the search routes (is this a debug build?)"
+}
+search_routes_off() { dctl searchroute "" >/dev/null; }
+
+# script_set "entry|||entry|||...": the model's next replies are these (see ScriptedBackend). Empty clears.
+script_set() { dctl script "$1" | grep -q '"ok":true' || fail "could not set the script"; }
+
+# A tool call as the model writes it.
+tool_call() { printf '<tool name="%s">%s</tool>' "$1" "$2"; }
+
+# scripted_ask QUESTION SCRIPT [SECONDS]: a fresh chat, the script set, the question sent; prints the DONE json.
+scripted_ask() {
+  dctl newchat >/dev/null; sleep 2
+  script_set "$2"
+  ask_json "$1" "${3:-120}"
+}
+
+# done_total_ms JSON: the run's length in ms.
+done_total_ms() { echo "$1" | json_field total_ms; }

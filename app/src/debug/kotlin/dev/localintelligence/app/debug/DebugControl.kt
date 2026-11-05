@@ -129,6 +129,12 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
         }
     }
 
+    /** The scripted replies still to play, oldest first (see [ScriptedBackend]). Set with the `script` command. */
+    private val script = java.util.concurrent.ConcurrentLinkedQueue<String>()
+
+    override fun wrapBackend(real: dev.localintelligence.core.model.ModelBackend): dev.localintelligence.core.model.ModelBackend =
+        ScriptedBackend(real) { script.poll() }
+
     private fun debugNumber(name: String): Long =
         runCatching { java.io.File(app.filesDir, name).readText().trim().toLong() }.getOrDefault(0L)
 
@@ -159,6 +165,18 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
             "mode" -> setMode(arg)
             "approve" -> approve(arg)
             "transcript" -> transcript()
+            "script" -> {
+                // Entries are separated by "|||". An empty arg clears the script.
+                script.clear()
+                arg.split("|||").filter { it.isNotBlank() }.forEach { script.add(it.trim()) }
+                JSONObject().put("ok", true).put("entries", script.size)
+            }
+            "searchroute" -> {
+                dev.localintelligence.android.tools.web.setSearchRoutesForTest(
+                    arg.split(',').map { it.trim() }.filter { '=' in it }.associate { it.substringBefore('=') to it.substringAfter('=') },
+                )
+                JSONObject().put("ok", true).put("routes", arg)
+            }
             "searchblock" -> {
                 val ids = arg.split(',').map { it.trim() }.filter { it.isNotEmpty() }
                 dev.localintelligence.android.tools.web.blockSearchServicesForTest(ids)
