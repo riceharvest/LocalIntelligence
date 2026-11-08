@@ -278,7 +278,8 @@ class TelegramService : Service() {
         private const val STALE_SECONDS = 60 * 60L
 
         private const val MAX_BACKOFF_MS = 5 * 60_000L
-        private const val MANAGED_POLL_INTERVAL_MS = 2_500L
+        /** Pause after an empty managed poll. Short: the backend already held that poll ~25 s. */
+        private const val MANAGED_POLL_INTERVAL_MS = 1_000L
 
         /** 5 s, 10 s, 20 s ... capped at five minutes. */
         private fun nextBackoff(previous: Long): Long =
@@ -291,7 +292,9 @@ class TelegramService : Service() {
          */
         fun wanted(container: AppContainer): Boolean {
             val settings = container.settings
-            if (CredentialSource.managed(settings, ManagedServices.TELEGRAM)) return true
+            if (CredentialSource.managed(settings, ManagedServices.TELEGRAM)) {
+                return settings[TelegramSettings.MANAGED_LINK_STARTED]
+            }
             return settings.isPluginEnabled(container.telegramPlugin) &&
                 settings.mode == SettingsMode.TECHNICAL &&
                 settings.isSecretSet(TelegramSettings.TOKEN)

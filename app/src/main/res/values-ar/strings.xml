@@ -1314,6 +1314,8 @@
 <string name="setting_extras_purchase_token_desc">عملية الشراء في Google Play التي فعّلت هذا الهاتف. تُحفظ مشفّرة.</string>
 <string name="setting_extras_cloud_chat_label">إرسال رسائل المحادثة إلى السحابة</string>
 <string name="setting_extras_cloud_chat_desc">عند التشغيل، يجيب نموذج Extras السحابي. عند الإيقاف، يجيب نموذج الهاتف نفسه؛ ويبقى بحث Extras مفعّلًا.</string>
+    <string name="setting_extras_better_voice_label">صوت أفضل (Extras)</string>
+    <string name="setting_extras_better_voice_desc">عند التشغيل، يوفر Extras التعرف السحابي السريع على الصوت والردود الصوتية الطبيعية. عند الإيقاف، يُستخدم محرك الصوت الخاص بالهاتف.</string>
 <string name="setting_extras_openrouter_model_label">نموذج محادثة Extras</string>
 <string name="setting_extras_openrouter_model_desc">النموذج الذي تستخدمه محادثة Extras.</string>
 <string name="setting_extras_expires_at_label">انتهاء Extras</string>

@@ -1310,6 +1310,8 @@
 <string name="setting_extras_purchase_token_desc">Giao dịch mua trên Google Play mà điện thoại này đã kích hoạt. Được lưu đã mã hóa.</string>
 <string name="setting_extras_cloud_chat_label">Gửi tin nhắn trò chuyện lên đám mây</string>
 <string name="setting_extras_cloud_chat_desc">Bật thì mô hình đám mây của Extras trả lời. Tắt thì mô hình riêng của điện thoại trả lời; tìm kiếm Extras vẫn bật.</string>
+    <string name="setting_extras_better_voice_label">Giọng nói tốt hơn (Extras)</string>
+    <string name="setting_extras_better_voice_desc">Bật thì Extras cung cấp tính năng nhận dạng giọng nói trên đám mây nhanh chóng và phản hồi giọng nói tự nhiên. Tắt thì sử dụng công cụ giọng nói của điện thoại.</string>
 <string name="setting_extras_openrouter_model_label">Mô hình trò chuyện Extras</string>
 <string name="setting_extras_openrouter_model_desc">Mô hình mà trò chuyện Extras dùng.</string>
 <string name="setting_extras_expires_at_label">Hạn Extras</string>

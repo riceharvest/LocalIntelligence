@@ -1310,6 +1310,8 @@
 <string name="setting_extras_purchase_token_desc">Google Play की वह खरीद जिसे इस फ़ोन ने चालू किया। एन्क्रिप्ट करके सेव होती है।</string>
 <string name="setting_extras_cloud_chat_label">चैट मैसेज क्लाउड को भेजें</string>
 <string name="setting_extras_cloud_chat_desc">चालू होने पर Extras का क्लाउड मॉडल जवाब देता है। बंद होने पर फ़ोन का अपना मॉडल जवाब देता है; Extras खोज चालू रहती है।</string>
+    <string name="setting_extras_better_voice_label">बेहतर आवाज़ (Extras)</string>
+    <string name="setting_extras_better_voice_desc">चालू होने पर, Extras तेज़ क्लाउड आवाज़ पहचान और स्वाभाविक आवाज़ जवाब देता है। बंद होने पर, फ़ोन का अपना आवाज़ इंजन इस्तेमाल होता है।</string>
 <string name="setting_extras_openrouter_model_label">Extras चैट मॉडल</string>
 <string name="setting_extras_openrouter_model_desc">Extras चैट जिस मॉडल से चलती है।</string>
 <string name="setting_extras_expires_at_label">Extras समाप्ति</string>

@@ -1,12 +1,21 @@
 package dev.localintelligence.app.speech
 
 import android.media.MediaPlayer
+import dev.localintelligence.android.cloud.CredentialSource
+import dev.localintelligence.android.cloud.ExtrasClient
+import dev.localintelligence.android.cloud.ExtrasSettings
+import dev.localintelligence.android.cloud.ManagedServices
 import dev.localintelligence.core.model.SpeechOutput
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.File
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import android.content.Context
 import android.speech.tts.TextToSpeech
@@ -63,6 +72,12 @@ class Speaker(
         val id = "reply-${nextId++}"
         currentId = id
         _speakingText.value = text
+
+        if (CredentialSource.managed(settings, ManagedServices.VOICE) && settings[ExtrasSettings.BETTER_VOICE]) {
+            scope.launch { speakWithWorker(spoken, id) }
+            return
+        }
+
         val voice = modelVoice().takeIf { settings[CoreSettings.VOICE_SOURCE] == "model" }
         if (voice != null) {
             scope.launch { speakWithModel(voice, spoken, id) }
@@ -76,6 +91,86 @@ class Speaker(
         if (id != currentId) return
         val tts = engine ?: createEngine()
         if (ready) say(tts, spoken, id) else pending = spoken to id
+    }
+
+    /**
+     * Managed voice TTS via Extras Worker proxy (`POST /v1/voice/speak`) using Deepgram Aura-2.
+     * Any failure falls back to the local path in the same call.
+     */
+    private suspend fun speakWithWorker(spoken: String, id: String) {
+        val audioBytes = runCatching { fetchWorkerTts(spoken) }.getOrNull()
+        if (audioBytes == null || audioBytes.isEmpty()) {
+            fallbackLocal(spoken, id)
+            return
+        }
+
+        val file = File(appContext.cacheDir, "speech_extras.mp3")
+        val written = runCatching { file.writeBytes(audioBytes) }.isSuccess
+        if (!written) {
+            fallbackLocal(spoken, id)
+            return
+        }
+
+        synchronized(this) {
+            if (id != currentId) return
+            player?.release()
+            player = MediaPlayer().apply {
+                runCatching {
+                    setDataSource(file.absolutePath)
+                    setOnCompletionListener { finished(id) }
+                    prepare()
+                    start()
+                }.onFailure {
+                    finished(id)
+                    fallbackLocal(spoken, id)
+                }
+            }
+        }
+    }
+
+    /**
+     * External API: POST <baseUrl>/v1/voice/speak
+     * Deepgram Aura-2 TTS docs: https://developers.deepgram.com/reference/text-to-speech/speak
+     */
+    private fun fetchWorkerTts(spoken: String): ByteArray {
+        val root = ExtrasClient.baseUrl(settings)
+        if (!root.startsWith("https://")) throw IOException("Insecure URL")
+        val token = CredentialSource.extrasAccessToken(settings)
+        if (token.isBlank()) throw IOException("Missing access token")
+
+        val connection = (URL("$root/v1/voice/speak").openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = false
+            requestMethod = "POST"
+            connectTimeout = 15_000
+            readTimeout = 30_000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "audio/*")
+            setRequestProperty("Authorization", "Bearer $token")
+        }
+
+        val body = buildJsonObject {
+            put("text", spoken.take(2000))
+        }.toString().toByteArray(Charsets.UTF_8)
+
+        connection.outputStream.use { it.write(body) }
+        val status = connection.responseCode
+        if (status !in 200..299) {
+            throw IOException("Extras TTS failed: HTTP $status")
+        }
+        return connection.inputStream.use { it.readBytes() }
+    }
+
+    private fun fallbackLocal(spoken: String, id: String) {
+        synchronized(this) {
+            if (id != currentId) return
+        }
+        val voice = modelVoice().takeIf { settings[CoreSettings.VOICE_SOURCE] == "model" }
+        if (voice != null) {
+            scope.launch { speakWithModel(voice, spoken, id) }
+        } else {
+            sayWithSystem(spoken, id)
+        }
     }
 
     /**

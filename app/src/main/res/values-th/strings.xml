@@ -1309,6 +1309,8 @@
 <string name="setting_extras_purchase_token_desc">การซื้อ Google Play ที่เปิดใช้งานบนโทรศัพท์นี้ เก็บแบบเข้ารหัส</string>
 <string name="setting_extras_cloud_chat_label">ส่งข้อความแชทไปยังคลาวด์</string>
 <string name="setting_extras_cloud_chat_desc">เปิด: โมเดลบนคลาวด์ของ Extras จะตอบ ปิด: โมเดลของโทรศัพท์เองจะตอบ การค้นหาของ Extras ยังเปิดอยู่</string>
+    <string name="setting_extras_better_voice_label">เสียงที่ดีขึ้น (Extras)</string>
+    <string name="setting_extras_better_voice_desc">เปิด: Extras ให้บริการการรู้จำเสียงบนคلاวด์ที่รวดเร็วและการตอบกลับด้วยเสียงที่เป็นธรรมชาติ ปิด: ใช้ระบบเสียงของโทรศัพท์เอง</string>
 <string name="setting_extras_openrouter_model_label">โมเดลแชท Extras</string>
 <string name="setting_extras_openrouter_model_desc">โมเดลที่แชท Extras ใช้</string>
 <string name="setting_extras_expires_at_label">วันหมดอายุ Extras</string>

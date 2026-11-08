@@ -1309,6 +1309,8 @@
 <string name="setting_extras_purchase_token_desc">这部手机所激活的 Google Play 购买记录。加密保存。</string>
 <string name="setting_extras_cloud_chat_label">将聊天消息发送到云端</string>
 <string name="setting_extras_cloud_chat_desc">开启时，由更多功能的云端模型回答。关闭时，由手机自己的模型回答；更多功能搜索仍保持开启。</string>
+    <string name="setting_extras_better_voice_label">更好的语音（更多功能）</string>
+    <string name="setting_extras_better_voice_desc">开启时，由更多功能提供快速云端语音识别与自然语音回复。关闭时，使用手机自身的语音引擎。</string>
 <string name="setting_extras_openrouter_model_label">更多功能聊天模型</string>
 <string name="setting_extras_openrouter_model_desc">更多功能聊天所使用的模型。</string>
 <string name="setting_extras_expires_at_label">更多功能到期时间</string>

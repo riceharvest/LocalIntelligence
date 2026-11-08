@@ -138,6 +138,19 @@ fun ExtrasScreen(
                         )
                     }
 
+                    val betterVoice = store[ExtrasSettings.BETTER_VOICE]
+                    Row(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(SettingText.title(LocalContext.current, ExtrasSettings.BETTER_VOICE), modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = betterVoice,
+                            onCheckedChange = { on ->
+                                store.set(ExtrasSettings.BETTER_VOICE, on)
+                            },
+                        )
+                    }
                     if (ExtrasSettings.serviceOn(store, ManagedServices.TELEGRAM)) {
                         LinkTelegramButton(store)
                     }

@@ -1309,6 +1309,8 @@
 <string name="setting_extras_purchase_token_desc">Pembelian Google Play yang mengaktifkan ponsel ini. Disimpan terenkripsi.</string>
 <string name="setting_extras_cloud_chat_label">Kirim pesan obrolan ke cloud</string>
 <string name="setting_extras_cloud_chat_desc">Aktif: model cloud Extras yang menjawab. Mati: model milik ponsel yang menjawab; pencarian Extras tetap aktif.</string>
+    <string name="setting_extras_better_voice_label">Suara lebih baik (Extras)</string>
+    <string name="setting_extras_better_voice_desc">Aktif: Extras menyediakan pengenalan suara cloud cepat dan balasan suara alami. Mati: mesin suara milik ponsel yang digunakan.</string>
 <string name="setting_extras_openrouter_model_label">Model obrolan Extras</string>
 <string name="setting_extras_openrouter_model_desc">Model yang dipakai obrolan Extras.</string>
 <string name="setting_extras_expires_at_label">Masa berlaku Extras</string>

@@ -1312,6 +1312,8 @@
 <string name="setting_extras_purchase_token_desc">Zakup Google Play, który aktywował ten telefon. Zapisany szyfrowany.</string>
 <string name="setting_extras_cloud_chat_label">Wysyłaj wiadomości czatu do chmury</string>
 <string name="setting_extras_cloud_chat_desc">Włączone: odpowiada model w chmurze Extras. Wyłączone: odpowiada własny model telefonu; wyszukiwanie Extras pozostaje włączone.</string>
+    <string name="setting_extras_better_voice_label">Lepszy głos (Extras)</string>
+    <string name="setting_extras_better_voice_desc">Włączone: Extras zapewnia szybkie rozpoznawanie mowy w chmurze i naturalne odpowiedzi głosowe. Wyłączone: używany jest własny mechanizm mowy telefonu.</string>
 <string name="setting_extras_openrouter_model_label">Model czatu Extras</string>
 <string name="setting_extras_openrouter_model_desc">Model, którego używa czat Extras.</string>
 <string name="setting_extras_expires_at_label">Ważność Extras</string>

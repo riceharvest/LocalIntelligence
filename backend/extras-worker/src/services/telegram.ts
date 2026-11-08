@@ -16,6 +16,9 @@ import { constantTimeEquals, generateAccessToken, sha256Hex } from "../crypto";
 import type { Env } from "../env";
 import { HttpError, ProviderError, json, jsonNoStore, readJsonObject, requireString } from "../http";
 
+const LONG_POLL_MS = 25_000;
+const LONG_POLL_STEP_MS = 2_000;
+
 export type TelegramAction = "link" | "updates" | "send";
 
 /**
@@ -91,6 +94,12 @@ export async function handleTelegramWebhook(request: Request, env: Env, secret: 
 
   const chat = message.chat as Record<string, unknown> | undefined;
   if (!chat || typeof chat !== "object") {
+    return json({ ok: true });
+  }
+
+  // Private chats only. A message that reaches the phone drives the customer's agent, so a
+  // linked group would let every member of that group give it orders.
+  if (chat.type !== "private") {
     return json({ ok: true });
   }
 
@@ -209,11 +218,20 @@ export async function handleTelegramUpdates(request: Request, env: Env): Promise
       .run();
   }
 
-  const result = await env.DB.prepare(
-    "SELECT id, chat_id, text, received_at FROM telegram_inbox WHERE customer_id = ?1 AND id > ?2 ORDER BY id ASC LIMIT 100",
-  )
-    .bind(customer.id, afterId)
-    .all<{ id: number; chat_id: number; text: string; received_at: string }>();
+  // Long poll: hold the request up to LONG_POLL_MS while the inbox is empty, checking every
+  // LONG_POLL_STEP_MS. Workers bill CPU time, not wall time, so waiting is nearly free, and the
+  // phone makes ~2 requests a minute instead of one every few seconds.
+  const deadline = Date.now() + LONG_POLL_MS;
+  let result;
+  for (;;) {
+    result = await env.DB.prepare(
+      "SELECT id, chat_id, text, received_at FROM telegram_inbox WHERE customer_id = ?1 AND id > ?2 ORDER BY id ASC LIMIT 100",
+    )
+      .bind(customer.id, afterId)
+      .all<{ id: number; chat_id: number; text: string; received_at: string }>();
+    if ((result.results ?? []).length > 0 || Date.now() + LONG_POLL_STEP_MS > deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, LONG_POLL_STEP_MS));
+  }
 
   const updates = (result.results ?? []).map((row) => ({
     id: row.id,

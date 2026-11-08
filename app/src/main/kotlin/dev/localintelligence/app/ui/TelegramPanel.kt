@@ -60,6 +60,7 @@ fun LinkTelegramButton(store: SettingsStore, modifier: Modifier = Modifier) {
                     linkError = null
                     try {
                         val url = ManagedTelegramClient.createLink(store)
+                        store.set(TelegramSettings.MANAGED_LINK_STARTED, true)
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                         context.startActivity(intent)
                     } catch (e: Exception) {

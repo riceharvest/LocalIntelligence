@@ -64,9 +64,20 @@ object TelegramSettings {
      * The next update id to ask Telegram for. Kept across restarts so a message
      * is never run twice: Telegram redelivers anything not yet confirmed.
      */
+    // simple = true: the Extras (managed) gateway runs in Simple mode, where a non-simple row
+    // reads as its default. A stuck "0" would make the backend re-deliver every message forever.
     val OFFSET = SettingDef.Text(
         "gateway.telegram.offset", "Update offset", "", SettingSection.PLUGINS,
-        default = "0", maxLength = 20,
+        default = "0", maxLength = 20, simple = true,
+    )
+
+    /**
+     * Set when the user taps "Link Telegram" in Extras. Until then the managed gateway does not
+     * poll at all: no linked chat means nothing to fetch, and polling would cost battery and requests.
+     */
+    val MANAGED_LINK_STARTED = SettingDef.Toggle(
+        "gateway.telegram.managed_link_started", "Telegram link started", "", SettingSection.PLUGINS,
+        default = false, simple = true,
     )
 
     /** The last problem the poller hit, shown in settings. Empty when the last call worked. */
