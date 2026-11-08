@@ -88,3 +88,11 @@ CREATE TABLE IF NOT EXISTS telegram_inbox (
   text         TEXT NOT NULL,
   received_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+-- Composio Tool Router sessions cached per customer.
+CREATE TABLE IF NOT EXISTS composio_sessions (
+  customer_id  TEXT PRIMARY KEY REFERENCES customers(id),
+  session_id   TEXT NOT NULL,
+  mcp_url      TEXT NOT NULL,
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);

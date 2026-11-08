@@ -1070,6 +1070,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">Kendi Home Assistant\'ındaki ışıkları, prizleri, ısıtmayı, perdeleri, medyayı ve kilitleri oku ve kontrol et. İstekler o sunucuya gider.</string>
 <string name="plugin_mcp_title">Uzak araçlar (MCP)</string>
+    <string name="plugin_mcp_managed_title">Uygulamalarınız (Gmail, Takvim, ...)</string>
+    <string name="open_link">Bağlantıyı aç</string>
 <string name="plugin_mcp_summary">Adını verdiğin en fazla beş MCP sunucusundan araçlar. Her çağrı argümanlarını o sunucuya gönderir.</string>
 <string name="plugin_email_title">E-posta</string>
 <string name="plugin_email_summary">Kendi posta hesabında bir uygulama şifresiyle e-posta ara, oku ve gönder. Postalar sağlayıcının sunucularına gider.</string>
