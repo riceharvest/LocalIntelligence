@@ -375,6 +375,7 @@
 <string name="none_yet">아직 없어요.</string>
 <string name="waiting_for_start_in_telegram">Telegram에서 /start를 기다리는 중</string>
 <string name="link_this_chat">이 대화 연결</string>
+    <string name="link_telegram">Telegram 연결</string>
 <string name="open_your_bot_in_telegram_and_send">Telegram에서 봇을 열고 5분 안에 /start를 보내세요. 그러면 이 대화가 여기에 나타나서 승인을 기다려요.</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s)님이 이 휴대폰과 대화하려고 해요. 본인이 맞을 때만 승인하세요.</string>
 <string name="approve">승인</string>

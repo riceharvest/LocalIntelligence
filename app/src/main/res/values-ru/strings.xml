@@ -377,6 +377,7 @@
 <string name="none_yet">Пока нет.</string>
 <string name="waiting_for_start_in_telegram">Ждём /start в Telegram</string>
 <string name="link_this_chat">Привязать этот чат</string>
+    <string name="link_telegram">Привязать Telegram</string>
 <string name="open_your_bot_in_telegram_and_send">Откройте своего бота в Telegram и отправьте /start в течение пяти минут. Чат появится здесь для одобрения.</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s) хочет общаться с этим телефоном. Одобряйте, только если это вы.</string>
 <string name="approve">Одобрить</string>

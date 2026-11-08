@@ -375,6 +375,7 @@
 <string name="none_yet">Nenhuma ainda.</string>
 <string name="waiting_for_start_in_telegram">Aguardando /start no Telegram</string>
 <string name="link_this_chat">Vincular esta conversa</string>
+    <string name="link_telegram">Vincular Telegram</string>
 <string name="open_your_bot_in_telegram_and_send">Abra seu bot no Telegram e envie /start em até cinco minutos. A conversa aparece aqui para aprovação.</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s) pediu para falar com este celular. Aprove só se for você.</string>
 <string name="approve">Aprovar</string>

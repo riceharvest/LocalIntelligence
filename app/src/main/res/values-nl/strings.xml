@@ -375,6 +375,7 @@
 <string name="none_yet">Nog geen.</string>
 <string name="waiting_for_start_in_telegram">Wachten op /start in Telegram</string>
 <string name="link_this_chat">Deze chat koppelen</string>
+    <string name="link_telegram">Telegram koppelen</string>
 <string name="open_your_bot_in_telegram_and_send">Open je bot in Telegram en stuur binnen vijf minuten /start. De chat verschijnt dan hier om goed te keuren.</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s) wil met deze telefoon praten. Keur het alleen goed als jij het bent.</string>
 <string name="approve">Goedkeuren</string>

@@ -374,6 +374,7 @@
 <string name="none_yet">ยังไม่มี</string>
 <string name="waiting_for_start_in_telegram">กำลังรอ /start ใน Telegram</string>
 <string name="link_this_chat">เชื่อมแชทนี้</string>
+    <string name="link_telegram">เชื่อมโยง Telegram</string>
 <string name="open_your_bot_in_telegram_and_send">เปิดบอทของคุณใน Telegram แล้วส่ง /start ภายในห้านาที แชทนั้นจะปรากฏที่นี่เพื่อให้คุณอนุมัติ</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s) ขอคุยกับโทรศัพท์นี้ อนุมัติเฉพาะเมื่อเป็นคุณ</string>
 <string name="approve">อนุมัติ</string>

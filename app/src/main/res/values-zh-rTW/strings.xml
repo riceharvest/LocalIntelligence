@@ -374,6 +374,7 @@
 <string name="none_yet">還沒有。</string>
 <string name="waiting_for_start_in_telegram">等待 Telegram 中的 /start</string>
 <string name="link_this_chat">連結這個聊天</string>
+    <string name="link_telegram">連結 Telegram</string>
 <string name="open_your_bot_in_telegram_and_send">在 Telegram 中開啟你的機器人，並在五分鐘內傳送 /start。聊天會出現在這裡等待核准。</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s（%2$s）要求與這支手機對話。只有確定是你本人時才核准。</string>
 <string name="approve">核准</string>

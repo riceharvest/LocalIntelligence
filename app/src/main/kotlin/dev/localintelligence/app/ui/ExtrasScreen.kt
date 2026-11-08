@@ -168,6 +168,9 @@ fun ExtrasScreen(
                             Text(stringResource(R.string.extras_email_address, address))
                         }
                     }
+                    if (ExtrasSettings.serviceOn(store, ManagedServices.TELEGRAM)) {
+                        LinkTelegramButton(store)
+                    }
                 }
 
                 notice?.let { Text(it) }

@@ -374,6 +374,7 @@
 <string name="none_yet">まだありません。</string>
 <string name="waiting_for_start_in_telegram">Telegram で /start を待っています</string>
 <string name="link_this_chat">このチャットをつなげる</string>
+    <string name="link_telegram">Telegramをリンク</string>
 <string name="open_your_bot_in_telegram_and_send">Telegram でボットを開き、5分以内に /start を送ってください。するとこの画面に表示され、承認できます。</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s) がこのスマホと話したいと言っています。本人の場合だけ承認してください。</string>
 <string name="approve">承認</string>

@@ -375,6 +375,7 @@
 <string name="none_yet">এখনও কিছু নেই।</string>
 <string name="waiting_for_start_in_telegram">Telegram-এ /start-এর অপেক্ষা</string>
 <string name="link_this_chat">এই চ্যাট যুক্ত করুন</string>
+    <string name="link_telegram">টেলিগ্রাম লিঙ্ক করুন</string>
 <string name="open_your_bot_in_telegram_and_send">Telegram-এ আপনার বট খুলে পাঁচ মিনিটের মধ্যে /start পাঠান। তারপর চ্যাটটি অনুমোদনের জন্য এখানে দেখাবে।</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s) এই ফোনের সাথে কথা বলতে চেয়েছে। আপনি হলেই শুধু অনুমোদন দিন।</string>
 <string name="approve">অনুমোদন দিন</string>

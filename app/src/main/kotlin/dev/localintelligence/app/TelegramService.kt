@@ -13,7 +13,10 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import dev.localintelligence.android.cloud.CredentialSource
+import dev.localintelligence.android.cloud.ExtrasClient
 import dev.localintelligence.android.cloud.ManagedServices
+import dev.localintelligence.android.gateway.telegram.ManagedTelegramClient
 import dev.localintelligence.android.gateway.telegram.TelegramApi
 import dev.localintelligence.android.gateway.telegram.TelegramChat
 import dev.localintelligence.android.gateway.telegram.TelegramChats
@@ -110,25 +113,45 @@ class TelegramService : Service() {
     private suspend fun pollLoop() {
         var backoffMs = 0L
         while (coroutineContext.isActive && wanted(container)) {
+            val isManaged = CredentialSource.managed(settings, ManagedServices.TELEGRAM)
             val token = settings.stored(TelegramSettings.TOKEN)
             try {
-                val updates = api.getUpdates(token, offset())
+                val updates = if (isManaged) {
+                    ManagedTelegramClient.getUpdates(settings, offset())
+                } else {
+                    api.getUpdates(token, offset())
+                }
                 backoffMs = 0L
                 setError("")
                 for (update in updates) {
                     // The offset moves on even when handling fails: a message that
                     // could not be handled must not come back and be handled again.
                     try {
-                        handle(update)
+                        handle(update, isManaged)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
                         setError(getString(R.string.telegram_error_handle, e.javaClass.simpleName))
                     }
-                    settings.set(TelegramSettings.OFFSET, (update.updateId + 1).toString())
+                    if (isManaged) {
+                        settings.set(TelegramSettings.OFFSET, update.updateId.toString())
+                    } else {
+                        settings.set(TelegramSettings.OFFSET, (update.updateId + 1).toString())
+                    }
+                }
+                if (isManaged && updates.isEmpty()) {
+                    delay(MANAGED_POLL_INTERVAL_MS)
                 }
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: ExtrasClient.ExtrasException) {
+                if (e.status == 401 || e.status == 402) {
+                    setError(e.message ?: getString(R.string.telegram_error_refused))
+                    break
+                }
+                setError(e.message ?: getString(R.string.telegram_error_refused))
+                backoffMs = nextBackoff(backoffMs)
+                delay(backoffMs)
             } catch (e: TelegramApi.Failure) {
                 // 401 and 404 mean the token itself is wrong. Retrying cannot fix that, so the
                 // loop stops and the panel says what to do.
@@ -149,8 +172,8 @@ class TelegramService : Service() {
     }
 
     /** One incoming message. Only linked chats are answered; anything else is offered for approval or ignored. */
-    private fun handle(update: TelegramApi.Incoming) {
-        if (!TelegramChats.isLinked(settings.stored(TelegramSettings.LINKED), update.chatId)) {
+    private fun handle(update: TelegramApi.Incoming, isManaged: Boolean) {
+        if (!isManaged && !TelegramChats.isLinked(settings.stored(TelegramSettings.LINKED), update.chatId)) {
             offerLink(update)
             return
         }
@@ -255,20 +278,23 @@ class TelegramService : Service() {
         private const val STALE_SECONDS = 60 * 60L
 
         private const val MAX_BACKOFF_MS = 5 * 60_000L
-
+        /** Pause after an empty managed poll. Short: the backend already held that poll ~25 s. */
+        private const val MANAGED_POLL_INTERVAL_MS = 1_000L
 
         /** 5 s, 10 s, 20 s ... capped at five minutes. */
         private fun nextBackoff(previous: Long): Long =
             if (previous == 0L) 5_000L else (previous * 2).coerceAtMost(MAX_BACKOFF_MS)
 
         /**
-         * Whether the gateway should run now: in Simple mode when Extras' managed Telegram service
-         * is active, or in Technical mode when the plugin is on and a bot token is set. Anything
+         * Whether the gateway should run now: when Extras' managed Telegram service
+         * is active (no own bot token), or in Technical mode when the plugin is on and a bot token is set. Anything
          * else means no socket.
          */
         fun wanted(container: AppContainer): Boolean {
             val settings = container.settings
-            if (ManagedServices.isManagedEnabled(settings, container.telegramPlugin)) return true
+            if (CredentialSource.managed(settings, ManagedServices.TELEGRAM)) {
+                return settings[TelegramSettings.MANAGED_LINK_STARTED]
+            }
             return settings.isPluginEnabled(container.telegramPlugin) &&
                 settings.mode == SettingsMode.TECHNICAL &&
                 settings.isSecretSet(TelegramSettings.TOKEN)

@@ -374,6 +374,7 @@
 <string name="none_yet">Henüz yok.</string>
 <string name="waiting_for_start_in_telegram">Telegram\'da /start bekleniyor</string>
 <string name="link_this_chat">Bu sohbeti bağla</string>
+    <string name="link_telegram">Telegram\'ı bağla</string>
 <string name="open_your_bot_in_telegram_and_send">Telegram\'da botunu aç ve beş dakika içinde /start gönder. Sohbet, onayın için burada görünür.</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s) bu telefonla konuşmak istedi. Yalnızca sen olduğunda onayla.</string>
 <string name="approve">Onayla</string>

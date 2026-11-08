@@ -77,6 +77,27 @@ Managed email mailbox powered by Cloudflare Email Routing and Cloudflare Email S
 - Metering: 1 count per outbound send metered in `mail_sends` against `MAIL_SENDS_CAP`.
 - Endpoints: `POST /v1/mail/{address,list,read,send}` (`list` returns newest 50 without bodies; `read` retrieves one message with body).
 
+### Telegram (`telegram`, W6)
+
+Shared Telegram bot bridging messages from linked chats to customer devices:
+- Create a bot with `@BotFather` (`/newbot`), copy the token and bot username.
+- Set `TELEGRAM_BOT_USERNAME` in `wrangler.toml` `[vars]` (without leading `@`).
+- Set secrets:
+  - `npx wrangler secret put TELEGRAM_BOT_TOKEN`
+  - `npx wrangler secret put TELEGRAM_WEBHOOK_SECRET` (generate with `openssl rand -hex 32`).
+- Register the webhook once with Telegram Bot API using `secret_token` (Docs: https://core.telegram.org/bots/api#setwebhook):
+  ```bash
+  curl -s "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
+    -H "Content-Type: application/json" \
+    -d '{"url":"https://<worker URL>/v1/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>","secret_token":"<TELEGRAM_WEBHOOK_SECRET>","allowed_updates":["message"]}'
+  ```
+- Endpoints:
+  - `POST /v1/telegram/link`: generates deep-link `https://t.me/<TELEGRAM_BOT_USERNAME>?start=<token>`.
+  - `POST /v1/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>`: webhook receiving updates from Telegram.
+  - `POST /v1/telegram/updates`: phone long-polls queued messages (`{afterId}`, held up to 25 s while empty) and deletes delivered rows. The phone only polls after the user taps Link Telegram.
+- Only private chats link and deliver: a message drives the customer's agent, so a group would let every member give it orders.
+  - `POST /v1/telegram/send`: sends replies (`{chatId, text}`) to customer's linked chats.
+
 Plain variables in `wrangler.toml` `[vars]` (edit the file, then deploy):
 
 | Name | Default | Notes |
