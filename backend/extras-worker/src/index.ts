@@ -17,7 +17,7 @@ import { handleActivate, handleRefresh, handleRtdn } from "./handlers";
 import { errorResponse, HttpError, ProviderError } from "./http";
 import { verifyPubsubPush } from "./pubsub-auth";
 import { enabledServices, requireService } from "./services";
-import { handleBrowser, type BrowserAction } from "./services/browser";
+import { handleBrowser, BrowserTask, type BrowserAction } from "./services/browser";
 import { handleComposio } from "./services/composio";
 import { handleInboundEmail, handleMail, type MailAction } from "./services/mail";
 import { handleSandbox, type SandboxAction } from "./services/sandbox";
@@ -103,6 +103,8 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+export { BrowserTask };
+
 /**
  * Logs our own error messages only. Provider bodies, keys and tokens never reach a
  * log line, and ProviderError carries only the service name and HTTP status.
@@ -116,3 +118,5 @@ function toErrorResponse(error: unknown): Response {
   console.error(`internal error: ${error instanceof Error ? error.message : "unknown"}`);
   return errorResponse("internal", 500, "internal error");
 }
+
+export { Sandbox } from "./services/sandbox";

@@ -1287,6 +1287,8 @@
     <string name="plugin_home_assistant_title">Home Assistant</string>
     <string name="plugin_home_assistant_summary">Read and control lights, plugs, heating, covers, media and locks on your own Home Assistant. Requests go to that server.</string>
     <string name="plugin_mcp_title">Remote tools (MCP)</string>
+    <string name="plugin_mcp_managed_title">Your apps (Gmail, Calendar, ...)</string>
+    <string name="open_link">Open link</string>
     <string name="plugin_mcp_summary">Tools from up to five MCP servers you name. Each call sends its arguments to that server.</string>
     <string name="plugin_email_title">Email</string>
     <string name="plugin_email_summary">Search, read and send email from your own mail account, with an app password. Mail goes to your provider\'s servers.</string>

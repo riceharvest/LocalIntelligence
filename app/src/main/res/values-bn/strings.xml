@@ -1071,6 +1071,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">আপনার নিজের Home Assistant-এর আলো, প্লাগ, হিটিং, পর্দা, মিডিয়া আর তালা দেখুন ও নিয়ন্ত্রণ করুন। অনুরোধ ওই সার্ভারে যায়।</string>
 <string name="plugin_mcp_title">রিমোট টুল (MCP)</string>
+    <string name="plugin_mcp_managed_title">আপনার অ্যাপ (Gmail, Calendar, ...)</string>
+    <string name="open_link">লিঙ্ক খুলুন</string>
 <string name="plugin_mcp_summary">আপনার নাম দেওয়া সর্বোচ্চ পাঁচটি MCP সার্ভারের টুল। প্রতিটি কল তার আর্গুমেন্ট ওই সার্ভারে পাঠায়।</string>
 <string name="plugin_email_title">ইমেইল</string>
 <string name="plugin_email_summary">আপনার নিজের মেইল অ্যাকাউন্ট থেকে অ্যাপ পাসওয়ার্ড দিয়ে ইমেইল খোঁজা, পড়া ও পাঠানো। মেইল আপনার প্রোভাইডারের সার্ভারে যায়।</string>

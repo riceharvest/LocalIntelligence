@@ -1071,6 +1071,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">Lee y controla luces, enchufes, calefacción, persianas, multimedia y cerraduras de tu propio Home Assistant. Las peticiones van a ese servidor.</string>
 <string name="plugin_mcp_title">Herramientas remotas (MCP)</string>
+    <string name="plugin_mcp_managed_title">Tus aplicaciones (Gmail, Calendar...)</string>
+    <string name="open_link">Abrir enlace</string>
 <string name="plugin_mcp_summary">Herramientas de hasta cinco servidores MCP que indiques. Cada llamada envía sus argumentos a ese servidor.</string>
 <string name="plugin_email_title">Correo</string>
 <string name="plugin_email_summary">Busca, lee y envía correos desde tu propia cuenta, con una contraseña de app. El correo pasa por los servidores de tu proveedor.</string>

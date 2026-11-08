@@ -1073,6 +1073,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">Читайте й керуйте освітленням, розетками, опаленням, жалюзі, медіа та замками у власному Home Assistant. Запити йдуть на цей сервер.</string>
 <string name="plugin_mcp_title">Віддалені інструменти (MCP)</string>
+    <string name="plugin_mcp_managed_title">Ваші додатки (Gmail, Календар...)</string>
+    <string name="open_link">Відкрити посилання</string>
 <string name="plugin_mcp_summary">Інструменти з до п\'яти вказаних вами серверів MCP. Кожен виклик надсилає свої аргументи на той сервер.</string>
 <string name="plugin_email_title">Пошта</string>
 <string name="plugin_email_summary">Шукайте, читайте й надсилайте листи з власного поштового облікового запису за допомогою пароля застосунку. Пошта йде на сервери вашого постачальника.</string>

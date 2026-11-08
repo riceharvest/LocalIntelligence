@@ -1070,6 +1070,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">读取并控制你自己 Home Assistant 中的灯、插座、供暖、窗帘、媒体和门锁。请求会发送到该服务器。</string>
 <string name="plugin_mcp_title">远程工具（MCP）</string>
+    <string name="plugin_mcp_managed_title">你的应用（Gmail、日历等）</string>
+    <string name="open_link">打开链接</string>
 <string name="plugin_mcp_summary">你指定的最多五个 MCP 服务器提供的工具。每次调用都会把参数发送到该服务器。</string>
 <string name="plugin_email_title">邮件</string>
 <string name="plugin_email_summary">使用应用专用密码，在你自己的邮箱账户中搜索、阅读和发送邮件。邮件会发送到你邮箱服务商的服务器。</string>

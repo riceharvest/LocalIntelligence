@@ -1070,6 +1070,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">自分の Home Assistant で、照明、コンセント、暖房、カーテン、メディア、鍵を読み取ったり操作したりします。リクエストはそのサーバーに送られます。</string>
 <string name="plugin_mcp_title">リモートツール（MCP）</string>
+    <string name="plugin_mcp_managed_title">お使いのアプリ（Gmail、カレンダーなど）</string>
+    <string name="open_link">リンクを開く</string>
 <string name="plugin_mcp_summary">指定した最大5つの MCP サーバーのツールを使います。呼び出しのたびに、引数がそのサーバーに送られます。</string>
 <string name="plugin_email_title">メール</string>
 <string name="plugin_email_summary">自分のメールアカウントで、アプリパスワードを使ってメールを検索、読み取り、送信します。メールはプロバイダーのサーバーを通ります。</string>

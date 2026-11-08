@@ -1075,6 +1075,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">اقرأ وتحكّم في الأضواء والمقابس والتدفئة والستائر والوسائط والأقفال في Home Assistant الخاص بك. تُرسل الطلبات إلى ذلك الخادم.</string>
 <string name="plugin_mcp_title">الأدوات البعيدة (MCP)</string>
+    <string name="plugin_mcp_managed_title">تطبيقاتك (Gmail وCalendar...)</string>
+    <string name="open_link">فتح الرابط</string>
 <string name="plugin_mcp_summary">أدوات من حتى خمسة خوادم MCP تحددها. يُرسل كل استدعاء معاملاته إلى ذلك الخادم.</string>
 <string name="plugin_email_title">البريد الإلكتروني</string>
 <string name="plugin_email_summary">ابحث في بريدك الإلكتروني واقرأه وأرسل منه من حسابك الخاص، باستخدام كلمة مرور للتطبيق. تُرسل الرسائل إلى خوادم مزوّد بريدك.</string>

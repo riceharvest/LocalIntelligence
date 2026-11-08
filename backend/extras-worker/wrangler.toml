@@ -6,7 +6,13 @@
 
 name = "localintelligence-extras"
 main = "src/index.ts"
-compatibility_date = "2025-09-01"
+# `@cloudflare/playwright` and Stagehand require `nodejs_compat` and compatibility_date >= 2025-09-15:
+# https://developers.cloudflare.com/browser-run/stagehand/#2-configure-your-worker
+compatibility_date = "2025-09-15"
+compatibility_flags = ["nodejs_compat"]
+
+[alias]
+playwright = "@cloudflare/playwright"
 
 [[d1_databases]]
 binding = "DB"
@@ -15,14 +21,36 @@ database_name = "localintelligence-extras"
 # Deploy fails until this is set to the real id.
 database_id = "TODO-OWNER-D1-DATABASE-ID"
 
-# Uncommented by the sandbox service job (W1) once the Sandbox Durable Object class is exported.
-# [[durable_objects.bindings]]
-# name = "Sandbox"
-# class_name = "Sandbox"
+# Cloudflare Sandbox 1.0 Durable Object and container configuration (W1).
+# Docs: https://developers.cloudflare.com/sandbox/sdk/migrate/replace-the-sandbox-class/
+[[containers]]
+class_name = "Sandbox"
+name = "localintelligence-extras-sandbox"
+scheduling_policy = "durable_object"
 
-# Uncommented by the browser service job (W2) to enable Cloudflare Browser Rendering.
-# [browser]
-# binding = "BROWSER"
+[containers.images.sandbox]
+dockerfile = "./Dockerfile"
+
+[[durable_objects.bindings]]
+name = "Sandbox"
+class_name = "Sandbox"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Sandbox"]
+
+# Cloudflare Browser Rendering + BrowserTask Durable Object (W2).
+# Docs: https://developers.cloudflare.com/browser-run/stagehand/
+[browser]
+binding = "BROWSER"
+
+[[durable_objects.bindings]]
+name = "BROWSER_TASK"
+class_name = "BrowserTask"
+
+[[migrations]]
+tag = "v1-browser-task"
+new_sqlite_classes = ["BrowserTask"]
 
 # Uncommented by the mail service job (W5) to enable Cloudflare Email Sending.
 # [[send_email]]
