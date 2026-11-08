@@ -17,17 +17,18 @@ import { addUsage, checkCap } from "../usage";
 export type MailAction = "address" | "list" | "read" | "send";
 
 const MAX_EMAIL_SIZE = 256 * 1024; // 256 KB cap
+const MAX_SUBJECT_CHARS = 300;
+const MAX_TEXT_CHARS = 20_000;
+const SINGLE_ADDRESS = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/;
 const CHARS = "abcdefghijklmnopqrstuvwxyz";
 
-let messageCounter = 0;
-
-/**
- * Returns a monotonic numeric id string (fits comfortably in JS Number and 64-bit integer)
- * for use as uid and primary key.
- */
+/** A numeric message id string, used as the app's uid and the primary key. */
 function nextMessageId(): string {
-  messageCounter = (messageCounter + 1) % 1000;
-  return `${Date.now()}${messageCounter.toString().padStart(3, "0")}`;
+  // Numeric, because the app's email tools address a message by a numeric uid. Millisecond time
+  // plus 6 random digits (19 digits, still inside a signed 64-bit long) instead of a per-isolate
+  // counter, which two Worker instances could repeat in the same millisecond.
+  const random = crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000;
+  return `${Date.now()}${random.toString().padStart(6, "0")}`;
 }
 
 /**
@@ -238,11 +239,16 @@ export async function handleMailSend(request: Request, env: Env): Promise<Respon
   };
 
   const to = typeof body.to === "string" ? body.to.trim() : "";
-  if (!to || !to.includes("@")) {
+  // Exactly one plain address: no lists, display names or header line breaks, so one send is
+  // one recipient and the monthly send cap means what it says.
+  if (to.length > 254 || !SINGLE_ADDRESS.test(to)) {
     throw new HttpError(400, "bad_request", "missing or invalid recipient email address");
   }
-  const subject = typeof body.subject === "string" ? body.subject : "";
+  const subject = typeof body.subject === "string" ? body.subject.replace(/[\r\n]+/g, " ").slice(0, MAX_SUBJECT_CHARS) : "";
   const text = typeof body.text === "string" ? body.text : (typeof body.body === "string" ? body.body : "");
+  if (text.length > MAX_TEXT_CHARS) {
+    throw new HttpError(400, "bad_request", "the message is too long");
+  }
 
   const fromAddress = await getOrCreateAddress(env, customer.id);
 

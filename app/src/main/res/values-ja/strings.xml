@@ -1308,6 +1308,8 @@
 <string name="setting_extras_purchase_token_desc">この端末を有効にした Google Play の購入。暗号化して保存されます。</string>
 <string name="setting_extras_cloud_chat_label">チャットのメッセージをクラウドに送る</string>
 <string name="setting_extras_cloud_chat_desc">オンの場合、エクストラのクラウドのモデルが答えます。オフの場合、この端末のモデルが答えます。エクストラの検索は、どちらでもオンのままです。</string>
+    <string name="setting_extras_better_voice_label">高音質な音声（Extras）</string>
+    <string name="setting_extras_better_voice_desc">オンの場合、Extras が高速なクラウド音声認識と自然な音声応答を提供します。オフの場合、端末自身の音声エンジンを使用します。</string>
 <string name="setting_extras_openrouter_model_label">エクストラのチャットモデル</string>
 <string name="setting_extras_openrouter_model_desc">エクストラのチャットで使うモデル。</string>
 <string name="setting_extras_expires_at_label">エクストラの期限</string>

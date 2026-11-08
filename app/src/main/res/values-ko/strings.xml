@@ -1309,6 +1309,8 @@
 <string name="setting_extras_purchase_token_desc">이 휴대폰을 활성화한 Google Play 구매 내역이에요. 암호화되어 저장돼요.</string>
 <string name="setting_extras_cloud_chat_label">채팅 메시지를 클라우드로 보내기</string>
 <string name="setting_extras_cloud_chat_desc">켜면 Extras의 클라우드 모델이 답해요. 끄면 휴대폰 자체 모델이 답하고, Extras 검색은 계속 켜져 있어요.</string>
+    <string name="setting_extras_better_voice_label">더 나은 음성 (Extras)</string>
+    <string name="setting_extras_better_voice_desc">켜면 Extras가 빠른 클라우드 음성 인식과 자연스러운 음성 답변을 제공해요. 끄면 휴대폰 자체 음성 엔진을 사용해요.</string>
 <string name="setting_extras_openrouter_model_label">Extras 채팅 모델</string>
 <string name="setting_extras_openrouter_model_desc">Extras 채팅이 쓰는 모델이에요.</string>
 <string name="setting_extras_expires_at_label">Extras 만료</string>

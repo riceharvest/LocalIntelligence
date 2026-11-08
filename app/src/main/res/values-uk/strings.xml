@@ -1311,6 +1311,8 @@
 <string name="setting_extras_purchase_token_desc">Покупка в Google Play, яку активував цей телефон. Зберігається в зашифрованому вигляді.</string>
 <string name="setting_extras_cloud_chat_label">Надсилати повідомлення чату в хмару</string>
 <string name="setting_extras_cloud_chat_desc">Увімкнено — відповідає хмарна модель «Додатково». Вимкнено — відповідає власна модель телефона; пошук «Додатково» лишається увімкненим.</string>
+    <string name="setting_extras_better_voice_label">Кращий голос (Додатково)</string>
+    <string name="setting_extras_better_voice_desc">Увімкнено: «Додатково» забезпечує швидке хмарне розпізнавання мовлення та природні голосові відповіді. Вимкнено: використовується власний голосовий рушій телефона.</string>
 <string name="setting_extras_openrouter_model_label">Модель чату «Додатково»</string>
 <string name="setting_extras_openrouter_model_desc">Модель, яку використовує чат «Додатково».</string>
 <string name="setting_extras_expires_at_label">Закінчення «Додатково»</string>

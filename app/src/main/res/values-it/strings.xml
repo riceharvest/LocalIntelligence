@@ -1309,6 +1309,8 @@
 <string name="setting_extras_purchase_token_desc">L\'acquisto Google Play che questo telefono ha attivato. Salvato in modo cifrato.</string>
 <string name="setting_extras_cloud_chat_label">Invia i messaggi della chat al cloud</string>
 <string name="setting_extras_cloud_chat_desc">Attivo: risponde il modello nel cloud di Extras. Disattivato: risponde il modello del telefono; la ricerca di Extras resta attiva.</string>
+    <string name="setting_extras_better_voice_label">Voce migliore (Extras)</string>
+    <string name="setting_extras_better_voice_desc">Attivo: Extras offre riconoscimento vocale cloud rapido e risposte vocali naturali. Disattivato: viene utilizzato il motore vocale del telefono.</string>
 <string name="setting_extras_openrouter_model_label">Modello della chat di Extras</string>
 <string name="setting_extras_openrouter_model_desc">Il modello usato dalla chat di Extras.</string>
 <string name="setting_extras_expires_at_label">Scadenza di Extras</string>
