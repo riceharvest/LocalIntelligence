@@ -21,9 +21,11 @@ import dev.localintelligence.android.inference.GeminiNanoBackend
 import dev.localintelligence.android.cloud.ChatGptPlugin
 import dev.localintelligence.android.cloud.ChatGptSignIn
 import dev.localintelligence.android.cloud.CredentialSource
+import dev.localintelligence.android.cloud.ExtrasClient
 import dev.localintelligence.android.cloud.ExtrasSettings
 import dev.localintelligence.android.cloud.LanModelScan
 import dev.localintelligence.android.cloud.LanModelServer
+import dev.localintelligence.android.cloud.ManagedServices
 import dev.localintelligence.android.cloud.RemoteProviderSettings
 import dev.localintelligence.android.cloud.OpenRouterChatBackend
 import dev.localintelligence.android.cloud.RemoteChatOffer
@@ -159,6 +161,10 @@ import kotlinx.coroutines.sync.withLock
 private val PLAY_ATTENDED_ONLY_TOOLS = setOf("sms.search", "sms.send", "calls.recent", "phone.search")
 
 class AppContainer(private val context: Context) {
+
+    init {
+        ExtrasClient.backendUrl = BuildConfig.EXTRAS_BACKEND_URL
+    }
 
     /** Log tag for this container, matching the class name used elsewhere. */
     private val TAG = "AppContainer"
@@ -1197,6 +1203,13 @@ class AppContainer(private val context: Context) {
     /** Extras: the monthly subscription that supplies managed keys. Off unless the backend address is set. */
     val extras: ExtrasBilling by lazy { ExtrasBilling(context, settings, BuildConfig.EXTRAS_BACKEND_URL) }
 
+    /**
+     * Whether [plugin] runs now: in Simple mode an active Extras service turns its plugin on
+     * without the Technical switch; otherwise the user's plugin switch decides.
+     */
+    fun isPluginActive(plugin: AgentPlugin): Boolean =
+        ManagedServices.isManagedEnabled(settings, plugin) || settings.isPluginEnabled(plugin)
+
     /** Telegram as a remote keyboard for this phone. Off by default; see TelegramService. */
     val telegramPlugin: TelegramPlugin by lazy { TelegramPlugin() }
 
@@ -2129,10 +2142,10 @@ class AppContainer(private val context: Context) {
         // with none, the plugin set is exactly the one it was before personas existed.
         val persona = chatPersona
         val pluginSet = if (persona == null) {
-            PluginSet(plugins, snapshot, settings::isPluginEnabled)
+            PluginSet(plugins, snapshot, ::isPluginActive)
         } else {
             PluginSet(plugins + PersonaPlugin(persona.text), snapshot) { plugin ->
-                plugin is PersonaPlugin || settings.isPluginEnabled(plugin)
+                plugin is PersonaPlugin || isPluginActive(plugin)
             }
         }
         // No catalogue here: the enabled subset is smaller than the catalogue by design.

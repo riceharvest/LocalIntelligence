@@ -5,11 +5,12 @@
  * Notification payloads and client claims are only hints about which purchase to look at.
  */
 import { acknowledgeIfPending, entitlementFor, getSubscription, type SubscriptionPurchaseV2 } from "./google";
-import { base64ToBytes, sha256Hex } from "./crypto";
+import { base64ToBytes, decryptSecret, encryptSecret, generateAccessToken, sha256Hex } from "./crypto";
 import {
   createCustomer,
   findCustomerByTokenHash,
   mapPurchaseToken,
+  setAccessToken,
   setLatestToken,
   withinRateLimit,
   type CustomerRow,
@@ -17,6 +18,7 @@ import {
 import type { Env } from "./env";
 import { HttpError, json, jsonNoStore, readJsonObject, requireString } from "./http";
 import { deprovision, provisionActive } from "./provision";
+import { enabledServices } from "./services";
 
 const ACTIVATE_MAX_PER_HOUR = 10;
 
@@ -64,7 +66,8 @@ export async function handleActivate(request: Request, env: Env): Promise<Respon
   const customer = await resolveCustomer(env, tokenHash, sub);
   await setLatestToken(env, customer.id, tokenHash);
   const keys = await provisionActive(env, customer, ent.expiresAt);
-  return credentialsResponse(env, ent.expiresAt, keys.openrouterKey, keys.exaKey);
+  const extrasToken = await accessTokenFor(env, customer);
+  return credentialsResponse(env, ent.expiresAt, extrasToken, keys.openrouterKey, keys.exaKey);
 }
 
 export async function handleRefresh(request: Request, env: Env): Promise<Response> {
@@ -83,7 +86,8 @@ export async function handleRefresh(request: Request, env: Env): Promise<Respons
   if (!customer) throw new HttpError(404, "unknown_purchase", "this purchase has not been activated; activate first");
   await setLatestToken(env, customer.id, tokenHash);
   const keys = await provisionActive(env, customer, ent.expiresAt);
-  return credentialsResponse(env, ent.expiresAt, keys.openrouterKey, keys.exaKey);
+  const extrasToken = await accessTokenFor(env, customer);
+  return credentialsResponse(env, ent.expiresAt, extrasToken, keys.openrouterKey, keys.exaKey);
 }
 
 /**
@@ -166,12 +170,34 @@ function requireInstallId(body: Record<string, unknown>): string {
   return installId;
 }
 
+/**
+ * The customer's access token for the proxied services. Made once and then handed back on every
+ * activate and refresh: a subscription can be used on several phones, and a new token per call
+ * would log the other phones out. Revocation goes through the customer's status, not the token.
+ * Stored encrypted (to hand back) and hashed (to look up a bearer without decrypting every row).
+ */
+async function accessTokenFor(env: Env, customer: CustomerRow): Promise<string> {
+  if (customer.access_token_enc) return decryptSecret(customer.access_token_enc, env.CREDENTIAL_ENCRYPTION_KEY);
+  const token = generateAccessToken();
+  const enc = await encryptSecret(token, env.CREDENTIAL_ENCRYPTION_KEY);
+  await setAccessToken(env, customer.id, await sha256Hex(token), enc);
+  return token;
+}
+
 /** `exa` is null when no search key could be made; the app then keeps its free search provider. */
-function credentialsResponse(env: Env, expiresAt: string, openrouterKey: string, exaKey: string | null): Response {
+function credentialsResponse(
+  env: Env,
+  expiresAt: string,
+  extrasToken: string,
+  openrouterKey: string,
+  exaKey: string | null,
+): Response {
   return jsonNoStore({
     expiresAt,
+    extrasToken,
     openrouter: { key: openrouterKey, model: env.DEFAULT_MODEL },
     exa: exaKey ? { key: exaKey } : null,
+    services: enabledServices(env),
   });
 }
 

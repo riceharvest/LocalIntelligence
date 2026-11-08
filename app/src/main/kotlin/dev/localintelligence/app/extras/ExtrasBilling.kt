@@ -19,6 +19,7 @@ import com.android.billingclient.api.queryProductDetails
 import com.android.billingclient.api.queryPurchasesAsync
 import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.android.cloud.ExtrasBackend
+import dev.localintelligence.android.cloud.ExtrasClient
 import dev.localintelligence.android.cloud.ExtrasGrant
 import dev.localintelligence.android.cloud.ExtrasReply
 import dev.localintelligence.android.cloud.ExtrasSettings
@@ -60,6 +61,13 @@ class ExtrasBilling(
     private val backendUrl: String,
 ) {
     private val appId: String = context.packageName
+
+    init {
+        ExtrasClient.backendUrl = backendUrl
+        if (backendUrl.isNotBlank() && settings[ExtrasSettings.BACKEND_URL] != backendUrl) {
+            settings.set(ExtrasSettings.BACKEND_URL, backendUrl)
+        }
+    }
 
     /** The Play price string for one month, from Play itself. Null until it is loaded. */
     private val _price = MutableStateFlow<String?>(null)
@@ -243,18 +251,24 @@ class ExtrasBilling(
         val exa = grant.exaKey
         if (exa.isNullOrBlank()) settings.clearSecret(ExtrasSettings.EXA_KEY)
         else settings.setSecret(ExtrasSettings.EXA_KEY, exa)
+        if (grant.extrasToken.isBlank()) settings.clearSecret(ExtrasSettings.ACCESS_TOKEN)
+        else settings.setSecret(ExtrasSettings.ACCESS_TOKEN, grant.extrasToken)
         settings.setSecret(ExtrasSettings.PURCHASE_TOKEN, purchaseToken)
         settings.set(ExtrasSettings.OPENROUTER_MODEL, grant.openRouterModel)
         settings.set(ExtrasSettings.EXPIRES_AT, grant.expiresAt)
+        settings.set(ExtrasSettings.SERVICES, grant.services.joinToString(","))
+        if (backendUrl.isNotBlank()) settings.set(ExtrasSettings.BACKEND_URL, backendUrl)
     }
 
     /** Removes every Extras credential from this phone. The purchase itself stays with Play. */
     private fun clear() {
         settings.clearSecret(ExtrasSettings.OPENROUTER_KEY)
         settings.clearSecret(ExtrasSettings.EXA_KEY)
+        settings.clearSecret(ExtrasSettings.ACCESS_TOKEN)
         settings.clearSecret(ExtrasSettings.PURCHASE_TOKEN)
         settings.set(ExtrasSettings.OPENROUTER_MODEL, "")
         settings.set(ExtrasSettings.EXPIRES_AT, "")
+        settings.set(ExtrasSettings.SERVICES, "")
     }
 
     /** A random id for this install, made once and kept in Settings. It is not an identity. */

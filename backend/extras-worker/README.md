@@ -21,9 +21,16 @@ Nothing here is deployed yet. The owner does the steps below.
 
 | Method and path | Who calls it | What it does |
 |---|---|---|
-| `POST /v1/activate` | the app, after a Play purchase | body `{packageName, productId, purchaseToken, installId}`. Verifies the purchase, provisions keys, returns `{expiresAt, openrouter: {key, model}, exa: {key}}`. Idempotent. Limited to 10 calls per install id per hour. |
-| `POST /v1/refresh` | the app, at start when expiry is near | body `{purchaseToken, installId}`. Same keys if still active, `402 not_active` otherwise. |
+| `POST /v1/activate` | the app, after a Play purchase | body `{packageName, productId, purchaseToken, installId}`. Verifies the purchase, provisions keys, returns the customer's `extrasToken` (made once, shared by every phone on the subscription), returns `{expiresAt, extrasToken, openrouter: {key, model}, exa: {key}, services: {sandbox, browser, composio, voice, mail, telegram}}`. Idempotent. Limited to 10 calls per install id per hour. |
+| `POST /v1/refresh` | the app, at start when expiry is near | body `{purchaseToken, installId}`. Returns the same keys, `extrasToken` and `services` map if still active, `402 not_active` otherwise. |
 | `POST /v1/rtdn/<RTDN_PATH_SECRET>` | Google Pub/Sub push | Play real-time developer notification. Needs the path secret and a valid Google OIDC bearer token (`Authorization: Bearer`, checked against Google's signing keys for `PUBSUB_AUDIENCE` and `PUBSUB_SERVICE_ACCOUNT_EMAIL`), otherwise `401`. Re-reads the subscription from Google and disables or re-provisions keys to match. |
+| `POST /v1/sandbox/{create,info,start,stop,exec,write,read}` | the app (`Bearer <extrasToken>`) | Managed cloud code sandbox (`@cloudflare/sandbox`). Returns `503 service_off` when unconfigured. |
+| `POST /v1/browser/{start,status,result}` | the app (`Bearer <extrasToken>`) | Managed cloud browser task runner. Returns `503 service_off` when unconfigured. |
+| `ALL /v1/mcp/composio` | the app (`Bearer <extrasToken>`) | MCP streamable HTTP proxy to Composio Tool Router. Returns `503 service_off` when unconfigured. |
+| `POST /v1/voice/{stt-token,speak}` | the app (`Bearer <extrasToken>`) | Deepgram STT short-lived token grant and Aura-2 TTS synthesis. Returns `503 service_off` when unconfigured. |
+| `POST /v1/mail/{address,list,read,send}` | the app (`Bearer <extrasToken>`) | Managed agent mailbox (inbound via Cloudflare Email Routing `email()` handler, outbound via Email Sending). Returns `503 service_off` when unconfigured. |
+| `POST /v1/telegram/{link,updates,send}` | the app (`Bearer <extrasToken>`) | Shared Telegram bot link token, inbox polling and outbound replies. Returns `503 service_off` when unconfigured. |
+| `POST /v1/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>` | Telegram Bot API webhook | Delivers inbound Telegram updates to D1. Authenticated by the secret path segment. Returns `503 service_off` when unconfigured. |
 
 Error bodies are `{error, message}` with a fixed `error` code. Keys are returned only with
 `Cache-Control: no-store`. Nothing logs keys, purchase tokens or provider response bodies.
@@ -39,6 +46,18 @@ Secrets are set with `wrangler secret put NAME` (it prompts; do not put them in 
 | `EXA_ADMIN_KEY` | secret, optional | Without it Extras gives no search key and the app keeps its free search. Ask support@exa.ai to enable Team Management for your team. Then copy the service key from the "Service keys" tab on the Exa API keys page (https://dashboard.exa.ai/api-keys). Docs: https://exa.ai/docs/reference/team-management/create-api-key |
 | `RTDN_PATH_SECRET` | secret | Random string, for example `openssl rand -hex 32`. It becomes part of the Pub/Sub push URL. |
 | `CREDENTIAL_ENCRYPTION_KEY` | secret | Base64 of 32 random bytes: `openssl rand -base64 32`. Encrypts the provider keys stored in D1. **Losing it means stored keys cannot be read back**, so back it up with your other secrets. |
+| `COMPOSIO_API_KEY` | secret, optional | Composio project API key for `/v1/mcp/composio`. Without it `services.composio` is `false`. |
+| `DEEPGRAM_API_KEY` | secret, optional | Deepgram API key with member/token-grant permissions for `/v1/voice/*`. Without it `services.voice` is `false`. |
+| `TELEGRAM_BOT_TOKEN` | secret, optional | Bot token from `@BotFather` for the shared Extras Telegram bot. Without it `services.telegram` is `false`. |
+| `TELEGRAM_WEBHOOK_SECRET` | secret, optional | Random string (for example `openssl rand -hex 32`) placed at the end of `/v1/telegram/webhook/<secret>`. Without it `services.telegram` is `false`. |
+
+Optional Cloudflare bindings in `wrangler.toml` (commented out until each service job is enabled; a missing binding leaves that service `false` in `services`):
+
+| Name | Service | Binding type |
+|---|---|---|
+| `Sandbox` | `sandbox` | Durable Object namespace (`@cloudflare/sandbox` class, added by job W1). |
+| `BROWSER` | `browser` | Cloudflare Browser Rendering (`[browser]`). |
+| `SEND_EMAIL` | `mail` | Cloudflare Email Sending (`[[send_email]]`), paired with an Email Routing catch-all on `EMAIL_DOMAIN` pointing to this Worker's `email()` handler. |
 
 Plain variables in `wrangler.toml` `[vars]` (edit the file, then deploy):
 
@@ -52,6 +71,15 @@ Plain variables in `wrangler.toml` `[vars]` (edit the file, then deploy):
 | `EXA_BUDGET_CENTS` | `150` | Per-customer Exa budget for the team's billing period, in cents. **Owner to confirm.** |
 | `PUBSUB_AUDIENCE` | `TODO-OWNER-PUBSUB-AUDIENCE` | The audience of the Pub/Sub push token. Use the exact audience you enter on the push subscription (step 9.3). Until it is set, every push is refused with 401. |
 | `PUBSUB_SERVICE_ACCOUNT_EMAIL` | `TODO-OWNER-PUBSUB-SERVICE-ACCOUNT-EMAIL` | The service account the push subscription signs as. Until it is set, every push is refused with 401. |
+| `SANDBOX_MINUTES_CAP` | `120` | Per-customer monthly sandbox execution minutes cap (`sandbox`). **Owner to confirm.** |
+| `BROWSER_MINUTES_CAP` | `60` | Per-customer monthly cloud browser minutes cap (`browser`). **Owner to confirm.** |
+| `COMPOSIO_CALLS_CAP` | `500` | Per-customer monthly Composio MCP calls cap (`composio`). **Owner to confirm.** |
+| `DEEPGRAM_PROJECT_ID` | `""` | Deepgram project ID used when minting short-lived STT tokens (`voice`). Empty leaves `voice` off. |
+| `VOICE_STT_MINUTES_CAP` | `60` | Per-customer monthly Deepgram speech-to-text minutes cap (`voice`). **Owner to confirm.** |
+| `VOICE_TTS_CHARS_CAP` | `20000` | Per-customer monthly Deepgram text-to-speech characters cap (`voice`). **Owner to confirm.** |
+| `EMAIL_DOMAIN` | `""` | Domain used for managed agent mailboxes (`mail`). Empty leaves `mail` off. |
+| `MAIL_SENDS_CAP` | `100` | Per-customer monthly outbound email sends cap (`mail`). **Owner to confirm.** |
+| `TELEGRAM_BOT_USERNAME` | `""` | Public username of the shared Telegram bot without `@` (`telegram`). Empty leaves `telegram` off. |
 
 ## Deploy steps (owner)
 
@@ -62,6 +90,8 @@ Run these in `backend/extras-worker/`.
 3. `npx wrangler d1 create localintelligence-extras`. Copy the printed `database_id` into
    `wrangler.toml`, replacing `TODO-OWNER-D1-DATABASE-ID`.
 4. `npx wrangler d1 execute localintelligence-extras --remote --file=schema.sql`
+   (If upgrading an existing `customers` table created before wave 2, also run:
+   `npx wrangler d1 execute localintelligence-extras --remote --command="ALTER TABLE customers ADD COLUMN access_token_hash TEXT; ALTER TABLE customers ADD COLUMN access_token_enc TEXT; CREATE INDEX IF NOT EXISTS customers_by_access_token ON customers(access_token_hash);"`)
 5. Set the five secrets above with `npx wrangler secret put <NAME>`.
 6. Review the `[vars]` table in `wrangler.toml`.
 7. `npm run typecheck`

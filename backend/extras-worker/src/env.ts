@@ -33,4 +33,44 @@ export interface Env {
   RTDN_PATH_SECRET: string;
   /** Base64 of 32 random bytes. Encrypts provider key secrets stored in D1. */
   CREDENTIAL_ENCRYPTION_KEY: string;
+
+  // Optional wave-2 managed services (a missing binding, secret or var leaves that service off)
+
+  /** Sandbox Durable Object namespace (@cloudflare/sandbox, exported by job W1). */
+  Sandbox?: DurableObjectNamespace;
+  /** Monthly per-customer sandbox execution minutes cap. */
+  SANDBOX_MINUTES_CAP?: string;
+
+  /** Cloudflare Browser Rendering binding. */
+  BROWSER?: Fetcher;
+  /** Monthly per-customer browser minutes cap. */
+  BROWSER_MINUTES_CAP?: string;
+
+  /** Composio project API key for the MCP proxy. */
+  COMPOSIO_API_KEY?: string;
+  /** Monthly per-customer Composio MCP tool calls cap. */
+  COMPOSIO_CALLS_CAP?: string;
+
+  /** Deepgram API key for STT token grants and Aura-2 TTS synthesis. */
+  DEEPGRAM_API_KEY?: string;
+  /** Deepgram project ID used when minting short-lived STT tokens. */
+  DEEPGRAM_PROJECT_ID?: string;
+  /** Monthly per-customer Deepgram speech-to-text minutes cap. */
+  VOICE_STT_MINUTES_CAP?: string;
+  /** Monthly per-customer Deepgram text-to-speech characters cap. */
+  VOICE_TTS_CHARS_CAP?: string;
+
+  /** Cloudflare Email Sending (`send_email`) binding. */
+  SEND_EMAIL?: SendEmail;
+  /** Domain whose catch-all Email Routing rule delivers to this Worker's `email()` handler. */
+  EMAIL_DOMAIN?: string;
+  /** Monthly per-customer outbound email sends cap. */
+  MAIL_SENDS_CAP?: string;
+
+  /** Shared Telegram bot token from @BotFather. */
+  TELEGRAM_BOT_TOKEN?: string;
+  /** Secret path segment for `/v1/telegram/webhook/<secret>`. */
+  TELEGRAM_WEBHOOK_SECRET?: string;
+  /** Public username of the shared Telegram bot (without leading `@`), for `t.me/<bot>?start=...` links. */
+  TELEGRAM_BOT_USERNAME?: string;
 }
