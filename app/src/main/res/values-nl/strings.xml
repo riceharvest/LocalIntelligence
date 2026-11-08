@@ -1737,6 +1737,7 @@
     <string name="extras_play_unreachable">Google Play kon niet worden bereikt. Probeer het later opnieuw.</string>
     <string name="extras_play_refused">Google Play kon het Extras-abonnement niet starten. Probeer het later opnieuw.</string>
     <string name="extras_on_until">Extras staat aan tot %1$s.</string>
+    <string name="extras_email_address">Uw Extras-e-mailadres is %1$s.</string>
     <string name="audio_no_track">Dit bestand heeft geen audiospoor.</string>
     <string name="audio_no_format">De audio in dit bestand heeft geen indeling die de telefoon kan lezen.</string>
     <string name="audio_cannot_decode">Deze telefoon kan %1$s-audio niet decoderen.</string>

@@ -1744,6 +1744,7 @@
     <string name="extras_play_unreachable">تعذر الوصول إلى Google Play. حاول لاحقاً.</string>
     <string name="extras_play_refused">لم تبدأ Google Play اشتراك الميزات الإضافية. حاول لاحقاً.</string>
     <string name="extras_on_until">الميزات الإضافية مفعّلة حتى %1$s.</string>
+    <string name="extras_email_address">عنوان بريدك الإلكتروني في Extras هو %1$s.</string>
     <string name="audio_no_track">لا يحتوي هذا الملف على مسار صوتي.</string>
     <string name="audio_no_format">صوت هذا الملف بتنسيق لا يستطيع الهاتف قراءته.</string>
     <string name="audio_cannot_decode">لا يستطيع هذا الهاتف فك ترميز صوت %1$s.</string>

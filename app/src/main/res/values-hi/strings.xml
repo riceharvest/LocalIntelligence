@@ -1737,6 +1737,7 @@
     <string name="extras_play_unreachable">Google Play तक पहुँच नहीं हो पाई। बाद में फिर कोशिश करें।</string>
     <string name="extras_play_refused">Google Play ने Extras सब्सक्रिप्शन शुरू नहीं किया। बाद में फिर कोशिश करें।</string>
     <string name="extras_on_until">Extras %1$s तक चालू है।</string>
+    <string name="extras_email_address">आपका Extras ईमेल पता %1$s है।</string>
     <string name="audio_no_track">इस फ़ाइल में कोई ऑडियो ट्रैक नहीं है।</string>
     <string name="audio_no_format">इस फ़ाइल के ऑडियो का फ़ॉर्मैट फ़ोन नहीं पढ़ सकता।</string>
     <string name="audio_cannot_decode">यह फ़ोन %1$s ऑडियो को डिकोड नहीं कर सकता।</string>

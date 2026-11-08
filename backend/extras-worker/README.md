@@ -68,6 +68,15 @@ Managed Linux containers powered by `@cloudflare/sandbox` 1.0.3 and Cloudflare C
 - Endpoints: `POST /v1/sandbox/{create,info,start,stop,exec,write,read}` (files capped at 1 MB, base64 encoded).
 - Metering: execution wall-clock minutes metered in `sandbox_minutes` against `SANDBOX_MINUTES_CAP`.
 
+### Agent mailbox (`mail`, W5)
+
+Managed email mailbox powered by Cloudflare Email Routing and Cloudflare Email Sending:
+- Inbound: Worker default export's `email(message, env, ctx)` handler catches incoming emails on `EMAIL_DOMAIN`.
+- Messages parsed with `postal-mime` 4.2.0 and stored into D1 `mail_messages` (capped at 256 KB; unknown recipients rejected).
+- Outbound: `POST /v1/mail/send` sends via Cloudflare Email Sending (`[[send_email]]` binding `SEND_EMAIL`) from `<local>@EMAIL_DOMAIN`.
+- Metering: 1 count per outbound send metered in `mail_sends` against `MAIL_SENDS_CAP`.
+- Endpoints: `POST /v1/mail/{address,list,read,send}` (`list` returns newest 50 without bodies; `read` retrieves one message with body).
+
 ### Telegram (`telegram`, W6)
 
 Shared Telegram bot bridging messages from linked chats to customer devices:
@@ -85,7 +94,8 @@ Shared Telegram bot bridging messages from linked chats to customer devices:
 - Endpoints:
   - `POST /v1/telegram/link`: generates deep-link `https://t.me/<TELEGRAM_BOT_USERNAME>?start=<token>`.
   - `POST /v1/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>`: webhook receiving updates from Telegram.
-  - `POST /v1/telegram/updates`: phone polls queued messages (`{afterId}`) and deletes delivered rows.
+  - `POST /v1/telegram/updates`: phone long-polls queued messages (`{afterId}`, held up to 25 s while empty) and deletes delivered rows. The phone only polls after the user taps Link Telegram.
+- Only private chats link and deliver: a message drives the customer's agent, so a group would let every member give it orders.
   - `POST /v1/telegram/send`: sends replies (`{chatId, text}`) to customer's linked chats.
 
 Plain variables in `wrangler.toml` `[vars]` (edit the file, then deploy):

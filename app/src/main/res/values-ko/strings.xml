@@ -1736,6 +1736,7 @@
     <string name="extras_play_unreachable">Google Play에 연결할 수 없어요. 나중에 다시 시도하세요.</string>
     <string name="extras_play_refused">Google Play가 Extras 구독을 시작하지 못했어요. 나중에 다시 시도하세요.</string>
     <string name="extras_on_until">Extras는 %1$s까지 사용할 수 있어요.</string>
+    <string name="extras_email_address">Extras 이메일 주소는 %1$s입니다.</string>
     <string name="audio_no_track">이 파일에는 오디오 트랙이 없어요.</string>
     <string name="audio_no_format">이 파일의 오디오는 휴대폰이 읽을 수 있는 형식이 아니에요.</string>
     <string name="audio_cannot_decode">이 휴대폰은 %1$s 오디오를 디코딩할 수 없어요.</string>

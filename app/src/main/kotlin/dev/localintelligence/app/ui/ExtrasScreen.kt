@@ -33,16 +33,21 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.localintelligence.android.cloud.CredentialSource
+import dev.localintelligence.android.cloud.ExtrasClient
 import dev.localintelligence.android.cloud.ExtrasSettings
 import dev.localintelligence.android.cloud.ManagedServices
 import dev.localintelligence.app.extras.ExtrasBilling
 import dev.localintelligence.app.settings.SettingText
 import dev.localintelligence.app.settings.SettingsStore
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -150,6 +155,18 @@ fun ExtrasScreen(
                                 store.set(ExtrasSettings.BETTER_VOICE, on)
                             },
                         )
+                    }
+                    if (ExtrasSettings.serviceOn(store, ManagedServices.MAIL)) {
+                        var mailboxAddress by remember { mutableStateOf<String?>(null) }
+                        LaunchedEffect(Unit) {
+                            runCatching {
+                                val reply = ExtrasClient.call(store, "/v1/mail/address")
+                                mailboxAddress = reply["address"]?.jsonPrimitive?.contentOrNull
+                            }
+                        }
+                        mailboxAddress?.let { address ->
+                            Text(stringResource(R.string.extras_email_address, address))
+                        }
                     }
                     if (ExtrasSettings.serviceOn(store, ManagedServices.TELEGRAM)) {
                         LinkTelegramButton(store)
