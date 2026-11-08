@@ -1,8 +1,8 @@
 /**
  * Customer access-token authentication for proxied Extras services.
  *
- * Each `/v1/activate` and `/v1/refresh` response hands the phone a fresh 32-byte random
- * `extrasToken` (base64url) and stores only its SHA-256 hex in `customers.access_token_hash`.
+ * `/v1/activate` and `/v1/refresh` hand the phone the customer's `extrasToken` (32 random bytes,
+ * base64url, made once). Lookup is by its SHA-256 hex in `customers.access_token_hash`.
  * Proxied endpoints pass `Authorization: Bearer <extrasToken>`.
  */
 import { sha256Hex } from "./crypto";

@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS customers (
   openrouter_key_enc   TEXT,                       -- base64(iv || AES-GCM ciphertext) of the key secret
   exa_key_id           TEXT,                       -- Exa team-management API key id (used for PUT/DELETE)
   exa_key_enc          TEXT,                       -- base64(iv || AES-GCM ciphertext) of the Exa key secret
-  access_token_hash    TEXT,                       -- SHA-256 hex of the customer's current extrasToken
+  access_token_hash    TEXT,                       -- SHA-256 hex of the customer's extrasToken (lookup)
+  access_token_enc     TEXT,                       -- base64(iv || AES-GCM ciphertext) of the extrasToken, so every phone on the subscription gets the same one
   created_at           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );

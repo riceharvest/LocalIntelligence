@@ -21,8 +21,8 @@ Nothing here is deployed yet. The owner does the steps below.
 
 | Method and path | Who calls it | What it does |
 |---|---|---|
-| `POST /v1/activate` | the app, after a Play purchase | body `{packageName, productId, purchaseToken, installId}`. Verifies the purchase, provisions keys, mints a fresh 32-byte `extrasToken`, returns `{expiresAt, extrasToken, openrouter: {key, model}, exa: {key}, services: {sandbox, browser, composio, voice, mail, telegram}}`. Idempotent. Limited to 10 calls per install id per hour. |
-| `POST /v1/refresh` | the app, at start when expiry is near | body `{purchaseToken, installId}`. Rotates `extrasToken` and returns the same keys and `services` map if still active, `402 not_active` otherwise. |
+| `POST /v1/activate` | the app, after a Play purchase | body `{packageName, productId, purchaseToken, installId}`. Verifies the purchase, provisions keys, returns the customer's `extrasToken` (made once, shared by every phone on the subscription), returns `{expiresAt, extrasToken, openrouter: {key, model}, exa: {key}, services: {sandbox, browser, composio, voice, mail, telegram}}`. Idempotent. Limited to 10 calls per install id per hour. |
+| `POST /v1/refresh` | the app, at start when expiry is near | body `{purchaseToken, installId}`. Returns the same keys, `extrasToken` and `services` map if still active, `402 not_active` otherwise. |
 | `POST /v1/rtdn/<RTDN_PATH_SECRET>` | Google Pub/Sub push | Play real-time developer notification. Needs the path secret and a valid Google OIDC bearer token (`Authorization: Bearer`, checked against Google's signing keys for `PUBSUB_AUDIENCE` and `PUBSUB_SERVICE_ACCOUNT_EMAIL`), otherwise `401`. Re-reads the subscription from Google and disables or re-provisions keys to match. |
 | `POST /v1/sandbox/{create,info,start,stop,exec,write,read}` | the app (`Bearer <extrasToken>`) | Managed cloud code sandbox (`@cloudflare/sandbox`). Returns `503 service_off` when unconfigured. |
 | `POST /v1/browser/{start,status,result}` | the app (`Bearer <extrasToken>`) | Managed cloud browser task runner. Returns `503 service_off` when unconfigured. |
@@ -91,7 +91,7 @@ Run these in `backend/extras-worker/`.
    `wrangler.toml`, replacing `TODO-OWNER-D1-DATABASE-ID`.
 4. `npx wrangler d1 execute localintelligence-extras --remote --file=schema.sql`
    (If upgrading an existing `customers` table created before wave 2, also run:
-   `npx wrangler d1 execute localintelligence-extras --remote --command="ALTER TABLE customers ADD COLUMN access_token_hash TEXT; CREATE INDEX IF NOT EXISTS customers_by_access_token ON customers(access_token_hash);"`)
+   `npx wrangler d1 execute localintelligence-extras --remote --command="ALTER TABLE customers ADD COLUMN access_token_hash TEXT; ALTER TABLE customers ADD COLUMN access_token_enc TEXT; CREATE INDEX IF NOT EXISTS customers_by_access_token ON customers(access_token_hash);"`)
 5. Set the five secrets above with `npx wrangler secret put <NAME>`.
 6. Review the `[vars]` table in `wrangler.toml`.
 7. `npm run typecheck`

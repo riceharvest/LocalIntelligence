@@ -1,7 +1,7 @@
 /**
  * Extras Worker entry point. Routes:
  *   POST /v1/activate                         first purchase on a phone; returns keys, extrasToken and services
- *   POST /v1/refresh                          rotates extrasToken and returns keys for an active purchase, or 402
+ *   POST /v1/refresh                          same keys and extrasToken for an active purchase, or 402
  *   POST /v1/rtdn/<RTDN_PATH_SECRET>          Play real-time developer notifications via Pub/Sub push
  *   POST /v1/sandbox/{create,info,start,stop,exec,write,read}
  *   POST /v1/browser/{start,status,result}

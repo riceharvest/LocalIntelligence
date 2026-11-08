@@ -5,12 +5,12 @@
  * Notification payloads and client claims are only hints about which purchase to look at.
  */
 import { acknowledgeIfPending, entitlementFor, getSubscription, type SubscriptionPurchaseV2 } from "./google";
-import { base64ToBytes, generateAccessToken, sha256Hex } from "./crypto";
+import { base64ToBytes, decryptSecret, encryptSecret, generateAccessToken, sha256Hex } from "./crypto";
 import {
   createCustomer,
   findCustomerByTokenHash,
   mapPurchaseToken,
-  setAccessTokenHash,
+  setAccessToken,
   setLatestToken,
   withinRateLimit,
   type CustomerRow,
@@ -66,7 +66,7 @@ export async function handleActivate(request: Request, env: Env): Promise<Respon
   const customer = await resolveCustomer(env, tokenHash, sub);
   await setLatestToken(env, customer.id, tokenHash);
   const keys = await provisionActive(env, customer, ent.expiresAt);
-  const extrasToken = await issueAccessToken(env, customer.id);
+  const extrasToken = await accessTokenFor(env, customer);
   return credentialsResponse(env, ent.expiresAt, extrasToken, keys.openrouterKey, keys.exaKey);
 }
 
@@ -86,7 +86,7 @@ export async function handleRefresh(request: Request, env: Env): Promise<Respons
   if (!customer) throw new HttpError(404, "unknown_purchase", "this purchase has not been activated; activate first");
   await setLatestToken(env, customer.id, tokenHash);
   const keys = await provisionActive(env, customer, ent.expiresAt);
-  const extrasToken = await issueAccessToken(env, customer.id);
+  const extrasToken = await accessTokenFor(env, customer);
   return credentialsResponse(env, ent.expiresAt, extrasToken, keys.openrouterKey, keys.exaKey);
 }
 
@@ -170,10 +170,17 @@ function requireInstallId(body: Record<string, unknown>): string {
   return installId;
 }
 
-/** Mints a fresh 32-byte base64url customer access token and stores only its SHA-256 hash. */
-async function issueAccessToken(env: Env, customerId: string): Promise<string> {
+/**
+ * The customer's access token for the proxied services. Made once and then handed back on every
+ * activate and refresh: a subscription can be used on several phones, and a new token per call
+ * would log the other phones out. Revocation goes through the customer's status, not the token.
+ * Stored encrypted (to hand back) and hashed (to look up a bearer without decrypting every row).
+ */
+async function accessTokenFor(env: Env, customer: CustomerRow): Promise<string> {
+  if (customer.access_token_enc) return decryptSecret(customer.access_token_enc, env.CREDENTIAL_ENCRYPTION_KEY);
   const token = generateAccessToken();
-  await setAccessTokenHash(env, customerId, await sha256Hex(token));
+  const enc = await encryptSecret(token, env.CREDENTIAL_ENCRYPTION_KEY);
+  await setAccessToken(env, customer.id, await sha256Hex(token), enc);
   return token;
 }
 
