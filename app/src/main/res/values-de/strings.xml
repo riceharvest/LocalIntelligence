@@ -1309,6 +1309,8 @@
 <string name="setting_extras_purchase_token_desc">Der Google-Play-Kauf, mit dem dieses Handy aktiviert wurde. Verschlüsselt gespeichert.</string>
 <string name="setting_extras_cloud_chat_label">Chat-Nachrichten an die Cloud senden</string>
 <string name="setting_extras_cloud_chat_desc">An: Das Cloud-Modell von Extras antwortet. Aus: Das eigene Modell des Handys antwortet; die Extras-Suche bleibt an.</string>
+    <string name="setting_extras_better_voice_label">Bessere Stimme (Extras)</string>
+    <string name="setting_extras_better_voice_desc">An: Extras bietet schnelle Cloud-Spracherkennung und natürliche Sprachantworten. Aus: Die eigene Sprachausgabe des Handys wird verwendet.</string>
 <string name="setting_extras_openrouter_model_label">Extras-Chatmodell</string>
 <string name="setting_extras_openrouter_model_desc">Das Modell, das der Extras-Chat nutzt.</string>
 <string name="setting_extras_expires_at_label">Ablauf von Extras</string>

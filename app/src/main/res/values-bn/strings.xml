@@ -1309,6 +1309,8 @@
 <string name="setting_extras_purchase_token_desc">যে Google Play কেনাকাটা এই ফোনে চালু করা হয়েছে। এনক্রিপ্ট করে সেভ থাকে।</string>
 <string name="setting_extras_cloud_chat_label">চ্যাটের মেসেজ ক্লাউডে পাঠান</string>
 <string name="setting_extras_cloud_chat_desc">চালু থাকলে Extras-এর ক্লাউড মডেল উত্তর দেয়। বন্ধ থাকলে ফোনের নিজের মডেল উত্তর দেয়; Extras সার্চ চালু থাকে।</string>
+    <string name="setting_extras_better_voice_label">উন্নত ভয়েস (Extras)</string>
+    <string name="setting_extras_better_voice_desc">চালু থাকলে, Extras দ্রুত ক্লাউড ভয়েস শনাক্তকরণ এবং স্বাভাবিক ভয়েস প্রতিক্রিয়া দেয়। বন্ধ থাকলে, ফোনের নিজস্ব ভয়েস ইঞ্জিন ব্যবহার করা হয়।</string>
 <string name="setting_extras_openrouter_model_label">Extras চ্যাট মডেল</string>
 <string name="setting_extras_openrouter_model_desc">Extras চ্যাট যে মডেল ব্যবহার করে।</string>
 <string name="setting_extras_expires_at_label">Extras মেয়াদ</string>

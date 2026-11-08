@@ -1309,6 +1309,8 @@
 <string name="setting_extras_purchase_token_desc">A compra no Google Play que este celular ativou. Guardado criptografado.</string>
 <string name="setting_extras_cloud_chat_label">Enviar mensagens de conversa para a nuvem</string>
 <string name="setting_extras_cloud_chat_desc">Ligado: o modelo do Extras na nuvem responde. Desligado: o modelo do próprio celular responde; a busca do Extras continua ligada.</string>
+    <string name="setting_extras_better_voice_label">Voz melhor (Extras)</string>
+    <string name="setting_extras_better_voice_desc">Ligado: o Extras oferece reconhecimento de voz rápido na nuvem e respostas de voz naturais. Desligado: o próprio mecanismo de voz do celular é usado.</string>
 <string name="setting_extras_openrouter_model_label">Modelo de conversa do Extras</string>
 <string name="setting_extras_openrouter_model_desc">O modelo que a conversa do Extras usa.</string>
 <string name="setting_extras_expires_at_label">Validade do Extras</string>

@@ -1308,6 +1308,8 @@
 <string name="setting_extras_purchase_token_desc">這支手機已啟用的 Google Play 購買項目。加密儲存。</string>
 <string name="setting_extras_cloud_chat_label">把聊天訊息傳送到雲端</string>
 <string name="setting_extras_cloud_chat_desc">開啟時，由 Extras 的雲端模型回答；關閉時，由手機自己的模型回答，Extras 搜尋則維持開啟。</string>
+    <string name="setting_extras_better_voice_label">更好的語音 (Extras)</string>
+    <string name="setting_extras_better_voice_desc">開啟時，Extras 提供快速的雲端語音辨識與自然語音回覆。關閉時，使用手機本身的語音引擎。</string>
 <string name="setting_extras_openrouter_model_label">Extras 聊天模型</string>
 <string name="setting_extras_openrouter_model_desc">Extras 聊天使用的模型。</string>
 <string name="setting_extras_expires_at_label">Extras 到期日</string>
