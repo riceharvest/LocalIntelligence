@@ -13,6 +13,6 @@
     "wrangler": "^4.156.0"
   },
   "dependencies": {
-    "@cloudflare/sandbox": "0.12.14"
+    "@cloudflare/sandbox": "1.0.3"
   }
 }

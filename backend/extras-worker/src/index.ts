@@ -117,4 +117,4 @@ function toErrorResponse(error: unknown): Response {
   return errorResponse("internal", 500, "internal error");
 }
 
-export { Sandbox } from "@cloudflare/sandbox";
+export { Sandbox } from "./services/sandbox";

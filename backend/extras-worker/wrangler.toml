@@ -16,17 +16,19 @@ database_name = "localintelligence-extras"
 # Deploy fails until this is set to the real id.
 database_id = "TODO-OWNER-D1-DATABASE-ID"
 
-# Cloudflare Sandbox Durable Object class and container configuration (job W1).
-# Docs: https://developers.cloudflare.com/sandbox/sdk/concepts/architecture/
+# Cloudflare Sandbox 1.0 Durable Object and container configuration (W1).
+# Docs: https://developers.cloudflare.com/sandbox/sdk/migrate/replace-the-sandbox-class/
+[[containers]]
+class_name = "Sandbox"
+name = "localintelligence-extras-sandbox"
+scheduling_policy = "durable_object"
+
+[containers.images.sandbox]
+dockerfile = "./Dockerfile"
+
 [[durable_objects.bindings]]
 name = "Sandbox"
 class_name = "Sandbox"
-
-[[containers]]
-class_name = "Sandbox"
-image = "./Dockerfile"
-instance_type = "lite"
-max_instances = 1
 
 [[migrations]]
 tag = "v1"
