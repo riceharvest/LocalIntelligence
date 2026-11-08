@@ -259,7 +259,7 @@
 <string name="characters">、%1$s 文字</string>
 <string name="remove_3">%1$s を削除しますか？</string>
 <string name="the_assistant_will_no_longer_answer">このドキュメントからは、アシスタントはもう答えなくなります。</string>
-<string name="extras_is_one_monthly_subscription_from">エクストラは、Google Play の月額サブスクリプションです。この端末で、より賢いクラウドのチャットモデルと、より良いWeb検索が使えるようになります。設定は不要です。詳細モードで自分のキーを使う方法は、今までどおり使えます。エクストラがなくてもアプリは無料です。</string>
+<string name="extras_is_one_monthly_subscription_from">エクストラは、Google Play の月額サブスクリプションです。設定は不要で、この端末でより賢いクラウドのチャットモデル、より良いWeb検索、そしてクラウドツール（コードのサンドボックス、Webブラウザ、Gmail やカレンダーなどのアプリ、より良い音声、メールアドレス、Telegram）が使えるようになります。詳細モードで自分のキーを使う方法は、今までどおり使えます。エクストラがなくてもアプリは無料です。</string>
 <string name="extras_is_on_until">エクストラは %1$s まで有効です。</string>
 <string name="extras_is_off">エクストラはオフです。</string>
 <string name="the_price_is_loading_from_google_play">価格を Google Play から読み込んでいます。</string>

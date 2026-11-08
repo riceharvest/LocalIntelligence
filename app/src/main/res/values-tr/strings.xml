@@ -259,7 +259,7 @@
 <string name="characters">, %1$s karakter</string>
 <string name="remove_3">%1$s kaldırılsın mı?</string>
 <string name="the_assistant_will_no_longer_answer">Asistan artık bu belgeden yanıt vermeyecek.</string>
-<string name="extras_is_one_monthly_subscription_from">Ekstralar, Google Play\'den aylık tek bir abonelik. Bu telefona daha akıllı bir bulut sohbet modeli ve daha iyi web araması sağlar; kurulum gerekmez. Teknik modda kendi anahtarların aynı şekilde çalışmaya devam eder ve Ekstralar olmadan da uygulama ücretsiz kalır.</string>
+<string name="extras_is_one_monthly_subscription_from">Ekstralar, Google Play\'den aylık tek bir abonelik. Kurulum gerektirmeden bu telefona daha akıllı bir bulut sohbet modeli, daha iyi web araması ve bulut araçları sağlar: bir kod korumalı alanı, bir web tarayıcısı, Gmail ve Takvim gibi uygulamaların, daha iyi bir ses, bir e-posta adresi ve Telegram. Teknik modda kendi anahtarların aynı şekilde çalışmaya devam eder ve Ekstralar olmadan da uygulama ücretsiz kalır.</string>
 <string name="extras_is_on_until">Ekstralar %1$s tarihine kadar açık.</string>
 <string name="extras_is_off">Ekstralar kapalı.</string>
 <string name="the_price_is_loading_from_google_play">Fiyat Google Play\'den yükleniyor.</string>

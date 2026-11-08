@@ -260,7 +260,7 @@
 <string name="characters">, %1$s caracteres</string>
 <string name="remove_3">Remover %1$s?</string>
 <string name="the_assistant_will_no_longer_answer">O assistente não vai mais responder com base neste documento.</string>
-<string name="extras_is_one_monthly_subscription_from">Extras é uma assinatura mensal do Google Play. Ela dá a este celular um modelo de conversa na nuvem mais inteligente e uma busca na web melhor, sem configuração. Suas próprias chaves no Modo técnico continuam funcionando igual, e o app continua gratuito sem o Extras.</string>
+<string name="extras_is_one_monthly_subscription_from">Extras é uma assinatura mensal do Google Play. Sem configuração, ela dá a este celular um modelo de conversa na nuvem mais inteligente, uma busca na web melhor e ferramentas na nuvem: um ambiente isolado de código, um navegador web, seus apps como Gmail e Agenda, uma voz melhor, um endereço de e-mail e Telegram. Suas próprias chaves no Modo técnico continuam funcionando igual, e o app continua gratuito sem o Extras.</string>
 <string name="extras_is_on_until">Extras está ativo até %1$s.</string>
 <string name="extras_is_off">Extras está desativado.</string>
 <string name="the_price_is_loading_from_google_play">O preço está sendo carregado do Google Play.</string>

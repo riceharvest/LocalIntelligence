@@ -260,7 +260,7 @@
 <string name="characters">, %1$s अक्षर</string>
 <string name="remove_3">%1$s हटाएँ?</string>
 <string name="the_assistant_will_no_longer_answer">असिस्टेंट अब इस दस्तावेज़ से जवाब नहीं देगा।</string>
-<string name="extras_is_one_monthly_subscription_from">Extras Google Play की एक मासिक सदस्यता है। यह इस फ़ोन को एक स्मार्ट क्लाउड चैट मॉडल और बेहतर वेब खोज देता है, बिना किसी सेटअप के। तकनीकी मोड में आपकी अपनी कुंजियाँ पहले की तरह काम करती हैं, और Extras के बिना भी ऐप मुफ़्त रहता है।</string>
+<string name="extras_is_one_monthly_subscription_from">Extras Google Play की एक मासिक सदस्यता है। बिना किसी सेटअप के, यह इस फ़ोन को एक स्मार्ट क्लाउड चैट मॉडल, बेहतर वेब खोज और क्लाउड टूल देता है: एक कोड सैंडबॉक्स, एक वेब ब्राउज़र, आपके ऐप जैसे Gmail और कैलेंडर, बेहतर आवाज़, एक ईमेल पता और Telegram। तकनीकी मोड में आपकी अपनी कुंजियाँ पहले की तरह काम करती हैं, और Extras के बिना भी ऐप मुफ़्त रहता है।</string>
 <string name="extras_is_on_until">Extras %1$s तक चालू है।</string>
 <string name="extras_is_off">Extras बंद है।</string>
 <string name="the_price_is_loading_from_google_play">कीमत Google Play से लोड हो रही है।</string>

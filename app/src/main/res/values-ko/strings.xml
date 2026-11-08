@@ -260,7 +260,7 @@
 <string name="characters">, 글자 %1$s자</string>
 <string name="remove_3">%1$s 삭제할까요?</string>
 <string name="the_assistant_will_no_longer_answer">어시스턴트가 이 문서로는 더 이상 답하지 않아요.</string>
-<string name="extras_is_one_monthly_subscription_from">추가 기능은 Google Play의 월간 구독이에요. 설정 없이 이 휴대폰에 더 똑똑한 클라우드 채팅 모델과 더 나은 웹 검색을 제공해요. 기술 모드에서 직접 넣은 키는 그대로 쓸 수 있고, 추가 기능 없이도 앱은 무료예요.</string>
+<string name="extras_is_one_monthly_subscription_from">추가 기능은 Google Play의 월간 구독이에요. 설정 없이 이 휴대폰에 더 똑똑한 클라우드 채팅 모델, 더 나은 웹 검색, 그리고 클라우드 도구를 제공해요: 코드 샌드박스, 웹 브라우저, Gmail 및 캘린더 같은 앱, 더 나은 음성, 이메일 주소, Telegram. 기술 모드에서 직접 넣은 키는 그대로 쓸 수 있고, 추가 기능 없이도 앱은 무료예요.</string>
 <string name="extras_is_on_until">추가 기능은 %1$s까지 켜져 있어요.</string>
 <string name="extras_is_off">추가 기능이 꺼져 있어요.</string>
 <string name="the_price_is_loading_from_google_play">가격을 Google Play에서 불러오는 중이에요.</string>

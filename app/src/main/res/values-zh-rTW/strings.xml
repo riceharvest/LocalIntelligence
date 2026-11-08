@@ -259,7 +259,7 @@
 <string name="characters">，%1$s 個字元</string>
 <string name="remove_3">要移除 %1$s 嗎？</string>
 <string name="the_assistant_will_no_longer_answer">助理以後不會再根據這份文件回答。</string>
-<string name="extras_is_one_monthly_subscription_from">加值功能是 Google Play 的一項每月訂閱。開通後，這支手機就能使用較聰明的雲端聊天模型和較好的網路搜尋，不需要任何設定。在技術模式中使用你自己的金鑰仍然照常運作，不買加值功能，應用程式也一樣免費。</string>
+<string name="extras_is_one_monthly_subscription_from">加值功能是 Google Play 的一項每月訂閱。不需要任何設定，就能讓這支手機使用較聰明的雲端聊天模型、較好的網路搜尋以及雲端工具：程式碼沙箱、網路瀏覽器、你的應用程式（如 Gmail 和行事曆）、更好的語音、電子郵件地址與 Telegram。在技術模式中使用你自己的金鑰仍然照常運作，不買加值功能，應用程式也一樣免費。</string>
 <string name="extras_is_on_until">加值功能有效至 %1$s。</string>
 <string name="extras_is_off">加值功能已關閉。</string>
 <string name="the_price_is_loading_from_google_play">正在從 Google Play 載入價格。</string>

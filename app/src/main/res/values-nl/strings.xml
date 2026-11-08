@@ -260,7 +260,7 @@
 <string name="characters">, %1$s tekens</string>
 <string name="remove_3">%1$s verwijderen?</string>
 <string name="the_assistant_will_no_longer_answer">De assistent antwoordt niet meer uit dit document.</string>
-<string name="extras_is_one_monthly_subscription_from">Extra is één maandabonnement via Google Play. Het geeft deze telefoon een slimmer cloud-chatmodel en betere websearch, zonder instellen. Je eigen sleutels in de technische modus werken net zo, en de app blijft gratis zonder Extra.</string>
+<string name="extras_is_one_monthly_subscription_from">Extra is één maandabonnement via Google Play. Zonder instellen geeft het deze telefoon een slimmer cloud-chatmodel, betere websearch en cloudtools: een code-sandbox, een webbrowser, je apps zoals Gmail en Agenda, een betere stem, een e-mailadres en Telegram. Je eigen sleutels in de technische modus werken net zo, en de app blijft gratis zonder Extra.</string>
 <string name="extras_is_on_until">Extra staat aan tot %1$s.</string>
 <string name="extras_is_off">Extra staat uit.</string>
 <string name="the_price_is_loading_from_google_play">De prijs wordt geladen van Google Play.</string>
