@@ -262,7 +262,7 @@
 <string name="characters">, %1$s znaków</string>
 <string name="remove_3">Usunąć %1$s?</string>
 <string name="the_assistant_will_no_longer_answer">Asystent nie będzie już odpowiadał z tego dokumentu.</string>
-<string name="extras_is_one_monthly_subscription_from">Extras to jedna miesięczna subskrypcja z Google Play. Daje temu telefonowi mądrzejszy model czatu w chmurze i lepsze wyszukiwanie w sieci, bez konfiguracji. Twoje własne klucze w trybie Technicznym działają tak samo, a aplikacja bez Extras pozostaje bezpłatna.</string>
+<string name="extras_is_one_monthly_subscription_from">Extras to jedna miesięczna subskrypcja z Google Play. Bez konfiguracji daje temu telefonowi mądrzejszy model czatu w chmurze, lepsze wyszukiwanie w sieci oraz narzędzia w chmurze: piaskownicę kodu, przeglądarkę internetową, twoje aplikacje, takie jak Gmail i Kalendarz, lepszy głos, adres e-mail i Telegram. Twoje własne klucze w trybie Technicznym działają tak samo, a aplikacja bez Extras pozostaje bezpłatna.</string>
 <string name="extras_is_on_until">Extras jest włączone do %1$s.</string>
 <string name="extras_is_off">Extras jest wyłączone.</string>
 <string name="the_price_is_loading_from_google_play">Cena wczytuje się z Google Play.</string>

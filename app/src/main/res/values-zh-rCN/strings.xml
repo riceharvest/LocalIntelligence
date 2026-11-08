@@ -259,7 +259,7 @@
 <string name="characters">，%1$s 个字符</string>
 <string name="remove_3">要移除 %1$s 吗？</string>
 <string name="the_assistant_will_no_longer_answer">助手以后不会再根据这份文档回答。</string>
-<string name="extras_is_one_monthly_subscription_from">更多功能是 Google Play 提供的一项月度订阅。开通后，这部手机可以使用更聪明的云端聊天模型和更好的网络搜索，无需设置。在技术模式中使用你自己的密钥仍然一样可用，不订阅更多功能，应用也依然免费。</string>
+<string name="extras_is_one_monthly_subscription_from">更多功能是 Google Play 提供的一项月度订阅。无需设置，即可让这部手机使用更聪明的云端聊天模型、更好的网络搜索以及云端工具：代码沙盒、网络浏览器、你的应用（如 Gmail 和日历）、更好的语音、电子邮箱地址和 Telegram。在技术模式中使用你自己的密钥仍然一样可用，不订阅更多功能，应用也依然免费。</string>
 <string name="extras_is_on_until">更多功能已开通，有效期至 %1$s。</string>
 <string name="extras_is_off">更多功能未开通。</string>
 <string name="the_price_is_loading_from_google_play">正在从 Google Play 加载价格。</string>

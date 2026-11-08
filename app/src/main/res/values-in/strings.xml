@@ -259,7 +259,7 @@
 <string name="characters">, %1$s karakter</string>
 <string name="remove_3">Hapus %1$s?</string>
 <string name="the_assistant_will_no_longer_answer">Asisten tidak akan lagi menjawab dari dokumen ini.</string>
-<string name="extras_is_one_monthly_subscription_from">Extras adalah langganan bulanan dari Google Play. Ponsel ini jadi punya model obrolan cloud yang lebih pintar dan pencarian web yang lebih baik, tanpa perlu pengaturan. Kunci sendiri di mode Teknis tetap berfungsi seperti biasa, dan aplikasi tetap gratis tanpa Extras.</string>
+<string name="extras_is_one_monthly_subscription_from">Extras adalah langganan bulanan dari Google Play. Tanpa perlu pengaturan, ponsel ini jadi punya model obrolan cloud yang lebih pintar, pencarian web yang lebih baik, dan alat cloud: kotak pasir kode, browser web, aplikasimu seperti Gmail dan Kalender, suara lebih baik, alamat email, dan Telegram. Kunci sendiri di mode Teknis tetap berfungsi seperti biasa, dan aplikasi tetap gratis tanpa Extras.</string>
 <string name="extras_is_on_until">Extras aktif sampai %1$s.</string>
 <string name="extras_is_off">Extras tidak aktif.</string>
 <string name="the_price_is_loading_from_google_play">Harga sedang dimuat dari Google Play.</string>

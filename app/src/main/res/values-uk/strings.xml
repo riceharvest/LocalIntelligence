@@ -262,7 +262,7 @@
 <string name="characters">, символів: %1$s</string>
 <string name="remove_3">Прибрати %1$s?</string>
 <string name="the_assistant_will_no_longer_answer">Помічник більше не відповідатиме на основі цього документа.</string>
-<string name="extras_is_one_monthly_subscription_from">Додатково — це одна місячна підписка в Google Play. Вона дає цьому телефону розумнішу хмарну модель чату та кращий веб-пошук, без налаштувань. Ваші власні ключі в технічному режимі працюють так само, а застосунок без «Додатково» лишається безкоштовним.</string>
+<string name="extras_is_one_monthly_subscription_from">Додатково — це одна місячна підписка в Google Play. Без налаштувань вона дає цьому телефону розумнішу хмарну модель чату, кращий веб-пошук і хмарні інструменти: пісочницю для коду, веб-браузер, ваші застосунки, такі як Gmail і Календар, кращий голос, електронну адресу та Telegram. Ваші власні ключі в технічному режимі працюють так само, а застосунок без «Додатково» лишається безкоштовним.</string>
 <string name="extras_is_on_until">«Додатково» увімкнено до %1$s.</string>
 <string name="extras_is_off">«Додатково» вимкнено.</string>
 <string name="the_price_is_loading_from_google_play">Ціна завантажується з Google Play.</string>

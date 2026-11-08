@@ -264,7 +264,7 @@
 <string name="characters">، %1$s حرفًا</string>
 <string name="remove_3">هل تريد إزالة %1$s؟</string>
 <string name="the_assistant_will_no_longer_answer">لن يجيب المساعد من هذا المستند بعد الآن.</string>
-<string name="extras_is_one_monthly_subscription_from">الإضافات اشتراك شهري واحد من Google Play. يمنح هذا الهاتف نموذج محادثة سحابيًا أذكى وبحثًا أفضل على الويب، دون أي إعداد. مفاتيحك الخاصة في الوضع التقني تعمل كما هي، ويبقى التطبيق مجانيًا بدون الإضافات.</string>
+<string name="extras_is_one_monthly_subscription_from">الإضافات اشتراك شهري واحد من Google Play. دون أي إعداد، يمنح هذا الهاتف نموذج محادثة سحابيًا أذكى وبحثًا أفضل على الويب وأدوات سحابية: بيئة معزولة للبرمجة، ومتصفح ويب، وتطبيقاتك مثل Gmail والتقويم، وصوتًا أفضل، وعنوان بريد إلكتروني وTelegram. مفاتيحك الخاصة في الوضع التقني تعمل كما هي، ويبقى التطبيق مجانيًا بدون الإضافات.</string>
 <string name="extras_is_on_until">الإضافات مفعّلة حتى %1$s.</string>
 <string name="extras_is_off">الإضافات متوقفة.</string>
 <string name="the_price_is_loading_from_google_play">جارٍ تحميل السعر من Google Play.</string>

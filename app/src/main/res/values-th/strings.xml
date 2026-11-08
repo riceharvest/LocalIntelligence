@@ -259,7 +259,7 @@
 <string name="characters">, %1$s ตัวอักษร</string>
 <string name="remove_3">ลบ %1$s ใช่ไหม</string>
 <string name="the_assistant_will_no_longer_answer">ผู้ช่วยจะไม่ตอบจากเอกสารนี้อีก</string>
-<string name="extras_is_one_monthly_subscription_from">Extras คือการสมัครรายเดือนหนึ่งรายการจาก Google Play ช่วยให้โทรศัพท์นี้ได้โมเดลแชทบนคลาวด์ที่ฉลาดขึ้นและการค้นหาเว็บที่ดีขึ้น ไม่ต้องตั้งค่าอะไร คีย์ของคุณเองในโหมดเทคนิคยังใช้ได้เหมือนเดิม และแอปยังใช้ฟรีได้โดยไม่มี Extras</string>
+<string name="extras_is_one_monthly_subscription_from">Extras คือการสมัครรายเดือนหนึ่งรายการจาก Google Play ไม่ต้องตั้งค่าอะไร ช่วยให้โทรศัพท์นี้ได้โมเดลแชทบนคลาวด์ที่ฉลาดขึ้น การค้นหาเว็บที่ดีขึ้น และเครื่องมือบนคลาวด์: แซนด์บ็อกซ์โค้ด เว็บเบราว์เซอร์ แอปของคุณ เช่น Gmail และปฏิทิน เสียงที่ดีขึ้น ที่อยู่อีเมล และ Telegram คีย์ของคุณเองในโหมดเทคนิคยังใช้ได้เหมือนเดิม และแอปยังใช้ฟรีได้โดยไม่มี Extras</string>
 <string name="extras_is_on_until">Extras เปิดอยู่จนถึง %1$s</string>
 <string name="extras_is_off">Extras ปิดอยู่</string>
 <string name="the_price_is_loading_from_google_play">กำลังโหลดราคาจาก Google Play</string>

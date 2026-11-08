@@ -260,7 +260,7 @@
 <string name="characters">, %1$s ký tự</string>
 <string name="remove_3">Gỡ %1$s?</string>
 <string name="the_assistant_will_no_longer_answer">Trợ lý sẽ không còn trả lời dựa trên tài liệu này nữa.</string>
-<string name="extras_is_one_monthly_subscription_from">Extras là một gói đăng ký hàng tháng từ Google Play. Gói này cho điện thoại có mô hình trò chuyện đám mây thông minh hơn và tìm kiếm web tốt hơn, không cần thiết lập. Khóa riêng của bạn trong chế độ Kỹ thuật vẫn dùng như cũ, và ứng dụng vẫn miễn phí khi không có Extras.</string>
+<string name="extras_is_one_monthly_subscription_from">Extras là một gói đăng ký hàng tháng từ Google Play. Không cần thiết lập, gói này cho điện thoại có mô hình trò chuyện đám mây thông minh hơn, tìm kiếm web tốt hơn và các công cụ đám mây: môi trường cách ly mã, trình duyệt web, các ứng dụng của bạn như Gmail và Lịch, giọng nói tốt hơn, địa chỉ email và Telegram. Khóa riêng của bạn trong chế độ Kỹ thuật vẫn dùng như cũ, và ứng dụng vẫn miễn phí khi không có Extras.</string>
 <string name="extras_is_on_until">Extras đang bật đến %1$s.</string>
 <string name="extras_is_off">Extras đang tắt.</string>
 <string name="the_price_is_loading_from_google_play">Đang tải giá từ Google Play.</string>

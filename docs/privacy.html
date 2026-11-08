@@ -18,7 +18,7 @@
 </head>
 <body>
 <h1>LocalIntelligence privacy policy</h1>
-<p class="meta">Effective 2026-11-05. Applies to the LocalIntelligence app on Google Play
+<p class="meta">Effective 2026-11-08. Applies to the LocalIntelligence app on Google Play
 (<code>dev.localintelligence.app</code>) and the full build installed from GitHub
 (<code>dev.localintelligence.app.full</code>).</p>
 
@@ -109,9 +109,16 @@ its own privacy policy.</p>
 <p><strong>Extras (not launched).</strong> Extras is a paid option that is not available yet, and nothing
 described here is sent until it launches. If you buy it, the app sends the Google Play purchase token
 for that purchase and a random install id, which is not your identity, to the developer's Extras
-server. The server checks the subscription with Google Play and returns a usage-capped key for the
-cloud model and, if the developer offers it, for search. After that, chat and search requests go from
-your phone directly to those providers, not through the Extras server.</p>
+server. The server checks the subscription with Google Play and returns usage-capped access for this
+phone. Chat goes from your phone directly to OpenRouter and searches directly to Exa. Speech you dictate
+goes directly to Deepgram, and text read aloud is sent to Deepgram through the Extras server. When the
+assistant uses the cloud code sandbox, the cloud browser, your connected apps (through Composio), the
+Extras email address or the Extras Telegram bot, those requests go through the Extras server, which runs
+on Cloudflare, to that service: code and files you run in the sandbox, the pages the browser visits
+(the browser's AI steps use your Extras chat allowance through OpenRouter), the actions on apps you
+connect, the emails sent to and from your Extras address (stored on the Extras server so the app can
+read them), and the Telegram messages of chats you link (held until your phone collects them). The
+Extras server keeps only what each service needs and a monthly usage count per service.</p>
 
 <h2>How it is protected</h2>
 <ul>
