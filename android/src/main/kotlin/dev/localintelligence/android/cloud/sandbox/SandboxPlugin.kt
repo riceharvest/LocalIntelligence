@@ -1,6 +1,8 @@
 package dev.localintelligence.android.cloud.sandbox
 
 import android.content.Context
+import dev.localintelligence.android.cloud.CredentialSource
+import dev.localintelligence.android.cloud.ManagedServices
 import dev.localintelligence.android.tools.requireCatalogueAgreement
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.SettingDef
@@ -176,13 +178,14 @@ internal class SandboxProviders(
     fun selected(): String = reader[SandboxSettings.PROVIDER]
 
     /** A provider by id. An unknown id is Daytona, which is what the Choice setting falls back to too. */
-    fun build(id: String): SandboxProvider = when (id) {
-        VERCEL_ID -> VercelProvider(
+    fun build(id: String): SandboxProvider = when {
+        CredentialSource.managed(reader, ManagedServices.SANDBOX) || id == "managed" -> ManagedSandboxProvider(reader)
+        id == VERCEL_ID -> VercelProvider(
             token = credentials.vercelToken(),
             projectId = reader[SandboxSettings.VERCEL_PROJECT],
             teamId = reader[SandboxSettings.VERCEL_TEAM],
         )
-        SSH_ID -> SshProvider(
+        id == SSH_ID -> SshProvider(
             host = reader[SandboxSettings.SSH_HOST],
             port = reader[SandboxSettings.SSH_PORT],
             user = reader[SandboxSettings.SSH_USER],
@@ -191,7 +194,7 @@ internal class SandboxProviders(
             pinnedKey = { reader[SandboxSettings.SSH_HOST_KEY] },
             savePin = { value -> writer.set(SandboxSettings.SSH_HOST_KEY, value) },
         )
-        TERMUX_ID -> TermuxProvider(context)
+        id == TERMUX_ID -> TermuxProvider(context)
         else -> DaytonaProvider(
             apiBase = reader[SandboxSettings.API_URL],
             apiKey = credentials.daytonaKey(),
@@ -199,11 +202,12 @@ internal class SandboxProviders(
     }
 
     /** True when the selected provider has what it needs. The tools are offered only then. */
-    fun configured(): Boolean = when (selected()) {
-        VERCEL_ID -> credentials.vercelToken().isNotBlank() && reader[SandboxSettings.VERCEL_PROJECT].isNotBlank()
-        SSH_ID -> reader[SandboxSettings.SSH_HOST].isNotBlank() && reader[SandboxSettings.SSH_USER].isNotBlank() &&
+    fun configured(): Boolean = when {
+        CredentialSource.managed(reader, ManagedServices.SANDBOX) -> true
+        selected() == VERCEL_ID -> credentials.vercelToken().isNotBlank() && reader[SandboxSettings.VERCEL_PROJECT].isNotBlank()
+        selected() == SSH_ID -> reader[SandboxSettings.SSH_HOST].isNotBlank() && reader[SandboxSettings.SSH_USER].isNotBlank() &&
             (credentials.sshKey().isNotBlank() || credentials.sshPassword().isNotBlank())
-        TERMUX_ID -> termuxReady(context)
+        selected() == TERMUX_ID -> termuxReady(context)
         else -> credentials.daytonaKey().isNotBlank()
     }
 }
@@ -240,7 +244,11 @@ class SandboxPlugin(
     }
 
     override fun tools(): List<AgentTool> =
-        if (reader.mode != SettingsMode.TECHNICAL || !providers.configured()) emptyList() else built
+        if ((reader.mode != SettingsMode.TECHNICAL && !CredentialSource.managed(reader, ManagedServices.SANDBOX)) || !providers.configured()) {
+            emptyList()
+        } else {
+            built
+        }
 
     /** Every tool this plugin ships, configured or not, for the startup catalogue check. */
     fun shippedTools(): List<AgentTool> = built
@@ -280,7 +288,7 @@ internal class SandboxSession(
      * out at [START_TIMEOUT_MS].
      */
     suspend fun ready(signal: CancellationSignal): Ready = lock.withLock {
-        val chosen = providers.selected()
+        val chosen = if (CredentialSource.managed(reader, ManagedServices.SANDBOX)) "managed" else providers.selected()
         if (current != null && currentProvider != chosen) {
             val old = current
             val oldProvider = currentProvider

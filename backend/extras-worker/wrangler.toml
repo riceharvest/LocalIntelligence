@@ -7,6 +7,7 @@
 name = "localintelligence-extras"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"
@@ -15,10 +16,23 @@ database_name = "localintelligence-extras"
 # Deploy fails until this is set to the real id.
 database_id = "TODO-OWNER-D1-DATABASE-ID"
 
-# Uncommented by the sandbox service job (W1) once the Sandbox Durable Object class is exported.
-# [[durable_objects.bindings]]
-# name = "Sandbox"
-# class_name = "Sandbox"
+# Cloudflare Sandbox 1.0 Durable Object and container configuration (W1).
+# Docs: https://developers.cloudflare.com/sandbox/sdk/migrate/replace-the-sandbox-class/
+[[containers]]
+class_name = "Sandbox"
+name = "localintelligence-extras-sandbox"
+scheduling_policy = "durable_object"
+
+[containers.images.sandbox]
+dockerfile = "./Dockerfile"
+
+[[durable_objects.bindings]]
+name = "Sandbox"
+class_name = "Sandbox"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Sandbox"]
 
 # Uncommented by the browser service job (W2) to enable Cloudflare Browser Rendering.
 # [browser]
