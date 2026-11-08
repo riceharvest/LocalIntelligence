@@ -161,14 +161,15 @@ async function createSession(env: Env, customerId: string): Promise<ComposioSess
   return { sessionId, mcpUrl, fromCache: false };
 }
 
+const FORWARDED_HEADERS = ["content-type", "accept", "mcp-session-id", "mcp-protocol-version", "last-event-id"];
+
 function buildProxyHeaders(request: Request, env: Env): Headers {
+  // Allowlist, not a blocklist: only what MCP streamable HTTP needs goes upstream, so the
+  // customer's bearer, IP and cookies never reach Composio.
   const headers = new Headers();
-  for (const [key, value] of request.headers.entries()) {
-    const lower = key.toLowerCase();
-    if (lower === "authorization" || lower === "host" || lower === "cf-connecting-ip" || lower === "cf-ray") {
-      continue;
-    }
-    headers.set(key, value);
+  for (const name of FORWARDED_HEADERS) {
+    const value = request.headers.get(name);
+    if (value !== null) headers.set(name, value);
   }
   headers.set("x-api-key", env.COMPOSIO_API_KEY!);
   return headers;
