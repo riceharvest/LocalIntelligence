@@ -39,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.android.cloud.ExtrasSettings
+import dev.localintelligence.android.cloud.ManagedServices
 import dev.localintelligence.app.extras.ExtrasBilling
 import dev.localintelligence.app.settings.SettingText
 import dev.localintelligence.app.settings.SettingsStore
@@ -135,6 +136,10 @@ fun ExtrasScreen(
                                 onCloudChat(on)
                             },
                         )
+                    }
+
+                    if (ExtrasSettings.serviceOn(store, ManagedServices.TELEGRAM)) {
+                        LinkTelegramButton(store)
                     }
                 }
 

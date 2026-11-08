@@ -102,6 +102,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.localintelligence.android.cloud.CredentialSource
+import dev.localintelligence.android.cloud.ManagedServices
 import dev.localintelligence.android.cloud.clearGeneratedMedia
 import dev.localintelligence.android.cloud.generatedMediaBytes
 import dev.localintelligence.android.gateway.localserver.LocalServerSettings
@@ -265,6 +267,14 @@ fun SettingsScreen(
                         if (technical) NavRow(Icons.Filled.Extension, stringResource(R.string.script_plugins), onOpenScripts)
                         onOpenDesktop?.let { NavRow(Icons.AutoMirrored.Filled.Send, stringResource(R.string.desktop_settings_row), it) }
                         onExportChat?.let { ExportRow(it) }
+                    }
+
+                    if (!technical && CredentialSource.managed(store, ManagedServices.TELEGRAM)) {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Box(modifier = Modifier.padding(16.dp)) {
+                                TelegramPanel(store)
+                            }
+                        }
                     }
 
                     val rows = (CoreSettings.all + plugins.flatMap { it.settings })

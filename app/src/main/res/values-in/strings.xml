@@ -374,6 +374,7 @@
 <string name="none_yet">Belum ada.</string>
 <string name="waiting_for_start_in_telegram">Menunggu /start di Telegram</string>
 <string name="link_this_chat">Tautkan obrolan ini</string>
+    <string name="link_telegram">Tautkan Telegram</string>
 <string name="open_your_bot_in_telegram_and_send">Buka bot kamu di Telegram lalu kirim /start dalam lima menit. Obrolan itu lalu muncul di sini untuk disetujui.</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s) ingin bicara dengan ponsel ini. Setujui hanya jika itu kamu.</string>
 <string name="approve">Setujui</string>

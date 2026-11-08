@@ -375,6 +375,7 @@
 <string name="none_yet">Chưa có.</string>
 <string name="waiting_for_start_in_telegram">Đang chờ /start trong Telegram</string>
 <string name="link_this_chat">Liên kết cuộc trò chuyện này</string>
+    <string name="link_telegram">Liên kết Telegram</string>
 <string name="open_your_bot_in_telegram_and_send">Mở bot của bạn trong Telegram và gửi /start trong vòng năm phút. Cuộc trò chuyện sẽ hiện ở đây để bạn duyệt.</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s) muốn nói chuyện với điện thoại này. Chỉ duyệt nếu đúng là người đó.</string>
 <string name="approve">Duyệt</string>

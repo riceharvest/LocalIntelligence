@@ -68,6 +68,26 @@ Managed Linux containers powered by `@cloudflare/sandbox` 1.0.3 and Cloudflare C
 - Endpoints: `POST /v1/sandbox/{create,info,start,stop,exec,write,read}` (files capped at 1 MB, base64 encoded).
 - Metering: execution wall-clock minutes metered in `sandbox_minutes` against `SANDBOX_MINUTES_CAP`.
 
+### Telegram (`telegram`, W6)
+
+Shared Telegram bot bridging messages from linked chats to customer devices:
+- Create a bot with `@BotFather` (`/newbot`), copy the token and bot username.
+- Set `TELEGRAM_BOT_USERNAME` in `wrangler.toml` `[vars]` (without leading `@`).
+- Set secrets:
+  - `npx wrangler secret put TELEGRAM_BOT_TOKEN`
+  - `npx wrangler secret put TELEGRAM_WEBHOOK_SECRET` (generate with `openssl rand -hex 32`).
+- Register the webhook once with Telegram Bot API using `secret_token` (Docs: https://core.telegram.org/bots/api#setwebhook):
+  ```bash
+  curl -s "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
+    -H "Content-Type: application/json" \
+    -d '{"url":"https://<worker URL>/v1/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>","secret_token":"<TELEGRAM_WEBHOOK_SECRET>","allowed_updates":["message"]}'
+  ```
+- Endpoints:
+  - `POST /v1/telegram/link`: generates deep-link `https://t.me/<TELEGRAM_BOT_USERNAME>?start=<token>`.
+  - `POST /v1/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>`: webhook receiving updates from Telegram.
+  - `POST /v1/telegram/updates`: phone polls queued messages (`{afterId}`) and deletes delivered rows.
+  - `POST /v1/telegram/send`: sends replies (`{chatId, text}`) to customer's linked chats.
+
 Plain variables in `wrangler.toml` `[vars]` (edit the file, then deploy):
 
 | Name | Default | Notes |

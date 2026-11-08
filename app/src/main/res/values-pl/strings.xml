@@ -377,6 +377,7 @@
 <string name="none_yet">Jeszcze brak.</string>
 <string name="waiting_for_start_in_telegram">Czekam na /start w Telegramie</string>
 <string name="link_this_chat">Połącz ten czat</string>
+    <string name="link_telegram">Połącz Telegram</string>
 <string name="open_your_bot_in_telegram_and_send">Otwórz swojego bota w Telegramie i wyślij /start w ciągu pięciu minut. Czat pojawi się tutaj do zatwierdzenia.</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s) chce rozmawiać z tym telefonem. Zatwierdź tylko, jeśli to ty.</string>
 <string name="approve">Zatwierdź</string>

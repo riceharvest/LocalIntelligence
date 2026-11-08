@@ -1,6 +1,9 @@
 package dev.localintelligence.app
 
 import android.content.Context
+import dev.localintelligence.android.cloud.CredentialSource
+import dev.localintelligence.android.cloud.ManagedServices
+import dev.localintelligence.android.gateway.telegram.ManagedTelegramClient
 import dev.localintelligence.android.gateway.telegram.TelegramApi
 import dev.localintelligence.android.gateway.telegram.TelegramSettings
 import dev.localintelligence.android.gateway.telegram.splitForTelegram
@@ -30,14 +33,19 @@ internal object TelegramReplies {
 
     /** Sends [text] to [chatId] in as many messages as Telegram's limit needs. Never throws. */
     fun send(settings: SettingsStore, chatId: Long, text: String) {
+        val isManaged = CredentialSource.managed(settings, ManagedServices.TELEGRAM)
         val token = settings.stored(TelegramSettings.TOKEN)
-        if (token.isBlank()) return
+        if (!isManaged && token.isBlank()) return
         val parts = splitForTelegram(text.ifBlank { EMPTY_ANSWER })
         scope.launch {
             try {
-                val api = TelegramApi()
-                for (part in parts) api.sendMessage(token, chatId, part)
-            } catch (e: IOException) {
+                if (isManaged) {
+                    for (part in parts) ManagedTelegramClient.sendMessage(settings, chatId, part)
+                } else {
+                    val api = TelegramApi()
+                    for (part in parts) api.sendMessage(token, chatId, part)
+                }
+            } catch (e: Exception) {
                 settings.set(TelegramSettings.LAST_ERROR, "Could not send a reply: ${e.message ?: e.javaClass.simpleName}")
             }
         }

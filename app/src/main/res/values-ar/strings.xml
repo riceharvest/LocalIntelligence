@@ -379,6 +379,7 @@
 <string name="none_yet">لا يوجد بعد.</string>
 <string name="waiting_for_start_in_telegram">بانتظار /start في Telegram</string>
 <string name="link_this_chat">اربط هذه المحادثة</string>
+    <string name="link_telegram">ربط تيليجرام</string>
 <string name="open_your_bot_in_telegram_and_send">افتح البوت في Telegram وأرسل /start خلال خمس دقائق. تظهر المحادثة بعدها هنا للموافقة.</string>
 <string name="asked_to_talk_to_this_phone_approve">طلب %1$s (%2$s) التحدث مع هذا الهاتف. وافق فقط إذا كان هو.</string>
 <string name="approve">موافقة</string>

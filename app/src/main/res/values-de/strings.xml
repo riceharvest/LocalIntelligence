@@ -375,6 +375,7 @@
 <string name="none_yet">Noch keine.</string>
 <string name="waiting_for_start_in_telegram">Warte auf /start in Telegram</string>
 <string name="link_this_chat">Diesen Chat verknüpfen</string>
+    <string name="link_telegram">Telegram verbinden</string>
 <string name="open_your_bot_in_telegram_and_send">Öffne deinen Bot in Telegram und schick innerhalb von fünf Minuten /start. Der Chat erscheint dann hier zur Freigabe.</string>
 <string name="asked_to_talk_to_this_phone_approve">%1$s (%2$s) möchte mit diesem Handy sprechen. Nur bestätigen, wenn du es bist.</string>
 <string name="approve">Bestätigen</string>
