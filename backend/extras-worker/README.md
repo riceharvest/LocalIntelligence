@@ -56,7 +56,7 @@ Optional Cloudflare bindings in `wrangler.toml` (commented out until each servic
 | Name | Service | Binding type |
 |---|---|---|
 | `Sandbox` | `sandbox` | Durable Object namespace (`@cloudflare/sandbox` class, added by job W1). |
-| `BROWSER` | `browser` | Cloudflare Browser Rendering (`[browser]`). |
+| `BROWSER` | `browser` | Cloudflare Browser Rendering (`[browser]`), paired with the `BROWSER_TASK` Durable Object (`BrowserTask`, Stagehand 2.5 + `@cloudflare/playwright`). Requires Workers Paid, `nodejs_compat`, and `[alias] playwright = "@cloudflare/playwright"`. |
 | `SEND_EMAIL` | `mail` | Cloudflare Email Sending (`[[send_email]]`), paired with an Email Routing catch-all on `EMAIL_DOMAIN` pointing to this Worker's `email()` handler. |
 
 Plain variables in `wrangler.toml` `[vars]` (edit the file, then deploy):

@@ -43,6 +43,8 @@ export interface Env {
 
   /** Cloudflare Browser Rendering binding. */
   BROWSER?: Fetcher;
+  /** Durable Object namespace running per-task Stagehand browser sessions (job W2). */
+  BROWSER_TASK?: DurableObjectNamespace;
   /** Monthly per-customer browser minutes cap. */
   BROWSER_MINUTES_CAP?: string;
 

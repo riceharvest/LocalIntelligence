@@ -17,7 +17,7 @@ import { handleActivate, handleRefresh, handleRtdn } from "./handlers";
 import { errorResponse, HttpError, ProviderError } from "./http";
 import { verifyPubsubPush } from "./pubsub-auth";
 import { enabledServices, requireService } from "./services";
-import { handleBrowser, type BrowserAction } from "./services/browser";
+import { handleBrowser, BrowserTask, type BrowserAction } from "./services/browser";
 import { handleComposio } from "./services/composio";
 import { handleInboundEmail, handleMail, type MailAction } from "./services/mail";
 import { handleSandbox, type SandboxAction } from "./services/sandbox";
@@ -102,6 +102,8 @@ export default {
     await handleInboundEmail(message, env, ctx);
   },
 } satisfies ExportedHandler<Env>;
+
+export { BrowserTask };
 
 /**
  * Logs our own error messages only. Provider bodies, keys and tokens never reach a
