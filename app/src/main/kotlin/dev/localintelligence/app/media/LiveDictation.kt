@@ -39,6 +39,7 @@ import java.io.ByteArrayOutputStream
 import java.io.EOFException
 import java.io.IOException
 import java.io.InputStream
+import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
@@ -335,6 +336,11 @@ internal class DeepgramSttSession(
         // Docs: https://developers.deepgram.com/reference/listen/listen-streaming
         val sslSocket = withContext(Dispatchers.IO) {
             val sock = SSLSocketFactory.getDefault().createSocket(DEEPGRAM_HOST, DEEPGRAM_PORT) as SSLSocket
+            // A raw SSLSocket checks the certificate chain but NOT that it was issued for this host.
+            // Without this line anyone on the network could pose as Deepgram and receive the audio
+            // and the grant token. "HTTPS" turns on the same hostname check HttpsURLConnection does.
+            sock.sslParameters = sock.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+            try {
             sock.soTimeout = 15_000
             sock.startHandshake()
 
@@ -358,15 +364,31 @@ internal class DeepgramSttSession(
             sock.outputStream.flush()
 
             val statusLine = readLine(sock.inputStream)
-            if (!statusLine.contains("101")) {
+            if (!statusLine.startsWith("HTTP/1.1 101")) {
                 throw IOException("WebSocket handshake failed: $statusLine")
             }
+            // RFC 6455 section 4.2.2: the server proves it read our key.
+            val expectedAccept = Base64.encodeToString(
+                MessageDigest.getInstance("SHA-1")
+                    .digest((wsKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").toByteArray(Charsets.US_ASCII)),
+                Base64.NO_WRAP,
+            )
+            var accepted = false
             while (true) {
                 val header = readLine(sock.inputStream)
                 if (header.isEmpty()) break
+                val colon = header.indexOf(':')
+                if (colon > 0 && header.substring(0, colon).trim().equals("Sec-WebSocket-Accept", ignoreCase = true)) {
+                    accepted = header.substring(colon + 1).trim() == expectedAccept
+                }
             }
+            if (!accepted) throw IOException("WebSocket handshake failed: bad Sec-WebSocket-Accept")
             sock.soTimeout = 0 // unbounded read timeout during streaming
             sock
+            } catch (e: Exception) {
+                runCatching { sock.close() }
+                throw e
+            }
         }
         socket = sslSocket
 
