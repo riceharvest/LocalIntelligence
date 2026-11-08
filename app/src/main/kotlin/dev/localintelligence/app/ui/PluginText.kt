@@ -50,8 +50,12 @@ internal object PluginText {
     )
 
     /** The title of [plugin], in the phone's language when a string exists for it. */
-    fun title(context: Context, plugin: AgentPlugin): String =
-        texts[plugin.id]?.let { context.getString(it.first) } ?: plugin.title
+    fun title(context: Context, plugin: AgentPlugin): String {
+        if (plugin.id == "mcp.remote" && plugin.title != "Remote tools (MCP)") {
+            return context.getString(R.string.plugin_mcp_managed_title)
+        }
+        return texts[plugin.id]?.let { context.getString(it.first) } ?: plugin.title
+    }
 
     /** The one-line summary of [plugin], in the phone's language when a string exists for it. */
     fun summary(context: Context, plugin: AgentPlugin): String =

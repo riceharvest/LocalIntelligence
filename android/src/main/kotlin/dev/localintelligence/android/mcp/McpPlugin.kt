@@ -1,5 +1,8 @@
 package dev.localintelligence.android.mcp
 
+import dev.localintelligence.android.cloud.CredentialSource
+import dev.localintelligence.android.cloud.ExtrasClient
+import dev.localintelligence.android.cloud.ManagedServices
 import dev.localintelligence.core.model.UntrustedContent
 import dev.localintelligence.android.tools.web.UrlVerdict
 import dev.localintelligence.android.tools.web.WebUrls
@@ -8,7 +11,9 @@ import dev.localintelligence.core.model.ToolArgs
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingSection
+import dev.localintelligence.core.settings.SettingsMode
 import dev.localintelligence.core.settings.SettingsReader
+import dev.localintelligence.core.settings.mode
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationStore
 import dev.localintelligence.core.tool.ToolContext
@@ -123,7 +128,12 @@ class McpPlugin(
     private val reader: SettingsReader,
 ) : AgentPlugin {
     override val id: String = McpSettings.PLUGIN_ID
-    override val title: String = "Remote tools (MCP)"
+    override val title: String
+        get() = if (reader.mode == SettingsMode.SIMPLE && CredentialSource.managed(reader, ManagedServices.COMPOSIO)) {
+            "Your apps (Gmail, Calendar, ...)"
+        } else {
+            "Remote tools (MCP)"
+        }
     override val summary: String =
         "Tools from up to five MCP servers you name. Each call sends its arguments to that server."
     override val enabledByDefault: Boolean = false
@@ -150,7 +160,7 @@ class McpPlugin(
      * `mcp.<slot>.<name>`.
      */
     override fun tools(): List<AgentTool> {
-        val servers = McpSettings.urls.indices.mapNotNull { index ->
+        val configured = McpSettings.urls.indices.mapNotNull { index ->
             val address = reader[McpSettings.urls[index]].trim().takeIf { it.isNotEmpty() }
                 ?: return@mapNotNull null
             val url = acceptedAddress(address) ?: return@mapNotNull null
@@ -165,6 +175,22 @@ class McpPlugin(
                 tokenHeader = header,
             )
         }
+        val managed = if (CredentialSource.managed(reader, ManagedServices.COMPOSIO)) {
+            val base = ExtrasClient.baseUrl(reader)
+            val fullUrl = if (base.isNotBlank()) "$base/v1/mcp/composio" else ""
+            val url = acceptedAddress(fullUrl)
+            val token = CredentialSource.extrasAccessToken(reader).takeIf { it.isNotBlank() }
+            if (url != null) {
+                Server(
+                    slot = configured.size + 1,
+                    url = url,
+                    token = token,
+                    tokenHeader = null,
+                    serverName = if (reader.mode == SettingsMode.SIMPLE) "Your apps (Gmail, Calendar, ...)" else "Composio",
+                )
+            } else null
+        } else null
+        val servers = if (managed != null) configured + managed else configured
         // A server that was removed or changed must not keep its old token in memory.
         listings.keys.retainAll(servers.map { Triple(it.url, it.token, it.tokenHeader) }.toSet())
         val listed = runBlocking {
@@ -181,7 +207,13 @@ class McpPlugin(
      * One configured server: its slot number (1 to 5), checked address, optional token and
      * the header the token goes in (null for Authorization: Bearer).
      */
-    private class Server(val slot: Int, val url: String, val token: String?, val tokenHeader: String?)
+    private class Server(
+        val slot: Int,
+        val url: String,
+        val token: String?,
+        val tokenHeader: String?,
+        val serverName: String? = null,
+    )
 
     /**
      * The server's tools, from the cache while it is fresh. A listing that works is kept
@@ -209,7 +241,7 @@ class McpPlugin(
     private fun toolsFrom(server: Server, numbered: Boolean, listed: List<JsonObject>): List<AgentTool> {
         val prefix = if (numbered) "${CatalogueAgreement.DYNAMIC_TOOL_PREFIX}${server.slot}."
         else CatalogueAgreement.DYNAMIC_TOOL_PREFIX
-        return remoteTools(server.url, server.token, listed, prefix, server.tokenHeader)
+        return remoteTools(server.url, server.token, listed, prefix, server.tokenHeader, server.serverName)
     }
 
     /**
@@ -236,6 +268,7 @@ internal fun remoteTools(
     listed: List<JsonObject>,
     prefix: String = CatalogueAgreement.DYNAMIC_TOOL_PREFIX,
     tokenHeader: String? = null,
+    serverName: String? = null,
 ): List<AgentTool> {
     val taken = HashSet<String>()
     return listed.mapNotNull { tool ->
@@ -243,7 +276,7 @@ internal fun remoteTools(
             ?: return@mapNotNull null
         val name = toolName(remoteName, prefix) ?: return@mapNotNull null
         if (!taken.add(name)) return@mapNotNull null
-        McpRemoteTool(url, token, tokenHeader, remoteName, definition(name, remoteName, tool))
+        McpRemoteTool(url, token, tokenHeader, remoteName, definition(name, remoteName, tool, serverName))
     }
 }
 
@@ -284,15 +317,16 @@ private const val LISTING_TTL_MS = 5 * 60_000L
 private const val FAILED_LISTING_TTL_MS = 60_000L
 private const val MAX_DESCRIPTION_CHARS = 300
 
-private fun definition(name: String, remoteName: String, tool: JsonObject): ToolDefinition {
+private fun definition(name: String, remoteName: String, tool: JsonObject, serverName: String? = null): ToolDefinition {
     val described = (tool["description"] as? JsonPrimitive)?.contentOrNull.orEmpty().trim()
+    val from = if (serverName != null) "(from $serverName) " else "(from the MCP server) "
     return ToolDefinition(
         name = name,
         // The server writes this text and it reaches the system prompt, so it gets
         // the same neutralisation as an observation body (no role markers, no
         // template control tokens) and is labelled as the server's own words.
         description = described.ifEmpty { "Tool $remoteName on the remote MCP server." }
-            .let { "(from the MCP server) " + UntrustedContent.neutralise(it) }
+            .let { from + UntrustedContent.neutralise(it) }
             .take(MAX_DESCRIPTION_CHARS),
         category = "mcp",
         schema = (tool["inputSchema"] as? JsonObject) ?: buildJsonObject { put("type", "object") },

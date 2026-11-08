@@ -1071,6 +1071,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">अपने Home Assistant की लाइट, प्लग, हीटिंग, पर्दे, मीडिया और ताले पढ़ें और चलाएँ। अनुरोध उसी सर्वर को जाते हैं।</string>
 <string name="plugin_mcp_title">रिमोट टूल (MCP)</string>
+    <string name="plugin_mcp_managed_title">आपके ऐप्स (Gmail, Calendar, ...)</string>
+    <string name="open_link">लिंक खोलें</string>
 <string name="plugin_mcp_summary">आपके बताए अधिकतम पाँच MCP सर्वर के टूल। हर कॉल अपने तर्क उसी सर्वर को भेजती है।</string>
 <string name="plugin_email_title">ईमेल</string>
 <string name="plugin_email_summary">ऐप पासवर्ड के साथ अपने मेल खाते से ईमेल खोजें, पढ़ें और भेजें। मेल आपके प्रदाता के सर्वर पर जाते हैं।</string>

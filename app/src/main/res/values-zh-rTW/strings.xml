@@ -1070,6 +1070,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">讀取並控制你自己的 Home Assistant 上的燈、插座、暖氣、窗簾、媒體和門鎖。請求會傳送到該伺服器。</string>
 <string name="plugin_mcp_title">遠端工具（MCP）</string>
+    <string name="plugin_mcp_managed_title">你的應用程式（Gmail、日曆等）</string>
+    <string name="open_link">開啟連結</string>
 <string name="plugin_mcp_summary">來自你指定的最多五個 MCP 伺服器的工具。每次呼叫都會把參數傳送到該伺服器。</string>
 <string name="plugin_email_title">電子郵件</string>
 <string name="plugin_email_summary">使用你自己的信箱帳號（以應用程式密碼登入）搜尋、閱讀和寄送電子郵件。郵件會傳送到你的服務商伺服器。</string>

@@ -1071,6 +1071,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">Lees en bedien lampen, stekkers, verwarming, rolluiken, media en sloten op je eigen Home Assistant. Verzoeken gaan naar die server.</string>
 <string name="plugin_mcp_title">Externe tools (MCP)</string>
+    <string name="plugin_mcp_managed_title">Je apps (Gmail, Agenda, ...)</string>
+    <string name="open_link">Link openen</string>
 <string name="plugin_mcp_summary">Tools van maximaal vijf MCP-servers die je noemt. Elke aanroep stuurt zijn argumenten naar die server.</string>
 <string name="plugin_email_title">E-mail</string>
 <string name="plugin_email_summary">Zoek, lees en verstuur e-mail vanaf je eigen mailaccount, met een app-wachtwoord. Post gaat naar de servers van je provider.</string>
