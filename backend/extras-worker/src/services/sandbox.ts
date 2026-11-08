@@ -22,6 +22,7 @@ export type SandboxAction = "create" | "info" | "start" | "stop" | "exec" | "wri
 // Docs: https://developers.cloudflare.com/sandbox/sdk/migrate/replace-the-sandbox-class/
 const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_FILE_BYTES = 1024 * 1024; // 1 MB cap
+const MAX_EXEC_SECONDS = 300;
 
 function base64ByteLength(b64: string): number {
   if (b64.length === 0) return 0;
@@ -253,7 +254,10 @@ export async function handleSandboxExec(request: Request, env: Env): Promise<Res
     throw new HttpError(400, "bad_request", "missing or invalid command");
   }
 
-  const timeoutSec = body.timeoutSeconds ?? (body.timeout ? Math.round(body.timeout / 1000) : undefined);
+  // Always bounded: the meter only counts a command once it ends, so an unbounded one could
+  // run far past the customer's cap. 120 s default, 300 s at most.
+  const asked = Number(body.timeoutSeconds ?? (body.timeout ? Math.round(body.timeout / 1000) : 120));
+  const timeoutSec = Math.min(MAX_EXEC_SECONDS, Math.max(1, Number.isFinite(asked) ? asked : 120));
   const stub = getSandboxStub(env, customer.id);
   const startMs = Date.now();
   try {
