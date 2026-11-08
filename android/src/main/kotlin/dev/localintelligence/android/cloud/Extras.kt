@@ -69,6 +69,15 @@ object ExtrasSettings {
         SettingSection.PLUGINS, default = true, simple = true,
     )
 
+    /**
+     * Whether Extras' cloud voice answers for dictation and speech.
+     */
+    val BETTER_VOICE = SettingDef.Toggle(
+        "extras.better_voice", "Better voice (Extras)",
+        "On, Extras provides fast cloud speech recognition and natural voice replies. Off, the phone's own voice engine is used.",
+        SettingSection.PLUGINS, default = true, simple = true,
+    )
+
     /** The chat model the backend chose for Extras. Blank when Extras is off. */
     val OPENROUTER_MODEL = SettingDef.Text(
         "extras.openrouter_model", "Extras chat model",

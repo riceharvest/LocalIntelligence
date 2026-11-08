@@ -1307,6 +1307,8 @@
 <string name="setting_extras_purchase_token_desc">De Google Play-aankoop die deze telefoon heeft geactiveerd. Versleuteld opgeslagen.</string>
 <string name="setting_extras_cloud_chat_label">Chatberichten naar de cloud sturen</string>
 <string name="setting_extras_cloud_chat_desc">Aan: het cloudmodel van Extra\'s antwoordt. Uit: het eigen model van de telefoon antwoordt; zoeken met Extra blijft aan.</string>
+    <string name="setting_extras_better_voice_label">Betere stem (Extra\'s)</string>
+    <string name="setting_extras_better_voice_desc">Aan: Extra\'s biedt snelle spraakherkenning in de cloud en natuurlijke gesproken antwoorden. Uit: de eigen stemengine van de telefoon wordt gebruikt.</string>
 <string name="setting_extras_openrouter_model_label">Extra-chatmodel</string>
 <string name="setting_extras_openrouter_model_desc">Het model dat de Extra-chat gebruikt.</string>
 <string name="setting_extras_expires_at_label">Vervaldatum Extra</string>

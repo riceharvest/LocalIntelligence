@@ -1307,6 +1307,8 @@
 <string name="setting_extras_purchase_token_desc">L\'achat Google Play que ce téléphone a activé. Stocké chiffré.</string>
 <string name="setting_extras_cloud_chat_label">Envoyer les messages de discussion dans le cloud</string>
 <string name="setting_extras_cloud_chat_desc">Activé, le modèle cloud d\'Extras répond. Désactivé, le modèle du téléphone répond ; la recherche Extras reste activée.</string>
+    <string name="setting_extras_better_voice_label">Meilleure voix (Extras)</string>
+    <string name="setting_extras_better_voice_desc">Activé, Extras offre une reconnaissance vocale rapide dans le cloud et des réponses vocales naturelles. Désactivé, le moteur vocal du téléphone est utilisé.</string>
 <string name="setting_extras_openrouter_model_label">Modèle de discussion Extras</string>
 <string name="setting_extras_openrouter_model_desc">Le modèle utilisé par la discussion Extras.</string>
 <string name="setting_extras_expires_at_label">Fin d\'Extras</string>

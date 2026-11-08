@@ -1306,6 +1306,8 @@
 <string name="setting_extras_purchase_token_desc">Bu telefonun etkinleştirdiği Google Play satın alması. Şifreli saklanır.</string>
 <string name="setting_extras_cloud_chat_label">Sohbet mesajlarını buluta gönder</string>
 <string name="setting_extras_cloud_chat_desc">Açıkken Ekstralar\'ın bulut modeli yanıtlar. Kapalıyken telefonun kendi modeli yanıtlar; Ekstralar araması açık kalır.</string>
+    <string name="setting_extras_better_voice_label">Daha iyi ses (Ekstralar)</string>
+    <string name="setting_extras_better_voice_desc">Açıkken Ekstralar hızlı bulut ses tanıma ve doğal sesli yanıtlar sağlar. Kapalıyken telefonun kendi ses motoru kullanılır.</string>
 <string name="setting_extras_openrouter_model_label">Ekstralar sohbet modeli</string>
 <string name="setting_extras_openrouter_model_desc">Ekstralar sohbetinin kullandığı model.</string>
 <string name="setting_extras_expires_at_label">Ekstralar son kullanma</string>

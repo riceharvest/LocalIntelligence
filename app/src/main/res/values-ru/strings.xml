@@ -1309,6 +1309,8 @@
 <string name="setting_extras_purchase_token_desc">Покупка в Google Play, которую активировал этот телефон. Хранится в зашифрованном виде.</string>
 <string name="setting_extras_cloud_chat_label">Отправлять сообщения чата в облако</string>
 <string name="setting_extras_cloud_chat_desc">Включено: отвечает облачная модель «Дополнительно». Выключено: отвечает собственная модель телефона; поиск «Дополнительно» остаётся включённым.</string>
+    <string name="setting_extras_better_voice_label">Улучшенный голос (Дополнительно)</string>
+    <string name="setting_extras_better_voice_desc">Включено: «Дополнительно» обеспечивает быстрое облачное распознавание речи и естественные голосовые ответы. Выключено: используется собственный голосовой движок телефона.</string>
 <string name="setting_extras_openrouter_model_label">Модель чата «Дополнительно»</string>
 <string name="setting_extras_openrouter_model_desc">Модель, которую использует чат «Дополнительно».</string>
 <string name="setting_extras_expires_at_label">Срок «Дополнительно»</string>
