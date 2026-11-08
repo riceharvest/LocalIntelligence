@@ -1070,6 +1070,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">Baca dan kendalikan lampu, stop kontak, pemanas, tirai, media, dan kunci di Home Assistant milikmu sendiri. Permintaan dikirim ke server itu.</string>
 <string name="plugin_mcp_title">Alat jarak jauh (MCP)</string>
+    <string name="plugin_mcp_managed_title">Aplikasi Anda (Gmail, Kalender, ...)</string>
+    <string name="open_link">Buka tautan</string>
 <string name="plugin_mcp_summary">Alat dari hingga lima server MCP yang kamu tentukan. Setiap panggilan mengirim argumennya ke server itu.</string>
 <string name="plugin_email_title">Email</string>
 <string name="plugin_email_summary">Cari, baca, dan kirim email dari akun email-mu sendiri, dengan kata sandi aplikasi. Email dikirim ke server penyedia-mu.</string>

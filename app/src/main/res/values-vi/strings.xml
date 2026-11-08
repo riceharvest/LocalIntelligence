@@ -1071,6 +1071,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">Xem và điều khiển đèn, ổ cắm, sưởi, rèm, phương tiện và khóa trên Home Assistant của riêng bạn. Các yêu cầu được gửi tới máy chủ đó.</string>
 <string name="plugin_mcp_title">Công cụ từ xa (MCP)</string>
+    <string name="plugin_mcp_managed_title">Ứng dụng của bạn (Gmail, Lịch, ...)</string>
+    <string name="open_link">Mở liên kết</string>
 <string name="plugin_mcp_summary">Công cụ từ tối đa năm máy chủ MCP bạn chỉ định. Mỗi lần gọi gửi tham số của nó tới máy chủ đó.</string>
 <string name="plugin_email_title">Email</string>
 <string name="plugin_email_summary">Tìm, đọc và gửi email từ tài khoản thư của bạn, bằng mật khẩu ứng dụng. Thư được gửi tới máy chủ của nhà cung cấp.</string>
