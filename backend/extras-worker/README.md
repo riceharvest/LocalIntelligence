@@ -55,9 +55,18 @@ Optional Cloudflare bindings in `wrangler.toml` (commented out until each servic
 
 | Name | Service | Binding type |
 |---|---|---|
-| `Sandbox` | `sandbox` | Durable Object namespace (`@cloudflare/sandbox` class, added by job W1). |
+| `Sandbox` | `sandbox` | Durable Object namespace (`@cloudflare/sandbox` class, enabled by job W1). Requires Workers Paid for Containers. |
 | `BROWSER` | `browser` | Cloudflare Browser Rendering (`[browser]`). |
 | `SEND_EMAIL` | `mail` | Cloudflare Email Sending (`[[send_email]]`), paired with an Email Routing catch-all on `EMAIL_DOMAIN` pointing to this Worker's `email()` handler. |
+
+### Code sandbox (`sandbox`, W1)
+
+Managed Linux containers powered by `@cloudflare/sandbox` (pinned to stable 0.12.14):
+- Exported Durable Object class `Sandbox` from Worker entry point.
+- Container image specified in `Dockerfile` (`docker.io/cloudflare/sandbox:0.12.14`).
+- Bound via `[[containers]]` and `[[durable_objects.bindings]]` with SQLite migrations in `wrangler.toml`.
+- Endpoints: `POST /v1/sandbox/{create,info,start,stop,exec,write,read}` (files capped at 1 MB, base64 encoded).
+- Metering: execution wall-clock minutes metered in `sandbox_minutes` against `SANDBOX_MINUTES_CAP`.
 
 Plain variables in `wrangler.toml` `[vars]` (edit the file, then deploy):
 
