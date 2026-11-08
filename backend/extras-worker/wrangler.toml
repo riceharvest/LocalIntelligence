@@ -15,6 +15,19 @@ database_name = "localintelligence-extras"
 # Deploy fails until this is set to the real id.
 database_id = "TODO-OWNER-D1-DATABASE-ID"
 
+# Uncommented by the sandbox service job (W1) once the Sandbox Durable Object class is exported.
+# [[durable_objects.bindings]]
+# name = "Sandbox"
+# class_name = "Sandbox"
+
+# Uncommented by the browser service job (W2) to enable Cloudflare Browser Rendering.
+# [browser]
+# binding = "BROWSER"
+
+# Uncommented by the mail service job (W5) to enable Cloudflare Email Sending.
+# [[send_email]]
+# name = "SEND_EMAIL"
+
 [vars]
 # The Android applicationId. Requests for any other package are refused.
 PACKAGE_NAME = "dev.localintelligence.app"
@@ -36,3 +49,15 @@ EXA_BUDGET_CENTS = "150"
 PUBSUB_AUDIENCE = "TODO-OWNER-PUBSUB-AUDIENCE"
 # TODO(owner): the service account email used for the push subscription's OIDC identity.
 PUBSUB_SERVICE_ACCOUNT_EMAIL = "TODO-OWNER-PUBSUB-SERVICE-ACCOUNT-EMAIL"
+
+# Wave-2 managed services: monthly per-customer caps (all TODO(owner) to confirm) and non-secret vars.
+# A service stays off until all of its bindings, secrets and non-empty vars are configured.
+SANDBOX_MINUTES_CAP = "120"
+BROWSER_MINUTES_CAP = "60"
+COMPOSIO_CALLS_CAP = "500"
+DEEPGRAM_PROJECT_ID = ""
+VOICE_STT_MINUTES_CAP = "60"
+VOICE_TTS_CHARS_CAP = "20000"
+EMAIL_DOMAIN = ""
+MAIL_SENDS_CAP = "100"
+TELEGRAM_BOT_USERNAME = ""

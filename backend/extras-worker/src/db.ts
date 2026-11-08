@@ -15,10 +15,11 @@ export interface CustomerRow {
   openrouter_key_enc: string | null;
   exa_key_id: string | null;
   exa_key_enc: string | null;
+  access_token_hash: string | null;
 }
 
 const CUSTOMER_COLUMNS =
-  "id, product_id, status, expires_at, latest_token_hash, openrouter_key_hash, openrouter_key_enc, exa_key_id, exa_key_enc";
+  "id, product_id, status, expires_at, latest_token_hash, openrouter_key_hash, openrouter_key_enc, exa_key_id, exa_key_enc, access_token_hash";
 
 export async function findCustomerByTokenHash(env: Env, tokenHash: string): Promise<CustomerRow | null> {
   return env.DB.prepare(
@@ -31,6 +32,20 @@ export async function findCustomerByTokenHash(env: Env, tokenHash: string): Prom
 
 export async function findCustomerById(env: Env, id: string): Promise<CustomerRow | null> {
   return env.DB.prepare(`SELECT ${CUSTOMER_COLUMNS} FROM customers WHERE id = ?1`).bind(id).first<CustomerRow>();
+}
+
+export async function findCustomerByAccessTokenHash(env: Env, accessTokenHash: string): Promise<CustomerRow | null> {
+  return env.DB.prepare(`SELECT ${CUSTOMER_COLUMNS} FROM customers WHERE access_token_hash = ?1`)
+    .bind(accessTokenHash)
+    .first<CustomerRow>();
+}
+
+export async function setAccessTokenHash(env: Env, customerId: string, accessTokenHash: string): Promise<void> {
+  await env.DB.prepare(
+    "UPDATE customers SET access_token_hash = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
+  )
+    .bind(customerId, accessTokenHash)
+    .run();
 }
 
 /**

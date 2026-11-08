@@ -6,7 +6,10 @@ import dev.localintelligence.core.settings.SettingsReader
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -87,6 +90,27 @@ object ExtrasSettings {
         SettingSection.PLUGINS, default = "", maxLength = 64, simple = true,
     )
 
+    /** The access token the backend issued for proxied Extras services. Encrypted, never shown back. */
+    val ACCESS_TOKEN = SettingDef.Secret(
+        "extras.access_token", "Extras access token",
+        "Issued for this phone while Extras is on. Stored encrypted and never shown back.",
+        SettingSection.PLUGINS, simple = true,
+    )
+
+    /** Comma-separated names of the proxied Extras services enabled on the backend. */
+    val SERVICES = SettingDef.Text(
+        "extras.services", "Extras services",
+        "The managed services the Extras backend has enabled.",
+        SettingSection.PLUGINS, default = "", maxLength = 200, simple = true,
+    )
+
+    /** The Extras backend address from the app build, kept so proxied services in :android can read it. */
+    val BACKEND_URL = SettingDef.Text(
+        "extras.backend_url", "Extras backend address",
+        "The Extras backend address.",
+        SettingSection.PLUGINS, default = "", maxLength = 300, simple = true,
+    )
+
     /** The grant's end, or null when none is stored or it is not a time. */
     fun expiresAt(reader: SettingsReader): Instant? =
         runCatching { Instant.parse(reader[EXPIRES_AT]) }.getOrNull()
@@ -97,18 +121,25 @@ object ExtrasSettings {
         val end = expiresAt(reader) ?: return false
         return end.isAfter(now)
     }
+
+    /** True when the last grant reported [name] as enabled on the backend. */
+    fun serviceOn(reader: SettingsReader, name: String): Boolean =
+        name.isNotBlank() && reader[SERVICES].split(',').any { it.trim() == name }
 }
 
 /**
  * What the backend grants on a successful activate or refresh. Keys are never logged.
  * [exaKey] is null when the backend grants no search key: search then keeps the user's
- * chosen or free provider, with no error.
+ * chosen or free provider, with no error. [services] holds the names of the proxied
+ * services that are enabled on the backend (empty when an older backend omits `services`).
  */
 class ExtrasGrant(
     val expiresAt: String,
     val openRouterKey: String,
     val openRouterModel: String,
     val exaKey: String?,
+    val extrasToken: String = "",
+    val services: Set<String> = emptySet(),
 )
 
 /** The outcome of one backend call. [Failed] carries one plain sentence for the user. */
@@ -119,6 +150,47 @@ sealed interface ExtrasReply {
     class Failed(val message: String) : ExtrasReply
 }
 
+internal class ExtrasHttpReply(val status: Int, val text: String)
+
+internal const val EXTRAS_MAX_REPLY_CHARS = 64 * 1024
+internal const val EXTRAS_INSECURE_URL = "The Extras address is not secure, so nothing was sent."
+internal const val EXTRAS_BAD_REPLY = "Extras sent an answer this app cannot read. Try again later."
+
+/**
+ * One POST to the Extras backend. Only https is called, redirects are not followed, and the
+ * response is read with a size cap. Nothing from the request or reply is written to a log.
+ */
+internal fun postExtrasJson(
+    baseUrl: String,
+    path: String,
+    body: JsonObject,
+    timeoutMs: Int,
+    bearerToken: String? = null,
+    maxReplyChars: Int = EXTRAS_MAX_REPLY_CHARS,
+): ExtrasHttpReply {
+    val root = baseUrl.trim().trimEnd('/')
+    val connection = (URL("$root$path").openConnection() as HttpURLConnection)
+    return try {
+        connection.instanceFollowRedirects = false
+        connection.requestMethod = "POST"
+        connection.connectTimeout = timeoutMs
+        connection.readTimeout = timeoutMs
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/json")
+        connection.setRequestProperty("Accept", "application/json")
+        if (!bearerToken.isNullOrBlank()) {
+            connection.setRequestProperty("Authorization", "Bearer $bearerToken")
+        }
+        connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        val status = connection.responseCode
+        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+        val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText().take(maxReplyChars) }.orEmpty()
+        ExtrasHttpReply(status, text)
+    } finally {
+        connection.disconnect()
+    }
+}
+
 /**
  * The calls to the Extras backend: `POST /v1/activate` and `POST /v1/refresh`.
  *
@@ -127,7 +199,6 @@ sealed interface ExtrasReply {
  */
 object ExtrasBackend {
     private const val TIMEOUT_MS = 15_000
-    private const val MAX_REPLY_CHARS = 64 * 1024
     private val UNREACHABLE = "Could not reach Extras right now. Google Play keeps your purchase, so try again later."
 
     fun activate(baseUrl: String, packageName: String, purchaseToken: String, installId: String): ExtrasReply =
@@ -151,51 +222,43 @@ object ExtrasBackend {
         )
 
     private fun post(baseUrl: String, path: String, body: JsonObject): ExtrasReply {
+        ExtrasClient.backendUrl = baseUrl
         val root = baseUrl.trim().trimEnd('/')
-        if (!root.startsWith("https://")) return ExtrasReply.Failed("The Extras address is not secure, so nothing was sent.")
-        val connection = try {
-            (URL("$root$path").openConnection() as HttpURLConnection)
-        } catch (e: IOException) {
-            return ExtrasReply.Failed(UNREACHABLE)
-        }
+        if (!root.startsWith("https://")) return ExtrasReply.Failed(EXTRAS_INSECURE_URL)
         return try {
-            connection.instanceFollowRedirects = false
-            connection.requestMethod = "POST"
-            connection.connectTimeout = TIMEOUT_MS
-            connection.readTimeout = TIMEOUT_MS
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.setRequestProperty("Accept", "application/json")
-            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText().take(MAX_REPLY_CHARS) }.orEmpty()
-            when (status) {
-                in 200..299 -> parseGrant(text)
+            val reply = postExtrasJson(root, path, body, TIMEOUT_MS)
+            when (reply.status) {
+                in 200..299 -> parseGrant(reply.text)
                 402 -> ExtrasReply.NotActive
                 429 -> ExtrasReply.Failed("Extras is busy right now. Try again in a few minutes.")
-                else -> ExtrasReply.Failed("Extras could not set up this phone (HTTP $status). Try again later.")
+                else -> ExtrasReply.Failed("Extras could not set up this phone (HTTP ${reply.status}). Try again later.")
             }
         } catch (e: IOException) {
             ExtrasReply.Failed(UNREACHABLE)
-        } finally {
-            connection.disconnect()
         }
     }
 
     /** The grant from a 2xx body. A body without the expected fields is a failure, not a grant. */
-    private fun parseGrant(text: String): ExtrasReply = try {
+    internal fun parseGrant(text: String): ExtrasReply = try {
         val root = Json.parseToJsonElement(text).jsonObject
         val openRouter = root.getValue("openrouter").jsonObject
+        val exa = root["exa"]?.let { if (it is JsonNull) null else it.jsonObject.getValue("key").jsonPrimitive.content }
+        val extrasToken = (root["extrasToken"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+        val services = (root["services"] as? JsonObject)?.entries
+            ?.mapNotNull { (k, v) -> k.takeIf { (v as? JsonPrimitive)?.booleanOrNull == true } }
+            ?.toSet()
+            .orEmpty()
         ExtrasReply.Granted(
             ExtrasGrant(
                 expiresAt = root.getValue("expiresAt").jsonPrimitive.content,
                 openRouterKey = openRouter.getValue("key").jsonPrimitive.content,
                 openRouterModel = openRouter.getValue("model").jsonPrimitive.content,
-                exaKey = root.getValue("exa").let { if (it is JsonNull) null else it.jsonObject.getValue("key").jsonPrimitive.content },
+                exaKey = exa,
+                extrasToken = extrasToken,
+                services = services,
             ),
         )
     } catch (e: Exception) {
-        ExtrasReply.Failed("Extras sent an answer this app cannot read. Try again later.")
+        ExtrasReply.Failed(EXTRAS_BAD_REPLY)
     }
 }

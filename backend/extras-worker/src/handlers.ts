@@ -5,11 +5,12 @@
  * Notification payloads and client claims are only hints about which purchase to look at.
  */
 import { acknowledgeIfPending, entitlementFor, getSubscription, type SubscriptionPurchaseV2 } from "./google";
-import { base64ToBytes, sha256Hex } from "./crypto";
+import { base64ToBytes, generateAccessToken, sha256Hex } from "./crypto";
 import {
   createCustomer,
   findCustomerByTokenHash,
   mapPurchaseToken,
+  setAccessTokenHash,
   setLatestToken,
   withinRateLimit,
   type CustomerRow,
@@ -17,6 +18,7 @@ import {
 import type { Env } from "./env";
 import { HttpError, json, jsonNoStore, readJsonObject, requireString } from "./http";
 import { deprovision, provisionActive } from "./provision";
+import { enabledServices } from "./services";
 
 const ACTIVATE_MAX_PER_HOUR = 10;
 
@@ -64,7 +66,8 @@ export async function handleActivate(request: Request, env: Env): Promise<Respon
   const customer = await resolveCustomer(env, tokenHash, sub);
   await setLatestToken(env, customer.id, tokenHash);
   const keys = await provisionActive(env, customer, ent.expiresAt);
-  return credentialsResponse(env, ent.expiresAt, keys.openrouterKey, keys.exaKey);
+  const extrasToken = await issueAccessToken(env, customer.id);
+  return credentialsResponse(env, ent.expiresAt, extrasToken, keys.openrouterKey, keys.exaKey);
 }
 
 export async function handleRefresh(request: Request, env: Env): Promise<Response> {
@@ -83,7 +86,8 @@ export async function handleRefresh(request: Request, env: Env): Promise<Respons
   if (!customer) throw new HttpError(404, "unknown_purchase", "this purchase has not been activated; activate first");
   await setLatestToken(env, customer.id, tokenHash);
   const keys = await provisionActive(env, customer, ent.expiresAt);
-  return credentialsResponse(env, ent.expiresAt, keys.openrouterKey, keys.exaKey);
+  const extrasToken = await issueAccessToken(env, customer.id);
+  return credentialsResponse(env, ent.expiresAt, extrasToken, keys.openrouterKey, keys.exaKey);
 }
 
 /**
@@ -166,12 +170,27 @@ function requireInstallId(body: Record<string, unknown>): string {
   return installId;
 }
 
+/** Mints a fresh 32-byte base64url customer access token and stores only its SHA-256 hash. */
+async function issueAccessToken(env: Env, customerId: string): Promise<string> {
+  const token = generateAccessToken();
+  await setAccessTokenHash(env, customerId, await sha256Hex(token));
+  return token;
+}
+
 /** `exa` is null when no search key could be made; the app then keeps its free search provider. */
-function credentialsResponse(env: Env, expiresAt: string, openrouterKey: string, exaKey: string | null): Response {
+function credentialsResponse(
+  env: Env,
+  expiresAt: string,
+  extrasToken: string,
+  openrouterKey: string,
+  exaKey: string | null,
+): Response {
   return jsonNoStore({
     expiresAt,
+    extrasToken,
     openrouter: { key: openrouterKey, model: env.DEFAULT_MODEL },
     exa: exaKey ? { key: exaKey } : null,
+    services: enabledServices(env),
   });
 }
 

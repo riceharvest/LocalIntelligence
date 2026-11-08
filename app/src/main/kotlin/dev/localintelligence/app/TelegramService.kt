@@ -13,6 +13,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import dev.localintelligence.android.cloud.ManagedServices
 import dev.localintelligence.android.gateway.telegram.TelegramApi
 import dev.localintelligence.android.gateway.telegram.TelegramChat
 import dev.localintelligence.android.gateway.telegram.TelegramChats
@@ -261,11 +262,13 @@ class TelegramService : Service() {
             if (previous == 0L) 5_000L else (previous * 2).coerceAtMost(MAX_BACKOFF_MS)
 
         /**
-         * Whether the gateway should run now: the plugin is on, the app is in Technical mode
-         * (a token is a Technical setting), and a token is set. Anything else means no socket.
+         * Whether the gateway should run now: in Simple mode when Extras' managed Telegram service
+         * is active, or in Technical mode when the plugin is on and a bot token is set. Anything
+         * else means no socket.
          */
         fun wanted(container: AppContainer): Boolean {
             val settings = container.settings
+            if (ManagedServices.isManagedEnabled(settings, container.telegramPlugin)) return true
             return settings.isPluginEnabled(container.telegramPlugin) &&
                 settings.mode == SettingsMode.TECHNICAL &&
                 settings.isSecretSet(TelegramSettings.TOKEN)

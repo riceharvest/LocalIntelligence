@@ -32,6 +32,11 @@ export function base64UrlEncode(bytes: Uint8Array): string {
   return bytesToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/** Generates 32 random bytes encoded as base64url without padding, for customer access tokens. */
+export function generateAccessToken(): string {
+  return base64UrlEncode(crypto.getRandomValues(new Uint8Array(new ArrayBuffer(32))));
+}
+
 /** Decodes base64url with or without padding (JWT segments and JWK values). Throws on bad input. */
 export function base64UrlToBytes(text: string): Uint8Array<ArrayBuffer> {
   const standard = text.replace(/-/g, "+").replace(/_/g, "/");
