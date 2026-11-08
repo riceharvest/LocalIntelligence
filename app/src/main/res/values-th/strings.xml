@@ -1734,6 +1734,7 @@
     <string name="extras_play_unreachable">เชื่อมต่อ Google Play ไม่ได้ ลองอีกครั้งภายหลัง</string>
     <string name="extras_play_refused">Google Play เริ่มการสมัคร Extras ไม่ได้ ลองอีกครั้งภายหลัง</string>
     <string name="extras_on_until">Extras เปิดใช้งานถึง %1$s</string>
+    <string name="extras_email_address">ที่อยู่อีเมล Extras ของคุณคือ %1$s</string>
     <string name="audio_no_track">ไฟล์นี้ไม่มีแทร็กเสียง</string>
     <string name="audio_no_format">เสียงในไฟล์นี้ไม่มีรูปแบบที่โทรศัพท์อ่านได้</string>
     <string name="audio_cannot_decode">โทรศัพท์เครื่องนี้ถอดรหัสเสียง %1$s ไม่ได้</string>

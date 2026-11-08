@@ -1735,6 +1735,7 @@
     <string name="extras_play_unreachable">Không kết nối được tới Google Play. Hãy thử lại sau.</string>
     <string name="extras_play_refused">Google Play chưa bắt đầu gói đăng ký Extras. Hãy thử lại sau.</string>
     <string name="extras_on_until">Extras đang bật đến %1$s.</string>
+    <string name="extras_email_address">Địa chỉ email Extras của bạn là %1$s.</string>
     <string name="audio_no_track">Tệp này không có âm thanh.</string>
     <string name="audio_no_format">Âm thanh của tệp này có định dạng điện thoại không đọc được.</string>
     <string name="audio_cannot_decode">Điện thoại này không giải mã được âm thanh %1$s.</string>
