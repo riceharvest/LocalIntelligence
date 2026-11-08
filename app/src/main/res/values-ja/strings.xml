@@ -1732,6 +1732,7 @@
     <string name="extras_play_unreachable">Google Play に接続できませんでした。あとでもう一度お試しください。</string>
     <string name="extras_play_refused">Google Play で Extras の定期購入を開始できませんでした。あとでもう一度お試しください。</string>
     <string name="extras_on_until">Extras は %1$s まで有効です。</string>
+    <string name="extras_email_address">Extras のメールアドレスは %1$s です。</string>
     <string name="audio_no_track">このファイルには音声トラックがありません。</string>
     <string name="audio_no_format">このファイルの音声は、この端末で読み取れる形式ではありません。</string>
     <string name="audio_cannot_decode">この端末では %1$s の音声をデコードできません。</string>

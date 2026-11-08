@@ -1734,6 +1734,7 @@
     <string name="extras_play_unreachable">Impossible de joindre Google Play. Réessaie plus tard.</string>
     <string name="extras_play_refused">Google Play n\'a pas pu lancer l\'abonnement Extras. Réessaie plus tard.</string>
     <string name="extras_on_until">Extras est actif jusqu\'au %1$s.</string>
+    <string name="extras_email_address">Votre adresse e-mail Extras est %1$s.</string>
     <string name="audio_no_track">Ce fichier n\'a pas de piste audio.</string>
     <string name="audio_no_format">Le son de ce fichier n\'a pas de format que le téléphone peut lire.</string>
     <string name="audio_cannot_decode">Ce téléphone ne peut pas décoder l\'audio %1$s.</string>

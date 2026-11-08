@@ -1732,6 +1732,7 @@
     <string name="extras_play_unreachable">Google Play tidak bisa dihubungi. Coba lagi nanti.</string>
     <string name="extras_play_refused">Google Play tidak memulai langganan Extras. Coba lagi nanti.</string>
     <string name="extras_on_until">Extras aktif sampai %1$s.</string>
+    <string name="extras_email_address">Alamat email Extras Anda adalah %1$s.</string>
     <string name="audio_no_track">File ini tidak punya jalur audio.</string>
     <string name="audio_no_format">Audio file ini tidak punya format yang bisa dibaca ponsel.</string>
     <string name="audio_cannot_decode">Ponsel ini tidak bisa mendekode audio %1$s.</string>

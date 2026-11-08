@@ -1732,6 +1732,7 @@
     <string name="extras_play_unreachable">无法连接 Google Play。请稍后再试。</string>
     <string name="extras_play_refused">Google Play 未能开始 Extras 订阅。请稍后再试。</string>
     <string name="extras_on_until">Extras 有效期至 %1$s。</string>
+    <string name="extras_email_address">您的 Extras 电子邮箱地址是 %1$s。</string>
     <string name="audio_no_track">此文件没有音轨。</string>
     <string name="audio_no_format">此文件的音频没有手机能读取的格式。</string>
     <string name="audio_cannot_decode">这部手机无法解码 %1$s 音频。</string>

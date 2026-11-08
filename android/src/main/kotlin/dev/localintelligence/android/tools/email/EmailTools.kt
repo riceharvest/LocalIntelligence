@@ -2,7 +2,11 @@ package dev.localintelligence.android.tools.email
 
 import android.text.Html
 import com.sun.mail.imap.IMAPFolder
+import dev.localintelligence.android.cloud.CredentialSource
+import dev.localintelligence.android.cloud.ExtrasClient
+import dev.localintelligence.android.cloud.ManagedServices
 import dev.localintelligence.core.model.ToolArgs
+import dev.localintelligence.core.settings.SettingsReader
 import dev.localintelligence.core.tool.AgentTool
 import dev.localintelligence.core.tool.ObservationTruncator
 import dev.localintelligence.core.tool.ToolContext
@@ -13,10 +17,16 @@ import dev.localintelligence.core.tool.catalogue.V0ToolCatalogue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.io.IOException
 import java.text.SimpleDateFormat
+import java.time.Instant
 import java.util.Date
 import java.util.Locale
 import java.util.Properties
@@ -66,10 +76,10 @@ private const val MAX_ADDRESS_CHARS = 254
 private val RECIPIENT_SHAPE = Regex("[^@\\s]{1,64}@[^@\\s]{1,253}")
 
 /** Tools for the given account. [account] is read at each call, so a settings change applies at once. */
-internal fun emailTools(account: () -> MailAccount?): List<AgentTool> = listOf(
-    EmailSearchTool(account),
-    EmailReadTool(account),
-    EmailSendTool(account),
+internal fun emailTools(reader: SettingsReader, account: () -> MailAccount?): List<AgentTool> = listOf(
+    EmailSearchTool(reader, account),
+    EmailReadTool(reader, account),
+    EmailSendTool(reader, account),
 )
 
 // ---------------------------------------------------------------------------
@@ -77,7 +87,10 @@ internal fun emailTools(account: () -> MailAccount?): List<AgentTool> = listOf(
 // ---------------------------------------------------------------------------
 
 /** IMAP SEARCH for words in the subject or body, from one sender, in the last few days. */
-private class EmailSearchTool(private val account: () -> MailAccount?) : AgentTool {
+private class EmailSearchTool(
+    private val reader: SettingsReader,
+    private val account: () -> MailAccount?,
+) : AgentTool {
     override val definition: ToolDefinition =
         checkNotNull(V0ToolCatalogue.byName("email.search")) { "email.search missing from catalogue" }
 
@@ -90,16 +103,11 @@ private class EmailSearchTool(private val account: () -> MailAccount?) : AgentTo
                 val sinceDays = intArg(args, "since_days", default = 14, min = 1, max = 365)
                 val maxResults = intArg(args, "max_results", default = 10, min = 1, max = 25)
                 val folderName = folderArg(args) ?: return@withContext invalid(tool, "folder must be a mailbox name, such as INBOX.")
-                val acct = account() ?: return@withContext notSetUp(tool)
+                val acct = account()
+                if (acct == null && !CredentialSource.managed(reader, ManagedServices.MAIL)) {
+                    return@withContext notSetUp(tool)
+                }
                 if (context.signal.isCancelled()) return@withContext cancelled(tool)
-
-                val words = query?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }.orEmpty()
-                val terms = mutableListOf<SearchTerm>(
-                    ReceivedDateTerm(ComparisonTerm.GE, Date(System.currentTimeMillis() - sinceDays * DAY_MS)),
-                )
-                for (word in words) terms += OrTerm(SubjectTerm(word), BodyTerm(word))
-                if (from != null) terms += FromStringTerm(from)
-                val term = AndTerm(terms.toTypedArray())
 
                 val wanted = listOfNotNull(
                     query?.let { "'$it'" },
@@ -107,33 +115,85 @@ private class EmailSearchTool(private val account: () -> MailAccount?) : AgentTo
                     "in the last $sinceDays days",
                 ).joinToString(" ")
 
-                val found = withFolder(acct, folderName, Folder.READ_ONLY) { folder ->
-                    val matches = folder.search(term)
-                    // IMAP message numbers grow with arrival, so the newest are at the end.
-                    val newest = matches.toList().takeLast(maxResults).reversed()
-                    if (newest.isNotEmpty()) {
-                        folder.fetch(newest.toTypedArray(), FetchProfile().apply { add(FetchProfile.Item.ENVELOPE) })
-                    }
-                    newest.map { message -> Row(uid = folder.getUID(message), message = message) }
-                }
-
-                if (found.isEmpty()) {
-                    return@withContext ToolResult(
-                        success = true,
-                        observation = "No email matches $wanted.",
+                if (acct != null) {
+                    val words = query?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }.orEmpty()
+                    val terms = mutableListOf<SearchTerm>(
+                        ReceivedDateTerm(ComparisonTerm.GE, Date(System.currentTimeMillis() - sinceDays * DAY_MS)),
                     )
+                    for (word in words) terms += OrTerm(SubjectTerm(word), BodyTerm(word))
+                    if (from != null) terms += FromStringTerm(from)
+                    val term = AndTerm(terms.toTypedArray())
+
+                    val found = withFolder(acct, folderName, Folder.READ_ONLY) { folder ->
+                        val matches = folder.search(term)
+                        // IMAP message numbers grow with arrival, so the newest are at the end.
+                        val newest = matches.toList().takeLast(maxResults).reversed()
+                        if (newest.isNotEmpty()) {
+                            folder.fetch(newest.toTypedArray(), FetchProfile().apply { add(FetchProfile.Item.ENVELOPE) })
+                        }
+                        newest.map { message -> Row(uid = folder.getUID(message), message = message) }
+                    }
+
+                    if (found.isEmpty()) {
+                        return@withContext ToolResult(
+                            success = true,
+                            observation = "No email matches $wanted.",
+                        )
+                    }
+                    val text = StringBuilder("${found.size} email${plural(found.size)} match $wanted:")
+                    for (row in found) {
+                        val message = row.message
+                        val date = dateText(message.receivedDate ?: message.sentDate)
+                        val sender = senderText(message.from)
+                        val subject = oneLine(message.subject.orEmpty(), 120).ifEmpty { "(no subject)" }
+                        text.append("\n- uid ${row.uid}, $date, from $sender, subject \"$subject\"")
+                        val snippet = snippetOf(message)
+                        if (snippet.isNotEmpty()) text.append("\n  $snippet")
+                    }
+                    ToolResult(success = true, observation = ObservationTruncator.truncate(text.toString()))
+                } else {
+                    val reply = try {
+                        ExtrasClient.call(reader, "/v1/mail/list")
+                    } catch (e: ExtrasClient.ExtrasException) {
+                        return@withContext extrasFailure(tool, e)
+                    } catch (e: IOException) {
+                        return@withContext networkFailure(tool)
+                    }
+
+                    val rawMessages = (reply["messages"] as? JsonArray).orEmpty()
+                    val cutoff = System.currentTimeMillis() - sinceDays * DAY_MS
+                    val words = query?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }.orEmpty()
+                    val found = mutableListOf<ManagedMailSummary>()
+
+                    for (elem in rawMessages) {
+                        val obj = elem as? JsonObject ?: continue
+                        val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: continue
+                        val msgFrom = obj["from"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val msgSubject = obj["subject"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val receivedAt = obj["receivedAt"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val date = parseDate(receivedAt)
+                        if (date != null && date.time < cutoff) continue
+                        if (from != null && !msgFrom.contains(from, ignoreCase = true)) continue
+                        if (words.isNotEmpty() && !words.all { msgSubject.contains(it, ignoreCase = true) }) continue
+                        found.add(ManagedMailSummary(id = id, date = date, from = msgFrom, subject = msgSubject))
+                        if (found.size >= maxResults) break
+                    }
+
+                    if (found.isEmpty()) {
+                        return@withContext ToolResult(
+                            success = true,
+                            observation = "No email matches $wanted.",
+                        )
+                    }
+                    val text = StringBuilder("${found.size} email${plural(found.size)} match $wanted:")
+                    for (row in found) {
+                        val date = dateText(row.date)
+                        val sender = oneLine(row.from, 100).ifEmpty { "unknown sender" }
+                        val subject = oneLine(row.subject, 120).ifEmpty { "(no subject)" }
+                        text.append("\n- uid ${row.id}, $date, from $sender, subject \"$subject\"")
+                    }
+                    ToolResult(success = true, observation = ObservationTruncator.truncate(text.toString()))
                 }
-                val text = StringBuilder("${found.size} email${plural(found.size)} match $wanted:")
-                for (row in found) {
-                    val message = row.message
-                    val date = dateText(message.receivedDate ?: message.sentDate)
-                    val sender = senderText(message.from)
-                    val subject = oneLine(message.subject.orEmpty(), 120).ifEmpty { "(no subject)" }
-                    text.append("\n- uid ${row.uid}, $date, from $sender, subject \"$subject\"")
-                    val snippet = snippetOf(message)
-                    if (snippet.isNotEmpty()) text.append("\n  $snippet")
-                }
-                ToolResult(success = true, observation = ObservationTruncator.truncate(text.toString()))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -144,12 +204,22 @@ private class EmailSearchTool(private val account: () -> MailAccount?) : AgentTo
 
 private class Row(val uid: Long, val message: Message)
 
+private class ManagedMailSummary(
+    val id: String,
+    val date: Date?,
+    val from: String,
+    val subject: String,
+)
+
 // ---------------------------------------------------------------------------
 // email.read
 // ---------------------------------------------------------------------------
 
 /** One message by uid: headers, the plain-text body cut to budget, and attachments by name and size. */
-private class EmailReadTool(private val account: () -> MailAccount?) : AgentTool {
+private class EmailReadTool(
+    private val reader: SettingsReader,
+    private val account: () -> MailAccount?,
+) : AgentTool {
     override val definition: ToolDefinition =
         checkNotNull(V0ToolCatalogue.byName("email.read")) { "email.read missing from catalogue" }
 
@@ -160,36 +230,81 @@ private class EmailReadTool(private val account: () -> MailAccount?) : AgentTool
                 val uid = longArg(args, "uid")
                     ?: return@withContext invalid(tool, "email.read needs uid, the number from email.search.")
                 val folderName = folderArg(args) ?: return@withContext invalid(tool, "folder must be a mailbox name, such as INBOX.")
-                val acct = account() ?: return@withContext notSetUp(tool)
+                val acct = account()
+                if (acct == null && !CredentialSource.managed(reader, ManagedServices.MAIL)) {
+                    return@withContext notSetUp(tool)
+                }
                 if (context.signal.isCancelled()) return@withContext cancelled(tool)
 
-                val observation = withFolder(acct, folderName, Folder.READ_ONLY) { folder ->
-                    val message = folder.getMessageByUID(uid)
-                        ?: return@withFolder null
-                    val parts = BodyParts()
-                    collect(message, parts)
-                    val text = normalize(parts.plain ?: parts.html?.let(::htmlToText).orEmpty())
-                    val body = ObservationTruncator.truncate(text.ifEmpty { "(this email has no text)" }, BODY_BUDGET)
-                    val attachments = if (parts.attachments.isEmpty()) {
-                        "Attachments: none."
-                    } else {
-                        "Attachments: " + parts.attachments.joinToString("; ") { "${it.name} (${sizeText(it.size)})" } + "."
+                if (acct != null) {
+                    val observation = withFolder(acct, folderName, Folder.READ_ONLY) { folder ->
+                        val message = folder.getMessageByUID(uid)
+                            ?: return@withFolder null
+                        val parts = BodyParts()
+                        collect(message, parts)
+                        val text = normalize(parts.plain ?: parts.html?.let(::htmlToText).orEmpty())
+                        val body = ObservationTruncator.truncate(text.ifEmpty { "(this email has no text)" }, BODY_BUDGET)
+                        val attachments = if (parts.attachments.isEmpty()) {
+                            "Attachments: none."
+                        } else {
+                            "Attachments: " + parts.attachments.joinToString("; ") { "${it.name} (${sizeText(it.size)})" } + "."
+                        }
+                        listOf(
+                            "From: ${senderText(message.from)}",
+                            "Date: ${dateText(message.receivedDate ?: message.sentDate)}",
+                            "Subject: ${oneLine(message.subject.orEmpty(), 200).ifEmpty { "(no subject)" }}",
+                            "",
+                            body,
+                            "",
+                            attachments,
+                        ).joinToString("\n")
+                    } ?: return@withContext ToolResult(
+                        success = false,
+                        observation = "No email with uid $uid in $folderName. Search again with email.search.",
+                        error = ToolError.NotFound("no message with that uid"),
+                    )
+                    ToolResult(success = true, observation = ObservationTruncator.truncate(observation))
+                } else {
+                    val reply = try {
+                        ExtrasClient.call(
+                            reader = reader,
+                            path = "/v1/mail/read",
+                            body = buildJsonObject {
+                                put("id", uid.toString())
+                            },
+                        )
+                    } catch (e: ExtrasClient.ExtrasException) {
+                        if (e.status == 404 || e.code == "not_found") {
+                            return@withContext ToolResult(
+                                success = false,
+                                observation = "No email with uid $uid in $folderName. Search again with email.search.",
+                                error = ToolError.NotFound("no message with that uid"),
+                            )
+                        }
+                        return@withContext extrasFailure(tool, e)
+                    } catch (e: IOException) {
+                        return@withContext networkFailure(tool)
                     }
-                    listOf(
-                        "From: ${senderText(message.from)}",
-                        "Date: ${dateText(message.receivedDate ?: message.sentDate)}",
-                        "Subject: ${oneLine(message.subject.orEmpty(), 200).ifEmpty { "(no subject)" }}",
+
+                    val from = reply["from"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val receivedAt = reply["receivedAt"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val subject = reply["subject"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val body = reply["body"]?.jsonPrimitive?.contentOrNull
+                        ?: reply["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+
+                    val text = normalize(body)
+                    val bodyTruncated = ObservationTruncator.truncate(text.ifEmpty { "(this email has no text)" }, BODY_BUDGET)
+                    val observation = listOf(
+                        "From: ${oneLine(from, 100).ifEmpty { "unknown sender" }}",
+                        "Date: ${dateText(parseDate(receivedAt))}",
+                        "Subject: ${oneLine(subject, 200).ifEmpty { "(no subject)" }}",
                         "",
-                        body,
+                        bodyTruncated,
                         "",
-                        attachments,
+                        "Attachments: none.",
                     ).joinToString("\n")
-                } ?: return@withContext ToolResult(
-                    success = false,
-                    observation = "No email with uid $uid in $folderName. Search again with email.search.",
-                    error = ToolError.NotFound("no message with that uid"),
-                )
-                ToolResult(success = true, observation = ObservationTruncator.truncate(observation))
+                    ToolResult(success = true, observation = ObservationTruncator.truncate(observation))
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -206,7 +321,10 @@ private class EmailReadTool(private val account: () -> MailAccount?) : AgentTool
  * Sends one plain-text email over SMTP. With [reply_to_uid] it first reads that message's
  * Message-ID and References, so the reply threads in the recipient's client.
  */
-private class EmailSendTool(private val account: () -> MailAccount?) : AgentTool {
+private class EmailSendTool(
+    private val reader: SettingsReader,
+    private val account: () -> MailAccount?,
+) : AgentTool {
     override val definition: ToolDefinition =
         checkNotNull(V0ToolCatalogue.byName("email.send")) { "email.send missing from catalogue" }
 
@@ -230,7 +348,10 @@ private class EmailSendTool(private val account: () -> MailAccount?) : AgentTool
                 }
                 val replyUid = if (args["reply_to_uid"] == null) null
                 else longArg(args, "reply_to_uid") ?: return@withContext invalid(tool, "reply_to_uid must be a uid from email.search.")
-                val acct = account() ?: return@withContext notSetUp(tool)
+                val acct = account()
+                if (acct == null && !CredentialSource.managed(reader, ManagedServices.MAIL)) {
+                    return@withContext notSetUp(tool)
+                }
 
                 // The approval is the only thing that lets this run. The runtime sets userConfirmed
                 // once a person has approved this exact call, so nothing is sent without it.
@@ -244,42 +365,85 @@ private class EmailSendTool(private val account: () -> MailAccount?) : AgentTool
                 }
                 if (context.signal.isCancelled()) return@withContext cancelled(tool)
 
-                val (session, protocol) = smtpSession(acct)
-                val message = MimeMessage(session)
-                message.setFrom(InternetAddress(acct.address))
-                message.setRecipients(Message.RecipientType.TO, arrayOf(InternetAddress(to, true)))
-                message.setSubject(subject, "UTF-8")
-                message.setText(body, "UTF-8")
-                message.sentDate = Date()
-                if (replyUid != null) {
-                    val threaded = withFolder(acct, "INBOX", Folder.READ_ONLY) { folder ->
-                        folder.getMessageByUID(replyUid)?.let { original ->
-                            val id = original.getHeader("Message-ID")?.firstOrNull()?.trim()
-                            val refs = original.getHeader("References")?.firstOrNull()?.trim()
-                            if (id != null) {
-                                message.setHeader("In-Reply-To", id)
-                                message.setHeader("References", listOfNotNull(refs, id).joinToString(" "))
-                            }
-                            true
-                        } ?: false
+                if (acct != null) {
+                    val (session, protocol) = smtpSession(acct)
+                    val message = MimeMessage(session)
+                    message.setFrom(InternetAddress(acct.address))
+                    message.setRecipients(Message.RecipientType.TO, arrayOf(InternetAddress(to, true)))
+                    message.setSubject(subject, "UTF-8")
+                    message.setText(body, "UTF-8")
+                    message.sentDate = Date()
+                    if (replyUid != null) {
+                        val threaded = withFolder(acct, "INBOX", Folder.READ_ONLY) { folder ->
+                            folder.getMessageByUID(replyUid)?.let { original ->
+                                val id = original.getHeader("Message-ID")?.firstOrNull()?.trim()
+                                val refs = original.getHeader("References")?.firstOrNull()?.trim()
+                                if (id != null) {
+                                    message.setHeader("In-Reply-To", id)
+                                    message.setHeader("References", listOfNotNull(refs, id).joinToString(" "))
+                                }
+                                true
+                            } ?: false
+                        }
+                        if (!threaded) {
+                            return@withContext ToolResult(
+                                success = false,
+                                observation = "Nothing was sent: no email with uid $replyUid in INBOX. Search again with email.search.",
+                                error = ToolError.NotFound("no message with that uid"),
+                            )
+                        }
                     }
-                    if (!threaded) {
-                        return@withContext ToolResult(
-                            success = false,
-                            observation = "Nothing was sent: no email with uid $replyUid in INBOX. Search again with email.search.",
-                            error = ToolError.NotFound("no message with that uid"),
-                        )
-                    }
-                }
 
-                val transport = session.getTransport(protocol)
-                try {
-                    transport.connect(acct.smtpHost, acct.smtpPort, acct.address, acct.password)
-                    transport.sendMessage(message, message.allRecipients)
-                } finally {
-                    closeQuietly(transport)
+                    val transport = session.getTransport(protocol)
+                    try {
+                        transport.connect(acct.smtpHost, acct.smtpPort, acct.address, acct.password)
+                        transport.sendMessage(message, message.allRecipients)
+                    } finally {
+                        closeQuietly(transport)
+                    }
+                    ToolResult(success = true, observation = "Sent to $to with the subject \"${oneLine(subject, 120)}\".")
+                } else {
+                    if (replyUid != null) {
+                        try {
+                            ExtrasClient.call(
+                                reader = reader,
+                                path = "/v1/mail/read",
+                                body = buildJsonObject {
+                                    put("id", replyUid.toString())
+                                },
+                            )
+                        } catch (e: ExtrasClient.ExtrasException) {
+                            if (e.status == 404 || e.code == "not_found") {
+                                return@withContext ToolResult(
+                                    success = false,
+                                    observation = "Nothing was sent: no email with uid $replyUid in INBOX. Search again with email.search.",
+                                    error = ToolError.NotFound("no message with that uid"),
+                                )
+                            }
+                            return@withContext extrasFailure(tool, e)
+                        } catch (e: IOException) {
+                            return@withContext networkFailure(tool)
+                        }
+                    }
+
+                    try {
+                        ExtrasClient.call(
+                            reader = reader,
+                            path = "/v1/mail/send",
+                            body = buildJsonObject {
+                                put("to", to)
+                                put("subject", subject)
+                                put("text", body)
+                            },
+                        )
+                    } catch (e: ExtrasClient.ExtrasException) {
+                        return@withContext extrasFailure(tool, e)
+                    } catch (e: IOException) {
+                        return@withContext networkFailure(tool)
+                    }
+
+                    ToolResult(success = true, observation = "Sent to $to with the subject \"${oneLine(subject, 120)}\".")
                 }
-                ToolResult(success = true, observation = "Sent to $to with the subject \"${oneLine(subject, 120)}\".")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -482,6 +646,7 @@ private fun cancelled(tool: String) = ToolResult(
  * page; everything else says what could not be reached. The server's own text is not shown.
  */
 private fun mailFailure(tool: String, e: Exception, acct: MailAccount?): ToolResult = when (e) {
+    is ExtrasClient.ExtrasException -> extrasFailure(tool, e)
     is AuthenticationFailedException -> ToolResult(
         success = false,
         observation = "The mail server refused the password for ${acct?.address ?: "this account"}. " +
@@ -493,15 +658,47 @@ private fun mailFailure(tool: String, e: Exception, acct: MailAccount?): ToolRes
         observation = "That mailbox does not exist on this account. Check the folder name.",
         error = ToolError.NotFound("no such mailbox"),
     )
-    is MessagingException, is IOException -> ToolResult(
+    is MessagingException -> ToolResult(
         success = false,
         observation = "Could not connect to the mail server securely. Check the server, port and connection, " +
             "then try again.",
         error = ToolError.Unavailable("mail server unreachable"),
     )
+    is IOException -> if (acct == null) {
+        networkFailure(tool)
+    } else {
+        ToolResult(
+            success = false,
+            observation = "Could not connect to the mail server securely. Check the server, port and connection, " +
+                "then try again.",
+            error = ToolError.Unavailable("mail server unreachable"),
+        )
+    }
     else -> ToolResult(
         success = false,
         observation = "Email failed for an unexpected reason ($tool).",
         error = ToolError.Internal(e.javaClass.simpleName),
     )
 }
+
+private fun extrasFailure(tool: String, e: ExtrasClient.ExtrasException): ToolResult {
+    val error = when {
+        e.status == 401 || e.status == 402 -> ToolError.PermissionDenied("Extras inactive")
+        e.status == 404 || e.code == "not_found" -> ToolError.NotFound("not found")
+        e.status == 429 -> ToolError.Unavailable("over cap")
+        else -> ToolError.Unavailable("Extras error ${e.status}")
+    }
+    val message = e.message?.takeIf { it.isNotBlank() }
+        ?: "Extras could not complete this request. Try again later."
+    return ToolResult(success = false, observation = message, error = error)
+}
+
+private fun networkFailure(tool: String): ToolResult = ToolResult(
+    success = false,
+    observation = "Could not reach Extras right now. Try again in a moment.",
+    error = ToolError.Unavailable("network error"),
+)
+
+private fun parseDate(iso: String): Date? = runCatching {
+    Date.from(Instant.parse(iso))
+}.getOrNull()

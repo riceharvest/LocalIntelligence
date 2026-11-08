@@ -52,9 +52,9 @@ class_name = "BrowserTask"
 tag = "v1-browser-task"
 new_sqlite_classes = ["BrowserTask"]
 
-# Uncommented by the mail service job (W5) to enable Cloudflare Email Sending.
-# [[send_email]]
-# name = "SEND_EMAIL"
+# Enabled by the mail service job (W5) for Cloudflare Email Sending.
+[[send_email]]
+name = "SEND_EMAIL"
 
 [vars]
 # The Android applicationId. Requests for any other package are refused.

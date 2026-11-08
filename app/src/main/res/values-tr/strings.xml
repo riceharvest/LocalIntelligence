@@ -1733,6 +1733,7 @@
     <string name="extras_play_unreachable">Google Play\'e ulaşılamadı. Daha sonra tekrar dene.</string>
     <string name="extras_play_refused">Google Play Extras aboneliğini başlatamadı. Daha sonra tekrar dene.</string>
     <string name="extras_on_until">Extras %1$s tarihine kadar açık.</string>
+    <string name="extras_email_address">Extras e-posta adresiniz: %1$s.</string>
     <string name="audio_no_track">Bu dosyada ses parçası yok.</string>
     <string name="audio_no_format">Bu dosyanın sesi telefonun okuyamayacağı bir biçimde.</string>
     <string name="audio_cannot_decode">Bu telefon %1$s sesini çözemiyor.</string>

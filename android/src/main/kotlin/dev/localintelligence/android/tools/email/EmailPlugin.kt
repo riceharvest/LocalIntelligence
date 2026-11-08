@@ -1,6 +1,7 @@
 package dev.localintelligence.android.tools.email
 
 import dev.localintelligence.android.cloud.CredentialSource
+import dev.localintelligence.android.cloud.ManagedServices
 import dev.localintelligence.android.tools.requireCatalogueAgreement
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.SettingDef
@@ -204,13 +205,18 @@ class EmailPlugin(
     override val settings: List<SettingDef<*>> = EmailSettings.all
 
     private val built: List<AgentTool> by lazy {
-        requireCatalogueAgreement(emailTools { mailAccount(reader) })
+        requireCatalogueAgreement(emailTools(reader) { mailAccount(reader) })
     }
 
     override fun tools(): List<AgentTool> {
-        // Simple mode never offers these: they need an address and a password, which are Technical settings.
-        if (reader.mode != SettingsMode.TECHNICAL) return emptyList()
-        return if (mailAccount(reader) == null) emptyList() else built
+        val hasOwn = mailAccount(reader) != null
+        if (hasOwn) {
+            return if (reader.mode == SettingsMode.TECHNICAL) built else emptyList()
+        }
+        if (CredentialSource.managed(reader, ManagedServices.MAIL)) {
+            return built
+        }
+        return emptyList()
     }
 
     /** Every tool this plugin ships, configured or not, for the catalogue check at startup. */
