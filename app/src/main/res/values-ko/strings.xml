@@ -1071,6 +1071,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">내 Home Assistant에서 조명, 플러그, 난방, 블라인드, 미디어, 잠금장치를 읽고 조작해요. 요청은 그 서버로 보내져요.</string>
 <string name="plugin_mcp_title">원격 도구 (MCP)</string>
+    <string name="plugin_mcp_managed_title">내 앱 (Gmail, 캘린더 등)</string>
+    <string name="open_link">링크 열기</string>
 <string name="plugin_mcp_summary">내가 지정한 MCP 서버 최대 5개의 도구를 써요. 호출할 때마다 인자는 그 서버로 보내져요.</string>
 <string name="plugin_email_title">이메일</string>
 <string name="plugin_email_summary">내 메일 계정을 앱 비밀번호로 연결해 이메일을 검색하고, 읽고, 보내요. 메일은 제공자의 서버로 가요.</string>

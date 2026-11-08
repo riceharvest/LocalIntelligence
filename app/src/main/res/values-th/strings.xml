@@ -1070,6 +1070,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">อ่านและควบคุมไฟ ปลั๊ก ความร้อน ม่าน สื่อ และล็อกบน Home Assistant ของคุณเอง คำขอจะถูกส่งไปยังเซิร์ฟเวอร์นั้น</string>
 <string name="plugin_mcp_title">เครื่องมือระยะไกล (MCP)</string>
+    <string name="plugin_mcp_managed_title">แอปของคุณ (Gmail, ปฏิทิน, ...)</string>
+    <string name="open_link">เปิดลิงก์</string>
 <string name="plugin_mcp_summary">เครื่องมือจากเซิร์ฟเวอร์ MCP สูงสุดห้าตัวที่คุณระบุ ทุกการเรียกจะส่งอาร์กิวเมนต์ไปยังเซิร์ฟเวอร์นั้น</string>
 <string name="plugin_email_title">อีเมล</string>
 <string name="plugin_email_summary">ค้นหา อ่าน และส่งอีเมลจากบัญชีอีเมลของคุณเอง ด้วยรหัสผ่านแอป อีเมลจะไปยังเซิร์ฟเวอร์ของผู้ให้บริการ</string>

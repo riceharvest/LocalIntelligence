@@ -1071,6 +1071,8 @@
 <string name="plugin_home_assistant_title">Home Assistant</string>
 <string name="plugin_home_assistant_summary">Lis et commande les lampes, prises, chauffage, volets, médias et serrures de ton propre Home Assistant. Les demandes vont à ce serveur.</string>
 <string name="plugin_mcp_title">Outils distants (MCP)</string>
+    <string name="plugin_mcp_managed_title">Vos applications (Gmail, Agenda...)</string>
+    <string name="open_link">Ouvrir le lien</string>
 <string name="plugin_mcp_summary">Outils de jusqu\'à cinq serveurs MCP que tu indiques. Chaque appel envoie ses arguments à ce serveur.</string>
 <string name="plugin_email_title">Courriel</string>
 <string name="plugin_email_summary">Cherche, lis et envoie des courriels depuis ton propre compte de messagerie, avec un mot de passe d\'application. Les courriels passent par les serveurs de ton fournisseur.</string>

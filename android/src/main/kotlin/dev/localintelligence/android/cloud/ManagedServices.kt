@@ -3,6 +3,7 @@ package dev.localintelligence.android.cloud
 import dev.localintelligence.android.cloud.browser.CloudBrowserSettings
 import dev.localintelligence.android.cloud.sandbox.SandboxSettings
 import dev.localintelligence.android.gateway.telegram.TelegramSettings
+import dev.localintelligence.android.mcp.McpSettings
 import dev.localintelligence.android.tools.email.EmailSettings
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.SettingsMode
@@ -27,6 +28,7 @@ object ManagedServices {
         CloudBrowserSettings.PLUGIN_ID to BROWSER,
         EmailSettings.PLUGIN_ID to MAIL,
         TelegramSettings.PLUGIN_ID to TELEGRAM,
+        McpSettings.PLUGIN_ID to COMPOSIO,
     )
 
     /** The Extras service name for [plugin], or null when [plugin] is not an Extras-managed plugin. */

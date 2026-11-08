@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -83,6 +84,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -549,6 +551,13 @@ private fun ToolRow(
 val LocalTechnicalDetail = compositionLocalOf { false }
 
 /**
+ * Composio's account-connect links, the only links a tool step offers to open. Tool output is
+ * untrusted text (web pages, search results), so an arbitrary URL in it never gets a button;
+ * a connect link from the Extras apps server must, or the user cannot finish connecting Gmail.
+ */
+private val CONNECT_LINK_REGEX = Regex("""https://([a-z0-9-]+\.)*composio\.dev/[^\s)\]">]+""")
+
+/**
  * What came back, behind the row's tap. Simple mode shows the first lines of the
  * result in the normal font; Technical shows the tool id, the timing, and the
  * input and output verbatim.
@@ -556,6 +565,9 @@ val LocalTechnicalDetail = compositionLocalOf { false }
 @Composable
 private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate: Boolean) {
     val output = if (state == ToolRowState.Refused) step.detail else step.observation.orEmpty()
+    val uriHandler = LocalUriHandler.current
+    val firstUrl = remember(output) { CONNECT_LINK_REGEX.find(output)?.value }
+
     if (!LocalTechnicalDetail.current) {
         // Simple mode: a finished step shows its first lines. A step that did not finish shows a plain
         // sentence for its kind of failure, never the raw text (which may name a file path or a library).
@@ -565,12 +577,27 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
         } else {
             SimpleWording.kindOf(output)?.let { stringResource(it.text) } ?: stringResource(R.string.simple_step_not_finished)
         }
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 8.dp, bottom = 6.dp),
-        )
+        Column(modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 8.dp, bottom = 6.dp)) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (firstUrl != null) {
+                AssistChip(
+                    onClick = { runCatching { uriHandler.openUri(firstUrl) } },
+                    label = { Text(stringResource(R.string.open_link)) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.Public,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    },
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
         return
     }
     SubSteps(step.subSteps)
@@ -635,6 +662,20 @@ private fun ToolDetail(step: ChatMessage.ToolStep, state: ToolRowState, animate:
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (firstUrl != null) {
+                AssistChip(
+                    onClick = { runCatching { uriHandler.openUri(firstUrl) } },
+                    label = { Text(stringResource(R.string.open_link)) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.Public,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    },
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
             if (!showAll && lines.size > OUTPUT_FOLD_LINES) {
                 TextButton(onClick = { showAll = true }) {
                     Text(stringResource(R.string.show_more_lines, lines.size - OUTPUT_FOLD_LINES))
