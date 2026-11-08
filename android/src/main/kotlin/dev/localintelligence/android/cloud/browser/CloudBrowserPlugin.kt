@@ -1,11 +1,12 @@
 package dev.localintelligence.android.cloud.browser
 
+import dev.localintelligence.android.cloud.CredentialSource
+import dev.localintelligence.android.cloud.ManagedServices
 import dev.localintelligence.android.tools.requireCatalogueAgreement
 import dev.localintelligence.core.plugin.AgentPlugin
 import dev.localintelligence.core.settings.SettingDef
 import dev.localintelligence.core.settings.SettingSection
 import dev.localintelligence.core.settings.SettingsMode
-import dev.localintelligence.android.cloud.CredentialSource
 import dev.localintelligence.core.settings.SettingsReader
 import dev.localintelligence.core.settings.mode
 import dev.localintelligence.core.tool.AgentTool
@@ -79,16 +80,34 @@ object CloudBrowserSettings {
     val all: List<SettingDef<*>> = listOf(PROVIDER, API_KEY, WAIT_MINUTES, MAX_SPEND_USD, USE_PROFILE, PROFILE_ID)
 }
 
-/** The one place the browser key is read. Today it is the user's own key from Settings. */
-internal fun browserKeyOf(reader: SettingsReader): String = CredentialSource.browserKey(reader)
-
-/** The provider the Provider setting picks. Browser Use is the only option, which the Choice setting enforces. */
-internal fun providerFor(reader: SettingsReader): CloudBrowserProvider =
-    BrowserUseProvider(browserKeyOf(reader))
+/**
+ * The one place the browser credential is read: the user's own Browser Use key from Settings, or
+ * the Extras access token while the managed cloud browser is active.
+ */
+internal fun browserKeyOf(reader: SettingsReader): String =
+    CredentialSource.browserKey(reader).ifBlank {
+        if (CredentialSource.managed(reader, ManagedServices.BROWSER)) {
+            CredentialSource.extrasAccessToken(reader)
+        } else {
+            ""
+        }
+    }
 
 /**
- * Off by default. Offers `browser.task` and `browser.status`, but only in Technical mode with a key
- * stored. [reader] is the live store, so a key or setting change applies at the next message.
+ * The provider for the current run: the Extras cloud browser when [CredentialSource.managed] is on
+ * for `browser`, otherwise the user's own Browser Use provider.
+ */
+internal fun providerFor(reader: SettingsReader): CloudBrowserProvider =
+    if (CredentialSource.managed(reader, ManagedServices.BROWSER)) {
+        ManagedBrowserProvider(reader)
+    } else {
+        BrowserUseProvider(browserKeyOf(reader))
+    }
+
+/**
+ * Off by default in Technical mode (requires a Browser Use key or active Extras), and enabled
+ * automatically in Simple mode while the Extras `browser` service is active. [reader] is the live
+ * store, so a key or setting change applies at the next message.
  */
 class CloudBrowserPlugin(private val reader: SettingsReader) : AgentPlugin {
     override val id: String = CloudBrowserSettings.PLUGIN_ID
@@ -109,7 +128,14 @@ class CloudBrowserPlugin(private val reader: SettingsReader) : AgentPlugin {
     }
 
     override fun tools(): List<AgentTool> =
-        if (reader.mode != SettingsMode.TECHNICAL || browserKeyOf(reader).isBlank()) emptyList() else built
+        if (
+            (reader.mode == SettingsMode.TECHNICAL || CredentialSource.managed(reader, ManagedServices.BROWSER)) &&
+            browserKeyOf(reader).isNotBlank()
+        ) {
+            built
+        } else {
+            emptyList()
+        }
 
     /** Every tool this plugin ships, key or no key, for the startup catalogue check. */
     fun shippedTools(): List<AgentTool> = built

@@ -29,7 +29,7 @@ function hasPositiveCap(value: string | undefined): boolean {
 export function enabledServices(env: Env): EnabledServices {
   return {
     sandbox: Boolean(env.Sandbox && hasPositiveCap(env.SANDBOX_MINUTES_CAP)),
-    browser: Boolean(env.BROWSER && hasPositiveCap(env.BROWSER_MINUTES_CAP)),
+    browser: Boolean(env.BROWSER && env.BROWSER_TASK && hasPositiveCap(env.BROWSER_MINUTES_CAP)),
     composio: Boolean(hasText(env.COMPOSIO_API_KEY) && hasPositiveCap(env.COMPOSIO_CALLS_CAP)),
     voice: Boolean(
       hasText(env.DEEPGRAM_API_KEY) &&

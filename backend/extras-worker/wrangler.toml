@@ -6,8 +6,13 @@
 
 name = "localintelligence-extras"
 main = "src/index.ts"
-compatibility_date = "2025-09-01"
+# `@cloudflare/playwright` and Stagehand require `nodejs_compat` and compatibility_date >= 2025-09-15:
+# https://developers.cloudflare.com/browser-run/stagehand/#2-configure-your-worker
+compatibility_date = "2025-09-15"
 compatibility_flags = ["nodejs_compat"]
+
+[alias]
+playwright = "@cloudflare/playwright"
 
 [[d1_databases]]
 binding = "DB"
@@ -34,9 +39,18 @@ class_name = "Sandbox"
 tag = "v1"
 new_sqlite_classes = ["Sandbox"]
 
-# Uncommented by the browser service job (W2) to enable Cloudflare Browser Rendering.
-# [browser]
-# binding = "BROWSER"
+# Cloudflare Browser Rendering + BrowserTask Durable Object (W2).
+# Docs: https://developers.cloudflare.com/browser-run/stagehand/
+[browser]
+binding = "BROWSER"
+
+[[durable_objects.bindings]]
+name = "BROWSER_TASK"
+class_name = "BrowserTask"
+
+[[migrations]]
+tag = "v1-browser-task"
+new_sqlite_classes = ["BrowserTask"]
 
 # Uncommented by the mail service job (W5) to enable Cloudflare Email Sending.
 # [[send_email]]
