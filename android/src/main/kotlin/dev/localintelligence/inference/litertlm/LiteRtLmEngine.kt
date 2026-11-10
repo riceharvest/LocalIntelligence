@@ -116,10 +116,9 @@ interface LiteRtLmListener {
     /**
      * A piece of newly generated text.
      *
-     * LiteRT-LM's callback is specified as *cumulative* — each callback carries
-     * the whole reply so far — but the runtime has also been observed emitting
-     * deltas. The backend does not guess: it reconciles the two itself. See
-     * [LiteRtLmDeltaTracker], which is the tested answer to "which is it?".
+     * The pinned LiteRT-LM runtime, 0.17.1, streams deltas: each callback carries
+     * only the text produced since the last one. The backend appends every chunk
+     * verbatim. See [LiteRtLmDeltaTracker] for the source files that show this.
      */
     fun onDelta(text: String)
 
