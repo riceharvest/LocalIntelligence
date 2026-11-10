@@ -628,9 +628,9 @@ is measured.
 ### v1.3: speed and depth
 
 ```
-[ ] Built on w/specdecode, NOT merged: it reworks the decode loop every reply uses and needs a run first. Speculative or multi-token-prediction decoding where llama.cpp supports it. Edge
-      Gallery 1.0.13 added Gemma 4 MTP for faster decoding (APKMirror notes). Measure
-      decode tokens/s before and after with the in-app speed test; keep it only if it wins.
+[x] w/specdecode measured 2026-11-10 and DROPPED, not merged. Prompt-lookup speculation on llama.cpp (MiniCPM5-1B, not hybrid), in-app speed test,
+      emulator, n=8 interleaved pairs: decode 30.6 tok/s off, 29.9 tok/s on (EMULATOR numbers, see docs/measurements.md). The noise floor
+      is about 20% of the throughput, so a win needed to clear that. Nothing shows the draft path ran. Driver: scripts/e2e/toggle-speedtest.sh.
 [?] [#290, full build, captions from a loaded vision model] Image search by text over the photo library (Edge Gallery "Instant Media Search"
       with EmbeddingGemma 2 is the same family; image embeddings are a different
       model, so this is medium effort)
@@ -712,7 +712,7 @@ From each project's own release notes, read 2026-11-04. All speedups are unmeasu
 
 ```
 [?] llama.cpp v0.9.0 (b12110) over our b11988 [#313]: Gemma 4 prefill graph work, Gemma 4 speculative decoding, LFM3 tensor split,
-      Nemotron 3.5 Transcribe (offline speech, 40 languages). JNI rebase; mtmd.h changed. w/specdecode stays held: LFM3 hybrid gets nothing from it.
+      Nemotron 3.5 Transcribe (offline speech, 40 languages). JNI rebase; mtmd.h changed. w/specdecode was measured and dropped on MiniCPM5 (not hybrid): no win, closed (see v1.3). LFM3 hybrid never takes that path.
 [ ] LiteRT-LM 0.19.0 over our 0.17.1: GPU logit masking for constrained decoding, multi-token decoding. Breaking C API 1.0.
       Check the Tensor NPU runtime pair before bumping.
 [?] Android 17, before target API 37 [#299]: declare FEATURE_NEURAL_PROCESSING_UNIT or the NPU path is blocked; handle the new per-app
