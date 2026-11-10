@@ -561,7 +561,7 @@ Engineering:
 [ ] Fixes from the Play pre-launch report and the closed test
 [?] [#285, token-gated; unverified with Tasker] Intent and Tasker triggers for scheduled tasks, from Operit's workflows. Small:
       a broadcast receiver that starts an unattended run
-[?] [#286; not yet a foreground run, so a long file can be killed in the background] Audio file transcription, from Edge Gallery's Audio Scribe, with LFM3-Audio from the
+[?] [#286; runs as a foreground service while it works] Audio file transcription, from Edge Gallery's Audio Scribe, with LFM3-Audio from the
       Model test plan if it passes
 ```
 
@@ -659,7 +659,7 @@ Checked against the code on 2026-11-04. Already present, so not listed: schedule
 [?] find LM Studio, Ollama and llama.cpp on the LAN, and offer them in Simple mode (custom endpoint exists in Technical)  AnythingLLM, Off Grid #211
 [?] keep the screen awake while generating, optional                                     Off Grid #378
 [?] live speed and memory per reply, folded, Technical mode                              Edge Gallery, MNN
-[?] audio transcription as a real foreground run                                         follow-up to #286
+[x] audio transcription as a real foreground run: TranscriptionService (dataSync), started and stopped around one run in ChatViewModel.transcribe   follow-up to #286
 [?] photo results open the photo from chat                                               follow-up to #290
 [ ] hands-free loop: talk-to-interrupt not built; wake word and voice exist    Operit, MNN, PocketPal #945
 [ ] pick a vision model's mmproj by hand; check the import path                          PocketPal #841

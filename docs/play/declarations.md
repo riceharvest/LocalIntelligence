@@ -87,6 +87,7 @@ Foreground service types in the merged manifest, one row per service (types from
 |---|---|---|---|---|
 | `ExecutionService` | `dataSync` | Runs one agent task (started from a chat message or a scheduled task) while the person is in another app. Stops itself at the end of the run. | The run stops early. Android 15 caps `dataSync` at six hours in 24 hours. | Yes. One video covers the type (script 3). |
 | `DownloadService` | `dataSync` | Keeps a model download from the Hugging Face hub running in the background. Shows progress and a Cancel button. | The download stops and the person has to restart it. Resume behaviour is in docs/hf-hub-download.md, UNCONFIRMED on device. | Covered by script 3. |
+| `TranscriptionService` | `dataSync` | Keeps an audio file transcription running while the app is in the background or the screen is off. Started when the run starts and stopped when it ends or the person stops it (`ChatViewModel.transcribe`). Shows a notification with no button. | The transcript stops half-way and the person has to start it again. Android 15 caps `dataSync` at six hours in 24 hours, shared with the other `dataSync` services. `onTimeout` stops the service. | Covered by script 3 (start a transcription of a short file). |
 | `TelegramService` | `dataSync` | Long-polls Telegram while the Telegram plugin is on, so messages from a linked private chat reach the assistant with the app in the background. | Messages from linked chats are not read until the service starts again. | Covered by script 3 where the person starts it. |
 | `ChatGptSignInService` | `dataSync` and `shortService` (the manifest lists both) | Keeps the process alive while the browser waits for ChatGPT sign-in. Uses `shortService` on API 35 and up, `dataSync` below. | The sign-in can fail and has to be started again. Android can stop a short service after about three minutes; `onTimeout` removes the notification. | Covered by script 3 where the person starts it. |
 | `WakeWordService` | `microphone` | Listens for the wake phrase while the wake word setting is on. Audio is read in memory and discarded (WakeWordService.kt KDoc). | "Hey ..." stops working until the service starts again. | **Yes**, script 1. |
@@ -98,13 +99,18 @@ Foreground service types in the merged manifest, one row per service (types from
   policy page before deciding anything.
 - The manifest declares `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` and
   `FOREGROUND_SERVICE_MICROPHONE`. It does not declare a short-service permission.
+- `TranscriptionService` uses `dataSync`, not `mediaProcessing`. Android lists "local file
+  processing" under `dataSync` (https://developer.android.com/develop/background-work/services/fgs/service-types).
+  No new permission and no new Play Console type are needed. The limit is six hours in 24 hours
+  from when the app goes to the background (https://developer.android.com/develop/background-work/services/fgs/timeout).
+  The run starts from the foreground chat screen. **UNCONFIRMED** on device: a long file with the screen off.
 - Each service's type must match its `startForeground` call. The manifest comments say so; a
   mismatch throws on API 34 and up. Confirm on the device pass.
 
 ### Short purpose text for each declaration
 
-- dataSync (ExecutionService, DownloadService, TelegramService, ChatGptSignInService):
-  "Runs a task the person started, or a model download, or a linked Telegram chat, and stops when
+- dataSync (ExecutionService, DownloadService, TranscriptionService, TelegramService, ChatGptSignInService):
+  "Runs a task the person started, or a model download, or an audio file transcription, or a linked Telegram chat, and stops when
   that work ends. It keeps the work running while the app is in the background, and shows a
   notification with a stop control."
 - microphone (WakeWordService): "Listens for the wake phrase the person set, only while the
@@ -139,7 +145,8 @@ background behaviour as the video (docs/roadmap.md), so the person starts each s
 
 ### Script 3: dataSync (chat task or model download)
 
-1. Start a model download from the Hub, or send a chat task that takes a few seconds.
+1. Start a model download from the Hub, or send a chat task that takes a few seconds, or start a
+   transcription of an audio file.
 2. Switch to another app. Show the LocalIntelligence notification with the stop control.
 3. Return to the app. Show the task or download finished.
 
