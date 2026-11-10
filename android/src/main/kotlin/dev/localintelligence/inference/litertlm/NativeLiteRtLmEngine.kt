@@ -302,10 +302,9 @@ internal class NativeLiteRtLmConversation(
         val callback = object : com.google.ai.edge.litertlm.MessageCallback {
             override fun onMessage(message: Message) {
                 lastActivityNanos.set(System.nanoTime())
-                // LiteRT-LM's callback carries the message as it stands. The
-                // tracker in the backend decides whether that is a delta or a
-                // cumulative snapshot, so the whole text is forwarded here rather
-                // than guessing at this layer.
+                // The pinned 0.17.1 runtime delivers each message as a delta, the
+                // text produced since the last callback. It is forwarded as
+                // received, and the tracker in the backend appends it verbatim.
                 val text = message.contents.contents
                     .filterIsInstance<Content.Text>()
                     .joinToString("") { it.text }

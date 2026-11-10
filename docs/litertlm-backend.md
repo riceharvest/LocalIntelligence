@@ -219,8 +219,10 @@ constructed: there is no `.litertlm` model on any machine here and no emulator i
 the loop. So these are unproven:
 
 - that `NativeLiteRtLmEngine` actually loads a model and decodes,
-- LiteRT-LM's real streaming semantics (delta or cumulative) — the backend handles
-  both via `LiteRtLmDeltaTracker`, but which one 0.13.1 does is a guess,
+- LiteRT-LM's streaming semantics on a device — for the pinned 0.17.1 they are
+  source-checked: deltas, per `internal_callback_util.cc` and `conversation.cc`,
+  and `LiteRtLmDeltaTracker` appends them verbatim, but this was not run on a
+  device,
 - real cancellation latency, and whether `cancelProcess()` interrupts a decode
   mid-stream,
 - whether `ExperimentalFlags.enableBenchmark` actually populates
