@@ -9,15 +9,24 @@ box says so rather than staying green.
 
 ## Status in one paragraph
 
+**Update 2026-11-10:** every box re-checked against the tree at #337 (previous full check
+2026-11-04 at #320, synced in #321). Merged since: polish and evals [#322 to #327], home-screen
+widget and launcher shortcuts [#328], privacy-page fix [#329], and the Extras managed wave: shared auth and metering [#330], managed Composio [#331],
+sandbox [#332], browser [#333], voice [#334], mail [#335], telegram [#336], Extras texts [#337].
+The on-device eval runner is in the tree, but docs/scores/results/ is empty: no score exists.
+#214 is open again (the LiteRT-LM delta tracker drops leading characters).
+
 **Update 2026-11-04 (later):** the v1 list and most of "After v1" were built in one day and merged as #274 to #320, compile only. None of it has run on a device since #275. `[?]` below means written and merged, not verified. The owner's plan: finish everything, including "Beyond parity" below, then one full pass on the emulator. See "Before public release (v1.0)", "After v1" and "Beyond parity". The paragraph that follows is the older status and still holds: no device observation exists.
 
 The agent loop, the tool registry, the llama.cpp backend, the LiteRT-LM backend,
 Room persistence, the Hugging Face download, and the Compose UI are all written
 and **compile**. The app assembles into an installable debug APK.
 
-There are no tests, no CI, no eval suite, no measured performance or RAM number, and no
-physical-device observation of any kind. See [`evals.md`](evals.md) and
-[`build.md`](build.md).
+There are no tests and no CI. An eval suite exists: 81 tasks in `evals/tasks.jsonl`, run by
+`scripts/run-evals.py`, which drives the real app on a phone through `scripts/devicectl.sh`
+(debug build only). No run has been recorded - `docs/scores/results/` is empty - so there is
+still no measured performance or RAM number, and no physical-device observation of any kind.
+See [`evals.md`](evals.md) and [`build.md`](build.md).
 
 ---
 
@@ -71,7 +80,8 @@ and "verified" an app that could not answer a single question.
 
 **Do not propose restoring them as a goal, and do not add CI workflows.**
 Anyone quoting a test count or pass rate from this repository is quoting a
-deleted suite.
+deleted suite. The current eval suite (`evals/tasks.jsonl` + `scripts/run-evals.py`) is not
+that harness: it drives the real app on a real phone, no fakes.
 
 ---
 
@@ -128,8 +138,9 @@ real Android APIs through the agent loop.
 [ ] Benchmark both against the same task list
 ```
 
-The second item is **not done**: there is no task list runner. Since this
-section was written the app can load a `.litertlm` file (download from the in-app
+The second item is **not done**: no backend-vs-backend benchmark exists. The task list and a
+runner now do - `evals/tasks.jsonl` and `scripts/run-evals.py` on a phone - so the comparison
+can ride the final pass. Since this section was written the app can load a `.litertlm` file (download from the in-app
 hub [#78], file picker [#96]) and has a Tensor G5 NPU path for Gemma 4 E2B [#69],
 but no such file has been run on a device. There is still no GGUF-to-`.litertlm`
 converter; see [`acceleration.md`](acceleration.md).
@@ -170,12 +181,13 @@ observation behind it.
 [?] deterministic loop detection   implemented; unverified
 [?] model cancellation             implemented; unverified
 [?] task traces in the debug UI    implemented; unverified
-[ ] >=80% success on a basic eval suite     NO SUITE EXISTS
-[ ] >=65% on the multi-step suite            NO SUITE EXISTS
+[ ] >=80% success on a basic eval suite     81-task suite exists; no score measured
+[ ] >=65% on the multi-step suite            same suite; no score measured
 [ ] no routine task needs >8K context        unmeasured
 ```
 
-`[?]` means implemented-but-unverified. The last three have no instrument at all.
+`[?]` means implemented-but-unverified. The last three have an instrument now
+(`scripts/run-evals.py`); no run has been recorded.
 
 Those two success thresholds are engineering targets, not predictions, and they
 are not currently measurable.
@@ -229,6 +241,8 @@ in brackets.
 [?] composer: attach photos, record voice / dictate              [#93]
 [?] speech out in the model's own voice (LFM3 TTS via libmtmd),
       read replies aloud, phone-TTS fallback                     [#86, #87, #92]
+[?] managed voice: Deepgram STT and Aura-2 TTS through the Extras Worker, local paths stay
+      the fallback; Deepgram hostname and the WebSocket accept key verified [#334]
 [?] model's own chat format (llama_chat_apply_template)          [#90]
 [?] default-assistant overlay + screen capture to vision         [#79, #93]
 [?] text-selection toolbar, quick-settings tile, share entry     [#71]
@@ -253,11 +267,20 @@ in brackets.
       places tools                                              [#243]
 [?] texts, call log, calls, Do Not Disturb, brightness, screen time [#244]
 [?] Home Assistant: devices, control, lock and cover with confirmation [#245]
-[?] cloud sandbox: Daytona [#246]; Vercel, SSH server, Termux [#251]
-[?] MCP: per-server token header name (Composio, Zapier presets) [#247]
-[?] cloud browser on the user's Browser Use key (browser.task/status) [#248]
-[?] email over IMAP/SMTP with an app password (email.search/read/send) [#249]
-[?] Telegram gateway: linked private chats only, unattended runs [#250]
+[?] cloud sandbox: Daytona [#246]; Vercel, SSH server, Termux [#251]; managed sandbox on
+      Cloudflare Containers (Durable Objects), create/info/start/stop/exec/write/read, every
+      command bounded to 300 s [#332]
+[?] MCP: per-server token header name (Composio, Zapier presets) [#247]; managed Composio
+      MCP proxy in the Extras Worker, only MCP headers forwarded upstream [#331]
+[?] cloud browser (browser.task/status) on the user's Browser Use key [#248]; Stagehand
+      managed task runner added as the Extras path [#333]
+[?] email over IMAP/SMTP with an app password (email.search/read/send) [#249]; managed
+      agent mailbox over Cloudflare Email Routing and Email Sending (address/list/read/send,
+      one recipient per send, size limits, collision-safe ids) [#335]
+[?] Telegram gateway: linked private chats only, unattended runs [#250]; managed webhook,
+      queue polling, Simple-mode link flow, no polling before Link [#336]
+[?] Extras wave-2 plumbing: one access token per customer that survives refresh, usage
+      metering, service stubs, app client (ManagedServices.kt maps plugin to Extras service) [#330]
 
 Open:
 [ ] the vertical slice and every feature above on the Pixel 10 Pro (final pass)
@@ -283,14 +306,17 @@ Open:
 ```
 
 Extras: one Play subscription (`extras_monthly`) that unlocks the cloud features in Simple
-mode. BUILT, NOT DEPLOYED, and it ships after v1. Before it ships, rename the switch
-"Use the cloud model for chat" to say remote model (GLOSSARY.md). The Extras row stays hidden until `EXTRAS_BACKEND_URL` is set
+mode. BUILT, NOT DEPLOYED, and it ships after v1. The rename of "Use the cloud model for chat" to remote model is done [#279].
+The Extras row stays hidden until `EXTRAS_BACKEND_URL` is set
 (`-PextrasBackendUrl=https://...`).
 
 ```
 [?] Extras Worker (backend/extras-worker): checks the Play subscription, gives each
-    customer one capped OpenRouter key and an optional Exa key                 [#252]
-[?] Extras in the app: Play Billing, one credential source, Extras screen      [#253]
+    customer one capped OpenRouter key and an optional Exa key                 [#252]; wave-2
+    shared auth, usage metering and the managed services (sandbox, browser, voice, mail,
+    telegram, composio) behind /v1/*                                           [#279, #330 to #336]
+[?] Extras in the app: Play Billing, one credential source, Extras screen      [#253]; managed
+    service clients (cloud/ManagedServices.kt)                                 [#330 to #336]
 
 Owner's to-dos, before it goes live:
 [ ] accounts and secrets: Cloudflare account id, D1 database id (a placeholder
@@ -298,8 +324,13 @@ Owner's to-dos, before it goes live:
 [ ] OpenRouter's written OK under its resale clause, and EU data terms for
     OpenRouter and Exa
 [ ] Play product `extras_monthly` and its price
-[ ] privacy policy page (Play needs one; the Extras paragraph goes there)
-[ ] Pub/Sub push: add the OIDC check (the secret path is the only check today)
+[x] privacy policy page: live [#267]; the Extras paragraph is in it, including the managed
+    services, the purchase token and the install id [#279, #337]
+[?] Pub/Sub push: the OIDC check is built and wired fail-closed [#279]. backend/extras-worker/
+    src/pubsub-auth.ts verifies the Google-signed push token (issuer, audience, service account,
+    JWKS keys); index.ts calls it on /v1/rtdn/ right after the path secret; an unset
+    PUBSUB_AUDIENCE or PUBSUB_SERVICE_ACCOUNT_EMAIL rejects every push with 401. Owner: set the
+    two variables and put the audience on the push subscription.
 [ ] default model id and monthly limits ($3.50 OpenRouter, $1.50 Exa) are placeholders
 [ ] Exa: the create-key response documents no secret field. Confirm with Exa, or
     Exa stays off and search keeps the free provider
@@ -573,7 +604,8 @@ The to-dos are already listed under "Extras" above; they stay the source of trut
 Added here:
 
 ```
-[?] [#279] Pub/Sub OIDC check and the switch rename; the owner sets the two new variables
+[?] [#279] Pub/Sub OIDC check and the switch rename: both built [#279]; the owner still sets
+      PUBSUB_AUDIENCE and PUBSUB_SERVICE_ACCOUNT_EMAIL
 [ ] the default model id and monthly limits
 [?] [#279, privacy page only] Data safety form update: Extras sends the Play purchase token and an install id to
       our server. Update privacy.html and the form together.
@@ -690,7 +722,13 @@ Not done or not checked, carried to the final pass or later:
 [ ] Translations are machine-written: no native reader yet, no check of clipping, no right-to-left review
 [ ] Repetition guard: measure false positives at the 400-character threshold; the stop shows the generic error
 [ ] Answer check: measure false positives per language. Prune: measure its effect on prefix reuse
-[ ] Eval suite: desktop harness contract not implemented; no failure or permission-denied tasks
+[?] E2E harness: scripts/run-evals.py drives the real app on a phone (debug build) through
+      scripts/devicectl.sh; the desktop runner was removed because it measured a different
+      loop; fault, contact-missing and no-tool language tasks exist [#322, #323, #325, #327];
+      docs/scores/results/ is empty, so no score has been measured
+[ ] #214 open again (a PR closed it "not fixed"; the owner reopened it): LiteRtLmDeltaTracker
+      infers the stream mode from content, so a delta that starts with the text so far loses
+      its leading characters; the fix must prove the mode, not infer it from text
 [ ] Upstream b12110 jinja and reasoning changes unverified with LFM3
 [ ] Desktop live view re-reads every 1.5 s; could use herdr events
 ```
