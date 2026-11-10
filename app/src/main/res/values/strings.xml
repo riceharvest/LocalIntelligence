@@ -333,7 +333,7 @@
     <string name="the_assistant_will_no_longer_answer">The assistant will no longer answer from this document.</string>
 
     <!-- ExtrasScreen.kt -->
-    <string name="extras_is_one_monthly_subscription_from">Extras is one monthly subscription from Google Play. With no setup, it gives this phone a smarter cloud chat model, better web search, and cloud tools: a code sandbox, a web browser, your apps such as Gmail and Calendar, better voice, an email address and Telegram. Your own keys in Technical mode still work the same, and the app stays free without Extras.</string>
+    <string name="extras_is_one_monthly_subscription_from">Extras is one monthly subscription from Google Play. With no setup, it gives this phone a smarter remote chat model, better web search, and cloud tools: a code sandbox, a web browser, your apps such as Gmail and Calendar, better voice, an email address and Telegram. Your own keys in Technical mode still work the same, and the app stays free without Extras.</string>
     <string name="extras_is_on_until">Extras is on until %1$s.</string>
     <string name="extras_is_off">Extras is off.</string>
     <string name="the_price_is_loading_from_google_play">The price is loading from Google Play.</string>
@@ -406,7 +406,7 @@
     <string name="what_it_never_does">What it never does</string>
     <string name="it_never_runs_unattended_or_in_the">It never runs unattended or in the background. It does not act in its own screens, Settings, or permission dialogs.</string>
     <string name="where_the_data_goes">Where the data goes</string>
-    <string name="nothing_leaves_the_phone_because_of">Nothing leaves the phone because of screen control, unless you have set up a cloud model to answer the request. If one does, the text on that screen goes to that model\'s provider.</string>
+    <string name="nothing_leaves_the_phone_because_of">Nothing leaves the phone because of screen control, unless you have set up a remote model to answer the request. If one does, the text on that screen goes to that model\'s provider.</string>
     <string name="how_to_turn_it_off">How to turn it off</string>
     <string name="switch_off_the_localintelligence">Switch off the LocalIntelligence accessibility service in Android\'s Accessibility settings. You can also switch Screen control off in this Settings screen.</string>
     <string name="if_android_blocks_the_switch">If Android blocks the switch</string>
@@ -1136,7 +1136,7 @@
     <!-- Search my phone (Settings > Search my phone). Every source is off until switched on. -->
     <string name="phone_search_title">Search my phone</string>
     <string name="phone_search_intro">Find things on this phone by words: notifications, texts, calendar, contact names, text files in a folder you choose, and photo captions. Everything is off until you switch it on.</string>
-    <string name="phone_search_privacy">The index is kept on this phone, and the index itself sends nothing anywhere. If a cloud chat model is answering, the matches the assistant finds are sent to that model in the chat, as any tool result is.</string>
+    <string name="phone_search_privacy">The index is kept on this phone, and the index itself sends nothing anywhere. If a remote chat model is answering, the matches the assistant finds are sent to that model in the chat, as any tool result is.</string>
     <string name="phone_search_charging_note">Texts, calendar, contact names and files are refreshed about every six hours, and only while the phone is charging. Notifications are recorded as they arrive.</string>
     <string name="phone_search_notifications">Notifications</string>
     <string name="phone_search_notifications_help">Keeps the notifications that arrive from now on. Notifications from before are not read.</string>
@@ -1198,7 +1198,7 @@
     <string name="plain_helper_ran">Looked at one part of it</string>
     <string name="plain_interrupted">The last answer stopped before it finished. Continue?</string>
     <string name="plain_search_intro">Find things on this phone by words: notifications, texts, calendar, contact names, text files in a folder you choose, and photo captions. Each one is on or off.</string>
-    <string name="plain_search_privacy">Your index stays on this phone and sends nothing anywhere. If a cloud assistant answers, what it finds is sent to it in the chat, like any other result.</string>
+    <string name="plain_search_privacy">Your index stays on this phone and sends nothing anywhere. If a remote assistant answers, what it finds is sent to it in the chat, like any other result.</string>
     <string name="plain_search_charging">Texts, calendar, contact names and files update about every six hours, only while the phone is charging. Notifications are saved as they arrive.</string>
     <string name="simple_nothing_came_back">Nothing came back.</string>
     <string name="plain_cant_hear">The assistant can\'t listen to recordings on this phone yet.</string>
@@ -1783,8 +1783,8 @@
     <string name="setting_extras_exa_key_desc">Issued for this phone while Extras is on. Stored encrypted and never shown back.</string>
     <string name="setting_extras_purchase_token_label">Extras purchase token</string>
     <string name="setting_extras_purchase_token_desc">The Google Play purchase this phone activated. Stored encrypted.</string>
-    <string name="setting_extras_cloud_chat_label">Send chat messages to the cloud</string>
-    <string name="setting_extras_cloud_chat_desc">On, Extras\' cloud model answers. Off, the phone\'s own model answers; Extras search stays on.</string>
+    <string name="setting_extras_cloud_chat_label">Use the remote model for chat</string>
+    <string name="setting_extras_cloud_chat_desc">On, Extras\' remote model answers. Off, the phone\'s own model answers; Extras search stays on.</string>
     <string name="setting_extras_better_voice_label">Better voice (Extras)</string>
     <string name="setting_extras_better_voice_desc">On, Extras provides fast cloud speech recognition and natural voice replies. Off, the phone\'s own voice engine is used.</string>
     <string name="setting_extras_openrouter_model_label">Extras chat model</string>
@@ -1908,6 +1908,8 @@
     <string name="setting_gateway_telegram_link_open_until_desc"></string>
     <string name="setting_gateway_telegram_offset_label">Update offset</string>
     <string name="setting_gateway_telegram_offset_desc"></string>
+    <string name="setting_gateway_telegram_managed_link_started_label">Telegram link started</string>
+    <string name="setting_gateway_telegram_managed_link_started_desc"></string>
     <string name="setting_gateway_telegram_last_error_label">Last error</string>
     <string name="setting_gateway_telegram_last_error_desc"></string>
     <string name="setting_skills_max_per_step_label">Skills per step</string>

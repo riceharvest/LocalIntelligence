@@ -260,7 +260,7 @@
 <string name="characters">, %1$s अक्षर</string>
 <string name="remove_3">%1$s हटाएँ?</string>
 <string name="the_assistant_will_no_longer_answer">असिस्टेंट अब इस दस्तावेज़ से जवाब नहीं देगा।</string>
-<string name="extras_is_one_monthly_subscription_from">Extras Google Play की एक मासिक सदस्यता है। बिना किसी सेटअप के, यह इस फ़ोन को एक स्मार्ट क्लाउड चैट मॉडल, बेहतर वेब खोज और क्लाउड टूल देता है: एक कोड सैंडबॉक्स, एक वेब ब्राउज़र, आपके ऐप जैसे Gmail और कैलेंडर, बेहतर आवाज़, एक ईमेल पता और Telegram। तकनीकी मोड में आपकी अपनी कुंजियाँ पहले की तरह काम करती हैं, और Extras के बिना भी ऐप मुफ़्त रहता है।</string>
+<string name="extras_is_one_monthly_subscription_from">Extras Google Play की एक मासिक सदस्यता है। बिना किसी सेटअप के, यह इस फ़ोन को एक स्मार्ट रिमोट चैट मॉडल, बेहतर वेब खोज और क्लाउड टूल देता है: एक कोड सैंडबॉक्स, एक वेब ब्राउज़र, आपके ऐप जैसे Gmail और कैलेंडर, बेहतर आवाज़, एक ईमेल पता और Telegram। तकनीकी मोड में आपकी अपनी कुंजियाँ पहले की तरह काम करती हैं, और Extras के बिना भी ऐप मुफ़्त रहता है।</string>
 <string name="extras_is_on_until">Extras %1$s तक चालू है।</string>
 <string name="extras_is_off">Extras बंद है।</string>
 <string name="the_price_is_loading_from_google_play">कीमत Google Play से लोड हो रही है।</string>
@@ -323,7 +323,7 @@
 <string name="what_it_never_does">यह कभी क्या नहीं करता</string>
 <string name="it_never_runs_unattended_or_in_the">यह कभी बिना आपके देखे या बैकग्राउंड में नहीं चलता। यह अपनी स्क्रीन, सेटिंग्स या अनुमति वाले डायलॉग में कुछ नहीं करता।</string>
 <string name="where_the_data_goes">डेटा कहाँ जाता है</string>
-<string name="nothing_leaves_the_phone_because_of">स्क्रीन कंट्रोल की वजह से फ़ोन से कुछ बाहर नहीं जाता, जब तक आपने अनुरोध का जवाब देने के लिए क्लाउड मॉडल सेट न किया हो। अगर किया है, तो उस स्क्रीन का टेक्स्ट उस मॉडल की प्रदाता कंपनी तक जाता है।</string>
+<string name="nothing_leaves_the_phone_because_of">स्क्रीन कंट्रोल की वजह से फ़ोन से कुछ बाहर नहीं जाता, जब तक आपने अनुरोध का जवाब देने के लिए रिमोट मॉडल सेट न किया हो। अगर किया है, तो उस स्क्रीन का टेक्स्ट उस मॉडल की प्रदाता कंपनी तक जाता है।</string>
 <string name="how_to_turn_it_off">इसे कैसे बंद करें</string>
 <string name="switch_off_the_localintelligence">Android की Accessibility सेटिंग्स में LocalIntelligence की Accessibility सेवा बंद करें। आप इस सेटिंग्स स्क्रीन में भी स्क्रीन कंट्रोल बंद कर सकते हैं।</string>
 <string name="if_android_blocks_the_switch">अगर Android स्विच को रोके</string>
@@ -936,7 +936,7 @@
 <string name="subtask_steps_header">सहायक ने जो कदम उठाए</string>
 <string name="phone_search_title">मेरा फ़ोन खोजें</string>
 <string name="phone_search_intro">शब्दों से इस फ़ोन की चीज़ें खोजें: सूचनाएँ, मैसेज, कैलेंडर, संपर्क के नाम, आपके चुने फ़ोल्डर की टेक्स्ट फ़ाइलें, और फ़ोटो के कैप्शन। चालू करने तक सब बंद रहता है।</string>
-<string name="phone_search_privacy">इंडेक्स इसी फ़ोन पर रहता है, और इंडेक्स खुद कुछ भी कहीं नहीं भेजता। अगर कोई क्लाउड चैट मॉडल जवाब दे रहा है, तो असिस्टेंट को मिले नतीजे चैट में उस मॉडल को भेजे जाते हैं, जैसे कोई भी टूल नतीजा।</string>
+<string name="phone_search_privacy">इंडेक्स इसी फ़ोन पर रहता है, और इंडेक्स खुद कुछ भी कहीं नहीं भेजता। अगर कोई रिमोट चैट मॉडल जवाब दे रहा है, तो असिस्टेंट को मिले नतीजे चैट में उस मॉडल को भेजे जाते हैं, जैसे कोई भी टूल नतीजा।</string>
 <string name="phone_search_charging_note">मैसेज, कैलेंडर, संपर्क के नाम और फ़ाइलें लगभग हर छह घंटे में ताज़ा होते हैं, और सिर्फ़ तब जब फ़ोन चार्ज हो रहा हो। सूचनाएँ आते ही दर्ज हो जाती हैं।</string>
 <string name="phone_search_notifications">सूचनाएँ</string>
 <string name="phone_search_notifications_help">अब से आने वाली सूचनाएँ रखता है। पहले की सूचनाएँ नहीं पढ़ी जातीं।</string>
@@ -992,7 +992,7 @@
 <string name="plain_helper_ran">उसके एक हिस्से पर नज़र डाली</string>
     <string name="plain_interrupted">पिछला जवाब पूरा होने से पहले रुक गया। जारी रखें?</string>
 <string name="plain_search_intro">शब्दों से इस फ़ोन की चीज़ें खोजें: सूचनाएँ, मैसेज, कैलेंडर, संपर्क के नाम, आपके चुने फ़ोल्डर की टेक्स्ट फ़ाइलें, और फ़ोटो के कैप्शन। हर एक चालू या बंद है।</string>
-<string name="plain_search_privacy">आपका इंडेक्स इसी फ़ोन पर रहता है और कुछ भी कहीं नहीं भेजता। अगर कोई क्लाउड असिस्टेंट जवाब देता है, तो जो मिलता है वह चैट में उसे भेजा जाता है, जैसे कोई भी दूसरा नतीजा।</string>
+<string name="plain_search_privacy">आपका इंडेक्स इसी फ़ोन पर रहता है और कुछ भी कहीं नहीं भेजता। अगर कोई रिमोट असिस्टेंट जवाब देता है, तो जो मिलता है वह चैट में उसे भेजा जाता है, जैसे कोई भी दूसरा नतीजा।</string>
 <string name="plain_search_charging">मैसेज, कैलेंडर, संपर्क के नाम और फ़ाइलें लगभग हर छह घंटे में अपडेट होती हैं, सिर्फ़ तब जब फ़ोन चार्ज हो रहा हो। सूचनाएँ आते ही सेव हो जाती हैं।</string>
 <string name="simple_nothing_came_back">कुछ नहीं मिला।</string>
 <string name="plain_cant_hear">असिस्टेंट अभी इस फ़ोन पर रिकॉर्डिंग नहीं सुन सकता।</string>
@@ -1308,8 +1308,8 @@
 <string name="setting_extras_exa_key_desc">Extras चालू रहने पर इस फ़ोन के लिए जारी की गई। एन्क्रिप्ट करके सेव होती है और कभी वापस नहीं दिखाई जाती।</string>
 <string name="setting_extras_purchase_token_label">Extras खरीद टोकन</string>
 <string name="setting_extras_purchase_token_desc">Google Play की वह खरीद जिसे इस फ़ोन ने चालू किया। एन्क्रिप्ट करके सेव होती है।</string>
-<string name="setting_extras_cloud_chat_label">चैट मैसेज क्लाउड को भेजें</string>
-<string name="setting_extras_cloud_chat_desc">चालू होने पर Extras का क्लाउड मॉडल जवाब देता है। बंद होने पर फ़ोन का अपना मॉडल जवाब देता है; Extras खोज चालू रहती है।</string>
+<string name="setting_extras_cloud_chat_label">चैट के लिए रिमोट मॉडल इस्तेमाल करें</string>
+<string name="setting_extras_cloud_chat_desc">चालू होने पर Extras का रिमोट मॉडल जवाब देता है। बंद होने पर फ़ोन का अपना मॉडल जवाब देता है; Extras खोज चालू रहती है।</string>
     <string name="setting_extras_better_voice_label">बेहतर आवाज़ (Extras)</string>
     <string name="setting_extras_better_voice_desc">चालू होने पर, Extras तेज़ क्लाउड आवाज़ पहचान और स्वाभाविक आवाज़ जवाब देता है। बंद होने पर, फ़ोन का अपना आवाज़ इंजन इस्तेमाल होता है।</string>
 <string name="setting_extras_openrouter_model_label">Extras चैट मॉडल</string>

@@ -260,7 +260,7 @@
 <string name="characters">, %1$s ký tự</string>
 <string name="remove_3">Gỡ %1$s?</string>
 <string name="the_assistant_will_no_longer_answer">Trợ lý sẽ không còn trả lời dựa trên tài liệu này nữa.</string>
-<string name="extras_is_one_monthly_subscription_from">Extras là một gói đăng ký hàng tháng từ Google Play. Không cần thiết lập, gói này cho điện thoại có mô hình trò chuyện đám mây thông minh hơn, tìm kiếm web tốt hơn và các công cụ đám mây: môi trường cách ly mã, trình duyệt web, các ứng dụng của bạn như Gmail và Lịch, giọng nói tốt hơn, địa chỉ email và Telegram. Khóa riêng của bạn trong chế độ Kỹ thuật vẫn dùng như cũ, và ứng dụng vẫn miễn phí khi không có Extras.</string>
+<string name="extras_is_one_monthly_subscription_from">Extras là một gói đăng ký hàng tháng từ Google Play. Không cần thiết lập, gói này cho điện thoại có mô hình trò chuyện từ xa thông minh hơn, tìm kiếm web tốt hơn và các công cụ đám mây: môi trường cách ly mã, trình duyệt web, các ứng dụng của bạn như Gmail và Lịch, giọng nói tốt hơn, địa chỉ email và Telegram. Khóa riêng của bạn trong chế độ Kỹ thuật vẫn dùng như cũ, và ứng dụng vẫn miễn phí khi không có Extras.</string>
 <string name="extras_is_on_until">Extras đang bật đến %1$s.</string>
 <string name="extras_is_off">Extras đang tắt.</string>
 <string name="the_price_is_loading_from_google_play">Đang tải giá từ Google Play.</string>
@@ -323,7 +323,7 @@
 <string name="what_it_never_does">Nó không bao giờ làm gì</string>
 <string name="it_never_runs_unattended_or_in_the">Nó không bao giờ chạy khi không có bạn hoặc ở chế độ nền. Nó không thao tác trong các màn hình của chính nó, Cài đặt, hay hộp thoại quyền.</string>
 <string name="where_the_data_goes">Dữ liệu đi đâu</string>
-<string name="nothing_leaves_the_phone_because_of">Điều khiển màn hình không làm gì rời khỏi điện thoại, trừ khi bạn đã thiết lập mô hình đám mây để trả lời yêu cầu. Nếu có, chữ trên màn hình đó sẽ được gửi tới nhà cung cấp của mô hình đó.</string>
+<string name="nothing_leaves_the_phone_because_of">Điều khiển màn hình không làm gì rời khỏi điện thoại, trừ khi bạn đã thiết lập mô hình từ xa để trả lời yêu cầu. Nếu có, chữ trên màn hình đó sẽ được gửi tới nhà cung cấp của mô hình đó.</string>
 <string name="how_to_turn_it_off">Cách tắt</string>
 <string name="switch_off_the_localintelligence">Tắt dịch vụ trợ năng LocalIntelligence trong cài đặt Trợ năng của Android. Bạn cũng có thể tắt Điều khiển màn hình trong màn hình Cài đặt này.</string>
 <string name="if_android_blocks_the_switch">Nếu Android chặn công tắc</string>
@@ -936,7 +936,7 @@
 <string name="subtask_steps_header">Các bước trợ giúp đã làm</string>
 <string name="phone_search_title">Tìm trong điện thoại của tôi</string>
 <string name="phone_search_intro">Tìm mọi thứ trên điện thoại này bằng chữ: thông báo, tin nhắn, lịch, tên liên hệ, tệp văn bản trong thư mục bạn chọn, và chú thích ảnh. Tất cả đều tắt cho đến khi bạn bật lên.</string>
-<string name="phone_search_privacy">Chỉ mục được giữ trên điện thoại này, và bản thân chỉ mục không gửi gì đi đâu cả. Nếu một mô hình đám mây đang trả lời, các kết quả trợ lý tìm được sẽ được gửi tới mô hình đó trong cuộc trò chuyện, như mọi kết quả công cụ khác.</string>
+<string name="phone_search_privacy">Chỉ mục được giữ trên điện thoại này, và bản thân chỉ mục không gửi gì đi đâu cả. Nếu một mô hình từ xa đang trả lời, các kết quả trợ lý tìm được sẽ được gửi tới mô hình đó trong cuộc trò chuyện, như mọi kết quả công cụ khác.</string>
 <string name="phone_search_charging_note">Tin nhắn, lịch, tên liên hệ và tệp được làm mới khoảng sáu giờ một lần, và chỉ khi điện thoại đang sạc. Thông báo được ghi lại ngay khi đến.</string>
 <string name="phone_search_notifications">Thông báo</string>
 <string name="phone_search_notifications_help">Giữ các thông báo đến từ bây giờ. Thông báo từ trước đó không được đọc.</string>
@@ -992,7 +992,7 @@
 <string name="plain_helper_ran">Đã xem xét một phần việc</string>
     <string name="plain_interrupted">Câu trả lời trước đã dừng trước khi xong. Tiếp tục nhé?</string>
 <string name="plain_search_intro">Tìm mọi thứ trên điện thoại này bằng chữ: thông báo, tin nhắn, lịch, tên liên hệ, tệp văn bản trong thư mục bạn chọn, và chú thích ảnh. Mỗi mục đều có thể bật hoặc tắt.</string>
-<string name="plain_search_privacy">Chỉ mục của bạn chỉ ở trên điện thoại này và không gửi gì đi đâu cả. Nếu trợ lý đám mây trả lời, những gì nó tìm được sẽ được gửi tới đó trong cuộc trò chuyện, như mọi kết quả khác.</string>
+<string name="plain_search_privacy">Chỉ mục của bạn chỉ ở trên điện thoại này và không gửi gì đi đâu cả. Nếu trợ lý từ xa trả lời, những gì nó tìm được sẽ được gửi tới đó trong cuộc trò chuyện, như mọi kết quả khác.</string>
 <string name="plain_search_charging">Tin nhắn, lịch, tên liên hệ và tệp được cập nhật khoảng sáu giờ một lần, chỉ khi điện thoại đang sạc. Thông báo được lưu ngay khi đến.</string>
 <string name="simple_nothing_came_back">Không có kết quả nào.</string>
 <string name="plain_cant_hear">Trợ lý chưa thể nghe các bản ghi âm trên điện thoại này.</string>
@@ -1308,8 +1308,8 @@
 <string name="setting_extras_exa_key_desc">Được cấp cho điện thoại này khi Extras đang bật. Được lưu đã mã hóa và không bao giờ hiện lại.</string>
 <string name="setting_extras_purchase_token_label">Mã mua hàng Extras</string>
 <string name="setting_extras_purchase_token_desc">Giao dịch mua trên Google Play mà điện thoại này đã kích hoạt. Được lưu đã mã hóa.</string>
-<string name="setting_extras_cloud_chat_label">Gửi tin nhắn trò chuyện lên đám mây</string>
-<string name="setting_extras_cloud_chat_desc">Bật thì mô hình đám mây của Extras trả lời. Tắt thì mô hình riêng của điện thoại trả lời; tìm kiếm Extras vẫn bật.</string>
+<string name="setting_extras_cloud_chat_label">Dùng mô hình từ xa để trò chuyện</string>
+<string name="setting_extras_cloud_chat_desc">Bật thì mô hình từ xa của Extras trả lời. Tắt thì mô hình riêng của điện thoại trả lời; tìm kiếm Extras vẫn bật.</string>
     <string name="setting_extras_better_voice_label">Giọng nói tốt hơn (Extras)</string>
     <string name="setting_extras_better_voice_desc">Bật thì Extras cung cấp tính năng nhận dạng giọng nói trên đám mây nhanh chóng và phản hồi giọng nói tự nhiên. Tắt thì sử dụng công cụ giọng nói của điện thoại.</string>
 <string name="setting_extras_openrouter_model_label">Mô hình trò chuyện Extras</string>

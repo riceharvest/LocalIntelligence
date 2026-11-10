@@ -260,7 +260,7 @@
 <string name="characters">, %1$s Zeichen</string>
 <string name="remove_3">%1$s entfernen?</string>
 <string name="the_assistant_will_no_longer_answer">Der Assistent antwortet nicht mehr aus diesem Dokument.</string>
-<string name="extras_is_one_monthly_subscription_from">Extras ist ein monatliches Abo über Google Play. Ohne Einrichtung gibt es diesem Handy ein klügeres Cloud-Chat-Modell, eine bessere Websuche und Cloud-Tools: eine Code-Sandbox, einen Webbrowser, deine Apps wie Gmail und Kalender, eine bessere Stimme, eine E-Mail-Adresse und Telegram. Deine eigenen Schlüssel im Technik-Modus funktionieren weiterhin genauso, und die App bleibt ohne Extras kostenlos.</string>
+<string name="extras_is_one_monthly_subscription_from">Extras ist ein monatliches Abo über Google Play. Ohne Einrichtung gibt es diesem Handy ein klügeres Remote-Chat-Modell, eine bessere Websuche und Cloud-Tools: eine Code-Sandbox, einen Webbrowser, deine Apps wie Gmail und Kalender, eine bessere Stimme, eine E-Mail-Adresse und Telegram. Deine eigenen Schlüssel im Technik-Modus funktionieren weiterhin genauso, und die App bleibt ohne Extras kostenlos.</string>
 <string name="extras_is_on_until">Extras ist bis %1$s aktiv.</string>
 <string name="extras_is_off">Extras ist aus.</string>
 <string name="the_price_is_loading_from_google_play">Der Preis wird von Google Play geladen.</string>
@@ -323,7 +323,7 @@
 <string name="what_it_never_does">Was er nie tut</string>
 <string name="it_never_runs_unattended_or_in_the">Er läuft nie unbeaufsichtigt oder im Hintergrund. Er handelt nicht in eigenen Bildschirmen, den Einstellungen oder Berechtigungsdialogen.</string>
 <string name="where_the_data_goes">Wohin die Daten gehen</string>
-<string name="nothing_leaves_the_phone_because_of">Wegen der Bildschirmsteuerung verlässt nichts das Handy, außer du hast ein Cloud-Modell für die Antwort eingerichtet. Dann geht der Text dieses Bildschirms an den Anbieter dieses Modells.</string>
+<string name="nothing_leaves_the_phone_because_of">Wegen der Bildschirmsteuerung verlässt nichts das Handy, außer du hast ein Remote-Modell für die Antwort eingerichtet. Dann geht der Text dieses Bildschirms an den Anbieter dieses Modells.</string>
 <string name="how_to_turn_it_off">So schaltest du es aus</string>
 <string name="switch_off_the_localintelligence">Schalte den Barrierefreiheitsdienst von LocalIntelligence in den Android-Barrierefreiheitseinstellungen aus. Du kannst auch die Bildschirmsteuerung auf diesem Einstellungsbildschirm ausschalten.</string>
 <string name="if_android_blocks_the_switch">Wenn Android den Schalter blockiert</string>
@@ -936,7 +936,7 @@
 <string name="subtask_steps_header">Schritte des Helfers</string>
 <string name="phone_search_title">Mein Handy durchsuchen</string>
 <string name="phone_search_intro">Findet Dinge auf diesem Handy über Worte: Benachrichtigungen, SMS, Kalender, Kontaktnamen, Textdateien in einem Ordner deiner Wahl und Fotobeschriftungen. Alles ist aus, bis du es einschaltest.</string>
-<string name="phone_search_privacy">Der Index bleibt auf diesem Handy, und der Index selbst sendet nichts irgendwohin. Antwortet ein Cloud-Chatmodell, werden die Treffer, die der Assistent findet, im Chat an dieses Modell gesendet, wie jedes Werkzeugergebnis.</string>
+<string name="phone_search_privacy">Der Index bleibt auf diesem Handy, und der Index selbst sendet nichts irgendwohin. Antwortet ein Remote-Chatmodell, werden die Treffer, die der Assistent findet, im Chat an dieses Modell gesendet, wie jedes Werkzeugergebnis.</string>
 <string name="phone_search_charging_note">SMS, Kalender, Kontaktnamen und Dateien werden etwa alle sechs Stunden aktualisiert, und nur, während das Handy lädt. Benachrichtigungen werden beim Eintreffen gespeichert.</string>
 <string name="phone_search_notifications">Benachrichtigungen</string>
 <string name="phone_search_notifications_help">Speichert die Benachrichtigungen, die ab jetzt eintreffen. Ältere Benachrichtigungen werden nicht gelesen.</string>
@@ -992,7 +992,7 @@
 <string name="plain_helper_ran">Einen Teil davon angeschaut</string>
     <string name="plain_interrupted">Die letzte Antwort wurde vor dem Ende abgebrochen. Weitermachen?</string>
 <string name="plain_search_intro">Findet Dinge auf diesem Handy über Worte: Benachrichtigungen, SMS, Kalender, Kontaktnamen, Textdateien in einem Ordner deiner Wahl und Fotobeschriftungen. Jedes davon ist an oder aus.</string>
-<string name="plain_search_privacy">Dein Index bleibt auf diesem Handy und sendet nichts irgendwohin. Antwortet ein Cloud-Assistent, wird das, was er findet, wie jedes andere Ergebnis im Chat an ihn gesendet.</string>
+<string name="plain_search_privacy">Dein Index bleibt auf diesem Handy und sendet nichts irgendwohin. Antwortet ein Remote-Assistent, wird das, was er findet, wie jedes andere Ergebnis im Chat an ihn gesendet.</string>
 <string name="plain_search_charging">SMS, Kalender, Kontaktnamen und Dateien werden etwa alle sechs Stunden aktualisiert, nur während das Handy lädt. Benachrichtigungen werden beim Eintreffen gespeichert.</string>
 <string name="simple_nothing_came_back">Es kam nichts zurück.</string>
 <string name="plain_cant_hear">Der Assistent kann auf diesem Handy noch keine Aufnahmen anhören.</string>
@@ -1308,8 +1308,8 @@
 <string name="setting_extras_exa_key_desc">Für dieses Handy ausgestellt, solange Extras an ist. Verschlüsselt gespeichert und nie wieder angezeigt.</string>
 <string name="setting_extras_purchase_token_label">Extras-Kaufnachweis</string>
 <string name="setting_extras_purchase_token_desc">Der Google-Play-Kauf, mit dem dieses Handy aktiviert wurde. Verschlüsselt gespeichert.</string>
-<string name="setting_extras_cloud_chat_label">Chat-Nachrichten an die Cloud senden</string>
-<string name="setting_extras_cloud_chat_desc">An: Das Cloud-Modell von Extras antwortet. Aus: Das eigene Modell des Handys antwortet; die Extras-Suche bleibt an.</string>
+<string name="setting_extras_cloud_chat_label">Remote-Modell für den Chat verwenden</string>
+<string name="setting_extras_cloud_chat_desc">An: Das Remote-Modell von Extras antwortet. Aus: Das eigene Modell des Handys antwortet; die Extras-Suche bleibt an.</string>
     <string name="setting_extras_better_voice_label">Bessere Stimme (Extras)</string>
     <string name="setting_extras_better_voice_desc">An: Extras bietet schnelle Cloud-Spracherkennung und natürliche Sprachantworten. Aus: Die eigene Sprachausgabe des Handys wird verwendet.</string>
 <string name="setting_extras_openrouter_model_label">Extras-Chatmodell</string>

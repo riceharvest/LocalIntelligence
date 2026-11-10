@@ -395,7 +395,7 @@ class AppContainer(private val context: Context) {
     }
 
     /**
-     * The loaded model when it is local and can read pictures, else null. A cloud chat model is refused
+     * The loaded model when it is local and can read pictures, else null. A remote model is refused
      * here: a photo sent to it would leave the phone, which the Photo search promise rules out.
      */
     fun localVisionBackend(): ModelBackend? {

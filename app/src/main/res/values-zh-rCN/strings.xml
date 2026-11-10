@@ -259,7 +259,7 @@
 <string name="characters">，%1$s 个字符</string>
 <string name="remove_3">要移除 %1$s 吗？</string>
 <string name="the_assistant_will_no_longer_answer">助手以后不会再根据这份文档回答。</string>
-<string name="extras_is_one_monthly_subscription_from">更多功能是 Google Play 提供的一项月度订阅。无需设置，即可让这部手机使用更聪明的云端聊天模型、更好的网络搜索以及云端工具：代码沙盒、网络浏览器、你的应用（如 Gmail 和日历）、更好的语音、电子邮箱地址和 Telegram。在技术模式中使用你自己的密钥仍然一样可用，不订阅更多功能，应用也依然免费。</string>
+<string name="extras_is_one_monthly_subscription_from">更多功能是 Google Play 提供的一项月度订阅。无需设置，即可让这部手机使用更聪明的远程聊天模型、更好的网络搜索以及云端工具：代码沙盒、网络浏览器、你的应用（如 Gmail 和日历）、更好的语音、电子邮箱地址和 Telegram。在技术模式中使用你自己的密钥仍然一样可用，不订阅更多功能，应用也依然免费。</string>
 <string name="extras_is_on_until">更多功能已开通，有效期至 %1$s。</string>
 <string name="extras_is_off">更多功能未开通。</string>
 <string name="the_price_is_loading_from_google_play">正在从 Google Play 加载价格。</string>
@@ -322,7 +322,7 @@
 <string name="what_it_never_does">它绝不会做什么</string>
 <string name="it_never_runs_unattended_or_in_the">它不会在无人值守的情况下运行，也不会在后台运行。它不会操作自己的界面、设置或权限对话框。</string>
 <string name="where_the_data_goes">数据去向</string>
-<string name="nothing_leaves_the_phone_because_of">屏幕控制本身不会让任何内容离开手机，除非你设置了云端模型来回答该请求。如果设置了，那个屏幕上的文字就会发送给该模型的服务商。</string>
+<string name="nothing_leaves_the_phone_because_of">屏幕控制本身不会让任何内容离开手机，除非你设置了远程模型来回答该请求。如果设置了，那个屏幕上的文字就会发送给该模型的服务商。</string>
 <string name="how_to_turn_it_off">如何关闭</string>
 <string name="switch_off_the_localintelligence">请在系统的无障碍设置中关闭 LocalIntelligence 无障碍服务。你也可以在这个设置页面关闭屏幕控制。</string>
 <string name="if_android_blocks_the_switch">如果系统阻止开关</string>
@@ -935,7 +935,7 @@
 <string name="subtask_steps_header">助手完成的步骤</string>
 <string name="phone_search_title">搜索我的手机</string>
 <string name="phone_search_intro">用文字查找这部手机上的内容：通知、短信、日历、联系人姓名、你选择的文件夹中的文本文件，以及照片说明。开启之前，所有项目都是关闭的。</string>
-<string name="phone_search_privacy">索引保存在这部手机上，索引本身不会发送到任何地方。如果是云端对话模型在回答，助手找到的匹配内容会像其他工具结果一样，在对话中发送给该模型。</string>
+<string name="phone_search_privacy">索引保存在这部手机上，索引本身不会发送到任何地方。如果是远程对话模型在回答，助手找到的匹配内容会像其他工具结果一样，在对话中发送给该模型。</string>
 <string name="phone_search_charging_note">短信、日历、联系人姓名和文件大约每六小时更新一次，而且只在手机充电时更新。通知会在到达时即时记录。</string>
 <string name="phone_search_notifications">通知</string>
 <string name="phone_search_notifications_help">保存从现在起收到的通知。之前的通知不会被读取。</string>
@@ -991,7 +991,7 @@
 <string name="plain_helper_ran">查看了其中一部分</string>
     <string name="plain_interrupted">上一条回答在完成前停止了。要继续吗？</string>
 <string name="plain_search_intro">用文字查找这部手机上的内容：通知、短信、日历、联系人姓名、你选择的文件夹中的文本文件，以及照片说明。每一项都可以单独开启或关闭。</string>
-<string name="plain_search_privacy">你的索引只保存在这部手机上，不会发送到任何地方。如果是云端助手在回答，它找到的内容会和其他结果一样，在对话中发送给它。</string>
+<string name="plain_search_privacy">你的索引只保存在这部手机上，不会发送到任何地方。如果是远程助手在回答，它找到的内容会和其他结果一样，在对话中发送给它。</string>
 <string name="plain_search_charging">短信、日历、联系人姓名和文件大约每六小时更新一次，而且只在手机充电时更新。通知会在到达时保存。</string>
 <string name="simple_nothing_came_back">没有任何回应。</string>
 <string name="plain_cant_hear">助手暂时还不能在这部手机上听录音。</string>
@@ -1307,8 +1307,8 @@
 <string name="setting_extras_exa_key_desc">更多功能开通期间为这部手机颁发。加密保存，且不会再次显示。</string>
 <string name="setting_extras_purchase_token_label">更多功能购买凭证</string>
 <string name="setting_extras_purchase_token_desc">这部手机所激活的 Google Play 购买记录。加密保存。</string>
-<string name="setting_extras_cloud_chat_label">将聊天消息发送到云端</string>
-<string name="setting_extras_cloud_chat_desc">开启时，由更多功能的云端模型回答。关闭时，由手机自己的模型回答；更多功能搜索仍保持开启。</string>
+<string name="setting_extras_cloud_chat_label">聊天使用远程模型</string>
+<string name="setting_extras_cloud_chat_desc">开启时，由更多功能的远程模型回答。关闭时，由手机自己的模型回答；更多功能搜索仍保持开启。</string>
     <string name="setting_extras_better_voice_label">更好的语音（更多功能）</string>
     <string name="setting_extras_better_voice_desc">开启时，由更多功能提供快速云端语音识别与自然语音回复。关闭时，使用手机自身的语音引擎。</string>
 <string name="setting_extras_openrouter_model_label">更多功能聊天模型</string>

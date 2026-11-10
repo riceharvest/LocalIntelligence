@@ -259,7 +259,7 @@
 <string name="characters">，%1$s 個字元</string>
 <string name="remove_3">要移除 %1$s 嗎？</string>
 <string name="the_assistant_will_no_longer_answer">助理以後不會再根據這份文件回答。</string>
-<string name="extras_is_one_monthly_subscription_from">加值功能是 Google Play 的一項每月訂閱。不需要任何設定，就能讓這支手機使用較聰明的雲端聊天模型、較好的網路搜尋以及雲端工具：程式碼沙箱、網路瀏覽器、你的應用程式（如 Gmail 和行事曆）、更好的語音、電子郵件地址與 Telegram。在技術模式中使用你自己的金鑰仍然照常運作，不買加值功能，應用程式也一樣免費。</string>
+<string name="extras_is_one_monthly_subscription_from">加值功能是 Google Play 的一項每月訂閱。不需要任何設定，就能讓這支手機使用較聰明的遠端聊天模型、較好的網路搜尋以及雲端工具：程式碼沙箱、網路瀏覽器、你的應用程式（如 Gmail 和行事曆）、更好的語音、電子郵件地址與 Telegram。在技術模式中使用你自己的金鑰仍然照常運作，不買加值功能，應用程式也一樣免費。</string>
 <string name="extras_is_on_until">加值功能有效至 %1$s。</string>
 <string name="extras_is_off">加值功能已關閉。</string>
 <string name="the_price_is_loading_from_google_play">正在從 Google Play 載入價格。</string>
@@ -322,7 +322,7 @@
 <string name="what_it_never_does">它絕對不會做什麼</string>
 <string name="it_never_runs_unattended_or_in_the">它絕不會在無人看管或背景中執行。它不會在自己的畫面、設定或權限對話框中操作。</string>
 <string name="where_the_data_goes">資料會去哪裡</string>
-<string name="nothing_leaves_the_phone_because_of">除非你設定了雲端模型來回答這個請求，否則螢幕控制不會讓任何資料離開手機。如果有設定，該畫面上的文字會傳送給那個模型的服務商。</string>
+<string name="nothing_leaves_the_phone_because_of">除非你設定了遠端模型來回答這個請求，否則螢幕控制不會讓任何資料離開手機。如果有設定，該畫面上的文字會傳送給那個模型的服務商。</string>
 <string name="how_to_turn_it_off">如何關閉</string>
 <string name="switch_off_the_localintelligence">請到 Android 的無障礙設定中關閉 LocalIntelligence 無障礙服務。你也可以在這個設定畫面中關閉螢幕控制。</string>
 <string name="if_android_blocks_the_switch">如果 Android 擋住開關</string>
@@ -935,7 +935,7 @@
 <string name="subtask_steps_header">小幫手執行的步驟</string>
 <string name="phone_search_title">搜尋我的手機</string>
 <string name="phone_search_intro">用文字找出這支手機上的東西：通知、簡訊、行事曆、聯絡人姓名、你選的資料夾中的文字檔，以及照片說明。全部預設關閉，開啟後才會搜尋。</string>
-<string name="phone_search_privacy">索引保存在這支手機上，索引本身不會傳送到任何地方。如果是雲端聊天模型在回答，助理找到的符合結果會像任何工具結果一樣，在聊天中傳送給該模型。</string>
+<string name="phone_search_privacy">索引保存在這支手機上，索引本身不會傳送到任何地方。如果是遠端聊天模型在回答，助理找到的符合結果會像任何工具結果一樣，在聊天中傳送給該模型。</string>
 <string name="phone_search_charging_note">簡訊、行事曆、聯絡人姓名和檔案大約每六小時更新一次，而且只在手機充電時更新。通知則是在收到時即時記錄。</string>
 <string name="phone_search_notifications">通知</string>
 <string name="phone_search_notifications_help">從現在起保留收到的通知。之前的通知不會被讀取。</string>
@@ -991,7 +991,7 @@
 <string name="plain_helper_ran">查看了其中一部分</string>
     <string name="plain_interrupted">上一則回答在完成前停止了。要繼續嗎？</string>
 <string name="plain_search_intro">用文字找出這支手機上的東西：通知、簡訊、行事曆、聯絡人姓名、你選的資料夾中的文字檔，以及照片說明。每一項都可以開或關。</string>
-<string name="plain_search_privacy">你的索引只保存在這支手機上，不會傳送到任何地方。如果是雲端助理在回答，它找到的內容會像其他結果一樣，在聊天中傳送給它。</string>
+<string name="plain_search_privacy">你的索引只保存在這支手機上，不會傳送到任何地方。如果是遠端助理在回答，它找到的內容會像其他結果一樣，在聊天中傳送給它。</string>
 <string name="plain_search_charging">簡訊、行事曆、聯絡人姓名和檔案大約每六小時更新一次，而且只在手機充電時更新。通知會在收到時儲存。</string>
 <string name="simple_nothing_came_back">沒有任何回應。</string>
 <string name="plain_cant_hear">助理目前還無法在這支手機上聽錄音。</string>
@@ -1307,8 +1307,8 @@
 <string name="setting_extras_exa_key_desc">開啟 Extras 期間為這支手機發放。加密儲存，且不會再顯示。</string>
 <string name="setting_extras_purchase_token_label">Extras 購買權杖</string>
 <string name="setting_extras_purchase_token_desc">這支手機已啟用的 Google Play 購買項目。加密儲存。</string>
-<string name="setting_extras_cloud_chat_label">把聊天訊息傳送到雲端</string>
-<string name="setting_extras_cloud_chat_desc">開啟時，由 Extras 的雲端模型回答；關閉時，由手機自己的模型回答，Extras 搜尋則維持開啟。</string>
+<string name="setting_extras_cloud_chat_label">聊天使用遠端模型</string>
+<string name="setting_extras_cloud_chat_desc">開啟時，由 Extras 的遠端模型回答；關閉時，由手機自己的模型回答，Extras 搜尋則維持開啟。</string>
     <string name="setting_extras_better_voice_label">更好的語音 (Extras)</string>
     <string name="setting_extras_better_voice_desc">開啟時，Extras 提供快速的雲端語音辨識與自然語音回覆。關閉時，使用手機本身的語音引擎。</string>
 <string name="setting_extras_openrouter_model_label">Extras 聊天模型</string>

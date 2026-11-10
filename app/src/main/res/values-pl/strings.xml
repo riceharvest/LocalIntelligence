@@ -262,7 +262,7 @@
 <string name="characters">, %1$s znaków</string>
 <string name="remove_3">Usunąć %1$s?</string>
 <string name="the_assistant_will_no_longer_answer">Asystent nie będzie już odpowiadał z tego dokumentu.</string>
-<string name="extras_is_one_monthly_subscription_from">Extras to jedna miesięczna subskrypcja z Google Play. Bez konfiguracji daje temu telefonowi mądrzejszy model czatu w chmurze, lepsze wyszukiwanie w sieci oraz narzędzia w chmurze: piaskownicę kodu, przeglądarkę internetową, twoje aplikacje, takie jak Gmail i Kalendarz, lepszy głos, adres e-mail i Telegram. Twoje własne klucze w trybie Technicznym działają tak samo, a aplikacja bez Extras pozostaje bezpłatna.</string>
+<string name="extras_is_one_monthly_subscription_from">Extras to jedna miesięczna subskrypcja z Google Play. Bez konfiguracji daje temu telefonowi mądrzejszy zdalny model czatu, lepsze wyszukiwanie w sieci oraz narzędzia w chmurze: piaskownicę kodu, przeglądarkę internetową, twoje aplikacje, takie jak Gmail i Kalendarz, lepszy głos, adres e-mail i Telegram. Twoje własne klucze w trybie Technicznym działają tak samo, a aplikacja bez Extras pozostaje bezpłatna.</string>
 <string name="extras_is_on_until">Extras jest włączone do %1$s.</string>
 <string name="extras_is_off">Extras jest wyłączone.</string>
 <string name="the_price_is_loading_from_google_play">Cena wczytuje się z Google Play.</string>
@@ -325,7 +325,7 @@
 <string name="what_it_never_does">Czego nigdy nie robi</string>
 <string name="it_never_runs_unattended_or_in_the">Nigdy nie działa bez nadzoru ani w tle. Nie działa w swoich ekranach, w Ustawieniach ani w oknach uprawnień.</string>
 <string name="where_the_data_goes">Dokąd idą dane</string>
-<string name="nothing_leaves_the_phone_because_of">Przez sterowanie ekranem nic nie opuszcza telefonu, chyba że ustawiłeś model w chmurze do odpowiadania na prośbę. Jeśli tak, tekst z tego ekranu idzie do dostawcy tego modelu.</string>
+<string name="nothing_leaves_the_phone_because_of">Przez sterowanie ekranem nic nie opuszcza telefonu, chyba że ustawiłeś zdalny model do odpowiadania na prośbę. Jeśli tak, tekst z tego ekranu idzie do dostawcy tego modelu.</string>
 <string name="how_to_turn_it_off">Jak to wyłączyć</string>
 <string name="switch_off_the_localintelligence">Wyłącz usługę dostępności LocalIntelligence w ustawieniach Androida w sekcji Dostępność. Możesz też wyłączyć Sterowanie ekranem na tym ekranie Ustawień.</string>
 <string name="if_android_blocks_the_switch">Jeśli Android blokuje przełącznik</string>
@@ -938,7 +938,7 @@
 <string name="subtask_steps_header">Kroki, które wykonał pomocnik</string>
 <string name="phone_search_title">Przeszukaj mój telefon</string>
 <string name="phone_search_intro">Znajduj rzeczy na tym telefonie po słowach: powiadomienia, SMS-y, kalendarz, nazwy kontaktów, pliki tekstowe w wybranym folderze i opisy zdjęć. Wszystko jest wyłączone, dopóki tego nie włączysz.</string>
-<string name="phone_search_privacy">Indeks zostaje na tym telefonie, a sam indeks nigdzie niczego nie wysyła. Jeśli odpowiada model czatu w chmurze, znalezione przez asystenta wyniki są wysyłane do tego modelu w rozmowie, tak jak każdy wynik narzędzia.</string>
+<string name="phone_search_privacy">Indeks zostaje na tym telefonie, a sam indeks nigdzie niczego nie wysyła. Jeśli odpowiada zdalny model czatu, znalezione przez asystenta wyniki są wysyłane do tego modelu w rozmowie, tak jak każdy wynik narzędzia.</string>
 <string name="phone_search_charging_note">SMS-y, kalendarz, nazwy kontaktów i pliki są odświeżane mniej więcej co sześć godzin, i tylko podczas ładowania telefonu. Powiadomienia są zapisywane w miarę ich przychodzenia.</string>
 <string name="phone_search_notifications">Powiadomienia</string>
 <string name="phone_search_notifications_help">Zachowuje powiadomienia, które przychodzą od teraz. Starsze powiadomienia nie są czytane.</string>
@@ -994,7 +994,7 @@
 <string name="plain_helper_ran">Sprawdzono jedną część zadania</string>
     <string name="plain_interrupted">Poprzednia odpowiedź zatrzymała się przed końcem. Kontynuować?</string>
 <string name="plain_search_intro">Znajduj rzeczy na tym telefonie po słowach: powiadomienia, SMS-y, kalendarz, nazwy kontaktów, pliki tekstowe w wybranym folderze i opisy zdjęć. Każda z tych rzeczy jest włączona albo wyłączona.</string>
-<string name="plain_search_privacy">Twój indeks zostaje na tym telefonie i nigdzie nic nie wysyła. Jeśli odpowiada asystent w chmurze, to, co znajdzie, jest do niego wysyłane w rozmowie, jak każdy inny wynik.</string>
+<string name="plain_search_privacy">Twój indeks zostaje na tym telefonie i nigdzie nic nie wysyła. Jeśli odpowiada zdalny asystent, to, co znajdzie, jest do niego wysyłane w rozmowie, jak każdy inny wynik.</string>
 <string name="plain_search_charging">SMS-y, kalendarz, nazwy kontaktów i pliki aktualizują się mniej więcej co sześć godzin, tylko podczas ładowania telefonu. Powiadomienia są zapisywane w miarę ich przychodzenia.</string>
 <string name="simple_nothing_came_back">Nic nie wróciło.</string>
 <string name="plain_cant_hear">Asystent na razie nie może słuchać nagrań na tym telefonie.</string>
@@ -1310,8 +1310,8 @@
 <string name="setting_extras_exa_key_desc">Wydany dla tego telefonu, gdy Extras jest włączone. Zapisany szyfrowany i nigdy niepokazywany.</string>
 <string name="setting_extras_purchase_token_label">Token zakupu Extras</string>
 <string name="setting_extras_purchase_token_desc">Zakup Google Play, który aktywował ten telefon. Zapisany szyfrowany.</string>
-<string name="setting_extras_cloud_chat_label">Wysyłaj wiadomości czatu do chmury</string>
-<string name="setting_extras_cloud_chat_desc">Włączone: odpowiada model w chmurze Extras. Wyłączone: odpowiada własny model telefonu; wyszukiwanie Extras pozostaje włączone.</string>
+<string name="setting_extras_cloud_chat_label">Używaj zdalnego modelu do czatu</string>
+<string name="setting_extras_cloud_chat_desc">Włączone: odpowiada zdalny model Extras. Wyłączone: odpowiada własny model telefonu; wyszukiwanie Extras pozostaje włączone.</string>
     <string name="setting_extras_better_voice_label">Lepszy głos (Extras)</string>
     <string name="setting_extras_better_voice_desc">Włączone: Extras zapewnia szybkie rozpoznawanie mowy w chmurze i naturalne odpowiedzi głosowe. Wyłączone: używany jest własny mechanizm mowy telefonu.</string>
 <string name="setting_extras_openrouter_model_label">Model czatu Extras</string>

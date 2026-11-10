@@ -260,7 +260,7 @@
 <string name="characters">, %1$s caracteres</string>
 <string name="remove_3">¿Quitar %1$s?</string>
 <string name="the_assistant_will_no_longer_answer">El asistente ya no responderá con base en este documento.</string>
-<string name="extras_is_one_monthly_subscription_from">Extras es una suscripción mensual de Google Play. Sin configurar nada, da a este teléfono un modelo de chat en la nube más inteligente, una mejor búsqueda web y herramientas en la nube: un sandbox de código, un navegador web, tus apps como Gmail y Calendario, mejor voz, una dirección de correo y Telegram. Tus propias claves en el Modo Técnico siguen funcionando igual, y la app sigue siendo gratis sin Extras.</string>
+<string name="extras_is_one_monthly_subscription_from">Extras es una suscripción mensual de Google Play. Sin configurar nada, da a este teléfono un modelo de chat remoto más inteligente, una mejor búsqueda web y herramientas en la nube: un sandbox de código, un navegador web, tus apps como Gmail y Calendario, mejor voz, una dirección de correo y Telegram. Tus propias claves en el Modo Técnico siguen funcionando igual, y la app sigue siendo gratis sin Extras.</string>
 <string name="extras_is_on_until">Extras está activo hasta %1$s.</string>
 <string name="extras_is_off">Extras está desactivado.</string>
 <string name="the_price_is_loading_from_google_play">El precio se está cargando desde Google Play.</string>
@@ -323,7 +323,7 @@
 <string name="what_it_never_does">Lo que nunca hace</string>
 <string name="it_never_runs_unattended_or_in_the">Nunca funciona sin que lo veas ni en segundo plano. No actúa en sus propias pantallas, en los ajustes ni en los diálogos de permisos.</string>
 <string name="where_the_data_goes">Adónde van los datos</string>
-<string name="nothing_leaves_the_phone_because_of">Nada sale del teléfono por el control de pantalla, a menos que hayas configurado un modelo en la nube para responder la petición. Si lo hay, el texto de esa pantalla va al proveedor de ese modelo.</string>
+<string name="nothing_leaves_the_phone_because_of">Nada sale del teléfono por el control de pantalla, a menos que hayas configurado un modelo remoto para responder la petición. Si lo hay, el texto de esa pantalla va al proveedor de ese modelo.</string>
 <string name="how_to_turn_it_off">Cómo desactivarlo</string>
 <string name="switch_off_the_localintelligence">Desactiva el servicio de accesibilidad de LocalIntelligence en los ajustes de Accesibilidad de Android. También puedes desactivar el Control de pantalla en esta pantalla de Ajustes.</string>
 <string name="if_android_blocks_the_switch">Si Android bloquea el interruptor</string>
@@ -936,7 +936,7 @@
 <string name="subtask_steps_header">Pasos que dio el ayudante</string>
 <string name="phone_search_title">Buscar en mi teléfono</string>
 <string name="phone_search_intro">Encuentra cosas en este teléfono por palabras: notificaciones, mensajes, calendario, nombres de contactos, archivos de texto de una carpeta que elijas y descripciones de fotos. Todo está desactivado hasta que lo actives.</string>
-<string name="phone_search_privacy">El índice se guarda en este teléfono, y el propio índice no envía nada a ningún sitio. Si responde un modelo de chat en la nube, los resultados que encuentra el asistente se envían a ese modelo en el chat, como cualquier resultado de herramienta.</string>
+<string name="phone_search_privacy">El índice se guarda en este teléfono, y el propio índice no envía nada a ningún sitio. Si responde un modelo de chat remoto, los resultados que encuentra el asistente se envían a ese modelo en el chat, como cualquier resultado de herramienta.</string>
 <string name="phone_search_charging_note">Los mensajes, el calendario, los nombres de contactos y los archivos se actualizan cada seis horas, y solo mientras el teléfono se carga. Las notificaciones se guardan según llegan.</string>
 <string name="phone_search_notifications">Notificaciones</string>
 <string name="phone_search_notifications_help">Guarda las notificaciones que lleguen desde ahora. Las anteriores no se leen.</string>
@@ -992,7 +992,7 @@
 <string name="plain_helper_ran">Revisó una parte</string>
     <string name="plain_interrupted">La última respuesta se detuvo antes de terminar. ¿Continuar?</string>
 <string name="plain_search_intro">Encuentra cosas en este teléfono con palabras: notificaciones, mensajes, calendario, nombres de contactos, archivos de texto de una carpeta que elijas y descripciones de fotos. Cada una está activada o desactivada.</string>
-<string name="plain_search_privacy">Tu índice se queda en este teléfono y no envía nada a ningún sitio. Si responde un asistente en la nube, lo que encuentre se le envía en el chat, como cualquier otro resultado.</string>
+<string name="plain_search_privacy">Tu índice se queda en este teléfono y no envía nada a ningún sitio. Si responde un asistente remoto, lo que encuentre se le envía en el chat, como cualquier otro resultado.</string>
 <string name="plain_search_charging">Los mensajes, el calendario, los nombres de contactos y los archivos se actualizan cada seis horas, solo mientras el teléfono se carga. Las notificaciones se guardan según llegan.</string>
 <string name="simple_nothing_came_back">No llegó ninguna respuesta.</string>
 <string name="plain_cant_hear">El asistente todavía no puede escuchar grabaciones en este teléfono.</string>
@@ -1308,8 +1308,8 @@
 <string name="setting_extras_exa_key_desc">Emitida para este teléfono mientras Extras está activo. Se guarda cifrada y nunca se vuelve a mostrar.</string>
 <string name="setting_extras_purchase_token_label">Token de compra de Extras</string>
 <string name="setting_extras_purchase_token_desc">La compra de Google Play que activó este teléfono. Se guarda cifrada.</string>
-<string name="setting_extras_cloud_chat_label">Enviar mensajes de chat a la nube</string>
-<string name="setting_extras_cloud_chat_desc">Activado: responde el modelo de Extras en la nube. Desactivado: responde el propio modelo del teléfono; la búsqueda de Extras sigue activa.</string>
+<string name="setting_extras_cloud_chat_label">Usar el modelo remoto para el chat</string>
+<string name="setting_extras_cloud_chat_desc">Activado: responde el modelo remoto de Extras. Desactivado: responde el propio modelo del teléfono; la búsqueda de Extras sigue activa.</string>
     <string name="setting_extras_better_voice_label">Mejor voz (Extras)</string>
     <string name="setting_extras_better_voice_desc">Activado: Extras ofrece reconocimiento de voz rápido en la nube y respuestas de voz naturales. Desactivado: se usa el motor de voz del teléfono.</string>
 <string name="setting_extras_openrouter_model_label">Modelo de chat de Extras</string>

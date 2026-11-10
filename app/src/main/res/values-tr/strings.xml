@@ -259,7 +259,7 @@
 <string name="characters">, %1$s karakter</string>
 <string name="remove_3">%1$s kaldırılsın mı?</string>
 <string name="the_assistant_will_no_longer_answer">Asistan artık bu belgeden yanıt vermeyecek.</string>
-<string name="extras_is_one_monthly_subscription_from">Ekstralar, Google Play\'den aylık tek bir abonelik. Kurulum gerektirmeden bu telefona daha akıllı bir bulut sohbet modeli, daha iyi web araması ve bulut araçları sağlar: bir kod korumalı alanı, bir web tarayıcısı, Gmail ve Takvim gibi uygulamaların, daha iyi bir ses, bir e-posta adresi ve Telegram. Teknik modda kendi anahtarların aynı şekilde çalışmaya devam eder ve Ekstralar olmadan da uygulama ücretsiz kalır.</string>
+<string name="extras_is_one_monthly_subscription_from">Ekstralar, Google Play\'den aylık tek bir abonelik. Kurulum gerektirmeden bu telefona daha akıllı bir uzak sohbet modeli, daha iyi web araması ve bulut araçları sağlar: bir kod korumalı alanı, bir web tarayıcısı, Gmail ve Takvim gibi uygulamaların, daha iyi bir ses, bir e-posta adresi ve Telegram. Teknik modda kendi anahtarların aynı şekilde çalışmaya devam eder ve Ekstralar olmadan da uygulama ücretsiz kalır.</string>
 <string name="extras_is_on_until">Ekstralar %1$s tarihine kadar açık.</string>
 <string name="extras_is_off">Ekstralar kapalı.</string>
 <string name="the_price_is_loading_from_google_play">Fiyat Google Play\'den yükleniyor.</string>
@@ -322,7 +322,7 @@
 <string name="what_it_never_does">Asla yapmadıkları</string>
 <string name="it_never_runs_unattended_or_in_the">Asla denetimsiz veya arka planda çalışmaz. Kendi ekranlarında, Ayarlar\'da veya izin pencerelerinde işlem yapmaz.</string>
 <string name="where_the_data_goes">Veri nereye gider</string>
-<string name="nothing_leaves_the_phone_because_of">Ekran kontrolü yüzünden telefondan hiçbir şey çıkmaz; isteği yanıtlaması için bulut modeli ayarlamadıysan. Ayarladıysan, o ekrandaki metin modelin sağlayıcısına gider.</string>
+<string name="nothing_leaves_the_phone_because_of">Ekran kontrolü yüzünden telefondan hiçbir şey çıkmaz; isteği yanıtlaması için uzak model ayarlamadıysan. Ayarladıysan, o ekrandaki metin modelin sağlayıcısına gider.</string>
 <string name="how_to_turn_it_off">Nasıl kapatılır</string>
 <string name="switch_off_the_localintelligence">Android\'in Erişilebilirlik ayarlarında LocalIntelligence erişilebilirlik hizmetini kapat. Bu Ayarlar ekranından Ekran kontrolünü de kapatabilirsin.</string>
 <string name="if_android_blocks_the_switch">Android anahtarı engellerse</string>
@@ -935,7 +935,7 @@
 <string name="subtask_steps_header">Yardımcının attığı adımlar</string>
 <string name="phone_search_title">Telefonumda ara</string>
 <string name="phone_search_intro">Bu telefondaki şeyleri kelimelerle bul: bildirimler, mesajlar, takvim, kişi adları, seçtiğin bir klasördeki metin dosyaları ve fotoğraf açıklamaları. Açana kadar hepsi kapalıdır.</string>
-<string name="phone_search_privacy">Dizin bu telefonda tutulur ve dizinin kendisi hiçbir yere bir şey göndermez. Bir bulut sohbet modeli yanıt veriyorsa, asistanın bulduğu eşleşmeler, herhangi bir araç sonucu gibi o modele sohbette gönderilir.</string>
+<string name="phone_search_privacy">Dizin bu telefonda tutulur ve dizinin kendisi hiçbir yere bir şey göndermez. Bir uzak sohbet modeli yanıt veriyorsa, asistanın bulduğu eşleşmeler, herhangi bir araç sonucu gibi o modele sohbette gönderilir.</string>
 <string name="phone_search_charging_note">Mesajlar, takvim, kişi adları ve dosyalar yaklaşık altı saatte bir yenilenir; yalnızca telefon şarjdayken. Bildirimler geldikçe kaydedilir.</string>
 <string name="phone_search_notifications">Bildirimler</string>
 <string name="phone_search_notifications_help">Bundan sonra gelen bildirimleri tutar. Öncekiler okunmaz.</string>
@@ -991,7 +991,7 @@
 <string name="plain_helper_ran">Bir kısmına bakıldı</string>
     <string name="plain_interrupted">Son yanıt bitmeden durdu. Devam edelim mi?</string>
 <string name="plain_search_intro">Bu telefondaki şeyleri kelimelerle bul: bildirimler, mesajlar, takvim, kişi adları, seçtiğin bir klasördeki metin dosyaları ve fotoğraf açıklamaları. Her biri açık ya da kapalı.</string>
-<string name="plain_search_privacy">Dizin bu telefonda kalır ve hiçbir yere bir şey göndermez. Bir bulut asistanı yanıt veriyorsa, bulduğu şey diğer her sonuç gibi sohbette ona gönderilir.</string>
+<string name="plain_search_privacy">Dizin bu telefonda kalır ve hiçbir yere bir şey göndermez. Bir uzak asistan yanıt veriyorsa, bulduğu şey diğer her sonuç gibi sohbette ona gönderilir.</string>
 <string name="plain_search_charging">Mesajlar, takvim, kişi adları ve dosyalar yaklaşık altı saatte bir güncellenir; yalnızca telefon şarjdayken. Bildirimler geldikçe kaydedilir.</string>
 <string name="simple_nothing_came_back">Bir şey dönmedi.</string>
 <string name="plain_cant_hear">Asistan bu telefonda kayıtları henüz dinleyemiyor.</string>
@@ -1307,8 +1307,8 @@
 <string name="setting_extras_exa_key_desc">Ekstralar açıkken bu telefon için verilir. Şifreli saklanır ve bir daha gösterilmez.</string>
 <string name="setting_extras_purchase_token_label">Ekstralar satın alma belirteci</string>
 <string name="setting_extras_purchase_token_desc">Bu telefonun etkinleştirdiği Google Play satın alması. Şifreli saklanır.</string>
-<string name="setting_extras_cloud_chat_label">Sohbet mesajlarını buluta gönder</string>
-<string name="setting_extras_cloud_chat_desc">Açıkken Ekstralar\'ın bulut modeli yanıtlar. Kapalıyken telefonun kendi modeli yanıtlar; Ekstralar araması açık kalır.</string>
+<string name="setting_extras_cloud_chat_label">Sohbette uzak modeli kullan</string>
+<string name="setting_extras_cloud_chat_desc">Açıkken Ekstralar\'ın uzak modeli yanıtlar. Kapalıyken telefonun kendi modeli yanıtlar; Ekstralar araması açık kalır.</string>
     <string name="setting_extras_better_voice_label">Daha iyi ses (Ekstralar)</string>
     <string name="setting_extras_better_voice_desc">Açıkken Ekstralar hızlı bulut ses tanıma ve doğal sesli yanıtlar sağlar. Kapalıyken telefonun kendi ses motoru kullanılır.</string>
 <string name="setting_extras_openrouter_model_label">Ekstralar sohbet modeli</string>

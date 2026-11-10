@@ -260,7 +260,7 @@
 <string name="characters">, %1$s অক্ষর</string>
 <string name="remove_3">%1$s সরাবেন?</string>
 <string name="the_assistant_will_no_longer_answer">এই নথি থেকে সহকারী আর উত্তর দেবে না।</string>
-<string name="extras_is_one_monthly_subscription_from">Extras হলো Google Play থেকে একটি মাসিক সাবস্ক্রিপশন। কোনো সেটআপ ছাড়াই, এটি এই ফোনকে একটি বেশি স্মার্ট ক্লাউড চ্যাট মডেল, আরও ভালো ওয়েব সার্চ এবং ক্লাউড টুল দেয়: একটি কোড স্যান্ডবক্স, একটি ওয়েব ব্রাউজার, আপনার অ্যাপ যেমন Gmail ও ক্যালেন্ডার, আরও ভালো ভয়েস, একটি ইমেল ঠিকানা এবং Telegram। টেকনিক্যাল মোডে আপনার নিজের কী আগের মতোই কাজ করে, আর Extras ছাড়াও অ্যাপ বিনামূল্যে থাকে।</string>
+<string name="extras_is_one_monthly_subscription_from">Extras হলো Google Play থেকে একটি মাসিক সাবস্ক্রিপশন। কোনো সেটআপ ছাড়াই, এটি এই ফোনকে একটি বেশি স্মার্ট রিমোট চ্যাট মডেল, আরও ভালো ওয়েব সার্চ এবং ক্লাউড টুল দেয়: একটি কোড স্যান্ডবক্স, একটি ওয়েব ব্রাউজার, আপনার অ্যাপ যেমন Gmail ও ক্যালেন্ডার, আরও ভালো ভয়েস, একটি ইমেল ঠিকানা এবং Telegram। টেকনিক্যাল মোডে আপনার নিজের কী আগের মতোই কাজ করে, আর Extras ছাড়াও অ্যাপ বিনামূল্যে থাকে।</string>
 <string name="extras_is_on_until">Extras %1$s পর্যন্ত চালু আছে।</string>
 <string name="extras_is_off">Extras বন্ধ আছে।</string>
 <string name="the_price_is_loading_from_google_play">Google Play থেকে দাম লোড হচ্ছে।</string>
@@ -323,7 +323,7 @@
 <string name="what_it_never_does">এটা কখনো যা করে না</string>
 <string name="it_never_runs_unattended_or_in_the">এটা কখনো আপনার অনুপস্থিতিতে বা ব্যাকগ্রাউন্ডে চলে না। নিজের স্ক্রিন, সেটিংস, বা অনুমতির ডায়ালগে কাজ করে না।</string>
 <string name="where_the_data_goes">তথ্য কোথায় যায়</string>
-<string name="nothing_leaves_the_phone_because_of">স্ক্রিন নিয়ন্ত্রণের কারণে কিছুই ফোন থেকে বাইরে যায় না, যদি না আপনি অনুরোধের উত্তরের জন্য ক্লাউড মডেল সেট করে থাকেন। সেট থাকলে, ওই স্ক্রিনের লেখা সেই মডেলের প্রোভাইডারের কাছে যায়।</string>
+<string name="nothing_leaves_the_phone_because_of">স্ক্রিন নিয়ন্ত্রণের কারণে কিছুই ফোন থেকে বাইরে যায় না, যদি না আপনি অনুরোধের উত্তরের জন্য রিমোট মডেল সেট করে থাকেন। সেট থাকলে, ওই স্ক্রিনের লেখা সেই মডেলের প্রোভাইডারের কাছে যায়।</string>
 <string name="how_to_turn_it_off">কীভাবে বন্ধ করবেন</string>
 <string name="switch_off_the_localintelligence">Android-এর Accessibility সেটিংসে LocalIntelligence-এর accessibility সার্ভিস বন্ধ করুন। এই সেটিংস পাতায় স্ক্রিন নিয়ন্ত্রণও বন্ধ করতে পারেন।</string>
 <string name="if_android_blocks_the_switch">Android যদি সুইচটি আটকে দেয়</string>
@@ -936,7 +936,7 @@
 <string name="subtask_steps_header">সহকারীর নেওয়া ধাপ</string>
 <string name="phone_search_title">আমার ফোনে খুঁজুন</string>
 <string name="phone_search_intro">শব্দ দিয়ে এই ফোনের জিনিস খুঁজুন: নোটিফিকেশন, টেক্সট, ক্যালেন্ডার, যোগাযোগের নাম, আপনার বেছে নেওয়া ফোল্ডারের টেক্সট ফাইল, আর ছবির ক্যাপশন। চালু না করা পর্যন্ত সবকিছু বন্ধ থাকে।</string>
-<string name="phone_search_privacy">সূচি এই ফোনেই থাকে, আর সূচি নিজে কোথাও কিছু পাঠায় না। কোনো ক্লাউড চ্যাট মডেল উত্তর দিলে, সহকারী যা খুঁজে পায় তা চ্যাটে ওই মডেলের কাছে যায়, যেমন যেকোনো টুলের ফল যায়।</string>
+<string name="phone_search_privacy">সূচি এই ফোনেই থাকে, আর সূচি নিজে কোথাও কিছু পাঠায় না। কোনো রিমোট চ্যাট মডেল উত্তর দিলে, সহকারী যা খুঁজে পায় তা চ্যাটে ওই মডেলের কাছে যায়, যেমন যেকোনো টুলের ফল যায়।</string>
 <string name="phone_search_charging_note">টেক্সট, ক্যালেন্ডার, যোগাযোগের নাম আর ফাইল প্রায় প্রতি ছয় ঘণ্টায় নতুন করে সাজানো হয়, শুধু ফোন চার্জ হওয়ার সময়। নোটিফিকেশন আসার সাথে সাথেই রাখা হয়।</string>
 <string name="phone_search_notifications">নোটিফিকেশন</string>
 <string name="phone_search_notifications_help">এখন থেকে যে নোটিফিকেশন আসবে তা রাখে। আগের নোটিফিকেশন পড়া হয় না।</string>
@@ -992,7 +992,7 @@
 <string name="plain_helper_ran">এর একটি অংশ দেখা হয়েছে</string>
     <string name="plain_interrupted">শেষ উত্তরটি শেষ হওয়ার আগেই থেমে গেছে। চালিয়ে যাবেন?</string>
 <string name="plain_search_intro">শব্দ দিয়ে এই ফোনের জিনিস খুঁজুন: নোটিফিকেশন, টেক্সট, ক্যালেন্ডার, যোগাযোগের নাম, আপনার বেছে নেওয়া ফোল্ডারের টেক্সট ফাইল, আর ছবির ক্যাপশন। প্রতিটি আলাদাভাবে চালু বা বন্ধ করা যায়।</string>
-<string name="plain_search_privacy">আপনার সূচি এই ফোনেই থাকে, আর কোথাও কিছু পাঠায় না। কোনো ক্লাউড সহকারী উত্তর দিলে, যা খুঁজে পাওয়া যায় তা চ্যাটে তার কাছে যায়, যেমন অন্য যেকোনো ফলাফল যায়।</string>
+<string name="plain_search_privacy">আপনার সূচি এই ফোনেই থাকে, আর কোথাও কিছু পাঠায় না। কোনো রিমোট সহকারী উত্তর দিলে, যা খুঁজে পাওয়া যায় তা চ্যাটে তার কাছে যায়, যেমন অন্য যেকোনো ফলাফল যায়।</string>
 <string name="plain_search_charging">টেক্সট, ক্যালেন্ডার, যোগাযোগের নাম আর ফাইল প্রায় প্রতি ছয় ঘণ্টায় আপডেট হয়, শুধু ফোন চার্জ হওয়ার সময়। নোটিফিকেশন আসার সাথে সাথে সেভ হয়।</string>
 <string name="simple_nothing_came_back">কিছুই ফিরে আসেনি।</string>
 <string name="plain_cant_hear">এই ফোনে সহকারী এখনও রেকর্ডিং শুনতে পারে না।</string>
@@ -1308,8 +1308,8 @@
 <string name="setting_extras_exa_key_desc">Extras চালু থাকলে এই ফোনের জন্য দেওয়া হয়। এনক্রিপ্ট করে সেভ থাকে, আর কখনো দেখানো হয় না।</string>
 <string name="setting_extras_purchase_token_label">Extras কেনার টোকেন</string>
 <string name="setting_extras_purchase_token_desc">যে Google Play কেনাকাটা এই ফোনে চালু করা হয়েছে। এনক্রিপ্ট করে সেভ থাকে।</string>
-<string name="setting_extras_cloud_chat_label">চ্যাটের মেসেজ ক্লাউডে পাঠান</string>
-<string name="setting_extras_cloud_chat_desc">চালু থাকলে Extras-এর ক্লাউড মডেল উত্তর দেয়। বন্ধ থাকলে ফোনের নিজের মডেল উত্তর দেয়; Extras সার্চ চালু থাকে।</string>
+<string name="setting_extras_cloud_chat_label">চ্যাটে রিমোট মডেল ব্যবহার করুন</string>
+<string name="setting_extras_cloud_chat_desc">চালু থাকলে Extras-এর রিমোট মডেল উত্তর দেয়। বন্ধ থাকলে ফোনের নিজের মডেল উত্তর দেয়; Extras সার্চ চালু থাকে।</string>
     <string name="setting_extras_better_voice_label">উন্নত ভয়েস (Extras)</string>
     <string name="setting_extras_better_voice_desc">চালু থাকলে, Extras দ্রুত ক্লাউড ভয়েস শনাক্তকরণ এবং স্বাভাবিক ভয়েস প্রতিক্রিয়া দেয়। বন্ধ থাকলে, ফোনের নিজস্ব ভয়েস ইঞ্জিন ব্যবহার করা হয়।</string>
 <string name="setting_extras_openrouter_model_label">Extras চ্যাট মডেল</string>

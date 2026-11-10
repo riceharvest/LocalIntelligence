@@ -72,13 +72,13 @@ class PhotoSearchTool(
             else -> PHOTO_DEFAULT_RESULTS
         }
 
-        // Captions would leave the phone inside this observation if a cloud model is the one answering.
+        // Captions would leave the phone inside this observation if a remote model is the one answering.
         if (cloudChatActive()) {
             return ToolResult(
                 success = false,
-                observation = "Photo search is off while a cloud chat model answers, because captions would " +
+                observation = "Photo search is off while a remote model answers, because captions would " +
                     "leave the phone. Use the phone's own model to search photos.",
-                error = ToolError.Unavailable("cloud chat model active"),
+                error = ToolError.Unavailable("remote model active"),
             )
         }
         val search = index() ?: return ToolResult(

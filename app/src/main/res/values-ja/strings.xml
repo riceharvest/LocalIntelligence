@@ -259,7 +259,7 @@
 <string name="characters">、%1$s 文字</string>
 <string name="remove_3">%1$s を削除しますか？</string>
 <string name="the_assistant_will_no_longer_answer">このドキュメントからは、アシスタントはもう答えなくなります。</string>
-<string name="extras_is_one_monthly_subscription_from">エクストラは、Google Play の月額サブスクリプションです。設定は不要で、この端末でより賢いクラウドのチャットモデル、より良いWeb検索、そしてクラウドツール（コードのサンドボックス、Webブラウザ、Gmail やカレンダーなどのアプリ、より良い音声、メールアドレス、Telegram）が使えるようになります。詳細モードで自分のキーを使う方法は、今までどおり使えます。エクストラがなくてもアプリは無料です。</string>
+<string name="extras_is_one_monthly_subscription_from">エクストラは、Google Play の月額サブスクリプションです。設定は不要で、この端末でより賢いリモートのチャットモデル、より良いWeb検索、そしてクラウドツール（コードのサンドボックス、Webブラウザ、Gmail やカレンダーなどのアプリ、より良い音声、メールアドレス、Telegram）が使えるようになります。詳細モードで自分のキーを使う方法は、今までどおり使えます。エクストラがなくてもアプリは無料です。</string>
 <string name="extras_is_on_until">エクストラは %1$s まで有効です。</string>
 <string name="extras_is_off">エクストラはオフです。</string>
 <string name="the_price_is_loading_from_google_play">価格を Google Play から読み込んでいます。</string>
@@ -322,7 +322,7 @@
 <string name="what_it_never_does">しないこと</string>
 <string name="it_never_runs_unattended_or_in_the">見ていない間に勝手に動くことや、バックグラウンドで動くことはありません。アシスタント自身の画面、設定、許可のダイアログは操作しません。</string>
 <string name="where_the_data_goes">データの送り先</string>
-<string name="nothing_leaves_the_phone_because_of">画面操作によって、スマホから外に出るものはありません。ただし、依頼に答えるクラウドのモデルを設定している場合は別です。その場合、その画面の文字はそのモデルの提供元に送られます。</string>
+<string name="nothing_leaves_the_phone_because_of">画面操作によって、スマホから外に出るものはありません。ただし、依頼に答えるリモートのモデルを設定している場合は別です。その場合、その画面の文字はそのモデルの提供元に送られます。</string>
 <string name="how_to_turn_it_off">オフにする方法</string>
 <string name="switch_off_the_localintelligence">Androidのユーザー補助の設定で、LocalIntelligence のユーザー補助サービスをオフにしてください。この設定画面の「画面操作」もオフにできます。</string>
 <string name="if_android_blocks_the_switch">Androidでスイッチが押せない場合</string>
@@ -935,7 +935,7 @@
 <string name="subtask_steps_header">補助が行った手順</string>
 <string name="phone_search_title">スマホ内を検索</string>
 <string name="phone_search_intro">通知、SMS、カレンダー、連絡先の名前、選んだフォルダのテキストファイル、写真の説明文から、言葉で探せます。オンにするまで、すべてオフです。</string>
-<string name="phone_search_privacy">索引はこのスマホに保存され、索引そのものはどこにも送られません。クラウドのチャットモデルが答えている場合は、アシスタントが見つけた一致内容が、ほかのツールの結果と同じようにチャットでそのモデルに送られます。</string>
+<string name="phone_search_privacy">索引はこのスマホに保存され、索引そのものはどこにも送られません。リモートのチャットモデルが答えている場合は、アシスタントが見つけた一致内容が、ほかのツールの結果と同じようにチャットでそのモデルに送られます。</string>
 <string name="phone_search_charging_note">SMS、カレンダー、連絡先の名前、ファイルは約6時間ごとに、スマホの充電中だけ更新されます。通知は届いた時点で保存されます。</string>
 <string name="phone_search_notifications">通知</string>
 <string name="phone_search_notifications_help">今後届く通知を保存します。それより前の通知は読みません。</string>
@@ -991,7 +991,7 @@
 <string name="plain_helper_ran">一部を確認しました</string>
     <string name="plain_interrupted">前回の回答は完了する前に止まりました。続けますか？</string>
 <string name="plain_search_intro">通知、SMS、カレンダー、連絡先の名前、選んだフォルダのテキストファイル、写真の説明文から、言葉で探せます。それぞれオンかオフを選べます。</string>
-<string name="plain_search_privacy">索引はこのスマホに残り、どこにも送られません。クラウドのアシスタントが答える場合は、見つかった内容がほかの結果と同じようにチャットで、そのアシスタントに送られます。</string>
+<string name="plain_search_privacy">索引はこのスマホに残り、どこにも送られません。リモートのアシスタントが答える場合は、見つかった内容がほかの結果と同じようにチャットで、そのアシスタントに送られます。</string>
 <string name="plain_search_charging">SMS、カレンダー、連絡先の名前、ファイルは約6時間ごとに、充電中だけ更新されます。通知は届いたときに保存されます。</string>
 <string name="simple_nothing_came_back">何も返ってきませんでした。</string>
 <string name="plain_cant_hear">アシスタントは、まだこのスマホで録音を聞けません。</string>
@@ -1307,8 +1307,8 @@
 <string name="setting_extras_exa_key_desc">エクストラがオンの間、この端末用に発行されます。暗号化して保存され、二度と表示されません。</string>
 <string name="setting_extras_purchase_token_label">エクストラの購入トークン</string>
 <string name="setting_extras_purchase_token_desc">この端末を有効にした Google Play の購入。暗号化して保存されます。</string>
-<string name="setting_extras_cloud_chat_label">チャットのメッセージをクラウドに送る</string>
-<string name="setting_extras_cloud_chat_desc">オンの場合、エクストラのクラウドのモデルが答えます。オフの場合、この端末のモデルが答えます。エクストラの検索は、どちらでもオンのままです。</string>
+<string name="setting_extras_cloud_chat_label">チャットにリモートのモデルを使う</string>
+<string name="setting_extras_cloud_chat_desc">オンの場合、エクストラのリモートのモデルが答えます。オフの場合、この端末のモデルが答えます。エクストラの検索は、どちらでもオンのままです。</string>
     <string name="setting_extras_better_voice_label">高音質な音声（Extras）</string>
     <string name="setting_extras_better_voice_desc">オンの場合、Extras が高速なクラウド音声認識と自然な音声応答を提供します。オフの場合、端末自身の音声エンジンを使用します。</string>
 <string name="setting_extras_openrouter_model_label">エクストラのチャットモデル</string>
