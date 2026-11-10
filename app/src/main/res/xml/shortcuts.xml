@@ -26,10 +26,9 @@
         android:shortcutLongLabel="@string/schedule_shortcut_long">
         <intent
             android:action="android.intent.action.VIEW"
-            android:targetPackage="dev.localintelligence.app"
             android:targetClass="dev.localintelligence.app.MainActivity">
             <extra
-                android:name="dev.localintelligence.app.extra.DESTINATION"
+                android:name="local.intelligence.extra.DESTINATION"
                 android:value="schedule" />
         </intent>
         <categories android:name="android.shortcut.conversation" />

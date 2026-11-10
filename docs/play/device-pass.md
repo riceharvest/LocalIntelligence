@@ -19,8 +19,8 @@ Rules that apply (docs/roadmap.md, "Before public release (v1.0)", "Device pass"
 
 ## 1. Clean install, both flavors
 
-- [ ] Install the play release (package `dev.localintelligence.app`) on a phone with no app data.
-- [ ] Install the full release (package `dev.localintelligence.app.full`) beside it. Both should install.
+- [ ] Install the play release (package `local.intelligence`) on a phone with no app data.
+- [ ] Install the full release (package `local.intelligence.full`) beside it. Both should install.
 - [ ] Check that chats, models and settings do not carry between the two (ADR 0002).
 
 ## 2. Simple-mode first run (roadmap "Should")

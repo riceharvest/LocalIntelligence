@@ -994,17 +994,17 @@ class MainActivity : FragmentActivity() {
         const val ROUTE_PHONE_SEARCH = "phone_search"
 
         /** Written by the launcher shortcut in res/xml/shortcuts.xml. */
-        const val EXTRA_DESTINATION = "dev.localintelligence.app.extra.DESTINATION"
+        const val EXTRA_DESTINATION = "local.intelligence.extra.DESTINATION"
         const val DESTINATION_SCHEDULE = ROUTE_SCHEDULE
 
-        const val EXTRA_START_HANDS_FREE = "dev.localintelligence.app.extra.START_HANDS_FREE"
-        const val EXTRA_HANDS_FREE_PROMPT = "dev.localintelligence.app.extra.HANDS_FREE_PROMPT"
+        const val EXTRA_START_HANDS_FREE = "local.intelligence.extra.START_HANDS_FREE"
+        const val EXTRA_HANDS_FREE_PROMPT = "local.intelligence.extra.HANDS_FREE_PROMPT"
 
         /** Opens the chat with the composer ready for typing (the home-screen widget's search bar). */
-        const val EXTRA_FOCUS_COMPOSER = "dev.localintelligence.app.extra.FOCUS_COMPOSER"
+        const val EXTRA_FOCUS_COMPOSER = "local.intelligence.extra.FOCUS_COMPOSER"
 
         /** Starts a new conversation (the launcher's New chat shortcut). */
-        const val EXTRA_NEW_CHAT = "dev.localintelligence.app.extra.NEW_CHAT"
+        const val EXTRA_NEW_CHAT = "local.intelligence.extra.NEW_CHAT"
     }
 }
 

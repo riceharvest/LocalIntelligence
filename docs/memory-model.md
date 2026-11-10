@@ -514,9 +514,9 @@ until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; do sleep 5
 
 # 1. Baseline: app launched, no model loaded.
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n dev.localintelligence.app/.MainActivity
+adb shell am start -n local.intelligence/dev.localintelligence.app.MainActivity
 sleep 15
-adb shell dumpsys meminfo dev.localintelligence.app > /tmp/meminfo-idle.txt
+adb shell dumpsys meminfo local.intelligence > /tmp/meminfo-idle.txt
 
 # 2. With TinyLlama resident. Use the app's own Scan storage button after
 #    copying the file into filesDir/models, or load it through the UI.
@@ -524,12 +524,12 @@ adb push /mnt/ssd/models/localintelligence/tinyllama-1.1b.Q4_K_M.gguf \
     /data/local/tmp/models/tinyllama-1.1b.Q4_K_M.gguf
 #   ... adopt it via Scan storage, which globs files/models/*.gguf ...
 sleep 20
-adb shell dumpsys meminfo dev.localintelligence.app > /tmp/meminfo-model.txt
+adb shell dumpsys meminfo local.intelligence > /tmp/meminfo-model.txt
 
 # 3. The split that matters: how much of it is file-backed mmap.
-adb shell dumpsys meminfo dev.localintelligence.app | sed -n '/App Summary/,/TOTAL/p'
-adb shell cat /proc/$(adb shell pidof dev.localintelligence.app)/smaps_rollup
-adb shell cat /proc/$(adb shell pidof dev.localintelligence.app)/status | grep -E "VmRSS|VmHWM"
+adb shell dumpsys meminfo local.intelligence | sed -n '/App Summary/,/TOTAL/p'
+adb shell cat /proc/$(adb shell pidof local.intelligence)/smaps_rollup
+adb shell cat /proc/$(adb shell pidof local.intelligence)/status | grep -E "VmRSS|VmHWM"
 ```
 
 Record for both states: `TOTAL PSS`, `Native Heap`, `Dalvik Heap`, `Other`,
@@ -581,7 +581,7 @@ measured* being quoted as if it had been.
 
 ```bash
 adb devices                        # exactly one device, and it must be booted
-bash docs/measure/measure_ram.sh dev.localintelligence.app \
+bash docs/measure/measure_ram.sh local.intelligence \
      /path/to/tinyllama-1.1b.Q4_K_M.gguf
 ```
 

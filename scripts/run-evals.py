@@ -42,7 +42,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TASKS_DEFAULT = ROOT / "evals" / "tasks.jsonl"
 RESULTS_DEFAULT = ROOT / "docs" / "scores" / "results"
 DEVICECTL = ROOT / "scripts" / "devicectl.sh"
-PACKAGE_DEFAULT = "dev.localintelligence.app"
+PACKAGE_DEFAULT = "local.intelligence"
 SCHEMA_VERSION = 1
 GIB = 1024 ** 3
 

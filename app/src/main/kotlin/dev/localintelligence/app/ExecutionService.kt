@@ -736,11 +736,11 @@ class ExecutionService : Service() {
      * caller, and it exists so a screen never has to know an Intent exists.
      */
     companion object {
-        const val ACTION_START = "dev.localintelligence.app.START"
-        const val ACTION_CONFIRM = "dev.localintelligence.app.CONFIRM"
-        const val ACTION_CANCEL = "dev.localintelligence.app.CANCEL"
-        const val ACTION_RESUME = "dev.localintelligence.app.RESUME"
-        const val ACTION_DISMISS_INTERRUPTED = "dev.localintelligence.app.DISMISS_INTERRUPTED"
+        const val ACTION_START = "local.intelligence.START"
+        const val ACTION_CONFIRM = "local.intelligence.CONFIRM"
+        const val ACTION_CANCEL = "local.intelligence.CANCEL"
+        const val ACTION_RESUME = "local.intelligence.RESUME"
+        const val ACTION_DISMISS_INTERRUPTED = "local.intelligence.DISMISS_INTERRUPTED"
         const val EXTRA_TASK = "task"
         const val EXTRA_APPROVED = "approved"
 

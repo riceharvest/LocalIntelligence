@@ -91,8 +91,8 @@ class ChatGptSignInService : Service() {
     }
 
     companion object {
-        const val ACTION_START = "dev.localintelligence.app.CHATGPT_SIGNIN_START"
-        const val ACTION_STOP = "dev.localintelligence.app.CHATGPT_SIGNIN_STOP"
+        const val ACTION_START = "local.intelligence.CHATGPT_SIGNIN_START"
+        const val ACTION_STOP = "local.intelligence.CHATGPT_SIGNIN_STOP"
 
         private const val CHANNEL_ID = "chatgpt_signin"
         private const val NOTIFICATION_ID = 44

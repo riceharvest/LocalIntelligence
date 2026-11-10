@@ -17,7 +17,7 @@ The APK lands at `app/build/outputs/apk/play/debug/app-play-debug.apk` (or `:app
 
 ### Two builds
 
-`:app` has two product flavors on the `dist` dimension (see [docs/adr/0002-play-and-full-builds.md](adr/0002-play-and-full-builds.md)). The `play` flavor (`:app:assemblePlayDebug`, default, package id `dev.localintelligence.app`) ships everything Google Play allows. The `full` flavor (`:app:assembleFullDebug`, package id `dev.localintelligence.app.full`, label "LocalIntelligence Full") is installed outside Google Play alongside the Play app and adds capabilities Play forbids, such as screen control through Accessibility.
+`:app` has two product flavors on the `dist` dimension (see [docs/adr/0002-play-and-full-builds.md](adr/0002-play-and-full-builds.md)). The `play` flavor (`:app:assemblePlayDebug`, default, package id `local.intelligence`) ships everything Google Play allows. The `full` flavor (`:app:assembleFullDebug`, package id `local.intelligence.full`, label "LocalIntelligence Full") is installed outside Google Play alongside the Play app and adds capabilities Play forbids, such as screen control through Accessibility.
 
 ---
 
@@ -254,8 +254,8 @@ scripts/devicectl.sh approve allow               # the same call as the Allow bu
 scripts/devicectl.sh transcript                  # last 30 visible rows
 ```
 
-Raw form, for the flavor you want: `adb shell am broadcast -n dev.localintelligence.app/.debug.DebugControl
--a dev.localintelligence.debug.CMD --es cmd state --es arg ""`. For the full flavor, set `LI_PKG=dev.localintelligence.app.full`.
+Raw form, for the flavor you want: `adb shell am broadcast -n local.intelligence/dev.localintelligence.app.debug.DebugControl
+-a dev.localintelligence.debug.CMD --es cmd state --es arg ""`. For the full flavor, set `LI_PKG=local.intelligence.full`.
 
 Every run ends with one `LIControl` line at INFO, `DONE {json}`: `outcome` (answer, failed, step_limit,
 cancelled), `answer` (capped at 3,000 characters, with `answerCut`), `total_ms`, `tools` (name, success, ms;

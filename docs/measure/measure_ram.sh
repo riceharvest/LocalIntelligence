@@ -15,7 +15,7 @@
 #   adb devices                     # confirm exactly one device is attached
 #   bash docs/measure/measure_ram.sh <package> [<gguf-on-host>]
 #
-#   package       default dev.localintelligence.app
+#   package       default local.intelligence
 #   gguf-on-host  a local .gguf to push and adopt. Optional: without it the
 #                 script measures the idle baseline and the already-installed
 #                 model, and tells you which it did.
@@ -33,7 +33,7 @@
 
 set -euo pipefail
 
-PKG="${1:-dev.localintelligence.app}"
+PKG="${1:-local.intelligence}"
 GGUF="${2:-}"
 OUTDIR="${OUTDIR:-/tmp/li-ram}"
 
@@ -113,8 +113,8 @@ field() {
 # ------------------------------------------------------------------ phase 1 --
 say "phase 1: baseline, no model resident"
 adb shell am force-stop "$PKG" || true
-adb shell am start -n "$PKG/.MainActivity" >/dev/null 2>&1 \
-  || adb shell am start -n "$PKG/com.dev.localintelligence.app.MainActivity" >/dev/null 2>&1 \
+# Fully qualified: the class package (namespace) differs from the application id.
+adb shell am start -n "$PKG/dev.localintelligence.app.MainActivity" >/dev/null 2>&1 \
   || die "could not start $PKG. Launch it by hand and re-run."
 snap 01-idle
 

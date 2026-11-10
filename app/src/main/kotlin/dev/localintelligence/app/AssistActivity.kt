@@ -135,7 +135,7 @@ class AssistActivity : FragmentActivity() {
     }
 
     companion object {
-        const val EXTRA_HANDS_FREE = "dev.localintelligence.app.extra.ASSIST_HANDS_FREE"
+        const val EXTRA_HANDS_FREE = "local.intelligence.extra.ASSIST_HANDS_FREE"
     }
 }
 

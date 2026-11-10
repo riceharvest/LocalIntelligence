@@ -11,10 +11,10 @@
 #
 # Debug builds only. The receiver is in app/src/debug and is absent from release builds, so
 # against a release install every command answers with an error. Override the package with
-# LI_PKG=dev.localintelligence.app.full for the full flavor's debug build.
+# LI_PKG=local.intelligence.full for the full flavor's debug build.
 set -euo pipefail
 
-PKG="${LI_PKG:-dev.localintelligence.app}"
+PKG="${LI_PKG:-local.intelligence}"
 ACTION="dev.localintelligence.debug.CMD"
 SERIAL=()
 if [[ "${1:-}" == "-s" ]]; then

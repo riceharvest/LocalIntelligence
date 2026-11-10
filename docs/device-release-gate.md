@@ -36,7 +36,7 @@ Record every step's actual outcome. "Probably worked" is a failure.
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n dev.localintelligence.app/.MainActivity
+adb shell am start -n local.intelligence/dev.localintelligence.app.MainActivity
 ```
 
 - [ ] App launches without a crash. Record `adb logcat -d | grep -iE 'FATAL|AndroidRuntime'` — it must be empty.
@@ -78,8 +78,8 @@ In the SAME session, without restarting the app:
 ### 6. Restart and persistence
 
 ```bash
-adb shell am force-stop dev.localintelligence.app
-adb shell am start -n dev.localintelligence.app/.MainActivity
+adb shell am force-stop local.intelligence
+adb shell am start -n local.intelligence/dev.localintelligence.app.MainActivity
 ```
 
 - [ ] The conversation from steps 4–5 is still present.
@@ -143,7 +143,7 @@ Report these as a table. Every cell needs a real value or an honest `NOT MEASURE
 | Total RAM | | |
 | Model file + SHA-256 | | |
 | Load time (ms) | | step 2 |
-| RAM after load (PSS) | `adb shell dumpsys meminfo dev.localintelligence.app` | step 2 |
+| RAM after load (PSS) | `adb shell dumpsys meminfo local.intelligence` | step 2 |
 | Generation speed (tok/s) | | step 4 |
 | Time to first token | | step 4 |
 | Battery cost of a 10-turn session | | steps 4–5 |

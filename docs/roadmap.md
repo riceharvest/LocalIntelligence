@@ -278,7 +278,7 @@ Open:
       off by default. The keyword encoding must run in the app for any name; if it can't,
       use one fixed phrase. Android 14+ won't start a microphone service from the
       background, so after a reboot listening resumes when the app is next opened   [#263]
-[?] `play` and `full` product flavors (full: own package id `.full`, side by side)    [#259]
+[?] `play` and `full` product flavors (play `local.intelligence`, full `local.intelligence.full`, side by side) [#259]
 [?] all-files access in the full build (`MANAGE_EXTERNAL_STORAGE`)                   [#261]
 [?] full build: screen control through Accessibility (docs/adr/0002, 0003)            [#265]
 [?] privacy policy draft in `docs/privacy.html`                                      [#260]
@@ -503,7 +503,7 @@ or `ChatViewModel`; a search of the source, not a device check):
       be registered to a verified developer: user protection started 2026-09-30 in Brazil,
       Indonesia, Singapore and Thailand and goes global in 2027. A developer who
       distributes only outside Play registers in the Android Developer Console; one who
-      also uses Play can register through Play Console. Register the `.full` package id
+      also uses Play can register through Play Console. Register the `local.intelligence.full` package id
       with the full signing key. Limited-distribution accounts cover up to 20 devices
       without ID or fee
       [https://developer.android.com/developer-verification]. Fees and documents are not
@@ -558,6 +558,7 @@ or `ChatViewModel`; a search of the source, not a device check):
 [x] Play Console developer account (personal, "darioo", 2026-11-04); still to do in the
       Console: identity, phone and Android device verification
 [ ] recruit 12 closed testers and keep them opted in 14 days
+[x] Play Console app is `local.intelligence` and app/build.gradle.kts matches it (2026-11-10)
 [x] privacy page: developer name and contact (GitHub issues) [#267]
 [x] decide the Play-build model policy (see Generative AI policy)
 [ ] Android Developer Console account for the full build; read the fee and ID rules
