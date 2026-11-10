@@ -37,11 +37,11 @@
 
     <ImageView
         android:id="@+id/widget_mic"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:layout_marginStart="4dp"
         android:background="@drawable/widget_mic_background"
-        android:padding="7dp"
+        android:padding="11dp"
         android:scaleType="fitCenter"
         android:src="@drawable/ic_widget_mic" />
 </LinearLayout>

@@ -277,7 +277,8 @@ class PhoneDndTool(private val appContext: Context, private val grant: PlatformG
         specialAccessGate(
             appContext, "phone.dnd", ToolPermissions.DO_NOT_DISTURB, SpecialAccess.DND, dndAccessScreen(), grant,
             "Do Not Disturb access is off for this app, so nothing changed. Tell the person in one sentence " +
-                "that it must be switched on for this app, then stop.",
+                "that Do Not Disturb was not changed because access was not given, and that they can ask again to switch it on. " +
+                "Do not ask a question.",
         )?.let { return it }
         if (context.signal.isCancelled()) return cancelledBefore("phone.dnd")
         return guarded("phone.dnd") { setFilter(mode) }

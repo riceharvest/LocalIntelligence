@@ -553,7 +553,7 @@ class ContactsSearchTool internal constructor(
         observation = ToolAccess.observe(
             tool,
             ToolPermissions.CONTACTS,
-            "Contacts access is not on, so no contact was read. Ask the person for the name or number instead.",
+            "Contacts access is not on, so no contact was read. Do not call another contacts tool. Reply with one short sentence that asks the person for the name or number instead.",
         ),
         error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.CONTACTS)),
     )
@@ -701,7 +701,7 @@ class ContactsGetTool internal constructor(
         observation = ToolAccess.observe(
             tool,
             ToolPermissions.CONTACTS,
-            "Contacts access is not on, so no contact was read. Ask the person for the name or number instead.",
+            "Contacts access is not on, so no contact was read. Do not call another contacts tool. Reply with one short sentence that asks the person for the name or number instead.",
         ),
         error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.CONTACTS)),
     )

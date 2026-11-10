@@ -34,6 +34,28 @@ interface DebugPort {
 
     /** A run stopped to wait for an approval. It is not over: the same recorder goes on after the answer. */
     fun runPaused(result: AgentResult, trace: List<StepTrace>, controllerMetrics: RunMetrics?)
+
+    /**
+     * Where the model hub lives, for the emulator tests: a host-side stand-in for huggingface.co, so
+     * a download can be slowed, cut, refused or corrupted on demand. Null is the real hub, which is
+     * what every build without a debug port uses.
+     */
+    fun hubBaseUrl(): String? = null
+
+    /**
+     * Called by the Simple load ladder right after the rung's marker is written and just before the native
+     * load. The emulator tests use it to hold a load open (so the process can be killed inside it, as a
+     * native crash would) and to fail the first rungs on purpose. It may throw; the ladder treats that as a
+     * failed rung. A build without a debug port does nothing here.
+     */
+    suspend fun beforeNativeLoad(rung: Int) {}
+
+    /**
+     * The model a run talks to. The emulator tests return a wrapper that plays scripted replies (a tool call
+     * the test wants, an empty reply, a loop, a slow answer) so a state that a real model reaches only by
+     * luck can be reached every time. A build without a debug port returns [real] untouched.
+     */
+    fun wrapBackend(real: dev.localintelligence.core.model.ModelBackend): dev.localintelligence.core.model.ModelBackend = real
 }
 
 /** Holds the debug port. Written once, by the debug build's content provider, before the first screen opens. */

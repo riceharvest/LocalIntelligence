@@ -6,6 +6,8 @@
 # Commands: state | send <text> | ask <text> [timeout-seconds] | newchat | models |
 #           usemodel <file name> | mode <simple|technical> | approve <allow|deny> | transcript |
 #           searchblock <duckduckgo,bing,brave,wikipedia> (a 5-minute cooldown, to test the search chain)
+#           searchroute <id=url,...> (send a search service to a test address; empty clears) |
+#           script <entry|||entry> (the model's next replies; see ScriptedBackend; empty clears)
 #
 # Debug builds only. The receiver is in app/src/debug and is absent from release builds, so
 # against a release install every command answers with an error. Override the package with
@@ -46,10 +48,10 @@ broadcast() {
 }
 
 case "$CMD" in
-  state|newchat|models|transcript)
+  state|newchat|models|transcript|pinwidget)
     broadcast "$CMD" ""
     ;;
-  send|usemodel|mode|searchblock)
+  send|usemodel|mode|searchblock|script|searchroute)
     broadcast "$CMD" "$ARG"
     ;;
   approve)

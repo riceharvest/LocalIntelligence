@@ -89,7 +89,8 @@ class LocationGetTool(
                     observation = ToolAccess.observe(
                         "location.get",
                         ToolPermissions.LOCATION,
-                        "Location is not on for this app, so the place is unknown. Ask the person which place they mean.",
+                        "Location is not on for this app, so the place is unknown. Reply with one short question asking which city or place " +
+                            "they are in. Do not tell them to turn anything on.",
                     ),
                     error = ToolError.PermissionDenied(PermissionDenial.summary(ToolPermissions.LOCATION)),
                 )

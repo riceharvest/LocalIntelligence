@@ -107,6 +107,37 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
         this.chat = chat
     }
 
+    /**
+     * The address in `files/debug-hub-base-url`, if the test put one there (`run-as` can write it, and it
+     * survives a process kill, which the emulator tests rely on). Read when the hub client is first made.
+     */
+    override fun hubBaseUrl(): String? = runCatching {
+        java.io.File(app.filesDir, "debug-hub-base-url").readText().trim().trimEnd('/').takeIf { it.isNotEmpty() }
+    }.getOrNull()
+
+    /**
+     * Test hooks for the load ladder, read from files so a test can set them with `run-as` and they survive
+     * a process kill: `debug-load-hold-ms` waits that long inside every load (the marker is already on disk,
+     * so a kill here is a crash inside the native load), and `debug-fail-load-rungs` makes the first N rungs
+     * fail as if llama.cpp had refused them.
+     */
+    override suspend fun beforeNativeLoad(rung: Int) {
+        val hold = debugNumber("debug-load-hold-ms")
+        if (hold > 0) kotlinx.coroutines.delay(hold)
+        if (rung < debugNumber("debug-fail-load-rungs")) {
+            throw IllegalStateException("forced load failure at rung $rung (debug)")
+        }
+    }
+
+    /** The scripted replies still to play, oldest first (see [ScriptedBackend]). Set with the `script` command. */
+    private val script = java.util.concurrent.ConcurrentLinkedQueue<String>()
+
+    override fun wrapBackend(real: dev.localintelligence.core.model.ModelBackend): dev.localintelligence.core.model.ModelBackend =
+        ScriptedBackend(real) { script.poll() }
+
+    private fun debugNumber(name: String): Long =
+        runCatching { java.io.File(app.filesDir, name).readText().trim().toLong() }.getOrDefault(0L)
+
     override fun newRunRecorder(): RunRecorder? {
         val created = RunRecorder(modelId = container.residentBackend().id)
         recorder = created
@@ -134,6 +165,28 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
             "mode" -> setMode(arg)
             "approve" -> approve(arg)
             "transcript" -> transcript()
+            "script" -> {
+                // Entries are separated by "|||". An empty arg clears the script.
+                script.clear()
+                arg.split("|||").filter { it.isNotBlank() }.forEach { script.add(it.trim()) }
+                JSONObject().put("ok", true).put("entries", script.size)
+            }
+            "pinwidget" -> {
+                // Asks the launcher to put the home-screen widget on the home screen: the launcher then shows its
+                // own "Add to home screen" question, which the emulator test answers by tapping.
+                val manager = android.appwidget.AppWidgetManager.getInstance(app)
+                val supported = manager.isRequestPinAppWidgetSupported
+                val asked = supported && manager.requestPinAppWidget(
+                    android.content.ComponentName(app, dev.localintelligence.app.ChatWidgetProvider::class.java), null, null,
+                )
+                JSONObject().put("ok", asked).put("supported", supported)
+            }
+            "searchroute" -> {
+                dev.localintelligence.android.tools.web.setSearchRoutesForTest(
+                    arg.split(',').map { it.trim() }.filter { '=' in it }.associate { it.substringBefore('=') to it.substringAfter('=') },
+                )
+                JSONObject().put("ok", true).put("routes", arg)
+            }
             "searchblock" -> {
                 val ids = arg.split(',').map { it.trim() }.filter { it.isNotEmpty() }
                 dev.localintelligence.android.tools.web.blockSearchServicesForTest(ids)
@@ -162,6 +215,8 @@ class DebugBridge(private val app: LocalIntelligenceApp) : DebugPort {
                 JSONObject().put("tool", it.toolName).put("args", cap(it.arguments, ROW_CAP))
             } ?: JSONObject.NULL)
             .put("messages", chat.messages.value.size)
+            .put("streamedChars", container.runSinks.streamingText.value.length)
+            .put("loadRung", container.selectedModel?.let { container.loadSafety.startRung(it.uri.toString()) } ?: JSONObject.NULL)
             .put("lastAnswer", lastAnswer?.let { cap(it, ANSWER_CAP) } ?: JSONObject.NULL)
     }
 

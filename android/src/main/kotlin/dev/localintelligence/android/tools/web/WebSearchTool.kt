@@ -486,10 +486,32 @@ internal object SearchCooldown {
     fun markBlocked(id: String) {
         skipUntil[id] = System.nanoTime() + SEARCH_COOLDOWN_MS * 1_000_000L
     }
+
+    fun clear() = skipUntil.clear()
 }
 
 /** Puts services on cooldown as if they had blocked us, so each step of the chain can be tested. Debug control only. */
 fun blockSearchServicesForTest(ids: List<String>) = ids.forEach(SearchCooldown::markBlocked)
+
+/**
+ * Where each service's request goes instead of its real address (service id to base address), so an emulator
+ * test can make a service answer, hang, block or fail on purpose. Empty in every normal run, and only the debug
+ * build's control channel sets it. Setting it also clears the cooldowns, so a test starts from a known chain.
+ */
+@Volatile
+private var searchRoutes: Map<String, String> = emptyMap()
+
+fun setSearchRoutesForTest(routes: Map<String, String>) {
+    searchRoutes = routes
+    SearchCooldown.clear()
+}
+
+/** [url] with its address replaced by the test route of [serviceId], keeping the query string. */
+internal fun routedForTest(serviceId: String, url: String): String {
+    val base = searchRoutes[serviceId] ?: return url
+    val query = url.substringAfter('?', "")
+    return if (query.isEmpty()) base else "$base?$query"
+}
 
 // ----------------------------------------------------------------------------
 // Observation construction
@@ -657,7 +679,7 @@ internal class WebSearcher(
         val connectMs = minOf(CONNECT_TIMEOUT_MS.toLong(), leftMs).toInt()
         val readMs = minOf(READ_TIMEOUT_MS.toLong(), leftMs).toInt()
         val opener = openerFor(service.userAgent, connectMs, readMs)
-        val endpoint = service.url(query, maxResults)
+        val endpoint = routedForTest(service.id, service.url(query, maxResults))
         var current = endpoint
         var redirects = 0
         var response: OpenedResponse? = null
