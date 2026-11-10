@@ -9,15 +9,18 @@ box says so rather than staying green.
 
 ## Status in one paragraph
 
+**Update 2026-11-10:** every box touched by the #321 to #337 wave was re-checked against the source tree at main commit 8b691ad6 on 2026-11-10. #321 to #329 merged 2026-11-04 to 2026-11-05: the first full emulator pass, its fixes, Simple-mode polish, a search fallback that is tested per rung, run caps, a home-screen widget, and the remaining English moved into strings. #330 to #337 merged 2026-11-08: Extras wave 2, six managed services for Simple mode. All built and merged, nothing deployed. The emulator e2e harness and the fixes it proved landed on main 2026-11-10 (merge 1c5b6e72). Issue #214 closed 2026-11-10 (fix 74e42601, merge 8b691ad6). The rule from 2026-11-04 still holds: not one of these has run on a physical device.
+
 **Update 2026-11-04 (later):** the v1 list and most of "After v1" were built in one day and merged as #274 to #320, compile only. None of it has run on a device since #275. `[?]` below means written and merged, not verified. The owner's plan: finish everything, including "Beyond parity" below, then one full pass on the emulator. See "Before public release (v1.0)", "After v1" and "Beyond parity". The paragraph that follows is the older status and still holds: no device observation exists.
 
 The agent loop, the tool registry, the llama.cpp backend, the LiteRT-LM backend,
 Room persistence, the Hugging Face download, and the Compose UI are all written
 and **compile**. The app assembles into an installable debug APK.
 
-There are no tests, no CI, no eval suite, no measured performance or RAM number, and no
-physical-device observation of any kind. See [`evals.md`](evals.md) and
-[`build.md`](build.md).
+There is no CI, no measured performance or RAM number, and no physical-device
+observation of any kind. Since this wave there is an emulator eval runner
+(`scripts/run-evals.py`) and an emulator e2e harness (`scripts/e2e`); both talk
+to an AVD only. See [`evals.md`](evals.md) and [`build.md`](build.md).
 
 ---
 
@@ -36,8 +39,10 @@ user: "how much battery do I have?"
 ```
 
 **Status: NOT verified end to end.** The pieces exist; the whole path has not
-been observed on a real device. A 1.1B model has loaded and generated text on an
-x86_64 AVD, but the tool-call round trip has not been recorded.
+been observed on a real device. On the emulator, tool-call rounds completed
+through the eval runner during the first full pass (2026-11-04, fixes as #322),
+and the e2e harness drives a permission-gated tool run again (case 13). On a
+physical device, nothing has been recorded.
 
 ---
 
@@ -170,12 +175,13 @@ observation behind it.
 [?] deterministic loop detection   implemented; unverified
 [?] model cancellation             implemented; unverified
 [?] task traces in the debug UI    implemented; unverified
-[ ] >=80% success on a basic eval suite     NO SUITE EXISTS
-[ ] >=65% on the multi-step suite            NO SUITE EXISTS
+[ ] >=80% success on a basic eval suite     an 81-task emulator runner exists (#327); last
+                                            recorded: 72 tasks, 54/10/8, emulator (#322); no phone number
+[ ] >=65% on the multi-step suite            same runner; no measured number
 [ ] no routine task needs >8K context        unmeasured
 ```
 
-`[?]` means implemented-but-unverified. The last three have no instrument at all.
+`[?]` means implemented-but-unverified. The last three: the emulator eval runner (#322, #327) can now measure the two success rates; the 8K-context line has no instrument.
 
 Those two success thresholds are engineering targets, not predictions, and they
 are not currently measurable.
@@ -280,6 +286,10 @@ Open:
       2026-11-04) with the developer name and contact filled in
 [?] .litertlm through the file picker, copied into app storage                       [#96]
 [?] video.status for long OpenRouter video jobs                                      [#96]
+[?] home-screen search widget, New chat and Voice launcher shortcuts [#328]
+[?] search fallback tested rung by rung (DuckDuckGo, Bing, Brave, Wikipedia);
+      4 lookups and one page read per question                     [#326, #327]
+[?] did-you-ask guard: asks for its words in 20 languages          [#324]
 ```
 
 Extras: one Play subscription (`extras_monthly`) that unlocks the cloud features in Simple
@@ -291,6 +301,14 @@ mode. BUILT, NOT DEPLOYED, and it ships after v1. Before it ships, rename the sw
 [?] Extras Worker (backend/extras-worker): checks the Play subscription, gives each
     customer one capped OpenRouter key and an optional Exa key                 [#252]
 [?] Extras in the app: Play Billing, one credential source, Extras screen      [#253]
+[?] Managed wave 2 for Simple mode, all built and merged, none deployed, none
+    run against a live customer: sandbox on Cloudflare Sandbox 1.0 [#332], cloud
+    browser on Cloudflare Browser Rendering + Stagehand [#333], Composio apps
+    Gmail and Calendar [#331], voice on Deepgram STT + Aura-2 TTS [#334], agent
+    mailbox on Cloudflare Email Routing + Email Sending [#335], shared-bot
+    Telegram [#336]. Worker groundwork: one extras token per customer, bearer
+    auth, monthly usage caps, the Simple gate [#330]. Privacy page and Extras
+    screen text for all of it [#337].
 
 Owner's to-dos, before it goes live:
 [ ] accounts and secrets: Cloudflare account id, D1 database id (a placeholder
@@ -299,7 +317,14 @@ Owner's to-dos, before it goes live:
     OpenRouter and Exa
 [ ] Play product `extras_monthly` and its price
 [ ] privacy policy page (Play needs one; the Extras paragraph goes there)
-[ ] Pub/Sub push: add the OIDC check (the secret path is the only check today)
+[x] Pub/Sub OIDC check: implemented and wired, fail-closed. Observed in the
+    tree 2026-11-10: backend/extras-worker/src/pubsub-auth.ts verifies the
+    Google-signed OIDC bearer on the /v1/rtdn/ push route right after the path
+    secret check (backend/extras-worker/src/index.ts). An unset
+    PUBSUB_AUDIENCE or PUBSUB_SERVICE_ACCOUNT_EMAIL refuses every push with 401.
+    No token content is logged.
+[ ] owner: set PUBSUB_AUDIENCE and PUBSUB_SERVICE_ACCOUNT_EMAIL to the push
+    subscription's real values (worker README, step 9.3).
 [ ] default model id and monthly limits ($3.50 OpenRouter, $1.50 Exa) are placeholders
 [ ] Exa: the create-key response documents no secret field. Confirm with Exa, or
     Exa stays off and search keeps the free provider
@@ -500,16 +525,16 @@ or `ChatViewModel`; a search of the source, not a device check):
       vitals already reports crashes to the owner with no SDK. For the full build, and
       for hangs: an uncaught-exception handler that writes a local file, and a Settings
       button "Share last crash report" through the Android share sheet, filled from
-      ApplicationExitInfo (API 30+). Nothing is sent unless the user shares it. No such
-      handler exists today (grep).
+      ApplicationExitInfo (API 30+). Nothing is sent unless the user shares it. Handler merged 2026-11-05 (#327): app/src/main/kotlin/dev/localintelligence/app/crash/CrashReports.kt. Not run on a device.
 [?] [#283] Update path for the full build. Document Obtainium or manual download in the README for
       v1. An in-app "Check for updates" button, asking first, is v1.1.
+      Built early: app/src/full/kotlin/dev/localintelligence/app/update/UpdateCheck.kt merged 2026-11-05 (#327). Not run.
 [?] [#293, by reading the code; no TalkBack run] Accessibility of the app's own UI: TalkBack pass on Chat, Models, Settings and the
       approval card; 17 of 68 `contentDescription` in app/src are null, check each is
       decorative; touch targets of 48 dp; large font scale. Play's pre-launch report
       (runs on the closed-test upload) will also flag these.
-[?] [#297, the rest in progress] Move user-visible strings out of Kotlin into resources. strings.xml has 4 entries
-      and the source has 178 `Text("...")` calls. English-only is acceptable for v1; doing
+[?] [#297] User-visible strings moved into resources. Measured 2026-11-10: values/strings.xml
+      has 1774 <string> entries; one Text("...") literal is left in app/src/main/kotlin. English-only is acceptable for v1; doing
       the move now is cheap and every later string makes it dearer.
 [?] All major languages at release (owner, 2026-11-04) [#309, #315 to #320]: 21 with English: es, pt-BR, fr, de, it, nl, pl,
       ru, uk, tr, ar, hi, bn, id, vi, th, ja, ko, zh-CN, zh-TW. Includes settings labels, right-to-left
@@ -543,6 +568,18 @@ or `ChatViewModel`; a search of the source, not a device check):
 
 ---
 
+## The #321 to #337 wave (checked 2026-11-10 at 8b691ad6)
+
+Checked against main 8b691ad6 on 2026-11-10. Device observations: none, still.
+
+**Emulator.** The first full emulator pass ran 2026-11-04 and its fixes merged as #322. Measured with the eval runner on the emulator, Technical mode, one repeat: 72 tasks gave 24 pass / 41 fail / 7 unverified before the answer-check fix, and 54 pass / 10 fail / 8 unverified after. Search was blocked by DuckDuckGo's bot check from that host, and the emulator has no contacts or calendar, so several of the 10 fails are environment. The eval runner now carries 81 tasks with device-judged checks, failure cases and a wrong-language verdict (#325, #327). It is not a phone measurement.
+
+**Emulator e2e harness.** `scripts/e2e/` is on main since 1c5b6e72 (2026-11-10): 23 cases, 01 to 22b — first run, airplane mode, network drop, process kill, memory pressure, permission allow and deny, special access, background run, the search chain and offline search, run failures, screen off, rotation and process death, fifty messages, and the widget and launcher shortcuts. `run-all.sh` boots its own throwaway AVD, starts the fake hub, prints one table, and exits non-zero when any case fails. The harness line drove production fixes now on main: the token callback handed to the controller (0602f82d), cooler starter sampling and the brush-off follow-up (d46f7f51), a nudge to answer from a result just received (c45d203d), tools scoped to what the message asks for (2ae99b63), and an answer-is-ready notification when a reply ends out of sight (3dcfd0ba). A full-table run recorded against merged main is still to do.
+
+**Issue #214** — litert: the delta tracker dropped the start of a delta that began with the text so far — closed 2026-11-10 (fix 74e42601, merge 8b691ad6).
+
+---
+
 ## After v1
 
 Ordered by user value per engineering effort, within each phase. Engineering and
@@ -573,7 +610,11 @@ The to-dos are already listed under "Extras" above; they stay the source of trut
 Added here:
 
 ```
-[?] [#279] Pub/Sub OIDC check and the switch rename; the owner sets the two new variables
+[x] Pub/Sub OIDC check: done, see the Extras owner list above (verified in the
+    tree 2026-11-10).
+[ ] The switch rename and its two new owner variables still open. The Extras
+    cloud-chat switch still reads "On, Extras' cloud model answers"
+    (values/strings.xml, setting_extras_cloud_chat_desc).
 [ ] the default model id and monthly limits
 [?] [#279, privacy page only] Data safety form update: Extras sends the Play purchase token and an install id to
       our server. Update privacy.html and the form together.
@@ -633,10 +674,10 @@ and the bets come first. Each bet says why others cannot quickly match it. Nothi
       - a resumable run: a killed run continues from its last step
       - fresh-context subtask that returns only a summary (owner allowed it 2026-11-04; architecture section 2 updated in #304)
       Moat: built on our grammar, tiers and observation store; chat-first apps have none of those.
-[?] B2. Your whole phone, answerable. [#301, #311; opening the original from an answer row is not built] A private on-device index of notifications, messages, calendar, contacts, files
+[?] B2. Your whole phone, answerable. [#301, #311; opening the original from an answer row built 2026-11-05 (#327: phone.search rows open the original or its app); unverified] A private on-device index of notifications, messages, calendar, contacts, files
       and photo captions, with answers that cite the source and open it. Incremental, on charger, deletable per source.
       The Play build indexes only what its permissions allow.  Moat: cloud assistants would need this data on their servers.
-[?] B3. Your own private cloud. [#306; never run against live herdr or tmux; "hard questions to your desktop" is only a shortcut to Settings today] Over Tailscale only, checked by Tailscale identity:
+[?] B3. Your own private cloud. [#306; #327 ran the desktop link for real: tmux selftest 28 of 28, herdr read paths fixed against real output; "hard questions to your desktop" is only a shortcut to Settings today] Over Tailscale only, checked by Tailscale identity:
       - attach to the agents already running on your desktop: same live thread, native chat view, approvals as one keystroke
       - a thin bridge with four operations (list, read, send, wait), herdr first, tmux as a second backend, so herdr is not a lock-in
       - done and needs-you notifications through a self-hosted push (ntfy), no Firebase, no polling
@@ -646,7 +687,7 @@ and the bets come first. Each bet says why others cannot quickly match it. Nothi
       Moat: nobody we checked connects both ways with live threads.
 [?] B4. Published proof. [#303; the suite and picker are written, no score has been measured] A public score per model and phone from the eval suite, and the app picks your model from
       measured results.  Moat: nobody publishes this. It holds us to the same standard. Needs real devices for the phone half.
-[?] B5. It learns you, locally. [#305, #311; the owner allowed the memory block, visible and editable; Undo does not survive a restart] A task you repeat becomes a saved skill, with your approval. Skills can scope the tools the
+[?] B5. It learns you, locally. [#305, #311; the owner allowed the memory block, visible and editable; Undo survives a restart since #327 (Room 7 to 8)] A task you repeat becomes a saved skill, with your approval. Skills can scope the tools the
       model sees while they run (2 instead of 6). An always-visible memory block the agent edits, with a size limit: section 14 bans
       model-based extraction, allowed on that condition.  Moat: needs loop, skills and memory in one app, on the phone.
 ```
@@ -661,7 +702,7 @@ Checked against the code on 2026-11-04. Already present, so not listed: schedule
 [?] live speed and memory per reply, folded, Technical mode                              Edge Gallery, MNN
 [x] audio transcription as a real foreground run: TranscriptionService (dataSync), started and stopped around one run in ChatViewModel.transcribe   follow-up to #286
 [?] photo results open the photo from chat                                               follow-up to #290
-[ ] hands-free loop: talk-to-interrupt not built; wake word and voice exist    Operit, MNN, PocketPal #945
+[?] talk-to-interrupt built 2026-11-05 (#327, app/.../media/BargeInDetector.kt); not observed; wake word and voice exist    Operit, MNN, PocketPal #945
 [x] pick a vision model's mmproj by hand; check the import path                          PocketPal #841
 ```
 
@@ -690,7 +731,7 @@ Not done or not checked, carried to the final pass or later:
 [ ] Translations are machine-written: no native reader yet, no check of clipping, no right-to-left review
 [ ] Repetition guard: measure false positives at the 400-character threshold; the stop shows the generic error
 [ ] Answer check: measure false positives per language. Prune: measure its effect on prefix reuse
-[ ] Eval suite: desktop harness contract not implemented; no failure or permission-denied tasks
+[ ] Eval suite: the old desktop runner was removed (#327); the emulator runner carries failure cases now. Measured numbers still come from one host, not from many phones.
 [ ] Upstream b12110 jinja and reasoning changes unverified with LFM3
 [ ] Desktop live view re-reads every 1.5 s; could use herdr events
 ```
