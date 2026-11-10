@@ -60,12 +60,12 @@ object ExtrasSettings {
     )
 
     /**
-     * Whether Extras' cloud model answers in chat. Off gives the chat back to the phone's own
+     * Whether Extras' remote model answers in chat. Off gives the chat back to the phone's own
      * model and keeps it there across restarts; Extras search stays on either way.
      */
     val CLOUD_CHAT = SettingDef.Toggle(
-        "extras.cloud_chat", "Send chat messages to the cloud",
-        "On, Extras' cloud model answers. Off, the phone's own model answers; Extras search stays on.",
+        "extras.cloud_chat", "Use the remote model for chat",
+        "On, Extras' remote model answers. Off, the phone's own model answers; Extras search stays on.",
         SettingSection.PLUGINS, default = true, simple = true,
     )
 

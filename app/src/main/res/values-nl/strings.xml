@@ -260,7 +260,7 @@
 <string name="characters">, %1$s tekens</string>
 <string name="remove_3">%1$s verwijderen?</string>
 <string name="the_assistant_will_no_longer_answer">De assistent antwoordt niet meer uit dit document.</string>
-<string name="extras_is_one_monthly_subscription_from">Extra is één maandabonnement via Google Play. Zonder instellen geeft het deze telefoon een slimmer cloud-chatmodel, betere websearch en cloudtools: een code-sandbox, een webbrowser, je apps zoals Gmail en Agenda, een betere stem, een e-mailadres en Telegram. Je eigen sleutels in de technische modus werken net zo, en de app blijft gratis zonder Extra.</string>
+<string name="extras_is_one_monthly_subscription_from">Extra is één maandabonnement via Google Play. Zonder instellen geeft het deze telefoon een slimmer chatmodel op afstand, betere websearch en cloudtools: een code-sandbox, een webbrowser, je apps zoals Gmail en Agenda, een betere stem, een e-mailadres en Telegram. Je eigen sleutels in de technische modus werken net zo, en de app blijft gratis zonder Extra.</string>
 <string name="extras_is_on_until">Extra staat aan tot %1$s.</string>
 <string name="extras_is_off">Extra staat uit.</string>
 <string name="the_price_is_loading_from_google_play">De prijs wordt geladen van Google Play.</string>
@@ -323,7 +323,7 @@
 <string name="what_it_never_does">Wat het nooit doet</string>
 <string name="it_never_runs_unattended_or_in_the">Het draait nooit zonder toezicht of op de achtergrond. Het handelt niet in zijn eigen schermen, in Instellingen of in toestemmingsvensters.</string>
 <string name="where_the_data_goes">Waar de gegevens naartoe gaan</string>
-<string name="nothing_leaves_the_phone_because_of">Door schermbediening verlaat niets de telefoon, tenzij je een cloudmodel hebt ingesteld om het verzoek te beantwoorden. Als dat zo is, gaat de tekst van dat scherm naar de aanbieder van dat model.</string>
+<string name="nothing_leaves_the_phone_because_of">Door schermbediening verlaat niets de telefoon, tenzij je een model op afstand hebt ingesteld om het verzoek te beantwoorden. Als dat zo is, gaat de tekst van dat scherm naar de aanbieder van dat model.</string>
 <string name="how_to_turn_it_off">Zo zet je het uit</string>
 <string name="switch_off_the_localintelligence">Zet de toegankelijkheidsdienst van LocalIntelligence uit in de Android-instellingen voor Toegankelijkheid. Je kunt ook Schermbediening uitzetten op dit scherm met instellingen.</string>
 <string name="if_android_blocks_the_switch">Als Android de schakelaar blokkeert</string>
@@ -936,7 +936,7 @@
 <string name="subtask_steps_header">Stappen die de helper nam</string>
 <string name="phone_search_title">Mijn telefoon doorzoeken</string>
 <string name="phone_search_intro">Vind dingen op deze telefoon op woorden: meldingen, sms\'jes, agenda, contactnamen, tekstbestanden in een map die je kiest, en fotobijschriften. Alles staat uit tot je het aanzet.</string>
-<string name="phone_search_privacy">De index wordt op deze telefoon bewaard, en de index zelf stuurt niets ergens naartoe. Als een cloudchatmodel antwoordt, worden de treffers die de assistent vindt, naar dat model in de chat gestuurd, net als elk toolresultaat.</string>
+<string name="phone_search_privacy">De index wordt op deze telefoon bewaard, en de index zelf stuurt niets ergens naartoe. Als een chatmodel op afstand antwoordt, worden de treffers die de assistent vindt, naar dat model in de chat gestuurd, net als elk toolresultaat.</string>
 <string name="phone_search_charging_note">Sms\'jes, agenda, contactnamen en bestanden worden ongeveer elke zes uur ververst, en alleen terwijl de telefoon oplaadt. Meldingen worden opgeslagen zodra ze binnenkomen.</string>
 <string name="phone_search_notifications">Meldingen</string>
 <string name="phone_search_notifications_help">Bewaart de meldingen die vanaf nu binnenkomen. Meldingen van eerder worden niet gelezen.</string>
@@ -992,7 +992,7 @@
 <string name="plain_helper_ran">Eén deel ervan is bekeken</string>
     <string name="plain_interrupted">Het vorige antwoord stopte voordat het klaar was. Doorgaan?</string>
 <string name="plain_search_intro">Vind dingen op deze telefoon op woorden: meldingen, sms\'jes, agenda, contactnamen, tekstbestanden in een map die je kiest, en fotobijschriften. Elk onderdeel staat aan of uit.</string>
-<string name="plain_search_privacy">Je index blijft op deze telefoon en stuurt niets ergens naartoe. Als een cloudassistent antwoordt, wordt wat hij vindt naar die assistent in de chat gestuurd, net als elk ander resultaat.</string>
+<string name="plain_search_privacy">Je index blijft op deze telefoon en stuurt niets ergens naartoe. Als een assistent op afstand antwoordt, wordt wat hij vindt naar die assistent in de chat gestuurd, net als elk ander resultaat.</string>
 <string name="plain_search_charging">Sms\'jes, agenda, contactnamen en bestanden worden ongeveer elke zes uur bijgewerkt, alleen terwijl de telefoon oplaadt. Meldingen worden opgeslagen zodra ze binnenkomen.</string>
 <string name="simple_nothing_came_back">Er kwam niets terug.</string>
 <string name="plain_cant_hear">De assistent kan op deze telefoon nog niet naar opnames luisteren.</string>
@@ -1308,8 +1308,8 @@
 <string name="setting_extras_exa_key_desc">Uitgegeven voor deze telefoon zolang Extra aan staat. Versleuteld opgeslagen en nooit teruggetoond.</string>
 <string name="setting_extras_purchase_token_label">Extra-aankooptoken</string>
 <string name="setting_extras_purchase_token_desc">De Google Play-aankoop die deze telefoon heeft geactiveerd. Versleuteld opgeslagen.</string>
-<string name="setting_extras_cloud_chat_label">Chatberichten naar de cloud sturen</string>
-<string name="setting_extras_cloud_chat_desc">Aan: het cloudmodel van Extra\'s antwoordt. Uit: het eigen model van de telefoon antwoordt; zoeken met Extra blijft aan.</string>
+<string name="setting_extras_cloud_chat_label">Model op afstand gebruiken voor chat</string>
+<string name="setting_extras_cloud_chat_desc">Aan: het model op afstand van Extra\'s antwoordt. Uit: het eigen model van de telefoon antwoordt; zoeken met Extra blijft aan.</string>
     <string name="setting_extras_better_voice_label">Betere stem (Extra\'s)</string>
     <string name="setting_extras_better_voice_desc">Aan: Extra\'s biedt snelle spraakherkenning in de cloud en natuurlijke gesproken antwoorden. Uit: de eigen stemengine van de telefoon wordt gebruikt.</string>
 <string name="setting_extras_openrouter_model_label">Extra-chatmodel</string>

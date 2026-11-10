@@ -293,8 +293,8 @@ Open:
 ```
 
 Extras: one Play subscription (`extras_monthly`) that unlocks the cloud features in Simple
-mode. BUILT, NOT DEPLOYED, and it ships after v1. Before it ships, rename the switch
-"Use the cloud model for chat" to say remote model (GLOSSARY.md). The Extras row stays hidden until `EXTRAS_BACKEND_URL` is set
+mode. BUILT, NOT DEPLOYED, and it ships after v1. The chat switch
+reads "Use the remote model for chat" (renamed per GLOSSARY.md). The Extras row stays hidden until `EXTRAS_BACKEND_URL` is set
 (`-PextrasBackendUrl=https://...`).
 
 ```

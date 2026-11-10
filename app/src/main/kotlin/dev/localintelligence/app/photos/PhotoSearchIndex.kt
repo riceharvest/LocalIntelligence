@@ -72,9 +72,9 @@ data class PhotoRunReport(val captioned: Int, val failed: Int, val end: PhotoRun
  *
  * ## WHAT DOES NOT LEAVE THE PHONE
  *
- * Captioning runs only on a local model (the caller refuses a cloud chat model), the captions
+ * Captioning runs only on a local model (the caller refuses a remote model), the captions
  * and vectors are written to the app's own database, and nothing here opens a network
- * connection. The search tool refuses while a cloud model answers, because its results would
+ * connection. The search tool refuses while a remote model answers, because its results would
  * then be sent to that model.
  *
  * Seams are lambdas so this class holds no model, no database and no platform object of its

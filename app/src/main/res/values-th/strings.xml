@@ -259,7 +259,7 @@
 <string name="characters">, %1$s ตัวอักษร</string>
 <string name="remove_3">ลบ %1$s ใช่ไหม</string>
 <string name="the_assistant_will_no_longer_answer">ผู้ช่วยจะไม่ตอบจากเอกสารนี้อีก</string>
-<string name="extras_is_one_monthly_subscription_from">Extras คือการสมัครรายเดือนหนึ่งรายการจาก Google Play ไม่ต้องตั้งค่าอะไร ช่วยให้โทรศัพท์นี้ได้โมเดลแชทบนคลาวด์ที่ฉลาดขึ้น การค้นหาเว็บที่ดีขึ้น และเครื่องมือบนคลาวด์: แซนด์บ็อกซ์โค้ด เว็บเบราว์เซอร์ แอปของคุณ เช่น Gmail และปฏิทิน เสียงที่ดีขึ้น ที่อยู่อีเมล และ Telegram คีย์ของคุณเองในโหมดเทคนิคยังใช้ได้เหมือนเดิม และแอปยังใช้ฟรีได้โดยไม่มี Extras</string>
+<string name="extras_is_one_monthly_subscription_from">Extras คือการสมัครรายเดือนหนึ่งรายการจาก Google Play ไม่ต้องตั้งค่าอะไร ช่วยให้โทรศัพท์นี้ได้โมเดลแชทระยะไกลที่ฉลาดขึ้น การค้นหาเว็บที่ดีขึ้น และเครื่องมือบนคลาวด์: แซนด์บ็อกซ์โค้ด เว็บเบราว์เซอร์ แอปของคุณ เช่น Gmail และปฏิทิน เสียงที่ดีขึ้น ที่อยู่อีเมล และ Telegram คีย์ของคุณเองในโหมดเทคนิคยังใช้ได้เหมือนเดิม และแอปยังใช้ฟรีได้โดยไม่มี Extras</string>
 <string name="extras_is_on_until">Extras เปิดอยู่จนถึง %1$s</string>
 <string name="extras_is_off">Extras ปิดอยู่</string>
 <string name="the_price_is_loading_from_google_play">กำลังโหลดราคาจาก Google Play</string>
@@ -322,7 +322,7 @@
 <string name="what_it_never_does">สิ่งที่ไม่ทำเด็ดขาด</string>
 <string name="it_never_runs_unattended_or_in_the">ไม่ทำงานโดยไม่มีคนดูและไม่ทำงานเบื้องหลังเด็ดขาด และไม่ทำงานในหน้าของตัวเอง การตั้งค่า หรือหน้าต่างขอสิทธิ์</string>
 <string name="where_the_data_goes">ข้อมูลไปที่ไหน</string>
-<string name="nothing_leaves_the_phone_because_of">การควบคุมหน้าจอไม่ทำให้มีอะไรออกจากโทรศัพท์ เว้นแต่คุณตั้งให้โมเดลบนคลาวด์ตอบคำขอ ถ้าเป็นเช่นนั้น ข้อความบนหน้านั้นจะถูกส่งไปยังผู้ให้บริการของโมเดลนั้น</string>
+<string name="nothing_leaves_the_phone_because_of">การควบคุมหน้าจอไม่ทำให้มีอะไรออกจากโทรศัพท์ เว้นแต่คุณตั้งให้โมเดลระยะไกลตอบคำขอ ถ้าเป็นเช่นนั้น ข้อความบนหน้านั้นจะถูกส่งไปยังผู้ให้บริการของโมเดลนั้น</string>
 <string name="how_to_turn_it_off">วิธีปิด</string>
 <string name="switch_off_the_localintelligence">ปิดบริการการเข้าถึงของ LocalIntelligence ในการตั้งค่าการเข้าถึงของ Android คุณจะปิดการควบคุมหน้าจอในหน้าการตั้งค่านี้ก็ได้</string>
 <string name="if_android_blocks_the_switch">ถ้า Android บล็อกสวิตช์</string>
@@ -935,7 +935,7 @@
 <string name="subtask_steps_header">ขั้นตอนที่ผู้ช่วยย่อยทำ</string>
 <string name="phone_search_title">ค้นหาในโทรศัพท์ของฉัน</string>
 <string name="phone_search_intro">ค้นหาสิ่งต่าง ๆ บนโทรศัพท์นี้ด้วยคำ: การแจ้งเตือน ข้อความ ปฏิทิน ชื่อรายชื่อ ไฟล์ข้อความในโฟลเดอร์ที่คุณเลือก และคำบรรยายรูป ทุกอย่างปิดอยู่จนกว่าคุณจะเปิด</string>
-<string name="phone_search_privacy">ดัชนีเก็บไว้บนโทรศัพท์นี้ และตัวดัชนีเองไม่ส่งอะไรไปที่ไหนเลย ถ้ามีโมเดลแชทบนคลาวด์กำลังตอบ ผลที่ผู้ช่วยพบจะถูกส่งไปยังโมเดลนั้นในแชท เหมือนผลลัพธ์ของเครื่องมือทุกตัว</string>
+<string name="phone_search_privacy">ดัชนีเก็บไว้บนโทรศัพท์นี้ และตัวดัชนีเองไม่ส่งอะไรไปที่ไหนเลย ถ้ามีโมเดลแชทระยะไกลกำลังตอบ ผลที่ผู้ช่วยพบจะถูกส่งไปยังโมเดลนั้นในแชท เหมือนผลลัพธ์ของเครื่องมือทุกตัว</string>
 <string name="phone_search_charging_note">ข้อความ ปฏิทิน ชื่อรายชื่อ และไฟล์จะรีเฟรชประมาณทุก 6 ชั่วโมง และเฉพาะตอนที่โทรศัพท์กำลังชาร์จ การแจ้งเตือนจะถูกบันทึกเมื่อเข้ามา</string>
 <string name="phone_search_notifications">การแจ้งเตือน</string>
 <string name="phone_search_notifications_help">เก็บการแจ้งเตือนที่เข้ามาตั้งแต่นี้ไป การแจ้งเตือนเก่าจะไม่ถูกอ่าน</string>
@@ -991,7 +991,7 @@
 <string name="plain_helper_ran">ดูส่วนหนึ่งของมันแล้ว</string>
     <string name="plain_interrupted">คำตอบล่าสุดหยุดก่อนจะเสร็จ จะให้ทำต่อไหม?</string>
 <string name="plain_search_intro">ค้นหาสิ่งต่าง ๆ บนโทรศัพท์นี้ด้วยคำ: การแจ้งเตือน ข้อความ ปฏิทิน ชื่อรายชื่อ ไฟล์ในโฟลเดอร์ที่คุณเลือก และคำบรรยายรูป แต่ละอย่างเปิดหรือปิดได้</string>
-<string name="plain_search_privacy">ดัชนีของคุณอยู่บนโทรศัพท์นี้และไม่ส่งอะไรไปที่ไหนเลย ถ้าผู้ช่วยบนคลาวด์ตอบ สิ่งที่มันพบจะถูกส่งไปในแชท เหมือนผลลัพธ์อื่น ๆ</string>
+<string name="plain_search_privacy">ดัชนีของคุณอยู่บนโทรศัพท์นี้และไม่ส่งอะไรไปที่ไหนเลย ถ้าผู้ช่วยระยะไกลตอบ สิ่งที่มันพบจะถูกส่งไปในแชท เหมือนผลลัพธ์อื่น ๆ</string>
 <string name="plain_search_charging">ข้อความ ปฏิทิน ชื่อรายชื่อ และไฟล์จะอัปเดตประมาณทุก 6 ชั่วโมง เฉพาะตอนที่โทรศัพท์กำลังชาร์จ การแจ้งเตือนจะถูกบันทึกเมื่อเข้ามา</string>
 <string name="simple_nothing_came_back">ไม่มีอะไรตอบกลับมา</string>
 <string name="plain_cant_hear">ผู้ช่วยยังฟังการบันทึกบนโทรศัพท์นี้ไม่ได้</string>
@@ -1307,8 +1307,8 @@
 <string name="setting_extras_exa_key_desc">ออกให้โทรศัพท์นี้ขณะเปิด Extras เก็บแบบเข้ารหัสและจะไม่แสดงกลับมา</string>
 <string name="setting_extras_purchase_token_label">โทเค็นการซื้อ Extras</string>
 <string name="setting_extras_purchase_token_desc">การซื้อ Google Play ที่เปิดใช้งานบนโทรศัพท์นี้ เก็บแบบเข้ารหัส</string>
-<string name="setting_extras_cloud_chat_label">ส่งข้อความแชทไปยังคลาวด์</string>
-<string name="setting_extras_cloud_chat_desc">เปิด: โมเดลบนคลาวด์ของ Extras จะตอบ ปิด: โมเดลของโทรศัพท์เองจะตอบ การค้นหาของ Extras ยังเปิดอยู่</string>
+<string name="setting_extras_cloud_chat_label">ใช้โมเดลระยะไกลสำหรับแชท</string>
+<string name="setting_extras_cloud_chat_desc">เปิด: โมเดลระยะไกลของ Extras จะตอบ ปิด: โมเดลของโทรศัพท์เองจะตอบ การค้นหาของ Extras ยังเปิดอยู่</string>
     <string name="setting_extras_better_voice_label">เสียงที่ดีขึ้น (Extras)</string>
     <string name="setting_extras_better_voice_desc">เปิด: Extras ให้บริการการรู้จำเสียงบนคلاวด์ที่รวดเร็วและการตอบกลับด้วยเสียงที่เป็นธรรมชาติ ปิด: ใช้ระบบเสียงของโทรศัพท์เอง</string>
 <string name="setting_extras_openrouter_model_label">โมเดลแชท Extras</string>

@@ -259,7 +259,7 @@
 <string name="characters">, %1$s karakter</string>
 <string name="remove_3">Hapus %1$s?</string>
 <string name="the_assistant_will_no_longer_answer">Asisten tidak akan lagi menjawab dari dokumen ini.</string>
-<string name="extras_is_one_monthly_subscription_from">Extras adalah langganan bulanan dari Google Play. Tanpa perlu pengaturan, ponsel ini jadi punya model obrolan cloud yang lebih pintar, pencarian web yang lebih baik, dan alat cloud: kotak pasir kode, browser web, aplikasimu seperti Gmail dan Kalender, suara lebih baik, alamat email, dan Telegram. Kunci sendiri di mode Teknis tetap berfungsi seperti biasa, dan aplikasi tetap gratis tanpa Extras.</string>
+<string name="extras_is_one_monthly_subscription_from">Extras adalah langganan bulanan dari Google Play. Tanpa perlu pengaturan, ponsel ini jadi punya model obrolan jarak jauh yang lebih pintar, pencarian web yang lebih baik, dan alat cloud: kotak pasir kode, browser web, aplikasimu seperti Gmail dan Kalender, suara lebih baik, alamat email, dan Telegram. Kunci sendiri di mode Teknis tetap berfungsi seperti biasa, dan aplikasi tetap gratis tanpa Extras.</string>
 <string name="extras_is_on_until">Extras aktif sampai %1$s.</string>
 <string name="extras_is_off">Extras tidak aktif.</string>
 <string name="the_price_is_loading_from_google_play">Harga sedang dimuat dari Google Play.</string>
@@ -322,7 +322,7 @@
 <string name="what_it_never_does">Yang tidak pernah dilakukan</string>
 <string name="it_never_runs_unattended_or_in_the">Tidak pernah berjalan tanpa pengawasan atau di latar belakang. Tidak bekerja di layarnya sendiri, Pengaturan, atau dialog izin.</string>
 <string name="where_the_data_goes">Ke mana datanya pergi</string>
-<string name="nothing_leaves_the_phone_because_of">Tidak ada yang keluar dari ponsel karena kontrol layar, kecuali kamu sudah mengatur model cloud untuk menjawab permintaan. Jika ya, teks di layar itu dikirim ke penyedia model tersebut.</string>
+<string name="nothing_leaves_the_phone_because_of">Tidak ada yang keluar dari ponsel karena kontrol layar, kecuali kamu sudah mengatur model jarak jauh untuk menjawab permintaan. Jika ya, teks di layar itu dikirim ke penyedia model tersebut.</string>
 <string name="how_to_turn_it_off">Cara mematikannya</string>
 <string name="switch_off_the_localintelligence">Matikan layanan aksesibilitas LocalIntelligence di pengaturan Aksesibilitas Android. Kamu juga bisa mematikan Kontrol layar di layar Pengaturan ini.</string>
 <string name="if_android_blocks_the_switch">Jika Android memblokir sakelarnya</string>
@@ -935,7 +935,7 @@
 <string name="subtask_steps_header">Langkah yang dikerjakan pembantu</string>
 <string name="phone_search_title">Cari di ponselku</string>
 <string name="phone_search_intro">Cari hal di ponsel ini dengan kata-kata: notifikasi, pesan teks, kalender, nama kontak, file teks di folder yang kamu pilih, dan keterangan foto. Semuanya mati sampai kamu menyalakannya.</string>
-<string name="phone_search_privacy">Indeks disimpan di ponsel ini, dan indeksnya sendiri tidak mengirim apa pun ke mana pun. Jika model obrolan cloud yang menjawab, hasil yang ditemukan asisten dikirim ke model itu di obrolan, seperti hasil alat lainnya.</string>
+<string name="phone_search_privacy">Indeks disimpan di ponsel ini, dan indeksnya sendiri tidak mengirim apa pun ke mana pun. Jika model obrolan jarak jauh yang menjawab, hasil yang ditemukan asisten dikirim ke model itu di obrolan, seperti hasil alat lainnya.</string>
 <string name="phone_search_charging_note">Pesan teks, kalender, nama kontak, dan file diperbarui sekitar enam jam sekali, dan hanya saat ponsel sedang diisi daya. Notifikasi dicatat saat masuk.</string>
 <string name="phone_search_notifications">Notifikasi</string>
 <string name="phone_search_notifications_help">Menyimpan notifikasi yang masuk mulai sekarang. Notifikasi sebelumnya tidak dibaca.</string>
@@ -991,7 +991,7 @@
 <string name="plain_helper_ran">Sudah melihat satu bagian darinya</string>
     <string name="plain_interrupted">Jawaban terakhir berhenti sebelum selesai. Lanjutkan?</string>
 <string name="plain_search_intro">Cari hal di ponsel ini dengan kata-kata: notifikasi, pesan teks, kalender, nama kontak, file teks di folder yang kamu pilih, dan keterangan foto. Masing-masing bisa dinyalakan atau dimatikan.</string>
-<string name="plain_search_privacy">Indeksmu tetap di ponsel ini dan tidak mengirim apa pun ke mana pun. Jika asisten cloud yang menjawab, apa yang ditemukannya dikirim ke sana di obrolan, seperti hasil lainnya.</string>
+<string name="plain_search_privacy">Indeksmu tetap di ponsel ini dan tidak mengirim apa pun ke mana pun. Jika asisten jarak jauh yang menjawab, apa yang ditemukannya dikirim ke sana di obrolan, seperti hasil lainnya.</string>
 <string name="plain_search_charging">Pesan teks, kalender, nama kontak, dan file diperbarui sekitar enam jam sekali, hanya saat ponsel sedang diisi daya. Notifikasi disimpan saat masuk.</string>
 <string name="simple_nothing_came_back">Tidak ada jawaban.</string>
 <string name="plain_cant_hear">Asisten belum bisa mendengarkan rekaman di ponsel ini.</string>
@@ -1307,8 +1307,8 @@
 <string name="setting_extras_exa_key_desc">Diberikan untuk ponsel ini saat Extras aktif. Disimpan terenkripsi dan tidak pernah ditampilkan lagi.</string>
 <string name="setting_extras_purchase_token_label">Token pembelian Extras</string>
 <string name="setting_extras_purchase_token_desc">Pembelian Google Play yang mengaktifkan ponsel ini. Disimpan terenkripsi.</string>
-<string name="setting_extras_cloud_chat_label">Kirim pesan obrolan ke cloud</string>
-<string name="setting_extras_cloud_chat_desc">Aktif: model cloud Extras yang menjawab. Mati: model milik ponsel yang menjawab; pencarian Extras tetap aktif.</string>
+<string name="setting_extras_cloud_chat_label">Gunakan model jarak jauh untuk obrolan</string>
+<string name="setting_extras_cloud_chat_desc">Aktif: model jarak jauh Extras yang menjawab. Mati: model milik ponsel yang menjawab; pencarian Extras tetap aktif.</string>
     <string name="setting_extras_better_voice_label">Suara lebih baik (Extras)</string>
     <string name="setting_extras_better_voice_desc">Aktif: Extras menyediakan pengenalan suara cloud cepat dan balasan suara alami. Mati: mesin suara milik ponsel yang digunakan.</string>
 <string name="setting_extras_openrouter_model_label">Model obrolan Extras</string>

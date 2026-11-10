@@ -260,7 +260,7 @@
 <string name="characters">, 글자 %1$s자</string>
 <string name="remove_3">%1$s 삭제할까요?</string>
 <string name="the_assistant_will_no_longer_answer">어시스턴트가 이 문서로는 더 이상 답하지 않아요.</string>
-<string name="extras_is_one_monthly_subscription_from">추가 기능은 Google Play의 월간 구독이에요. 설정 없이 이 휴대폰에 더 똑똑한 클라우드 채팅 모델, 더 나은 웹 검색, 그리고 클라우드 도구를 제공해요: 코드 샌드박스, 웹 브라우저, Gmail 및 캘린더 같은 앱, 더 나은 음성, 이메일 주소, Telegram. 기술 모드에서 직접 넣은 키는 그대로 쓸 수 있고, 추가 기능 없이도 앱은 무료예요.</string>
+<string name="extras_is_one_monthly_subscription_from">추가 기능은 Google Play의 월간 구독이에요. 설정 없이 이 휴대폰에 더 똑똑한 원격 채팅 모델, 더 나은 웹 검색, 그리고 클라우드 도구를 제공해요: 코드 샌드박스, 웹 브라우저, Gmail 및 캘린더 같은 앱, 더 나은 음성, 이메일 주소, Telegram. 기술 모드에서 직접 넣은 키는 그대로 쓸 수 있고, 추가 기능 없이도 앱은 무료예요.</string>
 <string name="extras_is_on_until">추가 기능은 %1$s까지 켜져 있어요.</string>
 <string name="extras_is_off">추가 기능이 꺼져 있어요.</string>
 <string name="the_price_is_loading_from_google_play">가격을 Google Play에서 불러오는 중이에요.</string>
@@ -323,7 +323,7 @@
 <string name="what_it_never_does">절대 하지 않는 일</string>
 <string name="it_never_runs_unattended_or_in_the">몰래 또는 백그라운드에서 실행하지 않아요. 어시스턴트 자신의 화면, 설정, 권한 창에서는 조작하지 않아요.</string>
 <string name="where_the_data_goes">데이터가 가는 곳</string>
-<string name="nothing_leaves_the_phone_because_of">화면 제어 때문에 휴대폰 밖으로 나가는 정보는 없어요. 다만 요청에 답하도록 클라우드 모델을 설정해 둔 경우에는 그 화면의 글자가 그 모델 제공자에게 가요.</string>
+<string name="nothing_leaves_the_phone_because_of">화면 제어 때문에 휴대폰 밖으로 나가는 정보는 없어요. 다만 요청에 답하도록 원격 모델을 설정해 둔 경우에는 그 화면의 글자가 그 모델 제공자에게 가요.</string>
 <string name="how_to_turn_it_off">끄는 방법</string>
 <string name="switch_off_the_localintelligence">Android의 접근성 설정에서 LocalIntelligence 접근성 서비스를 끄세요. 이 설정 화면에서 화면 제어를 꺼도 돼요.</string>
 <string name="if_android_blocks_the_switch">Android에서 스위치가 막혀 있다면</string>
@@ -936,7 +936,7 @@
 <string name="subtask_steps_header">도우미가 한 단계</string>
 <string name="phone_search_title">내 휴대폰 검색</string>
 <string name="phone_search_intro">알림, 문자, 일정, 연락처 이름, 고른 폴더의 텍스트 파일, 사진 설명으로 휴대폰 안의 내용을 찾아요. 켜기 전까지는 모두 꺼져 있어요.</string>
-<string name="phone_search_privacy">색인은 이 휴대폰에 저장되고, 색인 자체는 아무것도 밖으로 보내지 않아요. 클라우드 채팅 모델이 답하고 있다면, 어시스턴트가 찾은 결과는 다른 도구 결과처럼 대화 안에서 그 모델로 전송돼요.</string>
+<string name="phone_search_privacy">색인은 이 휴대폰에 저장되고, 색인 자체는 아무것도 밖으로 보내지 않아요. 원격 채팅 모델이 답하고 있다면, 어시스턴트가 찾은 결과는 다른 도구 결과처럼 대화 안에서 그 모델로 전송돼요.</string>
 <string name="phone_search_charging_note">문자, 일정, 연락처 이름, 파일은 약 6시간마다 갱신되며, 휴대폰이 충전 중일 때만 해요. 알림은 도착하는 대로 저장돼요.</string>
 <string name="phone_search_notifications">알림</string>
 <string name="phone_search_notifications_help">지금부터 도착하는 알림을 저장해요. 그 전의 알림은 읽지 않아요.</string>
@@ -992,7 +992,7 @@
 <string name="plain_helper_ran">한 부분을 살펴봤어요</string>
     <string name="plain_interrupted">마지막 답변이 끝나기 전에 멈췄어요. 계속할까요?</string>
 <string name="plain_search_intro">알림, 문자, 일정, 연락처 이름, 고른 폴더의 텍스트 파일, 사진 설명으로 휴대폰 안의 내용을 찾아요. 각각 켜거나 끌 수 있어요.</string>
-<string name="plain_search_privacy">찾기 정보는 이 휴대폰에만 남고 어디로도 보내지 않아요. 클라우드 어시스턴트가 답하면, 찾은 내용은 다른 결과와 똑같이 대화 안에서 그 어시스턴트에게 보내져요.</string>
+<string name="plain_search_privacy">찾기 정보는 이 휴대폰에만 남고 어디로도 보내지 않아요. 원격 어시스턴트가 답하면, 찾은 내용은 다른 결과와 똑같이 대화 안에서 그 어시스턴트에게 보내져요.</string>
 <string name="plain_search_charging">문자, 일정, 연락처 이름, 파일은 약 6시간마다 새로 고치며, 휴대폰이 충전 중일 때만 해요. 알림은 도착하는 대로 저장돼요.</string>
 <string name="simple_nothing_came_back">아무것도 돌아오지 않았어요.</string>
 <string name="plain_cant_hear">이 휴대폰에서는 아직 녹음을 들을 수 없어요.</string>
@@ -1308,8 +1308,8 @@
 <string name="setting_extras_exa_key_desc">Extras가 켜져 있는 동안 이 휴대폰용으로 발급돼요. 암호화되어 저장되고 다시 보여 주지 않아요.</string>
 <string name="setting_extras_purchase_token_label">Extras 구매 토큰</string>
 <string name="setting_extras_purchase_token_desc">이 휴대폰을 활성화한 Google Play 구매 내역이에요. 암호화되어 저장돼요.</string>
-<string name="setting_extras_cloud_chat_label">채팅 메시지를 클라우드로 보내기</string>
-<string name="setting_extras_cloud_chat_desc">켜면 Extras의 클라우드 모델이 답해요. 끄면 휴대폰 자체 모델이 답하고, Extras 검색은 계속 켜져 있어요.</string>
+<string name="setting_extras_cloud_chat_label">채팅에 원격 모델 사용하기</string>
+<string name="setting_extras_cloud_chat_desc">켜면 Extras의 원격 모델이 답해요. 끄면 휴대폰 자체 모델이 답하고, Extras 검색은 계속 켜져 있어요.</string>
     <string name="setting_extras_better_voice_label">더 나은 음성 (Extras)</string>
     <string name="setting_extras_better_voice_desc">켜면 Extras가 빠른 클라우드 음성 인식과 자연스러운 음성 답변을 제공해요. 끄면 휴대폰 자체 음성 엔진을 사용해요.</string>
 <string name="setting_extras_openrouter_model_label">Extras 채팅 모델</string>

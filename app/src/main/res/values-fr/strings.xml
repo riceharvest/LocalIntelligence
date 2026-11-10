@@ -260,7 +260,7 @@
 <string name="characters">, %1$s caractères</string>
 <string name="remove_3">Retirer %1$s ?</string>
 <string name="the_assistant_will_no_longer_answer">L\'assistant ne répondra plus à partir de ce document.</string>
-<string name="extras_is_one_monthly_subscription_from">Extras est un abonnement mensuel via Google Play. Sans réglage, il donne à ce téléphone un modèle de discussion dans le cloud plus performant, une meilleure recherche web et des outils cloud : un bac à sable de code, un navigateur web, tes apps comme Gmail et Agenda, une meilleure voix, une adresse e-mail et Telegram. Tes propres clés en mode Technique fonctionnent toujours de la même façon, et l\'app reste gratuite sans Extras.</string>
+<string name="extras_is_one_monthly_subscription_from">Extras est un abonnement mensuel via Google Play. Sans réglage, il donne à ce téléphone un modèle de discussion à distance plus performant, une meilleure recherche web et des outils cloud : un bac à sable de code, un navigateur web, tes apps comme Gmail et Agenda, une meilleure voix, une adresse e-mail et Telegram. Tes propres clés en mode Technique fonctionnent toujours de la même façon, et l\'app reste gratuite sans Extras.</string>
 <string name="extras_is_on_until">Extras est activé jusqu\'au %1$s.</string>
 <string name="extras_is_off">Extras est désactivé.</string>
 <string name="the_price_is_loading_from_google_play">Le prix se charge depuis Google Play.</string>
@@ -323,7 +323,7 @@
 <string name="what_it_never_does">Ce qu\'il ne fait jamais</string>
 <string name="it_never_runs_unattended_or_in_the">Il ne tourne jamais sans surveillance ni en arrière-plan. Il n\'agit pas dans ses propres écrans, dans les réglages, ni dans les fenêtres d\'autorisation.</string>
 <string name="where_the_data_goes">Où vont les données</string>
-<string name="nothing_leaves_the_phone_because_of">Rien ne quitte le téléphone à cause du contrôle de l\'écran, sauf si tu as configuré un modèle dans le cloud pour répondre à la demande. Dans ce cas, le texte de l\'écran va au fournisseur de ce modèle.</string>
+<string name="nothing_leaves_the_phone_because_of">Rien ne quitte le téléphone à cause du contrôle de l\'écran, sauf si tu as configuré un modèle à distance pour répondre à la demande. Dans ce cas, le texte de l\'écran va au fournisseur de ce modèle.</string>
 <string name="how_to_turn_it_off">Comment le désactiver</string>
 <string name="switch_off_the_localintelligence">Désactive le service d\'accessibilité LocalIntelligence dans les réglages d\'accessibilité d\'Android. Tu peux aussi désactiver le Contrôle de l\'écran dans cet écran de réglages.</string>
 <string name="if_android_blocks_the_switch">Si Android bloque l\'interrupteur</string>
@@ -936,7 +936,7 @@
 <string name="subtask_steps_header">Étapes suivies par l\'assistant secondaire</string>
 <string name="phone_search_title">Chercher dans mon téléphone</string>
 <string name="phone_search_intro">Trouve des choses sur ce téléphone avec des mots : notifications, SMS, agenda, noms de contacts, fichiers texte d\'un dossier que tu choisis, et légendes de photos. Tout est désactivé tant que tu ne l\'actives pas.</string>
-<string name="phone_search_privacy">L\'index reste sur ce téléphone, et l\'index lui-même n\'envoie rien ailleurs. Si un modèle de discussion dans le cloud répond, les résultats trouvés par l\'assistant sont envoyés à ce modèle dans la discussion, comme tout résultat d\'outil.</string>
+<string name="phone_search_privacy">L\'index reste sur ce téléphone, et l\'index lui-même n\'envoie rien ailleurs. Si un modèle de discussion à distance répond, les résultats trouvés par l\'assistant sont envoyés à ce modèle dans la discussion, comme tout résultat d\'outil.</string>
 <string name="phone_search_charging_note">Les SMS, l\'agenda, les noms de contacts et les fichiers sont mis à jour environ toutes les six heures, et seulement pendant la charge du téléphone. Les notifications sont enregistrées à leur arrivée.</string>
 <string name="phone_search_notifications">Notifications</string>
 <string name="phone_search_notifications_help">Garde les notifications qui arrivent à partir de maintenant. Les notifications d\'avant ne sont pas lues.</string>
@@ -992,7 +992,7 @@
 <string name="plain_helper_ran">Une partie a été examinée</string>
     <string name="plain_interrupted">La dernière réponse s\'est arrêtée avant la fin. Continuer ?</string>
 <string name="plain_search_intro">Trouve des choses sur ce téléphone avec des mots : notifications, SMS, agenda, noms de contacts, fichiers texte d\'un dossier que tu choisis, et légendes de photos. Chacune est activée ou désactivée.</string>
-<string name="plain_search_privacy">Ton index reste sur ce téléphone et n\'envoie rien ailleurs. Si un assistant dans le cloud répond, ce qu\'il trouve lui est envoyé dans la discussion, comme tout autre résultat.</string>
+<string name="plain_search_privacy">Ton index reste sur ce téléphone et n\'envoie rien ailleurs. Si un assistant à distance répond, ce qu\'il trouve lui est envoyé dans la discussion, comme tout autre résultat.</string>
 <string name="plain_search_charging">Les SMS, l\'agenda, les noms de contacts et les fichiers se mettent à jour environ toutes les six heures, seulement pendant la charge. Les notifications sont enregistrées à leur arrivée.</string>
 <string name="simple_nothing_came_back">Rien n\'est revenu.</string>
 <string name="plain_cant_hear">L\'assistant ne peut pas encore écouter les enregistrements sur ce téléphone.</string>
@@ -1308,8 +1308,8 @@
 <string name="setting_extras_exa_key_desc">Émise pour ce téléphone pendant qu\'Extras est activé. Stockée chiffrée et jamais réaffichée.</string>
 <string name="setting_extras_purchase_token_label">Jeton d\'achat Extras</string>
 <string name="setting_extras_purchase_token_desc">L\'achat Google Play que ce téléphone a activé. Stocké chiffré.</string>
-<string name="setting_extras_cloud_chat_label">Envoyer les messages de discussion dans le cloud</string>
-<string name="setting_extras_cloud_chat_desc">Activé, le modèle cloud d\'Extras répond. Désactivé, le modèle du téléphone répond ; la recherche Extras reste activée.</string>
+<string name="setting_extras_cloud_chat_label">Utiliser le modèle à distance pour la discussion</string>
+<string name="setting_extras_cloud_chat_desc">Activé, le modèle à distance d\'Extras répond. Désactivé, le modèle du téléphone répond ; la recherche Extras reste activée.</string>
     <string name="setting_extras_better_voice_label">Meilleure voix (Extras)</string>
     <string name="setting_extras_better_voice_desc">Activé, Extras offre une reconnaissance vocale rapide dans le cloud et des réponses vocales naturelles. Désactivé, le moteur vocal du téléphone est utilisé.</string>
 <string name="setting_extras_openrouter_model_label">Modèle de discussion Extras</string>
