@@ -662,7 +662,7 @@ Checked against the code on 2026-11-04. Already present, so not listed: schedule
 [x] audio transcription as a real foreground run: TranscriptionService (dataSync), started and stopped around one run in ChatViewModel.transcribe   follow-up to #286
 [?] photo results open the photo from chat                                               follow-up to #290
 [ ] hands-free loop: talk-to-interrupt not built; wake word and voice exist    Operit, MNN, PocketPal #945
-[ ] pick a vision model's mmproj by hand; check the import path                          PocketPal #841
+[x] pick a vision model's mmproj by hand; check the import path                          PocketPal #841
 ```
 
 ### Runtime and platform
