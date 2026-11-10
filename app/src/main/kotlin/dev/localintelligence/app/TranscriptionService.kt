@@ -32,6 +32,12 @@ import dev.localintelligence.app.R
  *
  * The manifest entry needs `foregroundServiceType="dataSync"`, matching the type passed to
  * startForeground below.
+ *
+ * WHY dataSync and not mediaProcessing: "local file processing" is a listed dataSync use, and the
+ * type needs no new permission. Android 15+ allows `dataSync` six hours in 24 (shared with the other
+ * dataSync services), counted from when the app leaves the foreground. There is no 15-minute cap.
+ * The run starts from the foreground chat screen, so it has the full six hours. When the limit is
+ * hit, [onTimeout] drops the foreground state; Android kills the process if the service does not stop.
  */
 class TranscriptionService : Service() {
 
@@ -51,6 +57,11 @@ class TranscriptionService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /** Android 15+: the six-hour limit for `dataSync`. Stop at once; the system gives only a few seconds. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        stopForegroundAndSelf()
+    }
 
     private fun startTranscriptionForeground() {
         // Post the notification before anything else: the foreground deadline does not wait for the decode.
