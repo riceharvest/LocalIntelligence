@@ -102,7 +102,7 @@ Plain variables in `wrangler.toml` `[vars]` (edit the file, then deploy):
 
 | Name | Default | Notes |
 |---|---|---|
-| `PACKAGE_NAME` | `dev.localintelligence.app` | Android applicationId. Other packages are refused. |
+| `PACKAGE_NAME` | `local.intelligence` | Android applicationId. Other packages are refused. |
 | `PRODUCT_ID` | `extras_monthly` | The Play subscription product id. Create it in the Play Console with this exact id. |
 | `DEFAULT_MODEL` | `google/gemini-2.5-flash` | Chat model handed to the phone. Same suggested id the app uses for OpenRouter. |
 | `OPENROUTER_MONTHLY_LIMIT_USD` | `3.50` | Per-customer monthly cap, reset by OpenRouter (`limit_reset: monthly`). **Owner to confirm.** |

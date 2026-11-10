@@ -350,8 +350,8 @@ class WakeWordService : Service() {
         private const val REQ_OPEN_HANDS_FREE = 4704
         private const val REQ_DISMISS_DETECTION = 4705
 
-        const val ACTION_STOP = "dev.localintelligence.app.wakeword.STOP"
-        const val ACTION_DISMISS_DETECTION = "dev.localintelligence.app.wakeword.DISMISS_DETECTION"
+        const val ACTION_STOP = "local.intelligence.wakeword.STOP"
+        const val ACTION_DISMISS_DETECTION = "local.intelligence.wakeword.DISMISS_DETECTION"
 
         private const val FRAME_SAMPLES = 1600 // 100 ms @ 16 kHz
         private const val PAUSE_POLL_MS = 250L

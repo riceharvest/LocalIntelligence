@@ -202,9 +202,9 @@ class DownloadService : Service() {
         if ((application as LocalIntelligenceApp).container.settings.mode == SettingsMode.TECHNICAL) technical else simple
 
     companion object {
-        const val ACTION_START = "dev.localintelligence.app.DOWNLOAD_START"
-        const val ACTION_CANCEL = "dev.localintelligence.app.DOWNLOAD_CANCEL"
-        const val ACTION_STOP = "dev.localintelligence.app.DOWNLOAD_STOP"
+        const val ACTION_START = "local.intelligence.DOWNLOAD_START"
+        const val ACTION_CANCEL = "local.intelligence.DOWNLOAD_CANCEL"
+        const val ACTION_STOP = "local.intelligence.DOWNLOAD_STOP"
         private const val EXTRA_RESULT = "result"
 
         /** Starts the service in the foreground. Called when a transfer starts, from the foreground Hub screen. */

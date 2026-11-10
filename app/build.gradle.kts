@@ -33,7 +33,7 @@ android {
     ndkVersion = "27.1.12297006"
 
     defaultConfig {
-        applicationId = "dev.localintelligence.app"
+        applicationId = "local.intelligence"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

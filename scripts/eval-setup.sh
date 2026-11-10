@@ -8,11 +8,11 @@
 #
 #   scripts/eval-setup.sh [-s serial]
 #
-# Environment: LI_PKG overrides the package (default dev.localintelligence.app).
+# Environment: LI_PKG overrides the package (default local.intelligence).
 # Run it once per emulator image; running it again is harmless.
 set -euo pipefail
 
-PKG="${LI_PKG:-dev.localintelligence.app}"
+PKG="${LI_PKG:-local.intelligence}"
 SERIAL=()
 if [[ "${1:-}" == "-s" ]]; then
   SERIAL=(-s "$2")

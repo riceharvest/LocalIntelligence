@@ -109,8 +109,8 @@ class TranscriptionService : Service() {
     }
 
     companion object {
-        const val ACTION_START = "dev.localintelligence.app.TRANSCRIBE_START"
-        const val ACTION_STOP = "dev.localintelligence.app.TRANSCRIBE_STOP"
+        const val ACTION_START = "local.intelligence.TRANSCRIBE_START"
+        const val ACTION_STOP = "local.intelligence.TRANSCRIBE_STOP"
         private const val CHANNEL_ID = "transcription"
         private const val NOTIFICATION_ID = 44
 

@@ -22,7 +22,7 @@ set -uo pipefail
 
 E2E_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$E2E_DIR/../.." && pwd)"
-PKG="${LI_PKG:-dev.localintelligence.app.full}"
+PKG="${LI_PKG:-local.intelligence.full}"
 SERIAL="${E2E_SERIAL:-emulator-5554}"
 APK="${E2E_APK:-$REPO_DIR/app/build/outputs/apk/full/debug/app-full-debug.apk}"
 # A build restricted to one ABI (-Pandroid.injected.build.abi) leaves its APK under intermediates.

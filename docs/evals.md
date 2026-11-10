@@ -83,7 +83,7 @@ permissions and address book. It:
 4. adds one test contact, `Sam`, with the phone number `+31600000000`, unless it is already there.
 
 The `contact-not-found` task asks for Quentin de Vries, a name this script never adds, so the task expects no such contact.
-`LI_PKG` overrides the package (default `dev.localintelligence.app`). The app must be installed first
+`LI_PKG` overrides the package (default `local.intelligence`). The app must be installed first
 (debug build, see `docs/build.md`).
 
 ```bash

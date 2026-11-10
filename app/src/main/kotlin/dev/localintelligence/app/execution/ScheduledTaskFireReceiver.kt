@@ -303,8 +303,8 @@ class ScheduledTaskFireReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        const val ACTION_TASK_FIRED = "dev.localintelligence.app.execution.TASK_FIRED"
-        const val EXTRA_TASK_ID = "dev.localintelligence.app.extra.TASK_ID"
+        const val ACTION_TASK_FIRED = "local.intelligence.execution.TASK_FIRED"
+        const val EXTRA_TASK_ID = "local.intelligence.extra.TASK_ID"
 
         /** The PendingIntent target for disarming. */
         fun intent(context: Context): Intent =

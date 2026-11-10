@@ -58,7 +58,7 @@ name = "SEND_EMAIL"
 
 [vars]
 # The Android applicationId. Requests for any other package are refused.
-PACKAGE_NAME = "dev.localintelligence.app"
+PACKAGE_NAME = "local.intelligence"
 # The only Play subscription product this Worker provisions for.
 PRODUCT_ID = "extras_monthly"
 # Chat model handed to the phone. Same suggested id the app uses for OpenRouter.

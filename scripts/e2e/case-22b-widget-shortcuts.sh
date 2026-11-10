@@ -41,7 +41,7 @@ echo "$sc" | grep -q "shortLabel=New chat" || fail "no 'New chat' label on the s
 echo "$sc" | grep -q "shortLabel=Voice" || fail "no 'Voice' label on the shortcut"
 echo "  published: new-chat, voice (labels New chat, Voice)"
 if ! echo "$sc" | grep -q "id=scheduled-tasks"; then
-  echo "  NOTE: the static 'scheduled-tasks' shortcut is not published for $PKG (its XML names dev.localintelligence.app, the other flavor)"
+  echo "  NOTE: the static 'scheduled-tasks' shortcut is not published for $PKG (check the shortcut XML)"
 fi
 
 echo "--- the widget: pinned on the launcher's home screen"
@@ -73,7 +73,7 @@ bounds="$(python3 -I - "$OUT/ui.xml" <<'PY'
 import sys, re, xml.etree.ElementTree as ET
 out = {}
 for n in ET.parse(sys.argv[1]).getroot().iter("node"):
-    if n.get("package") == "dev.localintelligence.app.full" and n.get("content-desc"):
+    if n.get("package") == "local.intelligence.full" and n.get("content-desc"):
         m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", n.get("bounds"))
         x1, y1, x2, y2 = map(int, m.groups())
         print(n.get("content-desc"), "|", x2 - x1, "x", y2 - y1)
@@ -119,7 +119,7 @@ sleep 2
 
 echo "--- the Voice shortcut"
 adb shell input keyevent KEYCODE_BACK; sleep 1; home
-adb shell "am start -a android.intent.action.VIEW -n $MAIN -f 0x14000000 --ez dev.localintelligence.app.extra.START_HANDS_FREE true" >/dev/null
+adb shell "am start -a android.intent.action.VIEW -n $MAIN -f 0x14000000 --ez local.intelligence.extra.START_HANDS_FREE true" >/dev/null
 wait_text "hands-free|Listening" 40 || fail "the Voice shortcut did not start hands-free: $(screen_text | tr '\n' '|' | head -c 300)"
 tap_text_soft "Stop hands-free mode" || true
 sleep 2
@@ -131,7 +131,7 @@ dctl newchat >/dev/null; sleep 2
 dctl send "A message to clear" | grep -q '"started":true' || fail "could not send"
 wait_run_end 60; wait_text "First chat answer" 20 || fail "no answer in the first chat"
 before="$(state_field messages)"
-adb shell "am start -a android.intent.action.VIEW -n $MAIN -f 0x14000000 --ez dev.localintelligence.app.extra.NEW_CHAT true" >/dev/null
+adb shell "am start -a android.intent.action.VIEW -n $MAIN -f 0x14000000 --ez local.intelligence.extra.NEW_CHAT true" >/dev/null
 t0="$(now)"; until [[ "$(state_field messages)" == 0 ]]; do (( $(now) - t0 < 20 )) || fail "New chat did not clear the chat ($before messages stay)"; sleep 1; done
 screen_text | grep -q "A message to clear" && fail "the old message is still on screen after New chat"
 echo "  New chat cleared $before messages"
@@ -139,7 +139,7 @@ echo "  New chat cleared $before messages"
 script_set "@slow:250:<respond>one two three four five six seven eight nine ten eleven twelve</respond>"
 dctl send "A reply in flight" | grep -q '"started":true' || fail "could not send (2)"
 sleep 3
-adb shell "am start -a android.intent.action.VIEW -n $MAIN -f 0x14000000 --ez dev.localintelligence.app.extra.NEW_CHAT true" >/dev/null
+adb shell "am start -a android.intent.action.VIEW -n $MAIN -f 0x14000000 --ez local.intelligence.extra.NEW_CHAT true" >/dev/null
 sleep 3
 [[ "$(state_field running)" == true && "$(state_field messages)" -ge 1 ]] || fail "New chat cleared the chat during a reply"
 wait_run_end 60

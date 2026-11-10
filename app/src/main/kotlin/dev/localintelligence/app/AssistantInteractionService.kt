@@ -34,7 +34,7 @@ class AssistantInteractionService : VoiceInteractionService() {
     }
 
     companion object {
-        const val EXTRA_HANDS_FREE = "dev.localintelligence.app.extra.HANDS_FREE"
+        const val EXTRA_HANDS_FREE = "local.intelligence.extra.HANDS_FREE"
 
         @Volatile
         private var runningInstance: AssistantInteractionService? = null

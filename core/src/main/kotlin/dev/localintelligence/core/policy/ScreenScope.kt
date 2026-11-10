@@ -76,6 +76,10 @@ object ScreenControl {
      * model exists to prevent (docs/adr/0003-screen-control-approval-per-app.md).
      */
     val ALWAYS_BLOCKED_PACKAGES: Set<String> = setOf(
+        "local.intelligence",
+        "local.intelligence.full",
+        // The old application ids stay blocked: an older dev install can coexist on a test
+        // device, and screen control must never act on it.
         "dev.localintelligence.app",
         "dev.localintelligence.app.full",
         "com.android.settings",
