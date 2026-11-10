@@ -2201,6 +2201,7 @@ class AppContainer(private val context: Context) {
         val floorTier = settings.mode == SettingsMode.SIMPLE && selectedModel?.uri?.lastPathSegment
             ?.let(SimpleSetup.smallestStarter()::isFile) == true
         return AgentController(
+        onToken = onToken,
         onToolStart = onToolStart,
         onToolDone = onToolDone,
         onGenerationRejected = onGenerationRejected,
